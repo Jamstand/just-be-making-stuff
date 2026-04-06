@@ -11,5 +11,8 @@
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.40.0"
   }
 }
