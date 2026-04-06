@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Now Playing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      background: transparent;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+      font-family: 'Inter', system-ui, sans-serif;
+    }
+
+    /* ── Widget shell ─────────────────────────────────────── */
+
+    #widget {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 18px 10px 10px;
+      background: rgba(10, 10, 10, 0.82);
+      backdrop-filter: blur(28px) saturate(180%);
+      -webkit-backdrop-filter: blur(28px) saturate(180%);
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      max-width: 380px;
+      min-width: 260px;
+
+      /* entry/exit animation state */
+      opacity: 0;
+      transform: translateY(14px);
+      transition: opacity 0.45s cubic-bezier(.4,0,.2,1),
+                  transform 0.45s cubic-bezier(.4,0,.2,1);
+      will-change: opacity, transform;
+    }
+
+    #widget.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Album art ────────────────────────────────────────── */
+
+    .art-wrap {
+      position: relative;
+      flex-shrink: 0;
+      width: 60px;
+      height: 60px;
+    }
+
+    #albumArt {
+      width: 60px;
+      height: 60px;
+      border-radius: 9px;
+      object-fit: cover;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+      transition: opacity 0.3s ease;
+      display: block;
+    }
+
+    #albumArt.fade {
+      opacity: 0;
+    }
+
+    /* Equalizer bars overlay (bottom-right of art) */
+    .eq {
+      position: absolute;
+      bottom: 5px;
+      right: 5px;
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .eq.active {
+      opacity: 1;
+    }
+
+    .eq span {
+      display: block;
+      width: 3px;
+      border-radius: 2px;
+      background: #fff;
+      box-shadow: 0 0 4px rgba(0,0,0,0.6);
+      animation: eq-bounce 0.7s ease-in-out infinite alternate;
+    }
+
+    .eq span:nth-child(1) { height: 10px; animation-delay: 0s;    animation-duration: 0.55s; }
+    .eq span:nth-child(2) { height: 6px;  animation-delay: 0.15s; animation-duration: 0.7s;  }
+    .eq span:nth-child(3) { height: 14px; animation-delay: 0.3s;  animation-duration: 0.6s;  }
+
+    @keyframes eq-bounce {
+      from { transform: scaleY(0.3); }
+      to   { transform: scaleY(1);   }
+    }
+
+    /* ── Track info ───────────────────────────────────────── */
+
+    .info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .label-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 1px;
+    }
+
+    .label {
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.38);
+    }
+
+    /* Spotify logo */
+    .spotify-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #1DB954;
+      flex-shrink: 0;
+    }
+
+    /* scrolling title */
+    .title-clip {
+      overflow: hidden;
+      position: relative;
+    }
+
+    .title-clip::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 0;
+      width: 24px;
+      height: 100%;
+      background: linear-gradient(to right, transparent, rgba(10,10,10,0.82));
+      pointer-events: none;
+    }
+
+    #trackTitle {
+      display: inline-block;
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+      white-space: nowrap;
+      line-height: 1.3;
+    }
+
+    #trackTitle.scrolling {
+      animation: marquee var(--scroll-duration, 8s) linear var(--scroll-delay, 2s) infinite;
+    }
+
+    @keyframes marquee {
+      0%   { transform: translateX(0); }
+      15%  { transform: translateX(0); }
+      85%  { transform: translateX(var(--scroll-offset, 0px)); }
+      100% { transform: translateX(var(--scroll-offset, 0px)); }
+    }
+
+    #trackArtist {
+      font-size: 12px;
+      font-weight: 400;
+      color: rgba(255, 255, 255, 0.5);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+
+    /* ── Progress bar ─────────────────────────────────────── */
+
+    .progress-wrap {
+      margin-top: 7px;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    #progressFill {
+      height: 100%;
+      background: var(--accent, #1DB954);
+      border-radius: 3px;
+      width: 0%;
+      transition: width 1s linear;
+    }
+
+    .time-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 3px;
+    }
+
+    .time-row span {
+      font-size: 9px;
+      color: rgba(255, 255, 255, 0.3);
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body>
+
+<div id="widget">
+  <div class="art-wrap">
+    <img id="albumArt" src="" alt="">
+    <div class="eq" id="eq">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
+
+  <div class="info">
+    <div class="label-row">
+      <div class="spotify-dot"></div>
+      <span class="label">Now Playing</span>
+    </div>
+    <div class="title-clip" id="titleClip">
+      <span id="trackTitle">—</span>
+    </div>
+    <div id="trackArtist">—</div>
+    <div class="progress-wrap">
+      <div id="progressFill"></div>
+    </div>
+    <div class="time-row">
+      <span id="timeElapsed">0:00</span>
+      <span id="timeDuration">0:00</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Config ─────────────────────────────────────────────────────────────────
+  const POLL_MS       = 2000;   // how often to hit /now-playing
+  const HIDE_DELAY_MS = 5000;   // ms after pause before widget hides
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let currentId      = null;
+  let progressMs     = 0;
+  let durationMs     = 0;
+  let isPlaying      = false;
+  let progressTimer  = null;
+  let hideTimer      = null;
+
+  const widget       = document.getElementById('widget');
+  const albumArt     = document.getElementById('albumArt');
+  const trackTitle   = document.getElementById('trackTitle');
+  const trackArtist  = document.getElementById('trackArtist');
+  const progressFill = document.getElementById('progressFill');
+  const timeElapsed  = document.getElementById('timeElapsed');
+  const timeDuration = document.getElementById('timeDuration');
+  const eq           = document.getElementById('eq');
+  const titleClip    = document.getElementById('titleClip');
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  function fmt(ms) {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    return `${m}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function showWidget() {
+    clearTimeout(hideTimer);
+    hideTimer = null;
+    widget.classList.add('visible');
+  }
+
+  function hideWidget() {
+    widget.classList.remove('visible');
+  }
+
+  function scheduleHide() {
+    if (hideTimer) return;
+    hideTimer = setTimeout(() => {
+      hideWidget();
+      hideTimer = null;
+    }, HIDE_DELAY_MS);
+  }
+
+  function tickProgress() {
+    if (!isPlaying) return;
+    progressMs = Math.min(progressMs + 1000, durationMs);
+    const pct = durationMs > 0 ? (progressMs / durationMs) * 100 : 0;
+    progressFill.style.width = pct + '%';
+    timeElapsed.textContent  = fmt(progressMs);
+  }
+
+  function setupScrollTitle() {
+    trackTitle.classList.remove('scrolling');
+    trackTitle.style.removeProperty('--scroll-offset');
+    trackTitle.style.removeProperty('--scroll-duration');
+
+    requestAnimationFrame(() => {
+      const clipW  = titleClip.clientWidth;
+      const titleW = trackTitle.scrollWidth;
+      const overflow = titleW - clipW;
+      if (overflow > 10) {
+        const duration = 2 + overflow * 0.03; // scale with length
+        trackTitle.style.setProperty('--scroll-offset', `-${overflow}px`);
+        trackTitle.style.setProperty('--scroll-duration', `${duration}s`);
+        trackTitle.style.setProperty('--scroll-delay', '1.5s');
+        trackTitle.classList.add('scrolling');
+      }
+    });
+  }
+
+  // ── Album art dominant color → accent ────────────────────────────────────
+
+  function extractAccent(imgSrc) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, 1, 1);
+        const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+        // Boost saturation
+        const max = Math.max(r, g, b);
+        const scale = max < 80 ? 255 / Math.max(max, 1) : 1;
+        const accent = `rgb(${Math.round(r*scale)},${Math.round(g*scale)},${Math.round(b*scale)})`;
+        widget.style.setProperty('--accent', accent);
+      } catch { /* cross-origin fallback */ }
+    };
+    img.src = imgSrc;
+  }
+
+  // ── Track update ──────────────────────────────────────────────────────────
+
+  function updateTrack(data) {
+    const trackChanged = data.id !== currentId;
+    currentId  = data.id;
+    isPlaying  = data.playing;
+    durationMs = data.duration;
+    progressMs = data.progress;
+
+    timeDuration.textContent = fmt(durationMs);
+    timeElapsed.textContent  = fmt(progressMs);
+
+    const pct = durationMs > 0 ? (progressMs / durationMs) * 100 : 0;
+    progressFill.style.transition = trackChanged ? 'none' : 'width 1s linear';
+    progressFill.style.width = pct + '%';
+
+    if (trackChanged) {
+      // Fade out art, swap, fade in
+      albumArt.classList.add('fade');
+      setTimeout(() => {
+        albumArt.src = data.albumArt || '';
+        trackTitle.textContent  = data.title;
+        trackArtist.textContent = data.artist;
+        albumArt.classList.remove('fade');
+        setupScrollTitle();
+        if (data.albumArt) extractAccent(data.albumArt);
+      }, 280);
+    }
+
+    if (isPlaying) {
+      showWidget();
+      eq.classList.add('active');
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    } else {
+      eq.classList.remove('active');
+      scheduleHide();
+    }
+  }
+
+  // ── Polling ────────────────────────────────────────────────────────────────
+
+  async function poll() {
+    try {
+      const res  = await fetch('/now-playing');
+      const data = await res.json();
+
+      if (!data.playing && !currentId) {
+        // Never shown anything, stay hidden
+        return;
+      }
+
+      if (data.playing || currentId) {
+        updateTrack(data);
+      }
+    } catch { /* server not ready */ }
+  }
+
+  // Local progress tick (1s)
+  setInterval(tickProgress, 1000);
+  // Remote poll
+  poll();
+  setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

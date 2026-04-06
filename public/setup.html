@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Now Playing Widget — Setup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #0d0d0d;
+      color: #e8e8e8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #161616;
+      border: 1px solid #272727;
+      border-radius: 18px;
+      padding: 40px;
+      max-width: 520px;
+      width: 100%;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 36px;
+    }
+
+    /* ── Status badge ── */
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #1a1a1a;
+      border: 1px solid #272727;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 28px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .dot.connected    { background: #1DB954; box-shadow: 0 0 6px #1DB95480; }
+    .dot.disconnected { background: #555; }
+
+    .status-text { font-size: 14px; font-weight: 500; }
+    .status-sub  { font-size: 12px; color: #555; margin-top: 1px; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 22px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      border: none;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    .btn:hover  { opacity: 0.85; }
+    .btn:active { transform: scale(0.97); }
+
+    .btn-spotify {
+      background: #1DB954;
+      color: #000;
+    }
+
+    .btn-danger {
+      background: #2a1a1a;
+      color: #f87171;
+      border: 1px solid #3d2020;
+    }
+
+    .btn-copy {
+      background: #222;
+      color: #e8e8e8;
+      border: 1px solid #333;
+      font-size: 13px;
+      padding: 8px 14px;
+    }
+
+    /* ── Steps ── */
+    .steps { list-style: none; display: flex; flex-direction: column; gap: 20px; }
+
+    .step {
+      display: flex;
+      gap: 14px;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #222;
+      border: 1px solid #333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: #999;
+      margin-top: 1px;
+    }
+
+    .step-body h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .step-body p  { font-size: 13px; color: #666; line-height: 1.6; }
+
+    code {
+      background: #1e1e1e;
+      border: 1px solid #2d2d2d;
+      border-radius: 6px;
+      padding: 2px 7px;
+      font-size: 12px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: #c9a96e;
+    }
+
+    .url-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      background: #1a1a1a;
+      border: 1px solid #272727;
+      border-radius: 8px;
+      padding: 8px 12px;
+    }
+
+    .url-row span {
+      flex: 1;
+      font-size: 13px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: #7ca8e0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #222;
+      margin: 32px 0;
+    }
+
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: #444;
+      margin-bottom: 20px;
+      font-weight: 600;
+    }
+
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .notice {
+      font-size: 12px;
+      color: #444;
+      background: #141414;
+      border: 1px solid #222;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-top: 16px;
+      line-height: 1.6;
+    }
+
+    .notice a { color: #7ca8e0; text-decoration: none; }
+    .notice a:hover { text-decoration: underline; }
+
+    /* toast */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(16px);
+      background: #1DB954;
+      color: #000;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 20px;
+      border-radius: 8px;
+      opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Now Playing Widget</h1>
+  <p class="subtitle">OBS browser-source overlay for Spotify</p>
+
+  <!-- Status -->
+  <div class="status" id="statusRow">
+    <div class="dot disconnected" id="statusDot"></div>
+    <div>
+      <div class="status-text" id="statusText">Checking connection…</div>
+      <div class="status-sub" id="statusSub"></div>
+    </div>
+  </div>
+
+  <!-- Connect / Disconnect -->
+  <div class="actions" id="authActions">
+    <a href="/login" class="btn btn-spotify" id="connectBtn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+      Connect Spotify
+    </a>
+  </div>
+
+  <hr class="divider">
+
+  <!-- OBS Setup -->
+  <p class="section-title">OBS Setup</p>
+  <ol class="steps">
+    <li class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h3>Add a Browser Source in OBS</h3>
+        <p>In OBS, click <strong>+</strong> in the Sources panel → select <strong>Browser</strong>.</p>
+      </div>
+    </li>
+    <li class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h3>Paste the widget URL</h3>
+        <div class="url-row">
+          <span id="widgetUrl">http://localhost:3000/widget.html</span>
+          <button class="btn btn-copy" onclick="copyUrl()">Copy</button>
+        </div>
+      </div>
+    </li>
+    <li class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h3>Set dimensions &amp; enable transparency</h3>
+        <p>
+          Width: <code>400</code>&ensp;Height: <code>120</code><br>
+          Check <strong>"Shutdown source when not visible"</strong><br>
+          Check <strong>"Refresh browser when scene becomes active"</strong>
+        </p>
+      </div>
+    </li>
+    <li class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h3>Position the widget</h3>
+        <p>Drag the source to wherever you want the overlay — typically bottom-left or bottom-right of your scene.</p>
+      </div>
+    </li>
+  </ol>
+
+  <div class="notice">
+    Need a Spotify app? Create one for free at
+    <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com/dashboard</a>
+    — add <code id="redirectHint">http://localhost:3000/callback</code> as a Redirect URI,
+    then copy the Client ID and Secret into your <code>.env</code> file.
+  </div>
+</div>
+
+<div id="toast">Copied!</div>
+
+<script>
+  const params = new URLSearchParams(location.search);
+
+  async function checkStatus() {
+    try {
+      const res  = await fetch('/status');
+      const data = await res.json();
+      const dot  = document.getElementById('statusDot');
+      const txt  = document.getElementById('statusText');
+      const sub  = document.getElementById('statusSub');
+      const acts = document.getElementById('authActions');
+
+      if (data.connected) {
+        dot.className  = 'dot connected';
+        txt.textContent = 'Connected to Spotify';
+        sub.textContent = 'Your widget is active and ready.';
+        acts.innerHTML  = `<a href="/logout" class="btn btn-danger">Disconnect</a>`;
+      } else {
+        dot.className   = 'dot disconnected';
+        txt.textContent = 'Not connected';
+        sub.textContent = params.get('error') ? 'Authentication failed — try again.' : 'Connect your Spotify account to get started.';
+        acts.innerHTML  = `<a href="/login" class="btn btn-spotify">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+          Connect Spotify
+        </a>`;
+      }
+    } catch {
+      // server not ready yet
+    }
+  }
+
+  function copyUrl() {
+    const url = document.getElementById('widgetUrl').textContent;
+    navigator.clipboard.writeText(url).then(() => {
+      const t = document.getElementById('toast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2000);
+    });
+  }
+
+  // Update the displayed URL based on current host
+  const base = location.origin;
+  document.getElementById('widgetUrl').textContent   = base + '/widget.html';
+  document.getElementById('redirectHint').textContent = base + '/callback';
+
+  checkStatus();
+</script>
+</body>
+</html>
