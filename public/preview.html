@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Now Playing Widget — Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #000;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── Simulated stream background ─────────────────────── */
+    .stream-bg {
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 70% 40%, #0d2137 0%, transparent 60%),
+        radial-gradient(ellipse at 20% 80%, #12082a 0%, transparent 55%),
+        linear-gradient(135deg, #070c14 0%, #0a0a0a 100%);
+    }
+
+    /* fake game HUD elements */
+    .hud-corner {
+      position: fixed;
+      top: 18px;
+      right: 22px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      opacity: 0.25;
+    }
+    .hud-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .hud-label { font-size: 10px; color: #fff; letter-spacing: 1px; text-transform: uppercase; }
+    .hud-bar { width: 90px; height: 6px; background: #1a1a1a; border-radius: 3px; overflow: hidden; }
+    .hud-bar-fill { height: 100%; border-radius: 3px; }
+    .hud-bar-fill.hp  { width: 72%; background: #2adf74; }
+    .hud-bar-fill.mp  { width: 45%; background: #4a7eff; }
+    .hud-bar-fill.xp  { width: 88%; background: #f0a030; }
+    .hud-score {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* fake crosshair / center area */
+    .center-dot {
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.15);
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    /* ── Demo frame ──────────────────────────────────────── */
+    .demo-frame {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: flex-start;
+      padding: 24px;
+      pointer-events: none;
+    }
+
+    /* ── Widget (same as widget.html) ─────────────────────── */
+    #widget {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 18px 10px 10px;
+      background: rgba(10, 10, 10, 0.82);
+      backdrop-filter: blur(28px) saturate(180%);
+      -webkit-backdrop-filter: blur(28px) saturate(180%);
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      max-width: 380px;
+      min-width: 260px;
+      pointer-events: all;
+      opacity: 0;
+      transform: translateY(14px);
+      transition: opacity 0.45s cubic-bezier(.4,0,.2,1),
+                  transform 0.45s cubic-bezier(.4,0,.2,1);
+      will-change: opacity, transform;
+    }
+
+    #widget.visible { opacity: 1; transform: translateY(0); }
+
+    .art-wrap {
+      position: relative;
+      flex-shrink: 0;
+      width: 60px;
+      height: 60px;
+    }
+
+    #albumArt {
+      width: 60px;
+      height: 60px;
+      border-radius: 9px;
+      object-fit: cover;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+      transition: opacity 0.3s ease;
+      display: block;
+    }
+
+    #albumArt.fade { opacity: 0; }
+
+    .eq {
+      position: absolute;
+      bottom: 5px;
+      right: 5px;
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+    }
+
+    .eq span {
+      display: block;
+      width: 3px;
+      border-radius: 2px;
+      background: #fff;
+      box-shadow: 0 0 4px rgba(0,0,0,0.6);
+      animation: eq-bounce 0.7s ease-in-out infinite alternate;
+    }
+
+    .eq span:nth-child(1) { height: 10px; animation-delay: 0s;    animation-duration: 0.55s; }
+    .eq span:nth-child(2) { height: 6px;  animation-delay: 0.15s; animation-duration: 0.7s;  }
+    .eq span:nth-child(3) { height: 14px; animation-delay: 0.3s;  animation-duration: 0.6s;  }
+
+    @keyframes eq-bounce {
+      from { transform: scaleY(0.3); }
+      to   { transform: scaleY(1);   }
+    }
+
+    .info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .label-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 1px;
+    }
+
+    .spotify-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #1DB954;
+      flex-shrink: 0;
+    }
+
+    .label {
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.38);
+    }
+
+    .title-clip {
+      overflow: hidden;
+      position: relative;
+    }
+
+    .title-clip::after {
+      content: '';
+      position: absolute;
+      right: 0; top: 0;
+      width: 24px; height: 100%;
+      background: linear-gradient(to right, transparent, rgba(10,10,10,0.82));
+      pointer-events: none;
+    }
+
+    #trackTitle {
+      display: inline-block;
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+      white-space: nowrap;
+      line-height: 1.3;
+    }
+
+    #trackTitle.scrolling {
+      animation: marquee var(--scroll-duration, 8s) linear var(--scroll-delay, 2s) infinite;
+    }
+
+    @keyframes marquee {
+      0%, 15%  { transform: translateX(0); }
+      85%, 100% { transform: translateX(var(--scroll-offset, 0px)); }
+    }
+
+    #trackArtist {
+      font-size: 12px;
+      font-weight: 400;
+      color: rgba(255, 255, 255, 0.5);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+
+    .progress-wrap {
+      margin-top: 7px;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    #progressFill {
+      height: 100%;
+      background: var(--accent, #1DB954);
+      border-radius: 3px;
+      width: 0%;
+      transition: width 1s linear;
+    }
+
+    .time-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 3px;
+    }
+
+    .time-row span {
+      font-size: 9px;
+      color: rgba(255, 255, 255, 0.3);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Demo controls ────────────────────────────────────── */
+    .controls {
+      position: fixed;
+      bottom: 100px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 10px 16px;
+      border-radius: 50px;
+    }
+
+    .ctrl-btn {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: 'Inter', sans-serif;
+      padding: 6px 14px;
+      border-radius: 50px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .ctrl-btn:hover { background: rgba(255,255,255,0.15); }
+    .ctrl-btn.active { background: #1DB954; color: #000; border-color: #1DB954; }
+
+    .preview-label {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: rgba(255,255,255,0.25);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Simulated stream background -->
+<div class="stream-bg"></div>
+<div class="hud-corner">
+  <div class="hud-score">47,320</div>
+  <div class="hud-bar-wrap"><span class="hud-label">HP</span><div class="hud-bar"><div class="hud-bar-fill hp"></div></div></div>
+  <div class="hud-bar-wrap"><span class="hud-label">MP</span><div class="hud-bar"><div class="hud-bar-fill mp"></div></div></div>
+  <div class="hud-bar-wrap"><span class="hud-label">XP</span><div class="hud-bar"><div class="hud-bar-fill xp"></div></div></div>
+</div>
+<div class="center-dot"></div>
+
+<p class="preview-label">Widget Preview</p>
+
+<!-- Widget -->
+<div class="demo-frame">
+  <div id="widget">
+    <div class="art-wrap">
+      <img id="albumArt" src="" alt="">
+      <div class="eq" id="eq">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="info">
+      <div class="label-row">
+        <div class="spotify-dot"></div>
+        <span class="label">Now Playing</span>
+      </div>
+      <div class="title-clip" id="titleClip">
+        <span id="trackTitle">—</span>
+      </div>
+      <div id="trackArtist">—</div>
+      <div class="progress-wrap">
+        <div id="progressFill"></div>
+      </div>
+      <div class="time-row">
+        <span id="timeElapsed">0:00</span>
+        <span id="timeDuration">0:00</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Demo controls -->
+<div class="controls">
+  <button class="ctrl-btn" onclick="prevTrack()">&#9664; Prev</button>
+  <button class="ctrl-btn active" id="playBtn" onclick="togglePlay()">&#9646;&#9646; Pause</button>
+  <button class="ctrl-btn" onclick="nextTrack()">Next &#9654;</button>
+</div>
+
+<script>
+  // ── Mock tracks ────────────────────────────────────────────────────────────
+  const TRACKS = [
+    {
+      id: '1',
+      title: 'Blinding Lights',
+      artist: 'The Weeknd',
+      albumArt: 'https://i.scdn.co/image/ab67616d0000b2738863bc11d2aa12b54f5aeb36',
+      duration: 200040,
+    },
+    {
+      id: '2',
+      title: 'good 4 u',
+      artist: 'Olivia Rodrigo',
+      albumArt: 'https://i.scdn.co/image/ab67616d0000b273a91c10fe9472d9bd89802e5a',
+      duration: 178147,
+    },
+    {
+      id: '3',
+      title: 'As It Was',
+      artist: 'Harry Styles',
+      albumArt: 'https://i.scdn.co/image/ab67616d0000b2732e8ed79e177ff6011076f5f0',
+      duration: 167303,
+    },
+    {
+      id: '4',
+      title: 'Flowers',
+      artist: 'Miley Cyrus',
+      albumArt: 'https://i.scdn.co/image/ab67616d0000b27353dce99bbbaf08a4b4f1aff5',
+      duration: 200455,
+    },
+  ];
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let trackIdx   = 0;
+  let isPlaying  = true;
+  let progressMs = 30000;
+  let timerRef   = null;
+
+  const widget       = document.getElementById('widget');
+  const albumArt     = document.getElementById('albumArt');
+  const trackTitle   = document.getElementById('trackTitle');
+  const trackArtist  = document.getElementById('trackArtist');
+  const progressFill = document.getElementById('progressFill');
+  const timeElapsed  = document.getElementById('timeElapsed');
+  const timeDuration = document.getElementById('timeDuration');
+  const eq           = document.getElementById('eq');
+  const titleClip    = document.getElementById('titleClip');
+  const playBtn      = document.getElementById('playBtn');
+
+  function fmt(ms) {
+    const s = Math.floor(ms / 1000);
+    return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+  }
+
+  function setupScrollTitle() {
+    trackTitle.classList.remove('scrolling');
+    trackTitle.style.removeProperty('--scroll-offset');
+    requestAnimationFrame(() => {
+      const overflow = trackTitle.scrollWidth - titleClip.clientWidth;
+      if (overflow > 10) {
+        const dur = 2 + overflow * 0.03;
+        trackTitle.style.setProperty('--scroll-offset', `-${overflow}px`);
+        trackTitle.style.setProperty('--scroll-duration', `${dur}s`);
+        trackTitle.style.setProperty('--scroll-delay', '1.5s');
+        trackTitle.classList.add('scrolling');
+      }
+    });
+  }
+
+  function extractAccent(src) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = c.height = 1;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, 1, 1);
+        const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+        const max = Math.max(r, g, b);
+        const sc  = max < 80 ? 255 / Math.max(max, 1) : 1;
+        widget.style.setProperty('--accent', `rgb(${Math.round(r*sc)},${Math.round(g*sc)},${Math.round(b*sc)})`);
+      } catch {}
+    };
+    img.src = src;
+  }
+
+  function loadTrack(idx, resetProgress = true) {
+    const track = TRACKS[idx];
+    if (resetProgress) progressMs = 0;
+
+    albumArt.classList.add('fade');
+    setTimeout(() => {
+      albumArt.src = track.albumArt;
+      trackTitle.textContent  = track.title;
+      trackArtist.textContent = track.artist;
+      albumArt.classList.remove('fade');
+      timeDuration.textContent = fmt(track.duration);
+      progressFill.style.transition = 'none';
+      progressFill.style.width = ((progressMs / track.duration) * 100) + '%';
+      setTimeout(() => progressFill.style.transition = 'width 1s linear', 50);
+      setupScrollTitle();
+      extractAccent(track.albumArt);
+    }, 280);
+  }
+
+  function tick() {
+    if (!isPlaying) return;
+    const track = TRACKS[trackIdx];
+    progressMs = Math.min(progressMs + 1000, track.duration);
+    const pct = (progressMs / track.duration) * 100;
+    progressFill.style.width = pct + '%';
+    timeElapsed.textContent = fmt(progressMs);
+
+    if (progressMs >= track.duration) {
+      nextTrack();
+    }
+  }
+
+  function togglePlay() {
+    isPlaying = !isPlaying;
+    if (isPlaying) {
+      eq.style.opacity = '1';
+      playBtn.classList.add('active');
+      playBtn.innerHTML = '&#9646;&#9646; Pause';
+      widget.classList.add('visible');
+    } else {
+      eq.style.opacity = '0';
+      playBtn.classList.remove('active');
+      playBtn.innerHTML = '&#9654; Play';
+    }
+  }
+
+  function nextTrack() {
+    trackIdx = (trackIdx + 1) % TRACKS.length;
+    loadTrack(trackIdx);
+  }
+
+  function prevTrack() {
+    if (progressMs > 3000) {
+      progressMs = 0;
+      loadTrack(trackIdx, false);
+    } else {
+      trackIdx = (trackIdx - 1 + TRACKS.length) % TRACKS.length;
+      loadTrack(trackIdx);
+    }
+  }
+
+  // ── Boot ───────────────────────────────────────────────────────────────────
+  loadTrack(0);
+  setTimeout(() => {
+    widget.classList.add('visible');
+    eq.style.opacity = '1';
+  }, 600);
+
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
