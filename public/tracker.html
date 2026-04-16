@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crypto Swing Trade Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:       #0a0a0f;
+      --card:     #111118;
+      --border:   #1e1e2e;
+      --text:     #e0e0e8;
+      --muted:    #6e6e8e;
+      --green:    #00e676;
+      --blue:     #42a5f5;
+      --red:      #ef5350;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 13px;
+      min-height: 100vh;
+      padding: 20px 24px 32px;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 { font-size: 15px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+    .header-right { display: flex; align-items: center; gap: 14px; }
+    #last-updated { color: var(--muted); font-size: 11px; }
+    #refresh-btn {
+      background: var(--border); color: var(--text);
+      border: 1px solid #2a2a3e; padding: 5px 13px;
+      border-radius: 4px; cursor: pointer;
+      font-family: inherit; font-size: 12px;
+    }
+    #refresh-btn:hover  { background: #1a1a2e; }
+    #refresh-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    /* ── Layout ── */
+    #error-msg {
+      background: rgba(239,83,80,.1); border: 1px solid var(--red);
+      border-radius: 6px; padding: 12px 16px; color: var(--red);
+      margin-bottom: 18px; display: none; font-size: 12px;
+    }
+    #loading { text-align: center; padding: 60px; color: var(--muted); }
+    .coins-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+      gap: 18px;
+    }
+
+    /* ── Card ── */
+    .coin-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+
+    .coin-header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      padding: 16px 18px; border-bottom: 1px solid var(--border);
+    }
+    .coin-name    { font-size: 13px; color: var(--muted); margin-bottom: 2px; }
+    .coin-price   { font-size: 26px; font-weight: 700; letter-spacing: -.01em; margin-bottom: 2px; }
+    .coin-change  { font-size: 12px; }
+    .up   { color: var(--green); }
+    .down { color: var(--red); }
+
+    .signal-wrap { text-align: right; }
+    .signal-badge {
+      display: inline-block; padding: 6px 13px;
+      border-radius: 4px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em; white-space: nowrap;
+    }
+    .sig-score { color: var(--muted); font-size: 11px; margin-top: 5px; }
+
+    .SIG-STRONG-BUY  { background: #00e676; color: #000; }
+    .SIG-BUY         { background: #69f0ae; color: #000; }
+    .SIG-WATCH       { background: #ffd740; color: #000; }
+    .SIG-WAIT        { background: #ff6e40; color: #000; }
+    .SIG-DO-NOT-TRADE { background: #ef5350; color: #fff; }
+
+    /* ── Chart ── */
+    .chart-wrap { padding: 12px 16px; border-bottom: 1px solid var(--border); height: 210px; }
+
+    /* ── Body ── */
+    .coin-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 18px; }
+
+    .section-label {
+      font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
+      color: var(--muted); margin-bottom: 8px;
+    }
+
+    /* indicators */
+    .ind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+    .ind-label { font-size: 10px; color: var(--muted); margin-bottom: 1px; }
+    .ind-val   { font-size: 14px; font-weight: 600; }
+    .ind-note  { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+    /* RSI bar */
+    .rsi-row   { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
+    .rsi-num   { font-size: 22px; font-weight: 700; }
+    .rsi-label { font-size: 11px; color: var(--muted); }
+    .rsi-track { position: relative; height: 5px; background: #1e1e2e; border-radius: 3px; margin-bottom: 4px; }
+    .rsi-fill  { height: 100%; border-radius: 3px; }
+    .rsi-mark  { position: absolute; top: -4px; width: 1px; height: 13px; background: #3a3a5a; }
+    .rsi-ticks { display: flex; justify-content: space-between; font-size: 9px; color: #4a4a6a; }
+
+    /* criteria */
+    .criteria { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+    .criterion { display: flex; align-items: center; gap: 9px; }
+    .ci {
+      width: 17px; height: 17px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700;
+    }
+    .ci.met   { background: rgba(0,230,118,.15); color: var(--green); }
+    .ci.unmet { background: rgba(239,83,80,.15);  color: var(--red); }
+    .cl { flex: 1; }
+    .cn { font-size: 10px; color: var(--muted); white-space: nowrap; }
+    .score-line { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+    /* trade setup */
+    .setup-grid { display: grid; grid-template-columns: auto 1fr auto; gap: 5px 14px; }
+    .sl { color: var(--muted); }
+    .sv { font-weight: 600; }
+    .sn { font-size: 10px; color: var(--muted); align-self: center; }
+    .sizing { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 3px; }
+    .sizing-row { display: flex; justify-content: space-between; font-size: 11px; }
+    .sizing-row span:first-child { color: var(--muted); }
+    .no-setup { color: var(--muted); font-style: italic; }
+
+    footer {
+      margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--border);
+      text-align: center; font-size: 10px; color: var(--muted);
+    }
+
+    .spin::after {
+      content: ''; display: inline-block; width: 12px; height: 12px;
+      border: 2px solid var(--muted); border-top-color: var(--text);
+      border-radius: 50%; animation: spin .8s linear infinite; margin-left: 8px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Crypto Swing Trade Scanner</h1>
+  <div class="header-right">
+    <span id="last-updated"></span>
+    <button id="refresh-btn">Refresh</button>
+  </div>
+</header>
+
+<div id="error-msg"></div>
+<div id="loading" class="spin">Fetching market data</div>
+<div id="coins" class="coins-grid" style="display:none"></div>
+
+<footer>
+  Data via CoinGecko &nbsp;·&nbsp; Auto-refreshes every 5 min &nbsp;·&nbsp;
+  Educational use only — not financial advice
+</footer>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+
+const COINS = [
+  { id: 'bitcoin',  symbol: 'BTC', name: 'Bitcoin' },
+  { id: 'ethereum', symbol: 'ETH', name: 'Ethereum' },
+];
+
+const RSI_PERIOD     = 14;
+const SMA_SHORT      = 50;
+const SMA_LONG       = 200;
+const VOL_LOOKBACK   = 20;
+const TREND_LOOKBACK = 30;
+const PULL_THRESHOLD = 0.05;
+const RSI_LOW        = 35;
+const RSI_HIGH       = 55;
+const RISK_PCT       = 0.02;
+const REWARD_RATIO   = 2;
+const ACCOUNT_SIZES  = [500, 1000];
+const CHART_DAYS     = 90;
+const REFRESH_MS     = 5 * 60 * 1000;
+
+// ── Indicators ────────────────────────────────────────────────────────────────
+
+function calcSMA(arr, period) {
+  return arr.map((_, i) => {
+    if (i < period - 1) return null;
+    let s = 0;
+    for (let j = i - period + 1; j <= i; j++) s += arr[j];
+    return s / period;
+  });
+}
+
+// Wilder's RSI — returns array aligned with prices
+function calcRSI(prices, period = RSI_PERIOD) {
+  const result = new Array(prices.length).fill(null);
+  if (prices.length < period + 1) return result;
+
+  const d = prices.slice(1).map((p, i) => p - prices[i]);
+
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 0; i < period; i++) {
+    if (d[i] > 0) avgGain += d[i];
+    else           avgLoss += Math.abs(d[i]);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+
+  const rs0 = avgLoss === 0 ? Infinity : avgGain / avgLoss;
+  result[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs0);
+
+  for (let i = period; i < d.length; i++) {
+    const gain = d[i] > 0 ? d[i] : 0;
+    const loss = d[i] < 0 ? Math.abs(d[i]) : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
+    result[i + 1] = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs);
+  }
+  return result;
+}
+
+function detectTrend(prices) {
+  const slice = prices.slice(-TREND_LOOKBACK);
+  const mid   = Math.floor(slice.length / 2);
+  const first = slice.slice(0, mid), last = slice.slice(mid);
+  const hh = Math.max(...last) > Math.max(...first);
+  const hl = Math.min(...last) > Math.min(...first);
+  if (hh && hl)   return 'UPTREND';
+  if (!hh && !hl) return 'DOWNTREND';
+  return 'SIDEWAYS';
+}
+
+function supportLevel(prices) {
+  const s = [...prices.slice(-30)].sort((a, b) => a - b);
+  return s[Math.floor(s.length * 0.10)];
+}
+
+function volRatio(volumes) {
+  const slice = volumes.slice(-VOL_LOOKBACK);
+  const avg   = slice.reduce((s, v) => s + v, 0) / VOL_LOOKBACK;
+  return volumes[volumes.length - 1] / avg;
+}
+
+// ── Analysis ──────────────────────────────────────────────────────────────────
+
+function analyze(rawPrices, rawVolumes, timestamps) {
+  const cur  = rawPrices[rawPrices.length - 1];
+  const prev = rawPrices[rawPrices.length - 2];
+
+  const sma50arr  = calcSMA(rawPrices, SMA_SHORT);
+  const sma200arr = calcSMA(rawPrices, SMA_LONG);
+  const rsiArr    = calcRSI(rawPrices);
+
+  const ma50  = sma50arr[sma50arr.length - 1];
+  const ma200 = sma200arr[sma200arr.length - 1];
+  const rsi   = rsiArr[rsiArr.length - 1];
+  const trend = detectTrend(rawPrices);
+  const sup   = supportLevel(rawPrices);
+  const vr    = volRatio(rawVolumes);
+
+  const distFromMA50 = ma50 ? (cur - ma50) / ma50 : null;
+  const nearMA50     = distFromMA50 !== null && Math.abs(distFromMA50) < PULL_THRESHOLD;
+  const nearSup      = sup != null && cur >= sup * 0.97 && cur <= sup * 1.08;
+
+  // Chart slice (last CHART_DAYS)
+  const chart = {
+    dates:  timestamps.slice(-CHART_DAYS),
+    prices: rawPrices.slice(-CHART_DAYS),
+    ma50:   sma50arr.slice(-CHART_DAYS),
+    ma200:  sma200arr.slice(-CHART_DAYS),
+  };
+
+  return { cur, prev, dayPct: (cur - prev) / prev * 100,
+           ma50, ma200, rsi, trend, sup, vr,
+           distFromMA50, nearMA50, nearSup, chart };
+}
+
+function buildScore(a) {
+  const criteria = [];
+  let pts = 0;
+
+  const c1 = a.ma200 !== null && a.cur > a.ma200;
+  criteria.push({ label: 'Above 200-day MA (bull market)', met: c1,
+    note: a.ma200 ? `${fmt(a.cur)} vs ${fmt(a.ma200)}` : 'n/a' });
+  if (c1) pts++;
+
+  const c2 = a.trend === 'UPTREND';
+  criteria.push({ label: 'Uptrend — higher highs & higher lows', met: c2, note: a.trend });
+  if (c2) pts++;
+
+  const c3 = a.nearMA50 || a.nearSup;
+  criteria.push({ label: 'Pulled back to 50-day MA / support', met: c3,
+    note: a.distFromMA50 !== null
+      ? `${(a.distFromMA50 * 100).toFixed(1)}% from 50MA`
+      : 'n/a' });
+  if (c3) pts++;
+
+  const c4 = a.rsi !== null && a.rsi >= RSI_LOW && a.rsi <= RSI_HIGH;
+  criteria.push({ label: `RSI in entry zone (${RSI_LOW}–${RSI_HIGH})`, met: c4,
+    note: a.rsi !== null ? `RSI ${a.rsi.toFixed(1)}` : 'n/a' });
+  if (c4) pts++;
+
+  const c5 = a.vr > 1.0;
+  criteria.push({ label: 'Volume above 20-day average', met: c5,
+    note: `${(a.vr * 100).toFixed(0)}% of avg` });
+  if (c5) pts++;
+
+  const sigs = ['DO NOT TRADE','DO NOT TRADE','WAIT','WATCH','BUY','STRONG BUY'];
+  return { signal: sigs[pts], pts, total: 5, criteria };
+}
+
+function tradeSetup(a) {
+  const entry    = a.ma50 && a.ma50 < a.cur ? a.ma50 * 1.005 : a.cur;
+  const stop     = a.sup ? Math.min(a.sup * 0.97, entry * 0.965) : entry * 0.965;
+  const riskPct  = (entry - stop) / entry;
+  const target   = entry + (entry - stop) * REWARD_RATIO;
+  const profitPct = (target - entry) / entry;
+  const sizing   = ACCOUNT_SIZES.map(account => ({
+    account,
+    riskUSD:   account * RISK_PCT,
+    investUSD: (account * RISK_PCT / (entry - stop)) * entry,
+  }));
+  return { entry, stop, target, riskPct, profitPct, sizing };
+}
+
+// ── Formatting ────────────────────────────────────────────────────────────────
+
+function fmt(n) {
+  if (n >= 10000) return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (n >= 1000)  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function rsiColor(v) {
+  if (v === null) return '#6e6e8e';
+  if (v < 30 || v > 70) return '#ef5350';
+  if (v >= RSI_LOW && v <= RSI_HIGH) return '#00e676';
+  return '#ffd740';
+}
+
+function trendColor(t) {
+  return t === 'UPTREND' ? '#00e676' : t === 'DOWNTREND' ? '#ef5350' : '#ffd740';
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+const activeCharts = {};
+
+function renderCoin(coin, a, s, setup) {
+  const chgClass = a.dayPct >= 0 ? 'up' : 'down';
+  const chgSign  = a.dayPct >= 0 ? '+' : '';
+  const sigClass = 'SIG-' + s.signal.replace(/ /g, '-');
+
+  const criteriaHTML = s.criteria.map(c => `
+    <li class="criterion">
+      <span class="ci ${c.met ? 'met' : 'unmet'}">${c.met ? '✓' : '✗'}</span>
+      <span class="cl">${c.label}</span>
+      <span class="cn">${c.note}</span>
+    </li>`).join('');
+
+  const rsiPct  = a.rsi !== null ? Math.min(100, Math.max(0, a.rsi)) : 0;
+  const rsiNote = a.rsi === null ? '' : a.rsi < 30 ? 'Oversold'
+    : a.rsi > 70 ? 'Overbought'
+    : a.rsi >= RSI_LOW && a.rsi <= RSI_HIGH ? 'Entry zone'
+    : 'Neutral';
+
+  let setupHTML;
+  if (s.pts >= 3) {
+    const rows = setup.sizing.map(({ account, riskUSD, investUSD }) => `
+      <div class="sizing-row">
+        <span>$${account} account</span>
+        <span>invest ${fmt(investUSD)} — risk $${riskUSD.toFixed(0)} (${(RISK_PCT*100).toFixed(0)}%)</span>
+      </div>`).join('');
+    setupHTML = `
+      <div class="setup-grid">
+        <span class="sl">Entry zone</span>
+        <span class="sv">${fmt(setup.entry)}</span>
+        <span class="sn"></span>
+        <span class="sl">Stop loss</span>
+        <span class="sv">${fmt(setup.stop)}</span>
+        <span class="sn">${(setup.riskPct * 100).toFixed(1)}% below</span>
+        <span class="sl">Take profit</span>
+        <span class="sv">${fmt(setup.target)}</span>
+        <span class="sn">${(setup.profitPct * 100).toFixed(1)}% gain · ${REWARD_RATIO}:1</span>
+      </div>
+      <div class="sizing">${rows}</div>`;
+  } else {
+    setupHTML = `<p class="no-setup">Conditions not met — wait for setup to develop.</p>`;
+  }
+
+  return `
+    <div class="coin-card">
+      <div class="coin-header">
+        <div>
+          <div class="coin-name">${coin.name} &nbsp;<span style="opacity:.6">${coin.symbol}</span></div>
+          <div class="coin-price">${fmt(a.cur)}</div>
+          <div class="coin-change ${chgClass}">${chgSign}${a.dayPct.toFixed(2)}% today</div>
+        </div>
+        <div class="signal-wrap">
+          <div class="signal-badge ${sigClass}">${s.signal}</div>
+          <div class="sig-score">${s.pts} / ${s.total} criteria</div>
+        </div>
+      </div>
+
+      <div class="chart-wrap">
+        <canvas id="chart-${coin.id}"></canvas>
+      </div>
+
+      <div class="coin-body">
+
+        <div>
+          <div class="section-label">Indicators</div>
+          <div class="ind-grid">
+            <div>
+              <div class="ind-label">200-day MA</div>
+              <div class="ind-val">${a.ma200 ? fmt(a.ma200) : 'n/a'}</div>
+              <div class="ind-note">${a.ma200 ? (a.cur > a.ma200 ? '↑ above — bull market' : '↓ below — bear market') : ''}</div>
+            </div>
+            <div>
+              <div class="ind-label">50-day MA</div>
+              <div class="ind-val">${a.ma50 ? fmt(a.ma50) : 'n/a'}</div>
+              <div class="ind-note">${a.distFromMA50 !== null ? (a.distFromMA50*100).toFixed(1)+'% from price' : ''}</div>
+            </div>
+            <div>
+              <div class="ind-label">Trend (30d)</div>
+              <div class="ind-val" style="color:${trendColor(a.trend)}">${a.trend}</div>
+              <div class="ind-note">&nbsp;</div>
+            </div>
+            <div>
+              <div class="ind-label">Volume</div>
+              <div class="ind-val">${(a.vr * 100).toFixed(0)}%</div>
+              <div class="ind-note">of 20-day avg</div>
+            </div>
+            <div>
+              <div class="ind-label">Support (10th pct)</div>
+              <div class="ind-val">${a.sup ? fmt(a.sup) : 'n/a'}</div>
+              <div class="ind-note">${a.sup ? ((a.cur - a.sup)/a.cur*100).toFixed(1)+'% below current' : ''}</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-label">RSI (14-period Wilder)</div>
+          <div class="rsi-row">
+            <span class="rsi-num" style="color:${rsiColor(a.rsi)}">${a.rsi !== null ? a.rsi.toFixed(1) : '—'}</span>
+            <span class="rsi-label">${rsiNote}</span>
+          </div>
+          <div class="rsi-track">
+            <div class="rsi-fill" style="width:${rsiPct}%;background:${rsiColor(a.rsi)}"></div>
+            <div class="rsi-mark" style="left:30%"></div>
+            <div class="rsi-mark" style="left:${RSI_LOW}%"></div>
+            <div class="rsi-mark" style="left:${RSI_HIGH}%"></div>
+            <div class="rsi-mark" style="left:70%"></div>
+          </div>
+          <div class="rsi-ticks"><span>0</span><span>30</span><span>50</span><span>70</span><span>100</span></div>
+        </div>
+
+        <div>
+          <div class="section-label">Signal Criteria</div>
+          <ul class="criteria">${criteriaHTML}</ul>
+          <div class="score-line" style="margin-top:8px">${s.pts}/${s.total} met &mdash; <strong>${s.signal}</strong></div>
+        </div>
+
+        <div>
+          <div class="section-label">Trade Setup &nbsp;<span style="font-size:9px;color:var(--muted)">(2% account risk · ${REWARD_RATIO}:1 R/R)</span></div>
+          ${setupHTML}
+        </div>
+
+      </div>
+    </div>`;
+}
+
+function buildChart(coin, a) {
+  if (activeCharts[coin.id]) { activeCharts[coin.id].destroy(); }
+
+  const ctx = document.getElementById(`chart-${coin.id}`);
+  if (!ctx) return;
+
+  const labels = a.chart.dates.map(ts => {
+    const d = new Date(ts);
+    return `${d.getMonth()+1}/${d.getDate()}`;
+  });
+
+  activeCharts[coin.id] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Price',    data: a.chart.prices, borderColor: '#c0c0d8', borderWidth: 2, pointRadius: 0, tension: 0.1 },
+        { label: '50MA',     data: a.chart.ma50,   borderColor: '#42a5f5', borderWidth: 1.5, pointRadius: 0, tension: 0.1 },
+        { label: '200MA',    data: a.chart.ma200,  borderColor: '#ef5350', borderWidth: 1.5, pointRadius: 0, tension: 0.1, borderDash: [6,3] },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#5a5a7a', font: { size: 10 }, boxWidth: 18, padding: 10 } },
+        tooltip: {
+          backgroundColor: '#1a1a2a', titleColor: '#8888aa', bodyColor: '#e0e0e8',
+          borderColor: '#2a2a3e', borderWidth: 1,
+          callbacks: {
+            label: ctx => ctx.raw == null ? null
+              : ` ${ctx.dataset.label}: ${ctx.raw >= 1000
+                  ? '$' + ctx.raw.toLocaleString('en-US', { maximumFractionDigits: 0 })
+                  : '$' + ctx.raw.toFixed(2)}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: '#4a4a6a', maxTicksLimit: 7, font: { size: 10 } },
+          grid:  { color: 'rgba(255,255,255,0.03)' },
+        },
+        y: {
+          position: 'right',
+          ticks: {
+            color: '#4a4a6a', font: { size: 10 },
+            callback: v => v >= 1000 ? '$'+(v/1000).toFixed(0)+'k' : '$'+v.toFixed(0),
+          },
+          grid: { color: 'rgba(255,255,255,0.03)' },
+        },
+      },
+    },
+  });
+}
+
+// ── Fetch & Render ────────────────────────────────────────────────────────────
+
+async function fetchMarketChart(coinId) {
+  const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart`
+    + `?vs_currency=usd&days=250&interval=daily`;
+  const res = await fetch(url, { headers: { accept: 'application/json' } });
+  if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${coinId}`);
+  return res.json();
+}
+
+async function loadAll() {
+  const btn     = document.getElementById('refresh-btn');
+  const loading = document.getElementById('loading');
+  const coinsEl = document.getElementById('coins');
+  const errEl   = document.getElementById('error-msg');
+
+  btn.disabled = true;
+  loading.style.display = 'block';
+  coinsEl.style.display = 'none';
+  errEl.style.display = 'none';
+
+  const results = [];
+
+  for (let i = 0; i < COINS.length; i++) {
+    const coin = COINS[i];
+    try {
+      const raw       = await fetchMarketChart(coin.id);
+      const prices    = raw.prices.map(p => p[1]);
+      const volumes   = raw.total_volumes.map(v => v[1]);
+      const timestamps = raw.prices.map(p => p[0]);
+      const a         = analyze(prices, volumes, timestamps);
+      const s         = buildScore(a);
+      const setup     = tradeSetup(a);
+      results.push({ coin, a, s, setup });
+    } catch (err) {
+      errEl.textContent = `Failed to load ${coin.name}: ${err.message}`;
+      errEl.style.display = 'block';
+    }
+    if (i < COINS.length - 1) await new Promise(r => setTimeout(r, 800));
+  }
+
+  loading.style.display = 'none';
+
+  if (results.length) {
+    coinsEl.innerHTML = results.map(r => renderCoin(r.coin, r.a, r.s, r.setup)).join('');
+    coinsEl.style.display = 'grid';
+    // Charts need the DOM to exist first
+    requestAnimationFrame(() => results.forEach(r => buildChart(r.coin, r.a)));
+  }
+
+  document.getElementById('last-updated').textContent =
+    'Updated ' + new Date().toLocaleTimeString();
+  btn.disabled = false;
+}
+
+document.getElementById('refresh-btn').addEventListener('click', loadAll);
+loadAll();
+setInterval(loadAll, REFRESH_MS);
+</script>
+</body>
+</html>
