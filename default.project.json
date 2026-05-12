@@ -4,11 +4,26 @@
     "$className": "DataModel",
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "CoinService": {
-        "$path": "src/server/CoinService.server.luau"
+      "PlayerDataService": {
+        "$path": "src/server/PlayerDataService.server.luau"
       },
       "Leaderboard": {
         "$path": "src/server/Leaderboard.server.luau"
+      },
+      "CoinService": {
+        "$path": "src/server/CoinService.server.luau"
+      },
+      "UpgradeService": {
+        "$path": "src/server/UpgradeService.server.luau"
+      },
+      "ShopService": {
+        "$path": "src/server/ShopService.server.luau"
+      },
+      "MonetizationService": {
+        "$path": "src/server/MonetizationService.server.luau"
+      },
+      "DailyRewardService": {
+        "$path": "src/server/DailyRewardService.server.luau"
       }
     },
     "ReplicatedStorage": {
@@ -17,28 +32,59 @@
         "$className": "Folder",
         "GameConfig": {
           "$path": "src/shared/GameConfig.luau"
+        },
+        "ShopCatalog": {
+          "$path": "src/shared/ShopCatalog.luau"
         }
       },
       "Remotes": {
         "$className": "Folder",
         "CoinCollected": {
           "$className": "RemoteEvent"
+        },
+        "DataUpdated": {
+          "$className": "RemoteEvent"
+        },
+        "Notify": {
+          "$className": "RemoteEvent"
+        },
+        "PurchaseUpgrade": {
+          "$className": "RemoteFunction"
+        },
+        "PromptProduct": {
+          "$className": "RemoteEvent"
+        },
+        "PromptGamePass": {
+          "$className": "RemoteEvent"
+        },
+        "ClaimDailyReward": {
+          "$className": "RemoteFunction"
         }
       }
     },
     "StarterPlayer": {
       "$className": "StarterPlayer",
+      "$properties": {
+        "CharacterWalkSpeed": 16,
+        "CharacterJumpPower": 50
+      },
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
         "CoinClient": {
           "$path": "src/client/CoinClient.client.luau"
+        },
+        "MagnetClient": {
+          "$path": "src/client/MagnetClient.client.luau"
         }
       }
     },
     "StarterGui": {
       "$className": "StarterGui",
-      "ScoreGui": {
-        "$path": "src/client/ScoreGui.client.luau"
+      "HudGui": {
+        "$path": "src/client/HudGui.client.luau"
+      },
+      "ShopGui": {
+        "$path": "src/client/ShopGui.client.luau"
       }
     },
     "Workspace": {
@@ -50,7 +96,7 @@
         "$className": "Part",
         "$properties": {
           "Name": "Baseplate",
-          "Size": [200, 1, 200],
+          "Size": [240, 1, 240],
           "Position": [0, 0, 0],
           "Anchored": true,
           "Material": "Grass",
@@ -62,11 +108,24 @@
       "SpawnLocation": {
         "$className": "SpawnLocation",
         "$properties": {
-          "Size": [6, 1, 6],
+          "Size": [8, 1, 8],
           "Position": [0, 1, 0],
           "Anchored": true,
           "BrickColor": "Bright blue",
           "TopSurface": "Smooth"
+        }
+      },
+      "ShopBeacon": {
+        "$className": "Part",
+        "$properties": {
+          "Name": "ShopBeacon",
+          "Size": [4, 8, 4],
+          "Position": [12, 4, 0],
+          "Anchored": true,
+          "CanCollide": false,
+          "Material": "Neon",
+          "BrickColor": "Magenta",
+          "Transparency": 0.3
         }
       }
     },
@@ -77,7 +136,7 @@
         "Brightness": 2,
         "ClockTime": 14,
         "FogColor": [180, 200, 220],
-        "FogEnd": 1000
+        "FogEnd": 1500
       }
     }
   }

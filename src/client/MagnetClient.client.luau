@@ -1,0 +1,3 @@
+-- Magnet collection is handled authoritatively on the server (see
+-- CoinService). This LocalScript is reserved for future client-side magnet
+-- VFX; intentionally empty for now.
