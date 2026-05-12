@@ -4,11 +4,23 @@
     "$className": "DataModel",
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "CoinService": {
-        "$path": "src/server/CoinService.server.luau"
+      "PlayerDataService": {
+        "$path": "src/server/PlayerDataService.server.luau"
+      },
+      "UpgradeService": {
+        "$path": "src/server/UpgradeService.server.luau"
       },
       "Leaderboard": {
         "$path": "src/server/Leaderboard.server.luau"
+      },
+      "CoinService": {
+        "$path": "src/server/CoinService.server.luau"
+      },
+      "ShopService": {
+        "$path": "src/server/ShopService.server.luau"
+      },
+      "MonetizationService": {
+        "$path": "src/server/MonetizationService.server.luau"
       }
     },
     "ReplicatedStorage": {
@@ -21,9 +33,13 @@
       },
       "Remotes": {
         "$className": "Folder",
-        "CoinCollected": {
-          "$className": "RemoteEvent"
-        }
+        "CoinCollected": { "$className": "RemoteEvent" },
+        "PlayerDataUpdated": { "$className": "RemoteEvent" },
+        "ShowToast": { "$className": "RemoteEvent" },
+        "PurchaseUpgrade": { "$className": "RemoteFunction" },
+        "ClaimDailyReward": { "$className": "RemoteFunction" },
+        "PromptGemProduct": { "$className": "RemoteEvent" },
+        "PromptGamePass": { "$className": "RemoteEvent" }
       }
     },
     "StarterPlayer": {
@@ -32,13 +48,13 @@
         "$className": "StarterPlayerScripts",
         "CoinClient": {
           "$path": "src/client/CoinClient.client.luau"
+        },
+        "HudGui": {
+          "$path": "src/client/HudGui.client.luau"
+        },
+        "ShopGui": {
+          "$path": "src/client/ShopGui.client.luau"
         }
-      }
-    },
-    "StarterGui": {
-      "$className": "StarterGui",
-      "ScoreGui": {
-        "$path": "src/client/ScoreGui.client.luau"
       }
     },
     "Workspace": {
@@ -67,6 +83,19 @@
           "Anchored": true,
           "BrickColor": "Bright blue",
           "TopSurface": "Smooth"
+        }
+      },
+      "ShopBeacon": {
+        "$className": "Part",
+        "$properties": {
+          "Name": "ShopBeacon",
+          "Size": [4, 8, 4],
+          "Position": [12, 4, 0],
+          "Anchored": true,
+          "CanCollide": false,
+          "Material": "Neon",
+          "Color": [0.85, 0.2, 0.85],
+          "Transparency": 0.2
         }
       }
     },
