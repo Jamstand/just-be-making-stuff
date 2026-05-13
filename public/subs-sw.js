@@ -1,8 +1,8 @@
 const CACHE = 'subs-v1';
 const ASSETS = [
-  '/subs.html',
-  '/subs.webmanifest',
-  '/subs-icon.svg',
+  'subs.html',
+  'subs.webmanifest',
+  'subs-icon.svg',
 ];
 
 self.addEventListener('install', (event) => {
