@@ -615,6 +615,65 @@ app.post('/ai/extract-image', (req, res) => {
 
 app.get('/subs', (req, res) => res.sendFile(path.join(__dirname, 'public', 'subs.html')));
 
+// ── Admin endpoints (token-gated) ─────────────────────────────────────────────
+// Only registered when ADMIN_TOKEN is set in .env. Designed to be safely
+// publicly exposable via Tailscale Funnel: bearer-token-auth on every route,
+// constant-time comparison, no shell injection (execFile with explicit args),
+// no body/output containing secrets. Unauthorized requests get a 404 so the
+// endpoint surface isn't discoverable.
+
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+
+function adminTokenOk(req) {
+  if (!ADMIN_TOKEN) return false;
+  const raw = req.headers.authorization || '';
+  const m = raw.match(/^Bearer\s+(.+)$/i);
+  if (!m) return false;
+  const a = crypto.createHash('sha256').update(ADMIN_TOKEN).digest();
+  const b = crypto.createHash('sha256').update(m[1]).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+function requireAdmin(req, res, next) {
+  if (!adminTokenOk(req)) return res.status(404).end();
+  next();
+}
+
+if (ADMIN_TOKEN) {
+  const { execFile } = require('child_process');
+
+  app.get('/admin/status', requireAdmin, (req, res) => {
+    execFile('git', ['rev-parse', 'HEAD'], { cwd: __dirname }, (err, head) => {
+      execFile('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: __dirname }, (err2, branch) => {
+        res.json({
+          gitHead: (head || '').toString().trim(),
+          branch: (branch || '').toString().trim(),
+          uptimeSec: Math.round(process.uptime()),
+          aiBackend: AI_BACKEND,
+          aiReady: AI_BACKEND === 'claude-code' ? null : anthropicReady(),
+          startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+        });
+      });
+    });
+  });
+
+  app.get('/admin/logs', requireAdmin, (req, res) => {
+    const n = Math.min(2000, Math.max(1, parseInt(req.query.n, 10) || 200));
+    execFile('journalctl', ['-u', 'subs.service', '-n', String(n), '--no-pager', '--output=short-iso'],
+      { maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) return res.status(500).type('text/plain').send(`journalctl failed: ${stderr || err.message}`);
+        res.type('text/plain').send(stdout);
+      });
+  });
+
+  app.post('/admin/restart', requireAdmin, (req, res) => {
+    res.json({ restarting: true });
+    // systemd Restart=on-failure brings us back; exit cleanly after response flushes.
+    setTimeout(() => process.exit(0), 200);
+  });
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Start ────────────────────────────────────────────────────────────────────
