@@ -606,11 +606,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, () => {
   console.log(`
-  ╔══════════════════════════════════════╗
-  ║        OBS Now Playing Widget        ║
-  ╠══════════════════════════════════════╣
-  ║  Setup:   http://localhost:${PORT}/setup  ║
+  ╔════════════════════════════════════════╗
+  ║          just-be-making-stuff          ║
+  ╠════════════════════════════════════════╣
+  ║  Subs:    http://localhost:${PORT}/subs   ║
   ║  Widget:  http://localhost:${PORT}/widget ║
-  ╚══════════════════════════════════════╝
+  ║  Setup:   http://localhost:${PORT}/setup  ║
+  ╚════════════════════════════════════════╝
   `);
 });
