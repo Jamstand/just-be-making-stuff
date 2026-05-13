@@ -272,7 +272,7 @@
       <div class="title">Subs <small>your subscriptions</small></div>
       <button class="menu-toggle" id="menuBtn" aria-label="Menu">⋯</button>
       <div class="menu" id="menu">
-        <button data-act="import-csv">Import CSV file</button>
+        <button data-act="import-csv">Import CSV or PDF file</button>
         <button data-act="paste">Paste text or image</button>
         <button data-act="photo">Photo of statement</button>
         <button data-act="sync">Auto-sync (Plaid)</button>
@@ -379,7 +379,7 @@
 </div>
 
 <input type="file" id="fileImport" accept="application/json" hidden />
-<input type="file" id="csvImport" accept=".csv,text/csv" hidden />
+<input type="file" id="csvImport" accept=".csv,text/csv,application/pdf,.pdf" hidden />
 <input type="file" id="photoImport" accept="image/*" capture="environment" hidden />
 
 <!-- Settings sheet -->
@@ -1160,10 +1160,17 @@
   $('#csvImport').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
     try {
-      const text = await file.text();
-      await runTextDetection(text, file.name);
+      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+      if (isPdf) {
+        if (file.size > 28 * 1024 * 1024) throw new Error('PDF too large (max ~28 MB).');
+        const dataUrl = await fileToDataUrl(file);
+        await runFileExtraction(dataUrl, file.name);
+      } else {
+        const text = await file.text();
+        await runTextDetection(text, file.name);
+      }
     } catch (err) {
-      alert('CSV import failed: ' + err.message);
+      alert('Import failed: ' + err.message);
     }
     e.target.value = '';
   });
@@ -1322,21 +1329,22 @@
     e.target.value = '';
   });
 
-  const runImageDetection = async (dataUrl, sourceLabel) => {
-    if (!backendUrl()) throw new Error('Set a Backend URL in Settings first (image extraction needs ANTHROPIC_API_KEY on the backend).');
-    const r = await fetch(backendUrl() + '/ai/extract-image', {
+  const runFileExtraction = async (dataUrl, sourceLabel) => {
+    if (!backendUrl()) throw new Error('Set a Backend URL in Settings first (image/PDF extraction needs ANTHROPIC_API_KEY on the backend).');
+    const r = await fetch(backendUrl() + '/ai/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl, today: new Date().toISOString().slice(0, 10), currency: 'USD' }),
+      body: JSON.stringify({ file: dataUrl, today: new Date().toISOString().slice(0, 10), currency: 'USD' }),
     });
     if (!r.ok) {
       const detail = await r.json().catch(() => ({}));
-      throw new Error(detail.detail || ('HTTP ' + r.status));
+      throw new Error(detail.detail || detail.error || ('HTTP ' + r.status));
     }
     const { candidates } = await r.json();
     const cands = (candidates || []).map((c) => ({ ...c, id: crypto.randomUUID() }));
     openReview(cands, sourceLabel);
   };
+  const runImageDetection = runFileExtraction;
 
   // ── Plaid auto-sync flow ──
   const loadPlaidLink = () => new Promise((resolve, reject) => {

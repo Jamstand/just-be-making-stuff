@@ -13,7 +13,7 @@ const TOKEN_FILE = path.join(__dirname, '.tokens.json');
 const PLAID_TOKEN_FILE = path.join(__dirname, '.plaid-tokens.json');
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || true }));
-app.use(express.json({ limit: '12mb' }));
+app.use(express.json({ limit: '32mb' }));
 
 const SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -438,6 +438,43 @@ app.post('/ai/detect', async (req, res) => {
   }
 });
 
+async function callAnthropicExtract(mediaType, b64, today, currency) {
+  const isPdf = mediaType === 'application/pdf';
+  const userText = `Statement ${isPdf ? 'PDF' : 'screenshot'} attached. today=${today || new Date().toISOString().slice(0, 10)} default_currency=${currency || 'USD'}. Extract recurring subscriptions only.`;
+  const block = isPdf
+    ? { type: 'document', source: { type: 'base64', media_type: mediaType, data: b64 } }
+    : { type: 'image',    source: { type: 'base64', media_type: mediaType, data: b64 } };
+
+  const response = await getAnthropicClient().messages.create({
+    model: AI_MODEL,
+    max_tokens: 2048,
+    system: [{ type: 'text', text: EXTRACT_SYSTEM, cache_control: { type: 'ephemeral' } }],
+    output_config: { format: { type: 'json_schema', schema: CANDIDATES_SCHEMA } },
+    messages: [{ role: 'user', content: [block, { type: 'text', text: userText }] }],
+  });
+  const text = response.content.find((b) => b.type === 'text')?.text;
+  const parsed = text ? JSON.parse(text) : { candidates: [] };
+  return (parsed.candidates || []).map(normalizeCandidate);
+}
+
+app.post('/ai/extract', async (req, res) => {
+  if (!anthropicReady()) return res.status(400).json({ error: 'AI not configured' });
+  const { file, today, currency } = req.body || {};
+  if (typeof file !== 'string' || !file.startsWith('data:')) {
+    return res.status(400).json({ error: 'file must be a data URL (data:image/...;base64,... or data:application/pdf;base64,...)' });
+  }
+  const m = file.match(/^data:(image\/[a-zA-Z0-9.+-]+|application\/pdf);base64,(.+)$/);
+  if (!m) return res.status(400).json({ error: 'unsupported file type (image/* or application/pdf only)' });
+  try {
+    const candidates = await callAnthropicExtract(m[1], m[2], today, currency);
+    res.json({ candidates });
+  } catch (err) {
+    const status = err instanceof Anthropic.APIError ? err.status || 500 : 500;
+    console.error('AI extract error:', err.message);
+    res.status(status).json({ error: 'ai_failed', detail: err.message });
+  }
+});
+
 app.post('/ai/extract-image', async (req, res) => {
   if (!anthropicReady()) return res.status(400).json({ error: 'AI not configured' });
   const { image, today, currency } = req.body || {};
@@ -446,27 +483,8 @@ app.post('/ai/extract-image', async (req, res) => {
   }
   const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!m) return res.status(400).json({ error: 'invalid image data URL' });
-  const [, mediaType, b64] = m;
-
   try {
-    const client = getAnthropicClient();
-    const userText = `Statement screenshot follows. today=${today || new Date().toISOString().slice(0, 10)} default_currency=${currency || 'USD'}. Extract recurring subscriptions only.`;
-    const response = await client.messages.create({
-      model: AI_MODEL,
-      max_tokens: 2048,
-      system: [{ type: 'text', text: EXTRACT_SYSTEM, cache_control: { type: 'ephemeral' } }],
-      output_config: { format: { type: 'json_schema', schema: CANDIDATES_SCHEMA } },
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
-          { type: 'text', text: userText },
-        ],
-      }],
-    });
-    const text = response.content.find((b) => b.type === 'text')?.text;
-    const parsed = text ? JSON.parse(text) : { candidates: [] };
-    const candidates = (parsed.candidates || []).map(normalizeCandidate);
+    const candidates = await callAnthropicExtract(m[1], m[2], today, currency);
     res.json({ candidates });
   } catch (err) {
     const status = err instanceof Anthropic.APIError ? err.status || 500 : 500;
