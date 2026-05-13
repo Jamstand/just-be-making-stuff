@@ -2,7 +2,9 @@ name: Deploy Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - claude/create-obs-amuse-widget-g9aTM
   workflow_dispatch:
 
 permissions:
