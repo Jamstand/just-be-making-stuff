@@ -18,6 +18,15 @@ const PLAID_TOKEN_FILE = path.join(__dirname, '.plaid-tokens.json');
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || true }));
 app.use(express.json({ limit: '32mb' }));
 
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/ai/')) return next();
+  const t0 = Date.now();
+  res.on('finish', () => {
+    console.log(`${req.method} ${req.path} -> ${res.statusCode} (${Date.now() - t0}ms)`);
+  });
+  next();
+});
+
 const SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SCOPES = 'user-read-currently-playing user-read-playback-state';
@@ -502,7 +511,32 @@ app.get('/ai/status', async (req, res) => {
   res.json({ ready: anthropicReady(), model: AI_MODEL, backend: 'sdk' });
 });
 
-app.post('/ai/detect', async (req, res) => {
+// Stream whitespace every 10s while `work()` runs so DERP relays,
+// mobile NATs, and Safari don't drop the TCP connection during a long
+// claude spawn. JSON.parse on the client tolerates leading whitespace.
+// Headers are NOT flushed up front so that fast failures still return
+// a proper status code; the first heartbeat write auto-flushes.
+async function withHeartbeat(res, work) {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-store');
+  const ping = setInterval(() => { try { res.write(' '); } catch {} }, 10000);
+  try {
+    const data = await work();
+    clearInterval(ping);
+    res.end(JSON.stringify(data));
+  } catch (err) {
+    clearInterval(ping);
+    const detail = err && err.message ? err.message : String(err);
+    console.error('AI handler error:', detail);
+    if (!res.headersSent) {
+      res.status(err && err.status ? err.status : 500).json({ error: 'ai_failed', detail });
+    } else {
+      res.end(JSON.stringify({ error: 'ai_failed', detail }));
+    }
+  }
+}
+
+app.post('/ai/detect', (req, res) => {
   const { transactions, heuristicNames, today, currency } = req.body || {};
   if (!Array.isArray(transactions)) return res.status(400).json({ error: 'missing transactions' });
 
@@ -513,25 +547,20 @@ app.post('/ai/detect', async (req, res) => {
     transactions: transactions.slice(0, 800),
   };
 
-  try {
+  withHeartbeat(res, async () => {
     let result;
     if (AI_BACKEND === 'claude-code') {
       result = await claudeCodeDetect(args);
     } else {
-      if (!anthropicReady()) return res.status(400).json({ error: 'AI not configured' });
+      if (!anthropicReady()) { const e = new Error('AI not configured'); e.status = 400; throw e; }
       result = await callAnthropicJson({
         system: DETECT_SYSTEM,
         userContent: JSON.stringify(args),
         maxTokens: 2048,
       });
     }
-    const candidates = (result.candidates || []).map(normalizeCandidate);
-    res.json({ candidates });
-  } catch (err) {
-    const status = err instanceof Anthropic.APIError ? err.status || 500 : 500;
-    console.error('AI detect error:', err.message);
-    res.status(status).json({ error: 'ai_failed', detail: err.message });
-  }
+    return { candidates: (result.candidates || []).map(normalizeCandidate) };
+  });
 });
 
 async function callAnthropicExtract(mediaType, b64, today, currency) {
@@ -564,38 +593,24 @@ async function extractDispatch(mediaType, b64, today, currency) {
   return callAnthropicExtract(mediaType, b64, t, c);
 }
 
-app.post('/ai/extract', async (req, res) => {
+app.post('/ai/extract', (req, res) => {
   const { file, today, currency } = req.body || {};
   if (typeof file !== 'string' || !file.startsWith('data:')) {
     return res.status(400).json({ error: 'file must be a data URL (data:image/...;base64,... or data:application/pdf;base64,...)' });
   }
   const m = file.match(/^data:(image\/[a-zA-Z0-9.+-]+|application\/pdf);base64,(.+)$/);
   if (!m) return res.status(400).json({ error: 'unsupported file type (image/* or application/pdf only)' });
-  try {
-    const candidates = await extractDispatch(m[1], m[2], today, currency);
-    res.json({ candidates });
-  } catch (err) {
-    const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
-    console.error('AI extract error:', err.message);
-    res.status(status).json({ error: 'ai_failed', detail: err.message });
-  }
+  withHeartbeat(res, async () => ({ candidates: await extractDispatch(m[1], m[2], today, currency) }));
 });
 
-app.post('/ai/extract-image', async (req, res) => {
+app.post('/ai/extract-image', (req, res) => {
   const { image, today, currency } = req.body || {};
   if (typeof image !== 'string' || !image.startsWith('data:image/')) {
     return res.status(400).json({ error: 'image must be a data URL (data:image/...;base64,...)' });
   }
   const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!m) return res.status(400).json({ error: 'invalid image data URL' });
-  try {
-    const candidates = await extractDispatch(m[1], m[2], today, currency);
-    res.json({ candidates });
-  } catch (err) {
-    const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
-    console.error('AI extract-image error:', err.message);
-    res.status(status).json({ error: 'ai_failed', detail: err.message });
-  }
+  withHeartbeat(res, async () => ({ candidates: await extractDispatch(m[1], m[2], today, currency) }));
 });
 
 app.get('/subs', (req, res) => res.sendFile(path.join(__dirname, 'public', 'subs.html')));
