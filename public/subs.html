@@ -252,6 +252,8 @@
     cursor: pointer; font-size: 13px; color: var(--text-dim);
   }
   .paste-mode .seg.active { background: var(--bg-elev); color: var(--text); border-color: var(--accent); }
+  .image-actions { display: flex; }
+  .image-actions .btn { padding: 10px 12px; font-size: 14px; }
 
   .spinner {
     display: inline-block; width: 14px; height: 14px;
@@ -426,6 +428,11 @@
       your bank app, select the transactions, copy, then paste here.
     </p>
     <textarea class="paste-area" id="pasteArea" placeholder="Paste text or an image here…" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+    <div class="image-actions" id="imageActions" style="display:none; gap:8px; margin-top:6px;">
+      <button type="button" class="btn" id="pasteFromClipboardBtn">Paste image</button>
+      <button type="button" class="btn" id="chooseImageBtn">Choose image</button>
+    </div>
+    <input type="file" id="pasteFilePicker" accept="image/*" hidden />
     <div class="paste-preview" id="pastePreview">
       <img id="pasteImg" alt="Pasted image" />
       <div class="pp-row"><span id="pasteImgInfo">Image ready</span><button type="button" id="pasteImgClear">Remove</button></div>
@@ -1173,6 +1180,7 @@
     $('#pastePreview').style.display = 'none';
     $('#pasteImg').src = '';
     $('#pasteArea').style.display = '';
+    $('#imageActions').style.display = 'none';
     $$('.paste-mode .seg').forEach((el) => el.classList.toggle('active', el.dataset.mode === 'text'));
     $('#pasteHint').textContent = 'Paste rows from your card statement (CSV, tab-separated, or any columnar text with date, description, amount). Tip: long-press in your bank app, select the transactions, copy, then paste here.';
     pasteBack.classList.add('open');
@@ -1189,13 +1197,46 @@
       pasteMode = mode;
       $$('.paste-mode .seg').forEach((s) => s.classList.toggle('active', s.dataset.mode === mode));
       if (mode === 'image') {
-        $('#pasteHint').textContent = 'Paste a screenshot of your statement (long-press → Paste in iOS, Ctrl/⌘-V in browser). Or use "Photo of statement" from the menu to capture one. Needs backend with ANTHROPIC_API_KEY.';
-        $('#pasteArea').placeholder = 'Paste an image here (long-press → Paste)';
+        $('#pasteHint').textContent = 'Tap "Paste image" to grab a screenshot from your clipboard, or "Choose image" to pick from your photos. Needs backend with ANTHROPIC_API_KEY.';
+        $('#pasteArea').style.display = 'none';
+        $('#imageActions').style.display = 'flex';
       } else {
         $('#pasteHint').textContent = 'Paste rows from your card statement (CSV, tab-separated, or any columnar text with date, description, amount).';
-        $('#pasteArea').placeholder = 'Paste text or an image here…';
+        $('#pasteArea').style.display = '';
+        $('#imageActions').style.display = 'none';
+        $('#pastePreview').style.display = 'none';
+        pasteImageDataUrl = null;
       }
     });
+  });
+
+  $('#pasteFromClipboardBtn').addEventListener('click', async () => {
+    if (!navigator.clipboard || !navigator.clipboard.read) {
+      alert('Your browser does not support reading images from the clipboard. Use "Choose image" instead.');
+      return;
+    }
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        for (const type of item.types) {
+          if (type.startsWith('image/')) {
+            const blob = await item.getType(type);
+            await loadPasteImage(new File([blob], 'pasted.' + type.split('/')[1], { type }));
+            return;
+          }
+        }
+      }
+      alert('No image found in your clipboard. Copy a screenshot first.');
+    } catch (err) {
+      alert('Could not read clipboard: ' + err.message + '\n\nOn iOS, allow Paste when prompted, or use "Choose image".');
+    }
+  });
+
+  $('#chooseImageBtn').addEventListener('click', () => $('#pasteFilePicker').click());
+  $('#pasteFilePicker').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (f) await loadPasteImage(f);
+    e.target.value = '';
   });
 
   $('#pasteArea').addEventListener('paste', async (e) => {
@@ -1225,9 +1266,11 @@
   $('#pasteImgClear').addEventListener('click', () => {
     pasteImageDataUrl = null;
     $('#pastePreview').style.display = 'none';
-    $('#pasteArea').style.display = '';
-    pasteMode = 'text';
-    $$('.paste-mode .seg').forEach((s) => s.classList.toggle('active', s.dataset.mode === 'text'));
+    if (pasteMode === 'image') {
+      $('#imageActions').style.display = 'flex';
+    } else {
+      $('#pasteArea').style.display = '';
+    }
   });
 
   const fileToDataUrl = (file) => new Promise((resolve, reject) => {
