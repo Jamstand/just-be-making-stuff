@@ -14,6 +14,8 @@ services:
         sync: false
       - key: PLAID_ENV
         value: sandbox
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: ALLOWED_ORIGIN
         value: https://jamstand.github.io
       - key: NODE_VERSION

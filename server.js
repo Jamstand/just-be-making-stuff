@@ -5,6 +5,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } = require('plaid');
+const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,7 +13,7 @@ const TOKEN_FILE = path.join(__dirname, '.tokens.json');
 const PLAID_TOKEN_FILE = path.join(__dirname, '.plaid-tokens.json');
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || true }));
-app.use(express.json());
+app.use(express.json({ limit: '12mb' }));
 
 const SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -96,6 +97,106 @@ function plaidFrequencyToCycle(freq) {
     case 'ANNUALLY': return 'yearly';
     default: return 'monthly';
   }
+}
+
+// ── Anthropic (AI subscription detection) ────────────────────────────────────
+
+const AI_MODEL = 'claude-haiku-4-5';
+
+let anthropicClient = null;
+function getAnthropicClient() {
+  if (anthropicClient) return anthropicClient;
+  anthropicClient = new Anthropic();
+  return anthropicClient;
+}
+
+function anthropicReady() {
+  return !!process.env.ANTHROPIC_API_KEY;
+}
+
+const CYCLE_VALUES = ['weekly', 'monthly', 'quarterly', 'biannual', 'yearly'];
+
+const CANDIDATES_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['candidates'],
+  properties: {
+    candidates: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'amount', 'currency', 'cycle', 'nextDate', 'category', 'notes', 'samples', 'confidence'],
+        properties: {
+          name:     { type: 'string', description: 'Clean merchant name, e.g. "Netflix"' },
+          amount:   { type: 'number', description: 'Per-period charge amount, positive number' },
+          currency: { type: 'string', description: 'ISO 4217 currency code, e.g. "USD"' },
+          cycle:    { type: 'string', enum: CYCLE_VALUES },
+          nextDate: { type: 'string', description: 'Predicted next bill date, YYYY-MM-DD' },
+          category: { type: 'string', description: 'e.g. Streaming, Music, Cloud, News' },
+          notes:    { type: 'string', description: 'Short reasoning, e.g. "Detected from 3 PYP*HULU charges"' },
+          samples:  { type: 'integer', description: 'Number of source transactions' },
+          confidence: { type: 'number', description: '0.0–1.0 confidence' },
+        },
+      },
+    },
+  },
+};
+
+const DETECT_SYSTEM = `You are a subscription detector for a personal-finance app. The user uploads card-statement transactions; a deterministic heuristic detector has already grouped the obvious recurring charges by normalized merchant name.
+
+Your job: find any RECURRING subscriptions the heuristic missed. Recurring means billed on a fixed schedule (weekly, monthly, quarterly, biannual, yearly). Examples the heuristic typically misses:
+- Variant descriptions of the same merchant (e.g. "NETFLIX.COM" and "PYP*NETFLIX*4087245252" — the heuristic groups them differently because of digit/prefix noise)
+- Obfuscated processor prefixes (PYP*, SQ*, SP*, TST*, AUT*)
+- Merchant names that span multiple words with varying store IDs
+
+Rules:
+- Only return subscriptions NOT already in the heuristicNames list (case-insensitive substring match).
+- Exclude one-time purchases, gas, groceries, restaurants, and other variable spending.
+- Require at least 2 transactions of the same merchant at a consistent cadence to flag as recurring.
+- Use the median amount and predict nextDate as last_charge_date + median_interval; if that's in the past, roll forward.
+- Be conservative — false negatives are fine, false positives waste the user's time.
+- Output JSON matching the provided schema. Set samples = number of source transactions; confidence between 0 and 1.`;
+
+const EXTRACT_SYSTEM = `You are extracting recurring subscriptions from a screenshot of a bank or credit-card statement.
+
+Identify only RECURRING SUBSCRIPTIONS — services billed on a fixed schedule (weekly, monthly, quarterly, biannual, yearly). Examples: Netflix, Spotify, iCloud, gym memberships, software subscriptions, newspapers.
+
+Rules:
+- Skip one-time purchases, retail, restaurants, gas, groceries, transfers, and variable spending.
+- For each subscription, read the most recent charge and infer cycle and next bill date.
+- If you can read multiple charges of the same merchant, use the median amount and the median interval to predict nextDate.
+- Don't invent transactions you can't see. If you can't read a value clearly, omit that candidate.
+- Output JSON matching the provided schema. samples = how many of this merchant's charges you saw in the image; confidence 0–1 based on how clearly you could read the transaction.`;
+
+async function callAnthropicJson({ system, userContent, maxTokens = 2048 }) {
+  const client = getAnthropicClient();
+  const response = await client.messages.create({
+    model: AI_MODEL,
+    max_tokens: maxTokens,
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    output_config: { format: { type: 'json_schema', schema: CANDIDATES_SCHEMA } },
+    messages: [{ role: 'user', content: userContent }],
+  });
+  const text = response.content.find((b) => b.type === 'text')?.text;
+  if (!text) throw new Error('Empty response from Anthropic');
+  return JSON.parse(text);
+}
+
+function normalizeCandidate(c) {
+  return {
+    name: String(c.name || '').trim(),
+    amount: Math.round((Number(c.amount) || 0) * 100) / 100,
+    currency: String(c.currency || 'USD').toUpperCase(),
+    cycle: CYCLE_VALUES.includes(c.cycle) ? c.cycle : 'monthly',
+    nextDate: /^\d{4}-\d{2}-\d{2}$/.test(c.nextDate || '') ? c.nextDate : new Date().toISOString().slice(0, 10),
+    cardLast4: '',
+    category: String(c.category || ''),
+    notes: String(c.notes || ''),
+    _samples: Number.isFinite(c.samples) ? Math.max(1, Math.round(c.samples)) : 1,
+    _confidence: typeof c.confidence === 'number' ? Math.min(1, Math.max(0, c.confidence)) : 0.7,
+    _source: 'ai',
+  };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -303,6 +404,75 @@ app.post('/plaid/disconnect', async (req, res) => {
   }
   clearPlaidTokens();
   res.json({ ok: true });
+});
+
+// ── AI routes ─────────────────────────────────────────────────────────────────
+
+app.get('/ai/status', (req, res) => {
+  res.json({ ready: anthropicReady(), model: AI_MODEL });
+});
+
+app.post('/ai/detect', async (req, res) => {
+  if (!anthropicReady()) return res.status(400).json({ error: 'AI not configured' });
+  const { transactions, heuristicNames, today, currency } = req.body || {};
+  if (!Array.isArray(transactions)) return res.status(400).json({ error: 'missing transactions' });
+
+  try {
+    const payload = JSON.stringify({
+      today: today || new Date().toISOString().slice(0, 10),
+      currency: currency || 'USD',
+      heuristicNames: Array.isArray(heuristicNames) ? heuristicNames : [],
+      transactions: transactions.slice(0, 800),
+    });
+    const result = await callAnthropicJson({
+      system: DETECT_SYSTEM,
+      userContent: payload,
+      maxTokens: 2048,
+    });
+    const candidates = (result.candidates || []).map(normalizeCandidate);
+    res.json({ candidates });
+  } catch (err) {
+    const status = err instanceof Anthropic.APIError ? err.status || 500 : 500;
+    console.error('AI detect error:', err.message);
+    res.status(status).json({ error: 'ai_failed', detail: err.message });
+  }
+});
+
+app.post('/ai/extract-image', async (req, res) => {
+  if (!anthropicReady()) return res.status(400).json({ error: 'AI not configured' });
+  const { image, today, currency } = req.body || {};
+  if (typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'image must be a data URL (data:image/...;base64,...)' });
+  }
+  const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!m) return res.status(400).json({ error: 'invalid image data URL' });
+  const [, mediaType, b64] = m;
+
+  try {
+    const client = getAnthropicClient();
+    const userText = `Statement screenshot follows. today=${today || new Date().toISOString().slice(0, 10)} default_currency=${currency || 'USD'}. Extract recurring subscriptions only.`;
+    const response = await client.messages.create({
+      model: AI_MODEL,
+      max_tokens: 2048,
+      system: [{ type: 'text', text: EXTRACT_SYSTEM, cache_control: { type: 'ephemeral' } }],
+      output_config: { format: { type: 'json_schema', schema: CANDIDATES_SCHEMA } },
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+          { type: 'text', text: userText },
+        ],
+      }],
+    });
+    const text = response.content.find((b) => b.type === 'text')?.text;
+    const parsed = text ? JSON.parse(text) : { candidates: [] };
+    const candidates = (parsed.candidates || []).map(normalizeCandidate);
+    res.json({ candidates });
+  } catch (err) {
+    const status = err instanceof Anthropic.APIError ? err.status || 500 : 500;
+    console.error('AI extract-image error:', err.message);
+    res.status(status).json({ error: 'ai_failed', detail: err.message });
+  }
 });
 
 app.get('/subs', (req, res) => res.sendFile(path.join(__dirname, 'public', 'subs.html')));

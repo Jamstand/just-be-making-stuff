@@ -221,6 +221,45 @@
     width: 100%;
   }
   .review-row .pill.update { background: rgba(124,156,255,.15); color: var(--accent); border-color: rgba(124,156,255,.3); margin-left: 6px; }
+  .review-row .pill.ai { background: linear-gradient(135deg, rgba(124,156,255,.2), rgba(179,136,255,.2)); color: var(--accent-2); border-color: rgba(179,136,255,.35); margin-left: 6px; }
+
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; }
+  .toggle-row .toggle-label { flex: 1; }
+  .toggle-row .toggle-label .title-l { font-weight: 600; }
+  .toggle-row .toggle-label .sub-l { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+  .toggle-row input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); }
+
+  .paste-area {
+    width: 100%; min-height: 140px;
+    background: var(--bg-elev-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 12px; font: inherit;
+    resize: vertical;
+  }
+  .paste-area:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  .paste-preview {
+    margin-top: 10px; padding: 8px;
+    background: var(--bg-elev-2); border: 1px solid var(--line); border-radius: 10px;
+    display: none;
+  }
+  .paste-preview img { max-width: 100%; max-height: 320px; border-radius: 8px; display: block; }
+  .paste-preview .pp-row { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 12px; color: var(--text-dim); }
+  .paste-preview .pp-row button { background: none; border: 0; color: var(--danger); font: inherit; cursor: pointer; padding: 4px 8px; }
+  .paste-mode { display: flex; gap: 6px; margin-bottom: 10px; }
+  .paste-mode .seg {
+    flex: 1; padding: 8px 10px; text-align: center;
+    background: var(--bg-elev-2); border: 1px solid var(--line); border-radius: 8px;
+    cursor: pointer; font-size: 13px; color: var(--text-dim);
+  }
+  .paste-mode .seg.active { background: var(--bg-elev); color: var(--text); border-color: var(--accent); }
+
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--text-dim); border-top-color: transparent;
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+    vertical-align: -2px; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -231,7 +270,9 @@
       <div class="title">Subs <small>your subscriptions</small></div>
       <button class="menu-toggle" id="menuBtn" aria-label="Menu">⋯</button>
       <div class="menu" id="menu">
-        <button data-act="import-csv">Import statement CSV</button>
+        <button data-act="import-csv">Import CSV file</button>
+        <button data-act="paste">Paste text or image</button>
+        <button data-act="photo">Photo of statement</button>
         <button data-act="sync">Auto-sync (Plaid)</button>
         <div class="menu-sep"></div>
         <button data-act="export">Export JSON</button>
@@ -337,25 +378,61 @@
 
 <input type="file" id="fileImport" accept="application/json" hidden />
 <input type="file" id="csvImport" accept=".csv,text/csv" hidden />
+<input type="file" id="photoImport" accept="image/*" capture="environment" hidden />
 
 <!-- Settings sheet -->
 <div class="sheet-back" id="settingsBack">
   <div class="sheet">
     <h2>Settings</h2>
     <p class="info-text">
-      For <b>Auto-sync (Plaid)</b>, you need a backend server you control.
-      Deploy the included <code>render.yaml</code> to Render's free tier,
-      then paste the URL here. Leave blank if you only use CSV import.
+      For Auto-sync, AI detection, and image extraction, you need a backend
+      server you control. Deploy the included <code>render.yaml</code> to
+      Render's free tier, then paste the URL here. CSV import works without
+      a backend.
     </p>
     <div class="field">
       <label>Backend URL</label>
       <input id="backendUrlInput" type="url" placeholder="https://subs-api.onrender.com" autocomplete="off" />
     </div>
-    <p class="info-text" id="plaidStatus">Backend not configured.</p>
+
+    <div class="toggle-row">
+      <label class="toggle-label" for="useAiInput">
+        <div class="title-l">Use AI to find missed subscriptions</div>
+        <div class="sub-l">After each CSV import, ask Claude Haiku to catch what the heuristics missed (e.g. obfuscated merchants like PYP*NETFLIX). ~$0.01/import.</div>
+      </label>
+      <input type="checkbox" id="useAiInput" />
+    </div>
+
+    <p class="info-text" id="backendStatus">Backend not configured.</p>
     <div class="actions">
       <button type="button" class="btn danger" id="disconnectBtn" style="display:none">Disconnect bank</button>
       <button type="button" class="btn" id="settingsCloseBtn">Close</button>
       <button type="button" class="btn primary" id="settingsSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Paste sheet (text or image) -->
+<div class="sheet-back" id="pasteBack">
+  <div class="sheet">
+    <h2>Paste statement</h2>
+    <div class="paste-mode">
+      <div class="seg active" data-mode="text">Text</div>
+      <div class="seg" data-mode="image">Image</div>
+    </div>
+    <p class="info-text" id="pasteHint">
+      Paste rows from your card statement (CSV, tab-separated, or any
+      columnar text with date, description, amount). Tip: long-press in
+      your bank app, select the transactions, copy, then paste here.
+    </p>
+    <textarea class="paste-area" id="pasteArea" placeholder="Paste text or an image here…" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+    <div class="paste-preview" id="pastePreview">
+      <img id="pasteImg" alt="Pasted image" />
+      <div class="pp-row"><span id="pasteImgInfo">Image ready</span><button type="button" id="pasteImgClear">Remove</button></div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn" id="pasteCloseBtn">Cancel</button>
+      <button type="button" class="btn primary" id="pasteGoBtn">Detect</button>
     </div>
   </div>
 </div>
@@ -605,6 +682,8 @@
     if (act === 'sample') loadSample();
     if (act === 'clear') clearAll();
     if (act === 'import-csv') $('#csvImport').click();
+    if (act === 'paste') openPasteSheet();
+    if (act === 'photo') $('#photoImport').click();
     if (act === 'sync') startSync();
     if (act === 'settings') openSettings();
   });
@@ -681,7 +760,8 @@
   const settingsBack = $('#settingsBack');
   const openSettings = async () => {
     $('#backendUrlInput').value = settings.backendUrl || '';
-    await refreshPlaidStatus();
+    $('#useAiInput').checked = !!settings.useAi;
+    await refreshBackendStatus();
     settingsBack.classList.add('open');
   };
   const closeSettings = () => settingsBack.classList.remove('open');
@@ -690,26 +770,43 @@
   settingsBack.addEventListener('click', (e) => { if (e.target === settingsBack) closeSettings(); });
   $('#settingsSaveBtn').addEventListener('click', async () => {
     settings.backendUrl = $('#backendUrlInput').value.trim();
+    settings.useAi = $('#useAiInput').checked;
     saveSettings(settings);
-    await refreshPlaidStatus();
+    await refreshBackendStatus();
   });
 
-  const refreshPlaidStatus = async () => {
-    const status = $('#plaidStatus');
+  let lastBackendStatus = { plaid: null, ai: null };
+
+  const refreshBackendStatus = async () => {
+    const status = $('#backendStatus');
     const disc = $('#disconnectBtn');
     disc.style.display = 'none';
-    if (!backendUrl()) { status.textContent = 'Backend not configured.'; return null; }
+    lastBackendStatus = { plaid: null, ai: null };
+    if (!backendUrl()) { status.textContent = 'Backend not configured.'; return lastBackendStatus; }
     try {
-      const r = await fetch(backendUrl() + '/plaid/status');
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const j = await r.json();
-      if (!j.ready) status.textContent = `Backend reachable but Plaid keys are missing (env: ${j.env || '?'}).`;
-      else if (!j.connected) status.textContent = `Connected to backend (${j.env}). No bank linked yet.`;
-      else { status.textContent = `Bank linked (${j.env}).`; disc.style.display = 'block'; }
-      return j;
+      const [plaidRes, aiRes] = await Promise.all([
+        fetch(backendUrl() + '/plaid/status').then((r) => r.ok ? r.json() : null).catch(() => null),
+        fetch(backendUrl() + '/ai/status').then((r) => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      if (!plaidRes && !aiRes) {
+        status.textContent = 'Could not reach backend at ' + backendUrl();
+        return lastBackendStatus;
+      }
+      lastBackendStatus = { plaid: plaidRes, ai: aiRes };
+      const lines = [];
+      if (plaidRes) {
+        if (!plaidRes.ready) lines.push(`Plaid: keys missing (${plaidRes.env}).`);
+        else if (!plaidRes.connected) lines.push(`Plaid: ready (${plaidRes.env}). No bank linked.`);
+        else { lines.push(`Plaid: bank linked (${plaidRes.env}).`); disc.style.display = 'block'; }
+      }
+      if (aiRes) {
+        lines.push(aiRes.ready ? `AI: ready (${aiRes.model}).` : 'AI: ANTHROPIC_API_KEY missing on backend.');
+      }
+      status.textContent = lines.join(' ');
+      return lastBackendStatus;
     } catch (err) {
       status.textContent = 'Could not reach backend: ' + err.message;
-      return null;
+      return lastBackendStatus;
     }
   };
 
@@ -717,7 +814,7 @@
     if (!confirm('Disconnect bank from backend?')) return;
     try {
       await fetch(backendUrl() + '/plaid/disconnect', { method: 'POST' });
-      await refreshPlaidStatus();
+      await refreshBackendStatus();
     } catch (err) { alert('Failed: ' + err.message); }
   });
 
@@ -922,7 +1019,7 @@
           <label class="review-row">
             <input type="checkbox" data-i="${i}" ${checked} />
             <div>
-              <div class="cand-name">${escapeHtml(c.name)}${existing ? '<span class="pill update">update</span>' : ''}</div>
+              <div class="cand-name">${escapeHtml(c.name)}${existing ? '<span class="pill update">update</span>' : ''}${c._source === 'ai' ? '<span class="pill ai">AI</span>' : ''}</div>
               <div class="cand-meta">${fmtMoney(c.amount, c.currency)} · ${c.cycle} · next ${c.nextDate} · ${c._samples}× seen</div>
               <div class="cand-edits">
                 <input data-i="${i}" data-f="name" value="${escapeHtml(c.name)}" />
@@ -979,21 +1076,224 @@
     }
   });
 
-  // ── CSV import flow ──
+  // ── CSV / paste import flow ──
+
+  const extractTransactionsForAI = (rows, cols) => {
+    const out = [];
+    const startIdx = cols.headerIdx >= 0 ? cols.headerIdx + 1 : 0;
+    for (let i = startIdx; i < rows.length; i++) {
+      const r = rows[i];
+      const date = parseRowDate(r[cols.dateCol]);
+      const desc = String(r[cols.descCol] || '').trim();
+      let amount;
+      if (cols.amountCol >= 0) {
+        amount = parseAmount(r[cols.amountCol]);
+      } else {
+        const debit = parseAmount(r[cols.debitCol]);
+        const credit = parseAmount(r[cols.creditCol]);
+        if (!isNaN(debit) && debit !== 0) amount = -Math.abs(debit);
+        else if (!isNaN(credit) && credit !== 0) amount = Math.abs(credit);
+        else amount = NaN;
+      }
+      if (!date || !desc || isNaN(amount)) continue;
+      out.push({ date: date.toISOString().slice(0, 10), desc, amount: Math.round(amount * 100) / 100 });
+    }
+    return out;
+  };
+
+  const aiRefineCandidates = async (candidates, transactions) => {
+    if (!settings.useAi || !backendUrl()) return [];
+    try {
+      const r = await fetch(backendUrl() + '/ai/detect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transactions,
+          heuristicNames: candidates.map((c) => c.name),
+          today: new Date().toISOString().slice(0, 10),
+          currency: candidates[0]?.currency || 'USD',
+        }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const { candidates: aiCands } = await r.json();
+      return (aiCands || []).map((c) => ({ ...c, id: crypto.randomUUID() }));
+    } catch (err) {
+      console.warn('AI refine failed (continuing with heuristic only):', err.message);
+      return [];
+    }
+  };
+
+  const mergeCandidates = (base, extras) => {
+    const baseKeys = new Set(base.map((c) => normalizeMerchant(c.name)));
+    const result = base.slice();
+    for (const c of extras) {
+      const key = normalizeMerchant(c.name);
+      if (!key || baseKeys.has(key)) continue;
+      baseKeys.add(key);
+      result.push(c);
+    }
+    return result;
+  };
+
+  const runTextDetection = async (text, sourceLabel) => {
+    const rows = parseCSV(text);
+    const cols = detectColumns(rows);
+    if (!cols) throw new Error("couldn't find Date / Description / Amount columns");
+    let candidates = detectRecurring(rows, cols);
+    if (settings.useAi && backendUrl()) {
+      const txns = extractTransactionsForAI(rows, cols);
+      if (txns.length) {
+        const aiCands = await aiRefineCandidates(candidates, txns);
+        candidates = mergeCandidates(candidates, aiCands);
+      }
+    }
+    openReview(candidates, sourceLabel);
+  };
+
   $('#csvImport').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
     try {
       const text = await file.text();
-      const rows = parseCSV(text);
-      const cols = detectColumns(rows);
-      if (!cols) throw new Error("couldn't find Date / Description / Amount columns");
-      const candidates = detectRecurring(rows, cols);
-      openReview(candidates, file.name);
+      await runTextDetection(text, file.name);
     } catch (err) {
       alert('CSV import failed: ' + err.message);
     }
     e.target.value = '';
   });
+
+  // ── Paste sheet (text or image) ──
+  const pasteBack = $('#pasteBack');
+  let pasteMode = 'text';
+  let pasteImageDataUrl = null;
+
+  const openPasteSheet = () => {
+    pasteMode = 'text';
+    pasteImageDataUrl = null;
+    $('#pasteArea').value = '';
+    $('#pastePreview').style.display = 'none';
+    $('#pasteImg').src = '';
+    $('#pasteArea').style.display = '';
+    $$('.paste-mode .seg').forEach((el) => el.classList.toggle('active', el.dataset.mode === 'text'));
+    $('#pasteHint').textContent = 'Paste rows from your card statement (CSV, tab-separated, or any columnar text with date, description, amount). Tip: long-press in your bank app, select the transactions, copy, then paste here.';
+    pasteBack.classList.add('open');
+    setTimeout(() => $('#pasteArea').focus(), 60);
+  };
+  const closePasteSheet = () => pasteBack.classList.remove('open');
+
+  $('#pasteCloseBtn').addEventListener('click', closePasteSheet);
+  pasteBack.addEventListener('click', (e) => { if (e.target === pasteBack) closePasteSheet(); });
+
+  $$('.paste-mode .seg').forEach((el) => {
+    el.addEventListener('click', () => {
+      const mode = el.dataset.mode;
+      pasteMode = mode;
+      $$('.paste-mode .seg').forEach((s) => s.classList.toggle('active', s.dataset.mode === mode));
+      if (mode === 'image') {
+        $('#pasteHint').textContent = 'Paste a screenshot of your statement (long-press → Paste in iOS, Ctrl/⌘-V in browser). Or use "Photo of statement" from the menu to capture one. Needs backend with ANTHROPIC_API_KEY.';
+        $('#pasteArea').placeholder = 'Paste an image here (long-press → Paste)';
+      } else {
+        $('#pasteHint').textContent = 'Paste rows from your card statement (CSV, tab-separated, or any columnar text with date, description, amount).';
+        $('#pasteArea').placeholder = 'Paste text or an image here…';
+      }
+    });
+  });
+
+  $('#pasteArea').addEventListener('paste', async (e) => {
+    const items = e.clipboardData?.items || [];
+    for (const it of items) {
+      if (it.kind === 'file' && it.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = it.getAsFile();
+        if (!file) return;
+        await loadPasteImage(file);
+        return;
+      }
+    }
+  });
+
+  const loadPasteImage = async (file) => {
+    const dataUrl = await fileToDataUrl(file);
+    pasteImageDataUrl = dataUrl;
+    pasteMode = 'image';
+    $('#pasteImg').src = dataUrl;
+    $('#pasteImgInfo').textContent = `Image ready (${Math.round(file.size / 1024)} KB)`;
+    $('#pastePreview').style.display = 'block';
+    $('#pasteArea').style.display = 'none';
+    $$('.paste-mode .seg').forEach((s) => s.classList.toggle('active', s.dataset.mode === 'image'));
+  };
+
+  $('#pasteImgClear').addEventListener('click', () => {
+    pasteImageDataUrl = null;
+    $('#pastePreview').style.display = 'none';
+    $('#pasteArea').style.display = '';
+    pasteMode = 'text';
+    $$('.paste-mode .seg').forEach((s) => s.classList.toggle('active', s.dataset.mode === 'text'));
+  });
+
+  const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error('Could not read file'));
+    r.readAsDataURL(file);
+  });
+
+  const setBusy = (btn, busy, label) => {
+    if (busy) {
+      btn.dataset.origText = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>' + (label || 'Working…');
+    } else {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.origText || 'Save';
+    }
+  };
+
+  $('#pasteGoBtn').addEventListener('click', async () => {
+    const btn = $('#pasteGoBtn');
+    setBusy(btn, true, 'Detecting…');
+    try {
+      if (pasteImageDataUrl) {
+        await runImageDetection(pasteImageDataUrl, 'pasted image');
+      } else {
+        const text = $('#pasteArea').value;
+        if (!text.trim()) throw new Error('Nothing to detect — paste text or an image first.');
+        await runTextDetection(text, 'pasted text');
+      }
+      closePasteSheet();
+    } catch (err) {
+      alert('Detection failed: ' + err.message);
+    } finally {
+      setBusy(btn, false);
+    }
+  });
+
+  // ── Photo (camera/gallery) ──
+  $('#photoImport').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      await runImageDetection(dataUrl, file.name);
+    } catch (err) {
+      alert('Photo import failed: ' + err.message);
+    }
+    e.target.value = '';
+  });
+
+  const runImageDetection = async (dataUrl, sourceLabel) => {
+    if (!backendUrl()) throw new Error('Set a Backend URL in Settings first (image extraction needs ANTHROPIC_API_KEY on the backend).');
+    const r = await fetch(backendUrl() + '/ai/extract-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, today: new Date().toISOString().slice(0, 10), currency: 'USD' }),
+    });
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({}));
+      throw new Error(detail.detail || ('HTTP ' + r.status));
+    }
+    const { candidates } = await r.json();
+    const cands = (candidates || []).map((c) => ({ ...c, id: crypto.randomUUID() }));
+    openReview(cands, sourceLabel);
+  };
 
   // ── Plaid auto-sync flow ──
   const loadPlaidLink = () => new Promise((resolve, reject) => {

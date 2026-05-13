@@ -8,6 +8,7 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.2",
     "axios": "^1.7.2",
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",
