@@ -1075,9 +1075,20 @@
     }
   };
 
-  // ── Service worker (offline) ──
+  // ── Service worker (offline + auto-update) ──
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('subs-sw.js').catch(() => {});
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register('subs-sw.js', { updateViaCache: 'none' })
+      .then((reg) => {
+        reg.update().catch(() => {});
+        setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+      })
+      .catch(() => {});
   }
 
   render();
