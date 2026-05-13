@@ -6,6 +6,9 @@ const fs = require('fs');
 const path = require('path');
 const { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } = require('plaid');
 const Anthropic = require('@anthropic-ai/sdk');
+const { spawn } = require('child_process');
+const os = require('os');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -102,6 +105,8 @@ function plaidFrequencyToCycle(freq) {
 // ── Anthropic (AI subscription detection) ────────────────────────────────────
 
 const AI_MODEL = 'claude-haiku-4-5';
+const AI_BACKEND = (process.env.AI_BACKEND || 'sdk').toLowerCase();
+const CLAUDE_CODE_BIN = process.env.CLAUDE_CODE_BIN || 'claude';
 
 let anthropicClient = null;
 function getAnthropicClient() {
@@ -197,6 +202,87 @@ function normalizeCandidate(c) {
     _confidence: typeof c.confidence === 'number' ? Math.min(1, Math.max(0, c.confidence)) : 0.7,
     _source: 'ai',
   };
+}
+
+// ── Claude Code routing (uses your Max plan via the Claude Code CLI) ─────────
+
+function runClaudeCode(prompt, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-p', prompt,
+      '--output-format', 'json',
+      '--permission-mode', 'bypassPermissions',
+    ];
+    const proc = spawn(CLAUDE_CODE_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    const t = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} reject(new Error('claude timed out')); }, timeoutMs);
+    proc.stdout.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('error', (err) => { clearTimeout(t); reject(new Error(`spawn claude failed: ${err.message}`)); });
+    proc.on('close', (code) => {
+      clearTimeout(t);
+      if (code !== 0) return reject(new Error(`claude exited ${code}: ${(stderr || stdout).slice(0, 500)}`));
+      try {
+        const meta = JSON.parse(stdout);
+        if (meta.is_error || meta.subtype === 'error') return reject(new Error(meta.result || JSON.stringify(meta)));
+        resolve(meta.result || '');
+      } catch (err) {
+        reject(new Error(`could not parse claude output: ${err.message}\n${stdout.slice(0, 500)}`));
+      }
+    });
+  });
+}
+
+function extractJsonObject(text) {
+  try { return JSON.parse(text); } catch {}
+  const m = text.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch {} }
+  throw new Error('No valid JSON object in Claude output');
+}
+
+async function claudeCodeDetect({ transactions, heuristicNames, today, currency }) {
+  const payload = { today, currency, heuristicNames, transactions };
+  const prompt = `${DETECT_SYSTEM}
+
+Schema you must follow:
+${JSON.stringify(CANDIDATES_SCHEMA, null, 2)}
+
+Output ONLY the JSON object — no prose, no markdown fences.
+
+Data to analyze:
+${JSON.stringify(payload)}`;
+  const text = await runClaudeCode(prompt);
+  return extractJsonObject(text);
+}
+
+async function claudeCodeExtractFile(mediaType, b64, today, currency) {
+  const ext = mediaType === 'application/pdf' ? 'pdf' : (mediaType.split('/')[1] || 'bin');
+  const tmpFile = path.join(os.tmpdir(), `subs-${crypto.randomUUID()}.${ext}`);
+  fs.writeFileSync(tmpFile, Buffer.from(b64, 'base64'));
+  try {
+    const isPdf = mediaType === 'application/pdf';
+    const prompt = `${EXTRACT_SYSTEM}
+
+Use the Read tool to view the file at ${tmpFile} (it is ${isPdf ? 'a PDF bank statement' : 'a screenshot of a statement'}). today=${today} default_currency=${currency}.
+
+Schema you must follow:
+${JSON.stringify(CANDIDATES_SCHEMA, null, 2)}
+
+Output ONLY the JSON object — no prose, no markdown fences.`;
+    const text = await runClaudeCode(prompt, 180000);
+    return extractJsonObject(text);
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch {}
+  }
+}
+
+function checkClaudeCodeAvailable() {
+  return new Promise((resolve) => {
+    const proc = spawn(CLAUDE_CODE_BIN, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.on('error', () => resolve(false));
+    proc.on('close', (code) => resolve(code === 0));
+  });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -408,27 +494,37 @@ app.post('/plaid/disconnect', async (req, res) => {
 
 // ── AI routes ─────────────────────────────────────────────────────────────────
 
-app.get('/ai/status', (req, res) => {
-  res.json({ ready: anthropicReady(), model: AI_MODEL });
+app.get('/ai/status', async (req, res) => {
+  if (AI_BACKEND === 'claude-code') {
+    const ok = await checkClaudeCodeAvailable();
+    return res.json({ ready: ok, model: 'claude-code', backend: 'claude-code' });
+  }
+  res.json({ ready: anthropicReady(), model: AI_MODEL, backend: 'sdk' });
 });
 
 app.post('/ai/detect', async (req, res) => {
-  if (!anthropicReady()) return res.status(400).json({ error: 'AI not configured' });
   const { transactions, heuristicNames, today, currency } = req.body || {};
   if (!Array.isArray(transactions)) return res.status(400).json({ error: 'missing transactions' });
 
+  const args = {
+    today: today || new Date().toISOString().slice(0, 10),
+    currency: currency || 'USD',
+    heuristicNames: Array.isArray(heuristicNames) ? heuristicNames : [],
+    transactions: transactions.slice(0, 800),
+  };
+
   try {
-    const payload = JSON.stringify({
-      today: today || new Date().toISOString().slice(0, 10),
-      currency: currency || 'USD',
-      heuristicNames: Array.isArray(heuristicNames) ? heuristicNames : [],
-      transactions: transactions.slice(0, 800),
-    });
-    const result = await callAnthropicJson({
-      system: DETECT_SYSTEM,
-      userContent: payload,
-      maxTokens: 2048,
-    });
+    let result;
+    if (AI_BACKEND === 'claude-code') {
+      result = await claudeCodeDetect(args);
+    } else {
+      if (!anthropicReady()) return res.status(400).json({ error: 'AI not configured' });
+      result = await callAnthropicJson({
+        system: DETECT_SYSTEM,
+        userContent: JSON.stringify(args),
+        maxTokens: 2048,
+      });
+    }
     const candidates = (result.candidates || []).map(normalizeCandidate);
     res.json({ candidates });
   } catch (err) {
@@ -457,8 +553,18 @@ async function callAnthropicExtract(mediaType, b64, today, currency) {
   return (parsed.candidates || []).map(normalizeCandidate);
 }
 
+async function extractDispatch(mediaType, b64, today, currency) {
+  const t = today || new Date().toISOString().slice(0, 10);
+  const c = currency || 'USD';
+  if (AI_BACKEND === 'claude-code') {
+    const parsed = await claudeCodeExtractFile(mediaType, b64, t, c);
+    return (parsed.candidates || []).map(normalizeCandidate);
+  }
+  if (!anthropicReady()) { const e = new Error('AI not configured'); e.status = 400; throw e; }
+  return callAnthropicExtract(mediaType, b64, t, c);
+}
+
 app.post('/ai/extract', async (req, res) => {
-  if (!anthropicReady()) return res.status(400).json({ error: 'AI not configured' });
   const { file, today, currency } = req.body || {};
   if (typeof file !== 'string' || !file.startsWith('data:')) {
     return res.status(400).json({ error: 'file must be a data URL (data:image/...;base64,... or data:application/pdf;base64,...)' });
@@ -466,17 +572,16 @@ app.post('/ai/extract', async (req, res) => {
   const m = file.match(/^data:(image\/[a-zA-Z0-9.+-]+|application\/pdf);base64,(.+)$/);
   if (!m) return res.status(400).json({ error: 'unsupported file type (image/* or application/pdf only)' });
   try {
-    const candidates = await callAnthropicExtract(m[1], m[2], today, currency);
+    const candidates = await extractDispatch(m[1], m[2], today, currency);
     res.json({ candidates });
   } catch (err) {
-    const status = err instanceof Anthropic.APIError ? err.status || 500 : 500;
+    const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
     console.error('AI extract error:', err.message);
     res.status(status).json({ error: 'ai_failed', detail: err.message });
   }
 });
 
 app.post('/ai/extract-image', async (req, res) => {
-  if (!anthropicReady()) return res.status(400).json({ error: 'AI not configured' });
   const { image, today, currency } = req.body || {};
   if (typeof image !== 'string' || !image.startsWith('data:image/')) {
     return res.status(400).json({ error: 'image must be a data URL (data:image/...;base64,...)' });
@@ -484,10 +589,10 @@ app.post('/ai/extract-image', async (req, res) => {
   const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!m) return res.status(400).json({ error: 'invalid image data URL' });
   try {
-    const candidates = await callAnthropicExtract(m[1], m[2], today, currency);
+    const candidates = await extractDispatch(m[1], m[2], today, currency);
     res.json({ candidates });
   } catch (err) {
-    const status = err instanceof Anthropic.APIError ? err.status || 500 : 500;
+    const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
     console.error('AI extract-image error:', err.message);
     res.status(status).json({ error: 'ai_failed', detail: err.message });
   }
