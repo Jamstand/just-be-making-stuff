@@ -4,11 +4,23 @@
     "$className": "DataModel",
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "CoinService": {
-        "$path": "src/server/CoinService.server.luau"
+      "PlayerDataService": {
+        "$path": "src/server/PlayerDataService.server.luau"
+      },
+      "UpgradeService": {
+        "$path": "src/server/UpgradeService.server.luau"
       },
       "Leaderboard": {
         "$path": "src/server/Leaderboard.server.luau"
+      },
+      "CoinService": {
+        "$path": "src/server/CoinService.server.luau"
+      },
+      "ShopService": {
+        "$path": "src/server/ShopService.server.luau"
+      },
+      "MonetizationService": {
+        "$path": "src/server/MonetizationService.server.luau"
       }
     },
     "ReplicatedStorage": {
@@ -21,9 +33,13 @@
       },
       "Remotes": {
         "$className": "Folder",
-        "CoinCollected": {
-          "$className": "RemoteEvent"
-        }
+        "CoinCollected": { "$className": "RemoteEvent" },
+        "PlayerDataUpdated": { "$className": "RemoteEvent" },
+        "ShowToast": { "$className": "RemoteEvent" },
+        "PurchaseUpgrade": { "$className": "RemoteFunction" },
+        "ClaimDailyReward": { "$className": "RemoteFunction" },
+        "PromptGemProduct": { "$className": "RemoteEvent" },
+        "PromptGamePass": { "$className": "RemoteEvent" }
       }
     },
     "StarterPlayer": {
@@ -32,13 +48,13 @@
         "$className": "StarterPlayerScripts",
         "CoinClient": {
           "$path": "src/client/CoinClient.client.luau"
+        },
+        "HudGui": {
+          "$path": "src/client/HudGui.client.luau"
+        },
+        "ShopGui": {
+          "$path": "src/client/ShopGui.client.luau"
         }
-      }
-    },
-    "StarterGui": {
-      "$className": "StarterGui",
-      "ScoreGui": {
-        "$path": "src/client/ScoreGui.client.luau"
       }
     },
     "Workspace": {
@@ -49,12 +65,11 @@
       "Baseplate": {
         "$className": "Part",
         "$properties": {
-          "Name": "Baseplate",
           "Size": [200, 1, 200],
           "Position": [0, 0, 0],
           "Anchored": true,
           "Material": "Grass",
-          "BrickColor": "Bright green",
+          "Color": [0.29, 0.59, 0.29],
           "TopSurface": "Smooth",
           "BottomSurface": "Smooth"
         }
@@ -65,18 +80,30 @@
           "Size": [6, 1, 6],
           "Position": [0, 1, 0],
           "Anchored": true,
-          "BrickColor": "Bright blue",
+          "Color": [0.05, 0.41, 0.67],
           "TopSurface": "Smooth"
+        }
+      },
+      "ShopBeacon": {
+        "$className": "Part",
+        "$properties": {
+          "Size": [4, 8, 4],
+          "Position": [12, 4, 0],
+          "Anchored": true,
+          "CanCollide": false,
+          "Material": "Neon",
+          "Color": [0.85, 0.2, 0.85],
+          "Transparency": 0.2
         }
       }
     },
     "Lighting": {
       "$className": "Lighting",
       "$properties": {
-        "Ambient": [80, 80, 100],
+        "Ambient": [0.31, 0.31, 0.39],
         "Brightness": 2,
         "ClockTime": 14,
-        "FogColor": [180, 200, 220],
+        "FogColor": [0.71, 0.78, 0.86],
         "FogEnd": 1000
       }
     }
