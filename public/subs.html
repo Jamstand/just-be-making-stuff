@@ -188,8 +188,39 @@
     padding: 9px 10px; border-radius: 8px; font: inherit; cursor: pointer;
   }
   .menu button:hover { background: var(--bg-elev-2); }
+  .menu-sep { height: 1px; background: var(--line); margin: 5px 4px; }
 
   .header-row { display: flex; align-items: center; justify-content: space-between; position: relative; }
+
+  .info-text { color: var(--text-dim); font-size: 13px; margin: 0 0 12px; line-height: 1.5; }
+  .info-text code { background: var(--bg-elev-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+  .review-row {
+    display: grid; grid-template-columns: auto 1fr; gap: 12px;
+    padding: 10px 12px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .review-row input[type="checkbox"] { width: 20px; height: 20px; margin-top: 4px; accent-color: var(--accent); }
+  .review-row .cand-name { font-weight: 600; }
+  .review-row .cand-meta { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+  .review-row .cand-edits {
+    display: grid; grid-template-columns: 1fr 96px; gap: 6px; margin-top: 8px;
+  }
+  .review-row .cand-edits input {
+    background: var(--bg-elev);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 7px 9px;
+    font: inherit;
+    font-size: 13px;
+    width: 100%;
+  }
+  .review-row .pill.update { background: rgba(124,156,255,.15); color: var(--accent); border-color: rgba(124,156,255,.3); margin-left: 6px; }
 </style>
 </head>
 <body>
@@ -200,10 +231,15 @@
       <div class="title">Subs <small>your subscriptions</small></div>
       <button class="menu-toggle" id="menuBtn" aria-label="Menu">⋯</button>
       <div class="menu" id="menu">
+        <button data-act="import-csv">Import statement CSV</button>
+        <button data-act="sync">Auto-sync (Plaid)</button>
+        <div class="menu-sep"></div>
         <button data-act="export">Export JSON</button>
         <button data-act="import">Import JSON</button>
         <button data-act="sample">Load sample data</button>
         <button data-act="clear">Clear all</button>
+        <div class="menu-sep"></div>
+        <button data-act="settings">Settings…</button>
       </div>
     </div>
 
@@ -300,6 +336,42 @@
 </div>
 
 <input type="file" id="fileImport" accept="application/json" hidden />
+<input type="file" id="csvImport" accept=".csv,text/csv" hidden />
+
+<!-- Settings sheet -->
+<div class="sheet-back" id="settingsBack">
+  <div class="sheet">
+    <h2>Settings</h2>
+    <p class="info-text">
+      For <b>Auto-sync (Plaid)</b>, you need a backend server you control.
+      Deploy the included <code>render.yaml</code> to Render's free tier,
+      then paste the URL here. Leave blank if you only use CSV import.
+    </p>
+    <div class="field">
+      <label>Backend URL</label>
+      <input id="backendUrlInput" type="url" placeholder="https://subs-api.onrender.com" autocomplete="off" />
+    </div>
+    <p class="info-text" id="plaidStatus">Backend not configured.</p>
+    <div class="actions">
+      <button type="button" class="btn danger" id="disconnectBtn" style="display:none">Disconnect bank</button>
+      <button type="button" class="btn" id="settingsCloseBtn">Close</button>
+      <button type="button" class="btn primary" id="settingsSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Review sheet (used for both CSV and Plaid imports) -->
+<div class="sheet-back" id="reviewBack">
+  <div class="sheet">
+    <h2 id="reviewTitle">Review detected subscriptions</h2>
+    <p class="info-text" id="reviewInfo">Pick which to add.</p>
+    <div id="reviewList"></div>
+    <div class="actions">
+      <button type="button" class="btn" id="reviewCancelBtn">Cancel</button>
+      <button type="button" class="btn primary" id="reviewAddBtn">Add selected</button>
+    </div>
+  </div>
+</div>
 
 <script>
 (() => {
@@ -532,6 +604,9 @@
     if (act === 'import') $('#fileImport').click();
     if (act === 'sample') loadSample();
     if (act === 'clear') clearAll();
+    if (act === 'import-csv') $('#csvImport').click();
+    if (act === 'sync') startSync();
+    if (act === 'settings') openSettings();
   });
 
   const exportJson = () => {
@@ -590,6 +665,414 @@
     subs = [];
     save(subs);
     render();
+  };
+
+  // ── Settings (backend URL for Plaid) ──
+  const SETTINGS_KEY = 'subs.settings';
+  const loadSettings = () => {
+    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; }
+    catch { return {}; }
+  };
+  const saveSettings = (s) => localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  let settings = loadSettings();
+
+  const backendUrl = () => (settings.backendUrl || '').replace(/\/+$/, '');
+
+  const settingsBack = $('#settingsBack');
+  const openSettings = async () => {
+    $('#backendUrlInput').value = settings.backendUrl || '';
+    await refreshPlaidStatus();
+    settingsBack.classList.add('open');
+  };
+  const closeSettings = () => settingsBack.classList.remove('open');
+
+  $('#settingsCloseBtn').addEventListener('click', closeSettings);
+  settingsBack.addEventListener('click', (e) => { if (e.target === settingsBack) closeSettings(); });
+  $('#settingsSaveBtn').addEventListener('click', async () => {
+    settings.backendUrl = $('#backendUrlInput').value.trim();
+    saveSettings(settings);
+    await refreshPlaidStatus();
+  });
+
+  const refreshPlaidStatus = async () => {
+    const status = $('#plaidStatus');
+    const disc = $('#disconnectBtn');
+    disc.style.display = 'none';
+    if (!backendUrl()) { status.textContent = 'Backend not configured.'; return null; }
+    try {
+      const r = await fetch(backendUrl() + '/plaid/status');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      if (!j.ready) status.textContent = `Backend reachable but Plaid keys are missing (env: ${j.env || '?'}).`;
+      else if (!j.connected) status.textContent = `Connected to backend (${j.env}). No bank linked yet.`;
+      else { status.textContent = `Bank linked (${j.env}).`; disc.style.display = 'block'; }
+      return j;
+    } catch (err) {
+      status.textContent = 'Could not reach backend: ' + err.message;
+      return null;
+    }
+  };
+
+  $('#disconnectBtn').addEventListener('click', async () => {
+    if (!confirm('Disconnect bank from backend?')) return;
+    try {
+      await fetch(backendUrl() + '/plaid/disconnect', { method: 'POST' });
+      await refreshPlaidStatus();
+    } catch (err) { alert('Failed: ' + err.message); }
+  });
+
+  // ── CSV parser ──
+  const parseCSV = (text) => {
+    const sample = text.split(/\r?\n/).slice(0, 5).join('\n');
+    const counts = { ',': (sample.match(/,/g) || []).length, ';': (sample.match(/;/g) || []).length, '\t': (sample.match(/\t/g) || []).length };
+    const delim = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0] || ',';
+    const rows = [];
+    let cur = [''];
+    let inQ = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQ) {
+        if (c === '"' && text[i+1] === '"') { cur[cur.length-1] += '"'; i++; }
+        else if (c === '"') inQ = false;
+        else cur[cur.length-1] += c;
+      } else {
+        if (c === '"') inQ = true;
+        else if (c === delim) cur.push('');
+        else if (c === '\r') { /* skip */ }
+        else if (c === '\n') { rows.push(cur); cur = ['']; }
+        else cur[cur.length-1] += c;
+      }
+    }
+    if (cur.length > 1 || cur[0]) rows.push(cur);
+    return rows.filter(r => r.some(c => String(c).trim()));
+  };
+
+  const detectColumns = (rows) => {
+    for (let i = 0; i < Math.min(5, rows.length); i++) {
+      const cells = rows[i].map(c => String(c).toLowerCase().trim());
+      const dateCol = cells.findIndex(c => /\b(date|posted|trans)/.test(c));
+      const descCol = cells.findIndex(c => /(desc|memo|payee|merchant|details|narration|name)/.test(c));
+      const amountCol = cells.findIndex(c => /^(amount|amt)\b/.test(c));
+      const debitCol = cells.findIndex(c => /^(debit|withdrawal|out)/.test(c));
+      const creditCol = cells.findIndex(c => /^(credit|deposit|in)/.test(c));
+      if (dateCol >= 0 && descCol >= 0 && (amountCol >= 0 || debitCol >= 0)) {
+        return { headerIdx: i, dateCol, descCol, amountCol, debitCol, creditCol };
+      }
+    }
+    if (!rows.length) return null;
+    const sample = rows[0];
+    let dateCol = -1, amountCol = -1, descCol = -1;
+    for (let c = 0; c < sample.length; c++) {
+      const v = String(sample[c] || '').trim();
+      if (dateCol < 0 && parseRowDate(v)) dateCol = c;
+      else if (amountCol < 0 && /-?[\$£€]?\d[\d,]*\.?\d*$/.test(v.trim())) amountCol = c;
+      else if (descCol < 0 && v.length > 3 && /[a-z]/i.test(v)) descCol = c;
+    }
+    if (dateCol >= 0 && descCol >= 0 && amountCol >= 0) {
+      return { headerIdx: -1, dateCol, descCol, amountCol, debitCol: -1, creditCol: -1 };
+    }
+    return null;
+  };
+
+  const parseAmount = (s) => {
+    if (s == null || s === '') return NaN;
+    const str = String(s).trim();
+    const neg = /^\(.*\)$/.test(str) || str.startsWith('-');
+    const cleaned = str.replace(/[^0-9.]/g, '');
+    if (!cleaned) return NaN;
+    const n = parseFloat(cleaned);
+    if (isNaN(n)) return NaN;
+    return neg ? -n : n;
+  };
+
+  const parseRowDate = (s) => {
+    if (!s) return null;
+    const str = String(s).trim();
+    let d = new Date(str);
+    if (!isNaN(d)) return d;
+    const m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+    if (m) {
+      let [, a, b, y] = m;
+      if (y.length === 2) y = '20' + y;
+      d = new Date(+y, +a - 1, +b);
+      if (!isNaN(d)) return d;
+    }
+    return null;
+  };
+
+  const normalizeMerchant = (s) => {
+    let n = String(s || '').toLowerCase();
+    n = n.replace(/\d{2}\/\d{2}(\/\d{2,4})?/g, ' ');
+    n = n.replace(/[^a-z0-9 ]+/g, ' ');
+    n = n.replace(/\b\d{3,}\b/g, ' ');
+    n = n.replace(/\b(pos|debit|credit|purchase|payment|recurring|auto|aut|ach|web|online|sq|sp|tst|fee|card|visa|mastercard|amex|usa|inc|llc|co)\b/g, ' ');
+    n = n.replace(/\s+[a-z]{2}\s*$/i, ' ');
+    n = n.replace(/\s+/g, ' ').trim();
+    return n;
+  };
+
+  const titleCase = (s) => s.replace(/\w\S*/g, t => t.charAt(0).toUpperCase() + t.slice(1).toLowerCase());
+
+  const median = (arr) => { const s = [...arr].sort((a,b)=>a-b); return s[Math.floor(s.length/2)]; };
+
+  const cycleFromDays = (days) => {
+    if (days >= 6 && days <= 9) return { cycle: 'weekly', target: 7 };
+    if (days >= 13 && days <= 16) return { cycle: 'weekly', target: 14 };
+    if (days >= 26 && days <= 33) return { cycle: 'monthly', target: 30 };
+    if (days >= 85 && days <= 95) return { cycle: 'quarterly', target: 91 };
+    if (days >= 175 && days <= 190) return { cycle: 'biannual', target: 182 };
+    if (days >= 355 && days <= 375) return { cycle: 'yearly', target: 365 };
+    return null;
+  };
+
+  const detectRecurring = (rows, cols) => {
+    const txns = [];
+    const startIdx = cols.headerIdx >= 0 ? cols.headerIdx + 1 : 0;
+    for (let i = startIdx; i < rows.length; i++) {
+      const r = rows[i];
+      const date = parseRowDate(r[cols.dateCol]);
+      const desc = String(r[cols.descCol] || '').trim();
+      let amount;
+      if (cols.amountCol >= 0) {
+        amount = parseAmount(r[cols.amountCol]);
+      } else {
+        const debit = parseAmount(r[cols.debitCol]);
+        const credit = parseAmount(r[cols.creditCol]);
+        if (!isNaN(debit) && debit !== 0) amount = -Math.abs(debit);
+        else if (!isNaN(credit) && credit !== 0) amount = Math.abs(credit);
+        else amount = NaN;
+      }
+      if (!date || !desc || isNaN(amount)) continue;
+      if (cols.amountCol >= 0 && amount > 0) continue;
+      const key = normalizeMerchant(desc);
+      if (!key) continue;
+      txns.push({ date, desc, amount: Math.abs(amount), key });
+    }
+    if (!txns.length) return [];
+
+    const groups = {};
+    for (const t of txns) (groups[t.key] = groups[t.key] || []).push(t);
+
+    const candidates = [];
+    for (const [key, items] of Object.entries(groups)) {
+      if (items.length < 2) continue;
+      items.sort((a, b) => a.date - b.date);
+      const deltas = [];
+      for (let i = 1; i < items.length; i++) deltas.push((items[i].date - items[i-1].date) / 86400000);
+      const medianDelta = median(deltas);
+      const cls = cycleFromDays(medianDelta);
+      if (!cls) continue;
+
+      const amounts = items.map(i => i.amount);
+      const medianAmt = median(amounts);
+      if (medianAmt <= 0) continue;
+      const variance = amounts.reduce((a, x) => a + Math.pow(x - medianAmt, 2), 0) / amounts.length;
+      const cv = Math.sqrt(variance) / medianAmt;
+      if (cv > 0.25) continue;
+
+      const last = items[items.length - 1].date;
+      const next = new Date(last);
+      next.setDate(next.getDate() + cls.target);
+      const today0 = new Date(); today0.setHours(0,0,0,0);
+      while (next < today0) next.setDate(next.getDate() + cls.target);
+
+      const dvar = deltas.reduce((a, d) => a + Math.pow(d - medianDelta, 2), 0) / deltas.length;
+      const deltaTight = Math.max(0, 1 - (Math.sqrt(dvar) / medianDelta));
+      const amountTight = 1 - cv;
+      const samples = Math.min(1, items.length / 4);
+      const confidence = deltaTight * 0.4 + amountTight * 0.4 + samples * 0.2;
+
+      candidates.push({
+        id: crypto.randomUUID(),
+        name: titleCase(key).slice(0, 40),
+        amount: Math.round(medianAmt * 100) / 100,
+        currency: 'USD',
+        cycle: cls.cycle,
+        nextDate: next.toISOString().slice(0,10),
+        cardLast4: '',
+        category: '',
+        notes: `Detected from ${items.length} transactions`,
+        _confidence: confidence,
+        _samples: items.length,
+      });
+    }
+    candidates.sort((a, b) => b._confidence - a._confidence);
+    return candidates;
+  };
+
+  // ── Review modal ──
+  let reviewCandidates = [];
+  const reviewBack = $('#reviewBack');
+
+  const openReview = (candidates, sourceLabel) => {
+    reviewCandidates = candidates;
+    $('#reviewTitle').textContent = candidates.length ? 'Review detected subscriptions' : 'Nothing detected';
+    const list = $('#reviewList');
+    if (!candidates.length) {
+      list.innerHTML = `<div class="empty"><div class="big">🤷</div>No recurring charges detected.<br/><small>Need at least 2 charges of the same merchant.</small></div>`;
+      $('#reviewAddBtn').style.display = 'none';
+      $('#reviewInfo').textContent = '';
+    } else {
+      $('#reviewAddBtn').style.display = '';
+      $('#reviewInfo').textContent = `${candidates.length} detected from ${sourceLabel}. Tap rows to toggle; edit name or amount inline.`;
+      list.innerHTML = candidates.map((c, i) => {
+        const existing = subs.find(s => normalizeMerchant(s.name) === normalizeMerchant(c.name));
+        const checked = (c._confidence >= 0.55 || existing) ? 'checked' : '';
+        return `
+          <label class="review-row">
+            <input type="checkbox" data-i="${i}" ${checked} />
+            <div>
+              <div class="cand-name">${escapeHtml(c.name)}${existing ? '<span class="pill update">update</span>' : ''}</div>
+              <div class="cand-meta">${fmtMoney(c.amount, c.currency)} · ${c.cycle} · next ${c.nextDate} · ${c._samples}× seen</div>
+              <div class="cand-edits">
+                <input data-i="${i}" data-f="name" value="${escapeHtml(c.name)}" />
+                <input data-i="${i}" data-f="amount" type="number" step="0.01" min="0" value="${c.amount}" />
+              </div>
+            </div>
+          </label>`;
+      }).join('');
+    }
+    reviewBack.classList.add('open');
+  };
+  const closeReview = () => reviewBack.classList.remove('open');
+
+  $('#reviewCancelBtn').addEventListener('click', closeReview);
+  reviewBack.addEventListener('click', (e) => { if (e.target === reviewBack) closeReview(); });
+
+  $('#reviewList').addEventListener('input', (e) => {
+    const t = e.target;
+    const i = +t.dataset.i;
+    if (isNaN(i) || !t.dataset.f) return;
+    if (t.dataset.f === 'name') reviewCandidates[i].name = t.value;
+    if (t.dataset.f === 'amount') reviewCandidates[i].amount = parseFloat(t.value) || 0;
+  });
+
+  $('#reviewAddBtn').addEventListener('click', () => {
+    const checkboxes = $('#reviewList').querySelectorAll('input[type="checkbox"]');
+    let added = 0, updated = 0;
+    checkboxes.forEach(cb => {
+      if (!cb.checked) return;
+      const c = reviewCandidates[+cb.dataset.i];
+      const existingIdx = subs.findIndex(s => normalizeMerchant(s.name) === normalizeMerchant(c.name));
+      const clean = {
+        id: existingIdx >= 0 ? subs[existingIdx].id : c.id,
+        name: c.name.trim(),
+        amount: c.amount,
+        currency: c.currency || 'USD',
+        cycle: c.cycle,
+        nextDate: c.nextDate,
+        cardLast4: c.cardLast4 || '',
+        category: c.category || '',
+        notes: c.notes || '',
+      };
+      if (existingIdx >= 0) { subs[existingIdx] = { ...subs[existingIdx], ...clean }; updated++; }
+      else { subs.push(clean); added++; }
+    });
+    save(subs);
+    closeReview();
+    render();
+    if (added || updated) {
+      const msg = [];
+      if (added) msg.push(`${added} added`);
+      if (updated) msg.push(`${updated} updated`);
+      alert('Done: ' + msg.join(', ') + '.');
+    }
+  });
+
+  // ── CSV import flow ──
+  $('#csvImport').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    try {
+      const text = await file.text();
+      const rows = parseCSV(text);
+      const cols = detectColumns(rows);
+      if (!cols) throw new Error("couldn't find Date / Description / Amount columns");
+      const candidates = detectRecurring(rows, cols);
+      openReview(candidates, file.name);
+    } catch (err) {
+      alert('CSV import failed: ' + err.message);
+    }
+    e.target.value = '';
+  });
+
+  // ── Plaid auto-sync flow ──
+  const loadPlaidLink = () => new Promise((resolve, reject) => {
+    if (window.Plaid) return resolve(window.Plaid);
+    const s = document.createElement('script');
+    s.src = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
+    s.onload = () => resolve(window.Plaid);
+    s.onerror = () => reject(new Error('Failed to load Plaid Link'));
+    document.head.appendChild(s);
+  });
+
+  const startSync = async () => {
+    if (!backendUrl()) {
+      alert('Set your backend URL in Settings first.');
+      openSettings();
+      return;
+    }
+    let status;
+    try {
+      const r = await fetch(backendUrl() + '/plaid/status');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      status = await r.json();
+    } catch (err) {
+      alert('Backend not reachable: ' + err.message);
+      return;
+    }
+    if (!status.ready) {
+      alert('Backend is missing Plaid credentials (PLAID_CLIENT_ID / PLAID_SECRET).');
+      return;
+    }
+    if (!status.connected) {
+      await connectBank();
+      return;
+    }
+    await syncNow();
+  };
+
+  const connectBank = async () => {
+    try {
+      const tokRes = await fetch(backendUrl() + '/plaid/link-token', { method: 'POST' });
+      if (!tokRes.ok) throw new Error('link-token HTTP ' + tokRes.status);
+      const { link_token } = await tokRes.json();
+      const Plaid = await loadPlaidLink();
+      const handler = Plaid.create({
+        token: link_token,
+        onSuccess: async (public_token) => {
+          try {
+            const ex = await fetch(backendUrl() + '/plaid/exchange', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ public_token }),
+            });
+            if (!ex.ok) throw new Error('exchange HTTP ' + ex.status);
+            await syncNow();
+          } catch (err) { alert('Exchange failed: ' + err.message); }
+        },
+        onExit: (err) => { if (err) console.warn('Plaid exit:', err); },
+      });
+      handler.open();
+    } catch (err) {
+      alert('Connect failed: ' + err.message);
+    }
+  };
+
+  const syncNow = async () => {
+    try {
+      const r = await fetch(backendUrl() + '/plaid/recurring');
+      if (!r.ok) throw new Error('recurring HTTP ' + r.status);
+      const { streams } = await r.json();
+      const candidates = (streams || []).map(s => ({
+        ...s,
+        id: s.id || crypto.randomUUID(),
+        _confidence: s._confidence ?? 0.9,
+        _samples: s._samples ?? 0,
+      }));
+      openReview(candidates, 'your bank');
+    } catch (err) {
+      alert('Sync failed: ' + err.message);
+    }
   };
 
   // ── Service worker (offline) ──

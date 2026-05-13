@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: subs-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /plaid/status
+    envVars:
+      - key: PLAID_CLIENT_ID
+        sync: false
+      - key: PLAID_SECRET
+        sync: false
+      - key: PLAID_ENV
+        value: sandbox
+      - key: ALLOWED_ORIGIN
+        value: https://jamstand.github.io
+      - key: NODE_VERSION
+        value: 20
