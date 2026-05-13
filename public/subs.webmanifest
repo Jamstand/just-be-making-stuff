@@ -1,0 +1,14 @@
+{
+  "name": "Subs — Subscription Tracker",
+  "short_name": "Subs",
+  "description": "Track subscriptions billed to your card.",
+  "start_url": "subs.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "icons": [
+    { "src": "subs-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

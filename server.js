@@ -152,6 +152,8 @@ app.get('/now-playing', async (req, res) => {
   }
 });
 
+app.get('/subs', (req, res) => res.sendFile(path.join(__dirname, 'public', 'subs.html')));
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Start ────────────────────────────────────────────────────────────────────
