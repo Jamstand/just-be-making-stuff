@@ -741,12 +741,15 @@
     const isJson  = type === 'application/json' || lower.endsWith('.json');
 
     if (isPdf) {
-      if (file.size > 28 * 1024 * 1024) throw new Error('PDF too large (max ~28 MB).');
+      const sizeMb = (file.size / 1024 / 1024).toFixed(1);
+      if (file.size > 40 * 1024 * 1024) throw new Error(`PDF too large (${sizeMb} MB, max ~40 MB).`);
       const dataUrl = await fileToDataUrl(file);
       await runFileExtraction(dataUrl, file.name);
       return;
     }
     if (isImage) {
+      const sizeMb = (file.size / 1024 / 1024).toFixed(1);
+      if (file.size > 40 * 1024 * 1024) throw new Error(`Image too large (${sizeMb} MB, max ~40 MB).`);
       const dataUrl = await fileToDataUrl(file);
       await runFileExtraction(dataUrl, file.name);
       return;
@@ -774,10 +777,24 @@
     await runTextDetection(text, file.name);
   };
 
+  const describeError = (err) => {
+    if (!err) return 'unknown error (no error object)';
+    if (typeof err === 'string') return err;
+    const msg = err.message || '';
+    const name = err.name || '';
+    if (msg && name && name !== 'Error') return `${name}: ${msg}`;
+    if (msg) return msg;
+    if (name) return name;
+    try { return String(err); } catch { return 'unknown error'; }
+  };
+
   $('#fileImport').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
     try { await handleAnyImport(file); }
-    catch (err) { alert('Import failed: ' + err.message); }
+    catch (err) {
+      console.error('Subs import failed:', err);
+      alert('Import failed: ' + describeError(err));
+    }
     e.target.value = '';
   });
 
@@ -1211,7 +1228,10 @@
   $('#csvImport').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
     try { await handleAnyImport(file); }
-    catch (err) { alert('Import failed: ' + err.message); }
+    catch (err) {
+      console.error('Subs import failed:', err);
+      alert('Import failed: ' + describeError(err));
+    }
     e.target.value = '';
   });
 
@@ -1364,23 +1384,36 @@
       const dataUrl = await fileToDataUrl(file);
       await runImageDetection(dataUrl, file.name);
     } catch (err) {
-      alert('Photo import failed: ' + err.message);
+      console.error('Subs photo import failed:', err);
+      alert('Photo import failed: ' + describeError(err));
     }
     e.target.value = '';
   });
 
   const runFileExtraction = async (dataUrl, sourceLabel) => {
     if (!backendUrl()) throw new Error('Set a Backend URL in Settings first (image/PDF extraction needs ANTHROPIC_API_KEY on the backend).');
-    const r = await fetch(backendUrl() + '/ai/extract', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file: dataUrl, today: new Date().toISOString().slice(0, 10), currency: 'USD' }),
-    });
+    const bodyText = JSON.stringify({ file: dataUrl, today: new Date().toISOString().slice(0, 10), currency: 'USD' });
+    const sizeMb = (bodyText.length / 1024 / 1024).toFixed(1);
+    let r;
+    try {
+      r = await fetch(backendUrl() + '/ai/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: bodyText,
+      });
+    } catch (err) {
+      throw new Error(`Network error talking to ${backendUrl()} (request was ${sizeMb} MB). ${err && err.message ? err.message : err && err.name ? err.name : 'fetch failed'}`);
+    }
     if (!r.ok) {
       const detail = await r.json().catch(() => ({}));
-      throw new Error(detail.detail || detail.error || ('HTTP ' + r.status));
+      throw new Error(detail.detail || detail.error || `HTTP ${r.status} from /ai/extract`);
     }
-    const { candidates } = await r.json();
+    let parsed;
+    try { parsed = await r.json(); }
+    catch (err) {
+      throw new Error(`Could not parse server response from /ai/extract. ${err && err.message ? err.message : 'parse failed'}`);
+    }
+    const candidates = parsed && parsed.candidates;
     const cands = (candidates || []).map((c) => ({ ...c, id: crypto.randomUUID() }));
     openReview(cands, sourceLabel);
   };

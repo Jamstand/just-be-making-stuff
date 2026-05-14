@@ -16,7 +16,7 @@ const TOKEN_FILE = path.join(__dirname, '.tokens.json');
 const PLAID_TOKEN_FILE = path.join(__dirname, '.plaid-tokens.json');
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || true }));
-app.use(express.json({ limit: '32mb' }));
+app.use(express.json({ limit: '64mb' }));
 
 app.use((req, res, next) => {
   if (!req.path.startsWith('/ai/')) return next();
