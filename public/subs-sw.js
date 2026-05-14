@@ -1,4 +1,4 @@
-const CACHE = 'subs-v2';
+const CACHE = 'subs-v3';
 const ASSETS = [
   'subs.html',
   'subs.webmanifest',

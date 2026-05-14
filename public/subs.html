@@ -378,8 +378,8 @@
   </form>
 </div>
 
-<input type="file" id="fileImport" accept="application/json" hidden />
-<input type="file" id="csvImport" accept=".csv,text/csv,application/pdf,.pdf" hidden />
+<input type="file" id="fileImport" accept=".json,application/json,.csv,text/csv,application/pdf,.pdf,image/*" hidden />
+<input type="file" id="csvImport" accept=".csv,text/csv,application/pdf,.pdf,.json,application/json,image/*" hidden />
 <input type="file" id="photoImport" accept="image/*" capture="environment" hidden />
 
 <!-- Settings sheet -->
@@ -705,28 +705,79 @@
     URL.revokeObjectURL(url);
   };
 
+  const readFileText = async (file) => {
+    try { return await file.text(); }
+    catch {
+      throw new Error('Could not read the file. If it lives in iCloud Drive, open it once in the Files app so it downloads to this device, then try again.');
+    }
+  };
+
+  const importJsonArray = (arr) => {
+    if (!Array.isArray(arr)) throw new Error('JSON export must be an array of subscriptions.');
+    if (!confirm(`Import ${arr.length} subscriptions? This replaces current data.`)) return false;
+    subs = arr.map(s => ({
+      id: s.id || crypto.randomUUID(),
+      name: String(s.name || ''),
+      amount: Number(s.amount) || 0,
+      currency: String(s.currency || 'USD').toUpperCase(),
+      cycle: ['weekly','monthly','quarterly','biannual','yearly'].includes(s.cycle) ? s.cycle : 'monthly',
+      nextDate: s.nextDate || new Date().toISOString().slice(0,10),
+      cardLast4: String(s.cardLast4 || '').replace(/\D/g,'').slice(0,4),
+      category: String(s.category || ''),
+      notes: String(s.notes || ''),
+    }));
+    save(subs);
+    render();
+    return true;
+  };
+
+  // Single dispatcher used by both file-picker buttons. Routes by MIME +
+  // extension so picking a PDF from "Import JSON" still does the right thing.
+  const handleAnyImport = async (file) => {
+    const lower = (file.name || '').toLowerCase();
+    const type  = (file.type  || '').toLowerCase();
+    const isPdf   = type === 'application/pdf' || lower.endsWith('.pdf');
+    const isImage = type.startsWith('image/');
+    const isJson  = type === 'application/json' || lower.endsWith('.json');
+
+    if (isPdf) {
+      if (file.size > 28 * 1024 * 1024) throw new Error('PDF too large (max ~28 MB).');
+      const dataUrl = await fileToDataUrl(file);
+      await runFileExtraction(dataUrl, file.name);
+      return;
+    }
+    if (isImage) {
+      const dataUrl = await fileToDataUrl(file);
+      await runFileExtraction(dataUrl, file.name);
+      return;
+    }
+
+    const text = await readFileText(file);
+
+    if (isJson) {
+      let arr;
+      try { arr = JSON.parse(text); }
+      catch (err) { throw new Error('That .json file is not a valid Subs export. ' + err.message); }
+      importJsonArray(arr);
+      return;
+    }
+
+    // Heuristic: bare JSON arrays from a Subs export start with `[`. If it
+    // parses, treat it as a restore; otherwise fall through to CSV/text.
+    const trimmed = text.replace(/^﻿/, '').trimStart();
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) { importJsonArray(parsed); return; }
+      } catch {}
+    }
+    await runTextDetection(text, file.name);
+  };
+
   $('#fileImport').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
-    try {
-      const arr = JSON.parse(await file.text());
-      if (!Array.isArray(arr)) throw new Error('not an array');
-      if (!confirm(`Import ${arr.length} subscriptions? This replaces current data.`)) return;
-      subs = arr.map(s => ({
-        id: s.id || crypto.randomUUID(),
-        name: String(s.name || ''),
-        amount: Number(s.amount) || 0,
-        currency: String(s.currency || 'USD').toUpperCase(),
-        cycle: ['weekly','monthly','quarterly','biannual','yearly'].includes(s.cycle) ? s.cycle : 'monthly',
-        nextDate: s.nextDate || new Date().toISOString().slice(0,10),
-        cardLast4: String(s.cardLast4 || '').replace(/\D/g,'').slice(0,4),
-        category: String(s.category || ''),
-        notes: String(s.notes || ''),
-      }));
-      save(subs);
-      render();
-    } catch (err) {
-      alert('Import failed: ' + err.message);
-    }
+    try { await handleAnyImport(file); }
+    catch (err) { alert('Import failed: ' + err.message); }
     e.target.value = '';
   });
 
@@ -1159,19 +1210,8 @@
 
   $('#csvImport').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
-    try {
-      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-      if (isPdf) {
-        if (file.size > 28 * 1024 * 1024) throw new Error('PDF too large (max ~28 MB).');
-        const dataUrl = await fileToDataUrl(file);
-        await runFileExtraction(dataUrl, file.name);
-      } else {
-        const text = await file.text();
-        await runTextDetection(text, file.name);
-      }
-    } catch (err) {
-      alert('Import failed: ' + err.message);
-    }
+    try { await handleAnyImport(file); }
+    catch (err) { alert('Import failed: ' + err.message); }
     e.target.value = '';
   });
 
