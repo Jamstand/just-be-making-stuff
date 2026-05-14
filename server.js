@@ -536,6 +536,50 @@ async function withHeartbeat(res, work) {
   }
 }
 
+// Job registry for long-running AI work. iOS Safari and Tailscale Funnel
+// both kill HTTP responses that stream for more than ~60s even with
+// whitespace heartbeats, so we run extraction asynchronously and let the
+// client poll a fast status endpoint instead.
+const aiJobs = new Map();
+const AI_JOB_TTL_MS = 30 * 60 * 1000;
+
+function gcAiJobs() {
+  const cutoff = Date.now() - AI_JOB_TTL_MS;
+  for (const [id, job] of aiJobs.entries()) {
+    const finishedAt = job.finishedAt || job.createdAt;
+    if (finishedAt < cutoff) aiJobs.delete(id);
+  }
+}
+
+function startAiJob(label, work) {
+  gcAiJobs();
+  const id = crypto.randomUUID();
+  const job = { id, label, status: 'pending', createdAt: Date.now() };
+  aiJobs.set(id, job);
+  Promise.resolve().then(async () => {
+    try {
+      job.result = await work();
+      job.status = 'done';
+    } catch (err) {
+      job.status = 'error';
+      job.detail = err && err.message ? err.message : String(err);
+      console.error(`AI job ${label} ${id} failed:`, job.detail);
+    } finally {
+      job.finishedAt = Date.now();
+    }
+  });
+  return job;
+}
+
+app.get('/ai/jobs/:id', (req, res) => {
+  const job = aiJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ status: 'unknown' });
+  const elapsed_ms = (job.finishedAt || Date.now()) - job.createdAt;
+  if (job.status === 'pending') return res.json({ status: 'pending', elapsed_ms });
+  if (job.status === 'error') return res.json({ status: 'error', detail: job.detail, elapsed_ms });
+  return res.json({ status: 'done', elapsed_ms, ...(job.result || {}) });
+});
+
 app.post('/ai/detect', (req, res) => {
   const { transactions, heuristicNames, today, currency } = req.body || {};
   if (!Array.isArray(transactions)) return res.status(400).json({ error: 'missing transactions' });
@@ -600,7 +644,8 @@ app.post('/ai/extract', (req, res) => {
   }
   const m = file.match(/^data:(image\/[a-zA-Z0-9.+-]+|application\/pdf);base64,(.+)$/);
   if (!m) return res.status(400).json({ error: 'unsupported file type (image/* or application/pdf only)' });
-  withHeartbeat(res, async () => ({ candidates: await extractDispatch(m[1], m[2], today, currency) }));
+  const job = startAiJob('extract', async () => ({ candidates: await extractDispatch(m[1], m[2], today, currency) }));
+  res.json({ job_id: job.id });
 });
 
 app.post('/ai/extract-image', (req, res) => {
@@ -610,7 +655,8 @@ app.post('/ai/extract-image', (req, res) => {
   }
   const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!m) return res.status(400).json({ error: 'invalid image data URL' });
-  withHeartbeat(res, async () => ({ candidates: await extractDispatch(m[1], m[2], today, currency) }));
+  const job = startAiJob('extract-image', async () => ({ candidates: await extractDispatch(m[1], m[2], today, currency) }));
+  res.json({ job_id: job.id });
 });
 
 app.get('/subs', (req, res) => res.sendFile(path.join(__dirname, 'public', 'subs.html')));

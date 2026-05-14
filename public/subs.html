@@ -144,6 +144,26 @@
     border-top: 1px solid var(--line);
   }
   .sheet h2 { margin: 4px 0 14px; font-size: 18px; }
+
+  /* job progress overlay */
+  .progress-back {
+    position: fixed; inset: 0; background: rgba(8,11,28,.65); backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center; z-index: 40;
+  }
+  .progress-back.open { display: flex; }
+  .progress-card {
+    background: var(--bg-elev); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px 20px; min-width: 240px; max-width: 90vw;
+    text-align: center;
+  }
+  .progress-card .spin {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 3px solid var(--bg-elev-2); border-top-color: var(--accent);
+    margin: 4px auto 10px; animation: progspin 0.9s linear infinite;
+  }
+  @keyframes progspin { to { transform: rotate(360deg); } }
+  .progress-card .title { font-weight: 600; margin-bottom: 4px; }
+  .progress-card .sub { font-size: 13px; color: var(--text-dim); }
   .field { margin-bottom: 12px; }
   .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 5px; }
   .field input, .field select, .field textarea {
@@ -441,6 +461,15 @@
       <button type="button" class="btn" id="pasteCloseBtn">Cancel</button>
       <button type="button" class="btn primary" id="pasteGoBtn">Detect</button>
     </div>
+  </div>
+</div>
+
+<!-- Job progress overlay (PDF/image extraction can take 30-120s) -->
+<div class="progress-back" id="progressBack" aria-live="polite">
+  <div class="progress-card">
+    <div class="spin"></div>
+    <div class="title" id="progressTitle">Working…</div>
+    <div class="sub" id="progressSub">0s</div>
   </div>
 </div>
 
@@ -1390,32 +1419,80 @@
     e.target.value = '';
   });
 
-  const runFileExtraction = async (dataUrl, sourceLabel) => {
-    if (!backendUrl()) throw new Error('Set a Backend URL in Settings first (image/PDF extraction needs ANTHROPIC_API_KEY on the backend).');
-    const bodyText = JSON.stringify({ file: dataUrl, today: new Date().toISOString().slice(0, 10), currency: 'USD' });
-    const sizeMb = (bodyText.length / 1024 / 1024).toFixed(1);
+  const progressTimers = { tick: null, start: 0 };
+  const showProgress = (title) => {
+    $('#progressTitle').textContent = title;
+    $('#progressSub').textContent = '0s';
+    $('#progressBack').classList.add('open');
+    progressTimers.start = Date.now();
+    if (progressTimers.tick) clearInterval(progressTimers.tick);
+    progressTimers.tick = setInterval(() => {
+      $('#progressSub').textContent = Math.round((Date.now() - progressTimers.start) / 1000) + 's';
+    }, 500);
+  };
+  const hideProgress = () => {
+    $('#progressBack').classList.remove('open');
+    if (progressTimers.tick) { clearInterval(progressTimers.tick); progressTimers.tick = null; }
+  };
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const postJson = async (path, body, label) => {
     let r;
     try {
-      r = await fetch(backendUrl() + '/ai/extract', {
+      r = await fetch(backendUrl() + path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: bodyText,
+        body: JSON.stringify(body),
       });
     } catch (err) {
-      throw new Error(`Network error talking to ${backendUrl()} (request was ${sizeMb} MB). ${err && err.message ? err.message : err && err.name ? err.name : 'fetch failed'}`);
-    }
-    if (!r.ok) {
-      const detail = await r.json().catch(() => ({}));
-      throw new Error(detail.detail || detail.error || `HTTP ${r.status} from /ai/extract`);
+      throw new Error(`Network error reaching ${path} — ${describeError(err)}`);
     }
     let parsed;
     try { parsed = await r.json(); }
-    catch (err) {
-      throw new Error(`Could not parse server response from /ai/extract. ${err && err.message ? err.message : 'parse failed'}`);
+    catch (err) { throw new Error(`Bad response from ${path} — ${describeError(err)}`); }
+    if (!r.ok) throw new Error(parsed.detail || parsed.error || `HTTP ${r.status} from ${path}`);
+    if (!parsed.job_id) throw new Error(`No job id returned by ${path} (got ${JSON.stringify(parsed).slice(0, 80)})`);
+    return parsed.job_id;
+  };
+
+  const pollJob = async (jobId, { maxMs = 5 * 60 * 1000, intervalMs = 2000 } = {}) => {
+    const deadline = Date.now() + maxMs;
+    while (Date.now() < deadline) {
+      await sleep(intervalMs);
+      let r;
+      try {
+        r = await fetch(backendUrl() + '/ai/jobs/' + encodeURIComponent(jobId));
+      } catch (err) {
+        continue;
+      }
+      if (r.status === 404) throw new Error('Job not found on server (the server may have restarted). Try again.');
+      let parsed;
+      try { parsed = await r.json(); } catch { continue; }
+      if (parsed.status === 'pending') continue;
+      if (parsed.status === 'error') throw new Error(parsed.detail || 'AI job failed');
+      if (parsed.status === 'done') return parsed;
     }
-    const candidates = parsed && parsed.candidates;
-    const cands = (candidates || []).map((c) => ({ ...c, id: crypto.randomUUID() }));
-    openReview(cands, sourceLabel);
+    throw new Error('Timed out after ' + Math.round(maxMs / 1000) + 's. The server may still be working — check Settings.');
+  };
+
+  const runFileExtraction = async (dataUrl, sourceLabel) => {
+    if (!backendUrl()) throw new Error('Set a Backend URL in Settings first (image/PDF extraction needs ANTHROPIC_API_KEY on the backend).');
+    showProgress('Reading ' + sourceLabel);
+    try {
+      const jobId = await postJson('/ai/extract', {
+        file: dataUrl,
+        today: new Date().toISOString().slice(0, 10),
+        currency: 'USD',
+      }, 'extract');
+      const result = await pollJob(jobId);
+      const cands = (result.candidates || []).map((c) => ({ ...c, id: crypto.randomUUID() }));
+      hideProgress();
+      openReview(cands, sourceLabel);
+    } catch (err) {
+      hideProgress();
+      throw err;
+    }
   };
   const runImageDetection = runFileExtraction;
 
