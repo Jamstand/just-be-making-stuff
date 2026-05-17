@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>vans_it · Demo Stage</title>
+<style>
+  html, body { margin:0; padding:0; height:100vh; overflow:hidden; }
+  body {
+    background:
+      radial-gradient(ellipse at 70% 40%, #0d2137 0%, transparent 60%),
+      radial-gradient(ellipse at 20% 80%, #12082a 0%, transparent 55%),
+      linear-gradient(135deg, #070c14 0%, #0a0a0a 100%);
+  }
+  /* Each widget gets its own full-stage transparent iframe; widgets
+     inside use fixed positioning relative to the 1920x1080 viewport. */
+  iframe {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    border: 0;
+  }
+</style>
+</head>
+<body>
+  <iframe src="Top_Bar.html?demo=1"></iframe>
+  <iframe src="Now_Playing.html?demo=1&endpoint=off"></iframe>
+  <iframe src="Sub_Train.html?demo=1"></iframe>
+  <iframe src="Top_Supporters.html?demo=1"></iframe>
+</body>
+</html>

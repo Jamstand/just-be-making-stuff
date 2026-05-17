@@ -9,11 +9,13 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
+const WebSocket = require('ws');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const TOKEN_FILE = path.join(__dirname, '.tokens.json');
 const PLAID_TOKEN_FILE = path.join(__dirname, '.plaid-tokens.json');
+const TWITCH_TOKEN_FILE = path.join(__dirname, '.twitch-tokens.json');
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || true }));
 app.use(express.json({ limit: '32mb' }));
@@ -317,6 +319,401 @@ async function getAccessToken() {
   return tokenData.access_token;
 }
 
+// ── Twitch integration ────────────────────────────────────────────────────────
+//
+// Powers the OBS widget pack:
+//   - /twitch/login + /twitch/callback   user OAuth (PKCE-less code flow)
+//   - /twitch/status                     connected? user info?
+//   - /twitch/stream-status              channel, game, viewers, followers, uptime
+//   - /widget-events                     Server-Sent Events stream for sub/cheer/follow
+//   - /webhook/tip                       generic tip webhook (StreamElements/Ko-fi/etc)
+//
+// Live events come from a Twitch EventSub WebSocket subscription managed by
+// this process; we re-broadcast them to all connected widget clients over SSE.
+
+let twitchData = null;
+let twitchUser = null;          // { id, login, display_name }
+let twitchStatusCache = null;   // { live, game, viewers, startedAt, fetchedAt }
+let twitchFollowerCache = null; // { count, fetchedAt }
+let twitchEventSubWs = null;
+let twitchEventSubSessionId = null;
+let twitchEventSubReconnectTimer = null;
+let twitchEventSubReconnectAttempts = 0;
+
+const TWITCH_AUTH_URL  = 'https://id.twitch.tv/oauth2/authorize';
+const TWITCH_TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
+const TWITCH_HELIX     = 'https://api.twitch.tv/helix';
+const TWITCH_EVENTSUB_WS_URL = 'wss://eventsub.wss.twitch.tv/ws';
+const TWITCH_SCOPES = [
+  'channel:read:subscriptions',
+  'bits:read',
+  'moderator:read:followers',
+].join(' ');
+
+function loadTwitchTokens() {
+  try {
+    if (fs.existsSync(TWITCH_TOKEN_FILE)) {
+      twitchData = JSON.parse(fs.readFileSync(TWITCH_TOKEN_FILE, 'utf8'));
+      twitchUser = twitchData.user || null;
+    }
+  } catch { twitchData = null; }
+}
+
+function saveTwitchTokens(data) {
+  twitchData = data;
+  twitchUser = data.user || twitchUser;
+  fs.writeFileSync(TWITCH_TOKEN_FILE, JSON.stringify(data), 'utf8');
+}
+
+function clearTwitchTokens() {
+  twitchData = null;
+  twitchUser = null;
+  twitchStatusCache = null;
+  twitchFollowerCache = null;
+  try { fs.unlinkSync(TWITCH_TOKEN_FILE); } catch {}
+}
+
+loadTwitchTokens();
+
+function twitchReady() {
+  return !!(process.env.TWITCH_CLIENT_ID && process.env.TWITCH_CLIENT_SECRET);
+}
+
+function getTwitchRedirectUri() {
+  return process.env.TWITCH_REDIRECT_URI || `http://localhost:${PORT}/twitch/callback`;
+}
+
+async function getTwitchAccessToken() {
+  if (!twitchData) return null;
+  if (Date.now() < twitchData.expires_at - 60_000) return twitchData.access_token;
+
+  const res = await axios.post(
+    TWITCH_TOKEN_URL,
+    new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: twitchData.refresh_token,
+      client_id: process.env.TWITCH_CLIENT_ID,
+      client_secret: process.env.TWITCH_CLIENT_SECRET,
+    }),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  );
+  saveTwitchTokens({
+    ...twitchData,
+    access_token: res.data.access_token,
+    refresh_token: res.data.refresh_token || twitchData.refresh_token,
+    expires_at: Date.now() + res.data.expires_in * 1000,
+  });
+  return twitchData.access_token;
+}
+
+async function helix(pathname, params = {}) {
+  const token = await getTwitchAccessToken();
+  if (!token) throw new Error('not connected');
+  const res = await axios.get(`${TWITCH_HELIX}${pathname}`, {
+    params,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Client-Id': process.env.TWITCH_CLIENT_ID,
+    },
+  });
+  return res.data;
+}
+
+async function fetchTwitchUserInfo() {
+  const data = await helix('/users');
+  return data.data?.[0] || null;
+}
+
+async function fetchTwitchStreamStatus() {
+  if (!twitchUser) return null;
+  const data = await helix('/streams', { user_id: twitchUser.id });
+  const s = data.data?.[0];
+  if (!s) {
+    return { live: false, game: null, viewers: 0, startedAt: null };
+  }
+  return {
+    live: true,
+    game: s.game_name || null,
+    viewers: s.viewer_count || 0,
+    startedAt: s.started_at,
+  };
+}
+
+async function fetchTwitchFollowerCount() {
+  if (!twitchUser) return 0;
+  const data = await helix('/channels/followers', { broadcaster_id: twitchUser.id });
+  return data.total || 0;
+}
+
+// ── SSE event bus ────────────────────────────────────────────────────────────
+const sseClients = new Set();
+
+function broadcast(event, data) {
+  const payload = `data: ${JSON.stringify({ event, data })}\n\n`;
+  for (const res of sseClients) {
+    try { res.write(payload); } catch {}
+  }
+}
+
+app.get('/widget-events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write('retry: 4000\n\n');
+  res.write(`data: ${JSON.stringify({ event: 'hello', data: { t: Date.now() } })}\n\n`);
+
+  sseClients.add(res);
+  const keepAlive = setInterval(() => {
+    try { res.write(': ping\n\n'); } catch {}
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    sseClients.delete(res);
+  });
+});
+
+// ── Twitch OAuth routes ──────────────────────────────────────────────────────
+
+app.get('/twitch/login', (req, res) => {
+  if (!twitchReady()) {
+    return res.status(500).send('TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET are not set.');
+  }
+  const params = new URLSearchParams({
+    client_id: process.env.TWITCH_CLIENT_ID,
+    redirect_uri: getTwitchRedirectUri(),
+    response_type: 'code',
+    scope: TWITCH_SCOPES,
+    force_verify: 'true',
+  });
+  res.redirect(`${TWITCH_AUTH_URL}?${params}`);
+});
+
+app.get('/twitch/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error) return res.redirect('/setup?twitch_error=' + error);
+  try {
+    const tokenRes = await axios.post(
+      TWITCH_TOKEN_URL,
+      new URLSearchParams({
+        client_id: process.env.TWITCH_CLIENT_ID,
+        client_secret: process.env.TWITCH_CLIENT_SECRET,
+        code: String(code),
+        grant_type: 'authorization_code',
+        redirect_uri: getTwitchRedirectUri(),
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+    saveTwitchTokens({
+      access_token:  tokenRes.data.access_token,
+      refresh_token: tokenRes.data.refresh_token,
+      expires_at:    Date.now() + tokenRes.data.expires_in * 1000,
+    });
+    const user = await fetchTwitchUserInfo();
+    if (user) {
+      saveTwitchTokens({ ...twitchData, user });
+    }
+    // Re-init EventSub now that we have a token
+    startTwitchEventSub();
+    res.redirect('/setup?twitch_connected=1');
+  } catch (err) {
+    console.error('Twitch OAuth error:', err.response?.data || err.message);
+    res.redirect('/setup?twitch_error=oauth_failed');
+  }
+});
+
+app.get('/twitch/logout', (req, res) => {
+  stopTwitchEventSub();
+  clearTwitchTokens();
+  res.redirect('/setup');
+});
+
+app.get('/twitch/status', (req, res) => {
+  res.json({
+    ready: twitchReady(),
+    connected: !!twitchData,
+    user: twitchUser ? { login: twitchUser.login, display_name: twitchUser.display_name } : null,
+    eventsub: !!twitchEventSubSessionId,
+  });
+});
+
+app.get('/twitch/stream-status', async (req, res) => {
+  if (!twitchData || !twitchUser) {
+    return res.json({ connected: false });
+  }
+  try {
+    // Status: cache 15s. Followers: cache 60s.
+    const now = Date.now();
+    if (!twitchStatusCache || now - twitchStatusCache.fetchedAt > 15_000) {
+      const s = await fetchTwitchStreamStatus();
+      twitchStatusCache = { ...s, fetchedAt: now };
+    }
+    if (!twitchFollowerCache || now - twitchFollowerCache.fetchedAt > 60_000) {
+      const c = await fetchTwitchFollowerCount().catch(() => null);
+      if (c != null) twitchFollowerCache = { count: c, fetchedAt: now };
+    }
+    res.json({
+      connected: true,
+      channel:   twitchUser.display_name || twitchUser.login,
+      live:      twitchStatusCache.live,
+      game:      twitchStatusCache.game,
+      viewers:   twitchStatusCache.viewers,
+      startedAt: twitchStatusCache.startedAt,
+      followers: twitchFollowerCache?.count ?? 0,
+    });
+  } catch (err) {
+    console.error('Twitch stream-status error:', err.response?.data || err.message);
+    res.status(500).json({ connected: true, error: 'twitch_api_failed' });
+  }
+});
+
+// Generic tip webhook — point StreamElements / Streamlabs / Ko-fi here.
+// Accepts loose shapes; pull common fields out and broadcast.
+app.post('/webhook/tip', (req, res) => {
+  const b = req.body || {};
+  const name = b.name || b.from_name || b.username || b.user || b.donor || 'anonymous';
+  const amount = Number(
+    b.amount ?? b.tip?.amount ?? b.donation?.amount ?? b.data?.amount ?? 0
+  );
+  const currency = b.currency || b.tip?.currency || 'USD';
+  const message = b.message || b.tip?.message || '';
+  if (amount > 0) {
+    broadcast('tip', { name, amount, currency, message });
+  }
+  res.json({ ok: true });
+});
+
+// Manual event emitter — handy for testing widgets without real triggers.
+app.post('/events/emit', (req, res) => {
+  const { event, data } = req.body || {};
+  if (!event) return res.status(400).json({ error: 'missing event' });
+  broadcast(event, data || {});
+  res.json({ ok: true });
+});
+
+// ── Twitch EventSub WebSocket ────────────────────────────────────────────────
+
+async function subscribeToEventSub(type, version, condition) {
+  const token = await getTwitchAccessToken();
+  await axios.post(
+    `${TWITCH_HELIX}/eventsub/subscriptions`,
+    {
+      type, version, condition,
+      transport: { method: 'websocket', session_id: twitchEventSubSessionId },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Client-Id': process.env.TWITCH_CLIENT_ID,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+}
+
+async function registerEventSubSubscriptions() {
+  if (!twitchUser) return;
+  const broadcaster_user_id = twitchUser.id;
+  const moderator_user_id   = twitchUser.id;
+  const subs = [
+    ['channel.subscribe',         '1', { broadcaster_user_id }],
+    ['channel.subscription.gift', '1', { broadcaster_user_id }],
+    ['channel.cheer',             '1', { broadcaster_user_id }],
+    ['channel.follow',            '2', { broadcaster_user_id, moderator_user_id }],
+  ];
+  for (const [type, version, condition] of subs) {
+    try {
+      await subscribeToEventSub(type, version, condition);
+    } catch (err) {
+      console.warn(`EventSub subscribe ${type} failed:`,
+        err.response?.data?.message || err.message);
+    }
+  }
+}
+
+function handleEventSubNotification(payload) {
+  const subType = payload.subscription?.type;
+  const event   = payload.event || {};
+
+  switch (subType) {
+    case 'channel.subscribe':
+      broadcast('sub', { name: event.user_name, tier: event.tier, gift: !!event.is_gift });
+      break;
+    case 'channel.subscription.gift':
+      broadcast('sub', { name: event.user_name, tier: event.tier, gift: true, total: event.total });
+      break;
+    case 'channel.cheer':
+      broadcast('cheer', {
+        name: event.is_anonymous ? 'anonymous' : event.user_name,
+        amount: event.bits,
+        message: event.message,
+      });
+      break;
+    case 'channel.follow':
+      broadcast('follow', { name: event.user_name });
+      break;
+    default:
+      // Unknown event type — ignore
+  }
+}
+
+function stopTwitchEventSub() {
+  clearTimeout(twitchEventSubReconnectTimer);
+  twitchEventSubReconnectTimer = null;
+  twitchEventSubSessionId = null;
+  if (twitchEventSubWs) {
+    try { twitchEventSubWs.removeAllListeners(); twitchEventSubWs.close(); } catch {}
+    twitchEventSubWs = null;
+  }
+}
+
+function startTwitchEventSub(wsUrl = TWITCH_EVENTSUB_WS_URL) {
+  if (!twitchReady() || !twitchData || !twitchUser) return;
+  stopTwitchEventSub();
+
+  const ws = new WebSocket(wsUrl);
+  twitchEventSubWs = ws;
+
+  ws.on('open', () => { twitchEventSubReconnectAttempts = 0; });
+
+  ws.on('message', (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+
+    const type = msg.metadata?.message_type;
+    if (type === 'session_welcome') {
+      twitchEventSubSessionId = msg.payload?.session?.id;
+      registerEventSubSubscriptions().catch((e) =>
+        console.warn('EventSub register error:', e.message));
+    } else if (type === 'session_reconnect') {
+      const newUrl = msg.payload?.session?.reconnect_url;
+      if (newUrl) startTwitchEventSub(newUrl);
+    } else if (type === 'notification') {
+      handleEventSubNotification(msg.payload || {});
+    }
+  });
+
+  ws.on('close', () => {
+    twitchEventSubWs = null;
+    twitchEventSubSessionId = null;
+    if (!twitchData) return;
+    const delay = Math.min(60_000, 1000 * Math.pow(2, twitchEventSubReconnectAttempts++));
+    twitchEventSubReconnectTimer = setTimeout(() => startTwitchEventSub(), delay);
+  });
+
+  ws.on('error', (err) => {
+    console.warn('Twitch EventSub WS error:', err.message);
+  });
+}
+
+// Boot EventSub if already connected from a previous run
+if (twitchData && twitchUser) {
+  setTimeout(() => startTwitchEventSub(), 500);
+}
+
 // ── Routes ───────────────────────────────────────────────────────────────────
 
 app.get('/login', (req, res) => {
@@ -606,11 +1003,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, () => {
   console.log(`
-  ╔══════════════════════════════════════╗
-  ║        OBS Now Playing Widget        ║
-  ╠══════════════════════════════════════╣
-  ║  Setup:   http://localhost:${PORT}/setup  ║
-  ║  Widget:  http://localhost:${PORT}/widget ║
-  ╚══════════════════════════════════════╝
+  ╔════════════════════════════════════════════════╗
+  ║           vans_it OBS Widget Pack              ║
+  ╠════════════════════════════════════════════════╣
+  ║  Directory:  http://localhost:${PORT}/widgets/     ║
+  ║  Setup:      http://localhost:${PORT}/setup        ║
+  ║                                                ║
+  ║  Spotify:    ${tokenData       ? 'connected   ' : 'not connected'}                     ║
+  ║  Twitch:     ${twitchData      ? 'connected   ' : 'not connected'}                     ║
+  ╚════════════════════════════════════════════════╝
   `);
 });

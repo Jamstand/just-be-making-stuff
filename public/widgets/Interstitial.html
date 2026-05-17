@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>vans_it · Interstitial</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  html, body { background: transparent; margin:0; padding:0; height:100vh; overflow:hidden; }
+
+  .scene {
+    position: fixed; inset: 0;
+    background: linear-gradient(135deg, #3a2e22 0%, #1c1612 50%, #2a1f17 100%);
+    color: var(--paper); overflow: hidden;
+  }
+  .scene::before {
+    content:''; position:absolute; inset:0; pointer-events:none; opacity:.12; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence baseFrequency='0.75' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+
+  .glow-a, .glow-b, .glow-c {
+    position: absolute; border-radius: 50%; filter: blur(40px); pointer-events: none;
+  }
+  .glow-a { top:-15%; left:-10%; width:55%; aspect-ratio:1;
+            background: radial-gradient(circle, rgba(201,151,74,0.45), transparent 60%); }
+  .glow-b { bottom:-20%; right:-12%; width:60%; aspect-ratio:1;
+            background: radial-gradient(circle, rgba(58,90,64,0.4), transparent 60%); }
+  .glow-c { top:30%; right:15%; width:25%; aspect-ratio:1;
+            background: radial-gradient(circle, rgba(90,58,82,0.5), transparent 60%); }
+
+  /* Top + bottom frames */
+  .top, .bot {
+    position: absolute; left: 60px; right: 60px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .top { top: 48px; }
+  .bot { bottom: 48px; }
+
+  .top-left {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .ed-dot { width:9px; height:9px; border-radius:50%; background: var(--rust);
+            box-shadow: 0 0 0 4px rgba(161,74,42,0.22); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+
+  .meta {
+    font-family: var(--mono); font-size: 13px; letter-spacing: .3em;
+    text-transform: uppercase; color: rgba(244,236,220,0.65);
+  }
+
+  /* Center frosted card */
+  .center {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 80px;
+  }
+  .card {
+    padding: 70px 96px; text-align: center; max-width: 1080px;
+    background: linear-gradient(140deg, rgba(253,249,242,0.12), rgba(244,236,220,0.06));
+    backdrop-filter: blur(28px) saturate(130%);
+    -webkit-backdrop-filter: blur(28px) saturate(130%);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 8px;
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.18);
+  }
+
+  .folio-row {
+    display: flex; justify-content: center; align-items: center; gap: 14px;
+    margin-bottom: 22px;
+  }
+  .folio-line { height: 1px; width: 100px; background: rgba(253,249,242,0.4); }
+  .folio-text {
+    font-family: var(--mono); font-size: 13px; letter-spacing: .42em;
+    text-transform: uppercase; color: rgba(253,249,242,0.7);
+  }
+
+  .head {
+    font-family: var(--serif); font-style: italic;
+    font-size: 150px; line-height: 0.95; letter-spacing: -.025em;
+    color: var(--paper);
+    text-shadow: 0 4px 30px rgba(0,0,0,0.4);
+  }
+  .sub {
+    font-family: var(--serif); font-style: italic;
+    font-size: 28px; color: rgba(244,236,220,0.78);
+    margin-top: 22px; line-height: 1.4;
+  }
+
+  /* Countdown chip */
+  .chip {
+    display: inline-flex; align-items: center; gap: 14px;
+    margin-top: 44px;
+    padding: 14px 26px; border-radius: 999px;
+    background: rgba(253,249,242,0.10);
+    border: 1px solid rgba(255,255,255,0.18);
+  }
+  .chip-dot { width:8px; height:8px; border-radius:50%; background:#9bd86a; box-shadow:0 0 8px #9bd86a99; }
+  .chip-lbl {
+    font-family: var(--mono); font-size: 13px;
+    letter-spacing: .26em; text-transform: uppercase;
+    color: rgba(244,236,220,0.78);
+  }
+  .chip-time {
+    font-family: var(--mono); font-feature-settings:'tnum' 1;
+    font-size: 32px; font-weight: 600; color: var(--paper);
+  }
+
+  /* Socials row (ending) */
+  .socials {
+    margin-top: 44px;
+    display: flex; justify-content: center; align-items: center; gap: 32px;
+    font-family: var(--serif); font-style: italic; font-size: 22px;
+    color: rgba(244,236,220,0.8);
+  }
+  .socials .sep { opacity: .4; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="../vendor/react.development.js"></script>
+<script src="../vendor/react-dom.development.js"></script>
+<script src="../vendor/babel.min.js"></script>
+<script src="widget-shared.js"></script>
+
+<script type="text/babel">
+const MODES = {
+  soon:   {
+    eyebrow: 'CURTAIN UP',
+    head: 'Starting soon.',
+    sub: 'Coffee in hand, dust2 muscle memory loading.',
+    chipLabel: 'STARTING IN',
+    showChip: true,
+    showSocials: false,
+  },
+  brb: {
+    eyebrow: 'INTERMISSION',
+    head: 'Be right back.',
+    sub: 'Stretching, hydrating, returning shortly.',
+    chipLabel: 'BACK IN',
+    showChip: true,
+    showSocials: false,
+  },
+  ending: {
+    eyebrow: 'OFF AIR',
+    head: 'See you next time.',
+    sub: 'Thanks for hanging out — follow for the next broadcast.',
+    showChip: false,
+    showSocials: true,
+  },
+};
+
+function App() {
+  const mode = (Widget.getParam('mode', 'soon') || 'soon').toLowerCase();
+  const cfg = MODES[mode] || MODES.soon;
+  const minutes = parseInt(Widget.getParam('minutes', mode === 'brb' ? '5' : '8'), 10);
+
+  // Live countdown
+  const [remainingS, setRemainingS] = React.useState(minutes * 60);
+  React.useEffect(() => {
+    if (!cfg.showChip) return;
+    const t = setInterval(() => setRemainingS((r) => Math.max(0, r - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cfg.showChip]);
+  const mm = String(Math.floor(remainingS / 60)).padStart(2, '0');
+  const ss = String(remainingS % 60).padStart(2, '0');
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday:'short', day:'numeric', month:'short' }).toUpperCase();
+  const timeStr = now.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:false });
+
+  return (
+    <div className="scene">
+      <div className="glow-a"/>
+      <div className="glow-b"/>
+      <div className="glow-c"/>
+
+      <div className="top">
+        <div className="top-left">
+          <span className="ed-dot"/>
+          <span className="meta">vans_it · {cfg.eyebrow}</span>
+        </div>
+        <span className="meta">{dateStr} · {timeStr}</span>
+      </div>
+
+      <div className="center">
+        <div className="card">
+          <div className="folio-row">
+            <span className="folio-line"/>
+            <span className="folio-text">VOL. III · NO. 047</span>
+            <span className="folio-line"/>
+          </div>
+          <div className="head">{cfg.head}</div>
+          <div className="sub">{cfg.sub}</div>
+
+          {cfg.showChip && (
+            <div className="chip">
+              <span className="chip-dot"/>
+              <span className="chip-lbl">{cfg.chipLabel}</span>
+              <span className="chip-time">{mm}:{ss}</span>
+            </div>
+          )}
+
+          {cfg.showSocials && (
+            <div className="socials">
+              <span>@vans_it</span>
+              <span className="sep">·</span>
+              <span>youtube / vans_it</span>
+              <span className="sep">·</span>
+              <span>discord / vans</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bot">
+        <span className="meta" style={{fontFamily:'var(--serif)', fontStyle:'italic',
+          fontSize:'18px', textTransform:'none', letterSpacing:'.02em'}}>
+          The vans_it Dispatch
+        </span>
+        <span className="meta">circulated live · worldwide</span>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+
+<!-- USAGE
+  Full-screen scene (use as a dedicated OBS scene, not a corner widget).
+  Pick the mode via URL param:
+    Interstitial.html?mode=soon&minutes=8     starting soon, 8-min countdown
+    Interstitial.html?mode=brb&minutes=5      brb, 5-min countdown
+    Interstitial.html?mode=ending             ending screen with socials
+
+  URL params: ?mode=soon|brb|ending · ?minutes=N
+-->
+</body>
+</html>

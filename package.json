@@ -13,7 +13,8 @@
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "plaid": "^42.2.0"
+    "plaid": "^42.2.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "puppeteer-core": "^24.40.0"

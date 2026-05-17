@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>vans_it · Widget Directory</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin:0; padding:0; box-sizing: border-box; }
+
+  :root {
+    --paper:  #f4ecdc;
+    --cream:  #fdf9f2;
+    --rust:   #a14a2a;
+    --ochre:  #c9974a;
+    --moss:   #3a5a40;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background:
+      radial-gradient(ellipse at 70% 20%, #2a1f17 0%, transparent 50%),
+      radial-gradient(ellipse at 20% 80%, #1c1612 0%, transparent 60%),
+      #0d0a08;
+    color: var(--paper);
+    min-height: 100vh;
+    padding: 56px 32px;
+  }
+
+  .wrap { max-width: 920px; margin: 0 auto; }
+
+  .head {
+    border-bottom: 1px solid rgba(244,236,220,0.12);
+    padding-bottom: 24px;
+    margin-bottom: 36px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 600;
+    font-size: 56px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .subtitle {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: rgba(244,236,220,0.45);
+    margin-top: 8px;
+  }
+  .status-line {
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: rgba(244,236,220,0.55);
+    line-height: 1.7;
+  }
+  .status-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .status-dot.on  { background: #6fcf6f; box-shadow: 0 0 6px #6fcf6f88; }
+  .status-dot.off { background: #555; }
+
+  .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+
+  .card {
+    background: rgba(253,249,242,0.04);
+    border: 1px solid rgba(244,236,220,0.10);
+    border-radius: 6px;
+    padding: 22px 26px;
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    align-items: center;
+    gap: 18px;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .card:hover { background: rgba(253,249,242,0.07); border-color: rgba(244,236,220,0.18); }
+
+  .num {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 26px;
+    color: var(--ochre);
+    text-align: center;
+  }
+
+  .meta .name {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 24px;
+    line-height: 1.1;
+    margin-bottom: 4px;
+  }
+  .meta .desc {
+    font-size: 13px;
+    color: rgba(244,236,220,0.6);
+    line-height: 1.5;
+  }
+  .meta .source {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--moss);
+    margin-top: 6px;
+  }
+  .meta .source.spotify { color: #1db954; }
+  .meta .source.twitch  { color: #9146ff; }
+  .meta .source.local   { color: rgba(244,236,220,0.45); }
+
+  .actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    border: 1px solid rgba(244,236,220,0.18);
+    background: transparent;
+    color: var(--paper);
+    transition: background 0.15s, border-color 0.15s;
+    text-align: center;
+    justify-content: center;
+  }
+  .btn:hover { background: rgba(244,236,220,0.08); border-color: rgba(244,236,220,0.3); }
+  .btn.primary {
+    background: var(--rust);
+    border-color: var(--rust);
+    color: var(--cream);
+  }
+  .btn.primary:hover { background: #b85537; border-color: #b85537; }
+
+  .conn-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .conn-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(244,236,220,0.18);
+    background: rgba(244,236,220,0.04);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-decoration: none;
+    color: var(--paper);
+  }
+  .conn-pill:hover { background: rgba(244,236,220,0.08); }
+
+  .footer {
+    margin-top: 40px;
+    padding-top: 24px;
+    border-top: 1px solid rgba(244,236,220,0.08);
+    font-size: 12px;
+    color: rgba(244,236,220,0.45);
+    line-height: 1.7;
+  }
+  .footer code {
+    background: rgba(244,236,220,0.06);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--ochre);
+    color: #1c1612;
+    padding: 10px 22px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 600;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <h1>The vans_it Dispatch</h1>
+      <div class="subtitle">Widget pack · v1.0</div>
+    </div>
+    <div class="status-line" id="statusLine">
+      <div><span class="status-dot off" id="spotifyDot"></span> Spotify: checking…</div>
+      <div><span class="status-dot off" id="twitchDot"></span> Twitch: checking…</div>
+      <div><span class="status-dot off" id="eventsDot"></span> EventSub: checking…</div>
+    </div>
+  </div>
+
+  <div class="conn-bar">
+    <a class="conn-pill" id="spotifyBtn" href="/login">Connect Spotify</a>
+    <a class="conn-pill" id="twitchBtn"  href="/twitch/login">Connect Twitch</a>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="num">I</div>
+      <div class="meta">
+        <div class="name">Top Bar</div>
+        <div class="desc">LIVE indicator, channel, current game, uptime, viewers, followers.</div>
+        <div class="source twitch">Twitch · live</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" data-copy="/widgets/Top_Bar.html">Copy URL</button>
+        <a class="btn" href="/widgets/Top_Bar.html" target="_blank">Open</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="num">II</div>
+      <div class="meta">
+        <div class="name">Now Playing</div>
+        <div class="desc">Bottom-left song widget with album glyph and equalizer bars.</div>
+        <div class="source spotify">Spotify · live</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" data-copy="/widgets/Now_Playing.html">Copy URL</button>
+        <a class="btn" href="/widgets/Now_Playing.html" target="_blank">Open</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="num">III</div>
+      <div class="meta">
+        <div class="name">Sub Train</div>
+        <div class="desc">Combo counter that resets after a quiet window. Subs from EventSub.</div>
+        <div class="source twitch">Twitch · EventSub</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" data-copy="/widgets/Sub_Train.html">Copy URL</button>
+        <a class="btn" href="/widgets/Sub_Train.html" target="_blank">Open</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="num">IV</div>
+      <div class="meta">
+        <div class="name">Top Supporters</div>
+        <div class="desc">Live leaderboard of tips &amp; bit cheers — top 5 this month.</div>
+        <div class="source twitch">Cheers · Twitch · Tips · webhook</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" data-copy="/widgets/Top_Supporters.html">Copy URL</button>
+        <a class="btn" href="/widgets/Top_Supporters.html" target="_blank">Open</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="num">V</div>
+      <div class="meta">
+        <div class="name">Interstitial</div>
+        <div class="desc">Full-screen "starting soon / BRB / ending" scene with countdown.</div>
+        <div class="source local">Local · countdown only</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" data-copy="/widgets/Interstitial.html?mode=soon&minutes=8">Copy URL</button>
+        <a class="btn" href="/widgets/Interstitial.html?mode=soon&minutes=8" target="_blank">Open</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>Add any widget to OBS as a <strong>Browser Source</strong> at <code>1920×1080</code> with transparency.
+    Check <em>"Shutdown source when not visible"</em> and <em>"Refresh browser when scene becomes active"</em>.</p>
+    <p style="margin-top:12px;">Tip webhook endpoint: <code>POST /webhook/tip</code> · Test event: <code>POST /events/emit { "event": "sub", "data": {} }</code></p>
+  </div>
+</div>
+
+<div class="toast" id="toast">URL copied</div>
+
+<script>
+  async function refreshStatus() {
+    const fetchJson = (url) => fetch(url).then((r) => r.ok ? r.json() : null).catch(() => null);
+    const [spot, twitch] = await Promise.all([
+      fetchJson('/status'),
+      fetchJson('/twitch/status'),
+    ]);
+
+    const setDot = (id, on) => {
+      document.getElementById(id).className = 'status-dot ' + (on ? 'on' : 'off');
+    };
+    const setLine = (id, label, on, extra = '') => {
+      const dot = `<span class="status-dot ${on ? 'on' : 'off'}"></span>`;
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = dot + label + extra;
+    };
+
+    const sLine = document.getElementById('statusLine');
+    sLine.innerHTML = '';
+    const wrap = document.createElement('div');
+
+    const make = (label, on, extra) => {
+      const div = document.createElement('div');
+      div.innerHTML = `<span class="status-dot ${on ? 'on' : 'off'}"></span> ${label}` + (extra || '');
+      return div;
+    };
+
+    sLine.appendChild(make('Spotify',  !!spot?.connected,
+      spot?.connected ? ' — connected' : ' — not connected'));
+    sLine.appendChild(make('Twitch',   !!twitch?.connected,
+      twitch?.connected ? ` — ${twitch.user?.display_name || twitch.user?.login || 'connected'}` : ' — not connected'));
+    sLine.appendChild(make('EventSub', !!twitch?.eventsub,
+      twitch?.eventsub ? ' — listening' : ' — idle'));
+
+    // Update connect buttons
+    document.getElementById('spotifyBtn').textContent = spot?.connected ? 'Spotify ✓ Disconnect' : 'Connect Spotify';
+    document.getElementById('spotifyBtn').href        = spot?.connected ? '/logout' : '/login';
+    document.getElementById('twitchBtn').textContent  = twitch?.connected ? `Twitch ✓ Disconnect` : 'Connect Twitch';
+    document.getElementById('twitchBtn').href         = twitch?.connected ? '/twitch/logout' : '/twitch/login';
+  }
+
+  document.querySelectorAll('[data-copy]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const url = location.origin + btn.dataset.copy;
+      navigator.clipboard.writeText(url).then(() => {
+        const t = document.getElementById('toast');
+        t.classList.add('show');
+        clearTimeout(window.__t);
+        window.__t = setTimeout(() => t.classList.remove('show'), 1600);
+      });
+    });
+  });
+
+  refreshStatus();
+  setInterval(refreshStatus, 8000);
+</script>
+</body>
+</html>

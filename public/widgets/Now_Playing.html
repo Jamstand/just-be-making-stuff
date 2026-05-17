@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>vans_it · Now Playing</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  html, body { background: transparent; }
+
+  .np {
+    position: fixed; bottom: 110px; left: 40px;
+    min-width: 320px;
+    padding: 10px 16px 10px 12px;
+    display: inline-flex; align-items: center; gap: 12px;
+  }
+  .np-art {
+    width: 44px; height: 44px; border-radius: 4px;
+    background: linear-gradient(135deg, #5a3a52, #a14a2a);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .np-art-glyph {
+    font-family: var(--serif); font-style: italic;
+    color: var(--cream); font-size: 28px; line-height: 1;
+  }
+  .np-text { flex: 1; min-width: 0; max-width: 360px; }
+  .np-title {
+    font-family: var(--serif); font-style: italic;
+    font-size: 18px; line-height: 1.1;
+    color: var(--paper); margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .np-meta {
+    font-family: var(--body); font-size: 11.5px;
+    color: rgba(244,236,220,0.65);
+    margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .np-bars {
+    display: flex; gap: 2px; align-items: flex-end;
+    height: 22px;
+    flex-shrink: 0;
+    padding-left: 6px;
+  }
+  .np-bar {
+    width: 2.5px; background: #3a5a40; border-radius: 1px;
+    animation: np-bar var(--dur, 1s) ease-in-out infinite alternate;
+  }
+  @keyframes np-bar {
+    0%   { height: var(--low, 4px);  }
+    100% { height: var(--hi,  18px); }
+  }
+
+  /* Crossfade between songs */
+  .np-text { transition: opacity .4s ease, transform .4s ease; }
+  .np-text.fade { opacity: 0; transform: translateY(4px); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="../vendor/react.development.js"></script>
+<script src="../vendor/react-dom.development.js"></script>
+<script src="../vendor/babel.min.js"></script>
+<script src="widget-shared.js"></script>
+
+<script type="text/babel">
+const DEMO_SONGS = [
+  { title:'Heat Waves',       artist:'Glass Animals',   album:'Dreamland' },
+  { title:'Midnight City',    artist:'M83',             album:'Hurry Up, We\'re Dreaming' },
+  { title:'Time',             artist:'Hans Zimmer',     album:'Inception' },
+  { title:'Wave',             artist:'Beck',            album:'Morning Phase' },
+  { title:'Get Free',         artist:'Lana Del Rey',    album:'Ultraviolence' },
+  { title:'Solar Sailer',     artist:'Daft Punk',       album:'TRON: Legacy' },
+  { title:'Re: Stacks',       artist:'Bon Iver',        album:'For Emma, Forever Ago' },
+];
+
+function App() {
+  // Default endpoint is our Spotify proxy; override with ?endpoint=URL,
+  // or disable entirely with ?endpoint=off (pure demo mode).
+  const rawEndpoint = Widget.getParam('endpoint', '/now-playing');
+  const endpoint = rawEndpoint === 'off' ? null : rawEndpoint;
+  const pollMs = parseInt(Widget.getParam('poll', '4000'), 10);
+  const [song, setSong] = React.useState(DEMO_SONGS[0]);
+  const [fading, setFading] = React.useState(false);
+  const [hasLive, setHasLive] = React.useState(false);
+  const lastIdRef = React.useRef(null);
+
+  const setSongAnimated = React.useCallback((next) => {
+    setFading(true);
+    setTimeout(() => { setSong(next); setFading(false); }, 380);
+  }, []);
+
+  // Endpoint poll. Accepts either { title, artist, album } or our Spotify
+  // shape { playing, title, artist, album, id, ... }.
+  React.useEffect(() => {
+    if (!endpoint) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(endpoint, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (stopped || !data) return;
+        if ('playing' in data && !data.playing) return;
+        if (!data.title) return;
+
+        const id = data.id || `${data.title}::${data.artist}`;
+        if (id === lastIdRef.current) return;
+        lastIdRef.current = id;
+        setHasLive(true);
+        setSongAnimated({
+          title: data.title,
+          artist: data.artist,
+          album: data.album,
+        });
+      } catch { /* keep last song */ }
+    };
+    poll();
+    const t = setInterval(poll, pollMs);
+    return () => { stopped = true; clearInterval(t); };
+  }, [endpoint, pollMs, setSongAnimated]);
+
+  // postMessage hook: window.postMessage({__nowPlaying: {title,...}}, '*')
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (e.data && e.data.__nowPlaying) setSongAnimated(e.data.__nowPlaying);
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [setSongAnimated]);
+
+  // Demo: cycle through tracks ONLY when we have no live data source.
+  // Stops as soon as a real Spotify track arrives.
+  React.useEffect(() => {
+    if (!Widget.demoOn) return;
+    if (hasLive) return;
+    let i = 0;
+    const t = setInterval(() => {
+      if (hasLive) return;
+      i = (i + 1) % DEMO_SONGS.length;
+      setSongAnimated(DEMO_SONGS[i]);
+    }, 12000);
+    return () => clearInterval(t);
+  }, [hasLive, setSongAnimated]);
+
+  // EQ bar heights — randomized once
+  const bars = React.useMemo(() => Array.from({length: 6}, (_, i) => ({
+    low: 3 + Math.random() * 4,
+    hi:  10 + Math.random() * 10,
+    dur: 0.6 + Math.random() * 0.8,
+    delay: -Math.random() * 1.5,
+  })), []);
+
+  return (
+    <div className="st-card np">
+      <div className="np-art"><div className="np-art-glyph">♪</div></div>
+      <div className={`np-text ${fading ? 'fade' : ''}`}>
+        <div className="st-eyebrow">on the air</div>
+        <div className="np-title">{song.title}</div>
+        <div className="np-meta">{song.artist}{song.album ? ` · ${song.album}` : ''}</div>
+      </div>
+      <div className="np-bars" aria-hidden="true">
+        {bars.map((b, i) => (
+          <div key={i} className="np-bar" style={{
+            '--low': b.low + 'px',
+            '--hi':  b.hi  + 'px',
+            '--dur': b.dur + 's',
+            animationDelay: b.delay + 's',
+          }}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+
+<!-- USAGE
+  OBS: 1920×1080 transparent. Anchored bottom-left above the chatbox.
+  Data sources, in order of preference:
+    1) JSON endpoint:  ?endpoint=URL  (returns {title, artist, album})
+       e.g. Pretzel Rocks plugins, custom Spotify proxy, etc.
+    2) postMessage from a parent:
+         window.postMessage({__nowPlaying:{title,artist,album}}, '*')
+    3) Demo cycle (default).
+  URL params: ?endpoint=URL · ?poll=MS (default 8000) · ?demo=0
+-->
+</body>
+</html>

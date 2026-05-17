@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>vans_it · Top Bar</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  html, body { background: transparent; }
+
+  .topbar {
+    position: fixed; top: 24px; left: 24px; right: 24px;
+    padding: 14px 22px;
+    display: flex; align-items: center; gap: 22px;
+  }
+
+  .tb-live {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .tb-live-text {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: .26em; color: var(--rust);
+    font-weight: 600;
+  }
+  .tb-sep {
+    width: 1px; height: 26px;
+    background: rgba(244,236,220,0.18);
+  }
+  .tb-col { line-height: 1.1; }
+  .tb-channel {
+    font-family: var(--serif); font-style: italic;
+    font-size: 26px; line-height: 1; letter-spacing: -.02em;
+    color: var(--paper);
+  }
+  .tb-game {
+    font-family: var(--sans); font-weight: 600; font-size: 16px;
+    color: var(--paper); margin-top: 2px;
+  }
+  .tb-spacer { flex: 1; }
+  .tb-stats { display: flex; gap: 28px; }
+  .tb-stat .lbl {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: .26em; text-transform: uppercase;
+    color: rgba(244,236,220,0.55);
+  }
+  .tb-stat .val {
+    font-family: var(--mono); font-feature-settings:'tnum' 1;
+    font-size: 17px; font-weight: 600;
+    color: var(--paper); margin-top: 2px;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="../vendor/react.development.js"></script>
+<script src="../vendor/react-dom.development.js"></script>
+<script src="../vendor/babel.min.js"></script>
+<script src="widget-shared.js"></script>
+
+<script type="text/babel">
+function App() {
+  // Default to Twitch status endpoint; override with ?status=URL or ?status=off
+  const statusUrl  = Widget.getParam('status', '/twitch/stream-status');
+  const useLive    = statusUrl && statusUrl !== 'off';
+  const pollMs     = parseInt(Widget.getParam('poll', '15000'), 10);
+
+  // Fallbacks (used until live data arrives, or in pure demo mode)
+  const fallbackChannel = Widget.getParam('channel', 'vans_it');
+  const fallbackGame    = Widget.getParam('game', 'Valorant · Ranked Climb');
+  const fallbackStart   = Date.now() - (parseInt(Widget.getParam('uptime', '15791'), 10) * 1000);
+  const fallbackViewers = parseInt(Widget.getParam('viewers', '1284'), 10);
+  const fallbackFollow  = parseInt(Widget.getParam('followers', '12402'), 10);
+
+  const [channel,   setChannel]   = React.useState(fallbackChannel);
+  const [game,      setGame]      = React.useState(fallbackGame);
+  const [startMs,   setStartMs]   = React.useState(fallbackStart);
+  const [uptime,    setUptime]    = React.useState(Widget.formatUptime(fallbackStart));
+  const [viewers,   setViewers]   = React.useState(fallbackViewers);
+  const [followers, setFollowers] = React.useState(fallbackFollow);
+  const [hasReal,   setHasReal]   = React.useState(false);
+
+  // Live uptime tick
+  React.useEffect(() => {
+    const t = setInterval(() => setUptime(Widget.formatUptime(startMs)), 1000);
+    return () => clearInterval(t);
+  }, [startMs]);
+
+  // Poll Twitch status endpoint
+  React.useEffect(() => {
+    if (!useLive) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(statusUrl, { cache: 'no-store' });
+        if (!res.ok) return;
+        const d = await res.json();
+        if (stopped || !d || !d.connected) return;
+        setHasReal(true);
+        if (d.channel)   setChannel(d.channel);
+        if (d.game)      setGame(d.game);
+        if (typeof d.viewers   === 'number') setViewers(d.viewers);
+        if (typeof d.followers === 'number') setFollowers(d.followers);
+        if (d.startedAt) {
+          const ms = new Date(d.startedAt).getTime();
+          if (!Number.isNaN(ms)) setStartMs(ms);
+        }
+      } catch { /* keep last good values */ }
+    };
+    poll();
+    const t = setInterval(poll, pollMs);
+    return () => { stopped = true; clearInterval(t); };
+  }, [statusUrl, useLive, pollMs]);
+
+  // Follow event from SSE → bump follower count
+  React.useEffect(() => {
+    const u = Widget.subscribe('follow', () => setFollowers((f) => f + 1));
+    return u;
+  }, []);
+
+  // Demo: jitter viewer count slowly — only when no live source has arrived.
+  React.useEffect(() => {
+    if (!Widget.demoOn || hasReal) return;
+    const t = setInterval(() => {
+      setViewers((v) => Math.max(0, v + Math.floor(Math.random() * 21) - 10));
+    }, 4000);
+    return () => clearInterval(t);
+  }, [hasReal]);
+
+  return (
+    <div className="st-card topbar">
+      <div className="tb-live">
+        <span className="st-livedot"/>
+        <span className="tb-live-text">LIVE</span>
+      </div>
+      <div className="tb-sep"/>
+      <div className="tb-col">
+        <div className="st-eyebrow">channel</div>
+        <div className="tb-channel">{channel}</div>
+      </div>
+      <div className="tb-sep"/>
+      <div className="tb-col">
+        <div className="st-eyebrow">now playing</div>
+        <div className="tb-game">{game}</div>
+      </div>
+      <div className="tb-spacer"/>
+      <div className="tb-stats">
+        <div className="tb-stat">
+          <div className="lbl">uptime</div>
+          <div className="val">{uptime}</div>
+        </div>
+        <div className="tb-stat">
+          <div className="lbl">viewers</div>
+          <div className="val">{viewers.toLocaleString()}</div>
+        </div>
+        <div className="tb-stat">
+          <div className="lbl">followers</div>
+          <div className="val">{followers.toLocaleString()}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+
+<!-- USAGE
+  OBS: 1920×1080 transparent. Top-strip widget.
+  URL params:
+    ?channel=NAME      channel name (default vans_it)
+    ?game=TITLE        game title
+    ?uptime=SEC        starting uptime in seconds
+    ?viewers=N         starting viewer count
+    ?followers=N       starting follower count
+    ?demo=0            disable demo viewer jitter
+-->
+</body>
+</html>

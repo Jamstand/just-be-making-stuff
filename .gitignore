@@ -2,3 +2,4 @@ node_modules/
 .env
 .tokens.json
 .plaid-tokens.json
+.twitch-tokens.json

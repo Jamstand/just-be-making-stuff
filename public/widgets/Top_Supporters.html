@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>vans_it · Top Supporters</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  html, body { background: transparent; }
+
+  .leaderboard {
+    position: fixed; top: 410px; right: 40px;
+    width: 320px;
+    padding: 16px 20px 14px;
+  }
+  .lb-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .lb-title {
+    font-family: var(--serif); font-style: italic;
+    font-size: 22px; line-height: 1; letter-spacing: -.02em;
+    color: var(--paper); margin-top: 2px;
+  }
+  .lb-list { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+  .lb-row {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 3px 0;
+    transition: background .3s ease;
+  }
+  .lb-row.flash { background: rgba(201,151,74,0.10); border-radius: 3px; }
+  .lb-place {
+    width: 26px; text-align: right;
+    font-family: var(--serif); font-style: italic;
+    font-size: 17px;
+  }
+  .lb-row[data-rank="0"] .lb-place { color: var(--ochre); }
+  .lb-row[data-rank="1"] .lb-place { color: var(--rust); }
+  .lb-row[data-rank="2"] .lb-place { color: var(--plum); }
+  .lb-row[data-rank="3"] .lb-place,
+  .lb-row[data-rank="4"] .lb-place {
+    color: rgba(244,236,220,0.55);
+  }
+  .lb-name {
+    flex: 1; font-family: var(--sans); font-size: 13.5px; font-weight: 500;
+    color: var(--paper);
+  }
+  .lb-amount {
+    font-family: var(--mono); font-feature-settings:'tnum' 1;
+    font-size: 13px; font-weight: 600; color: var(--paper);
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="../vendor/react.development.js"></script>
+<script src="../vendor/react-dom.development.js"></script>
+<script src="../vendor/babel.min.js"></script>
+<script src="widget-shared.js"></script>
+
+<script type="text/babel">
+const ROMAN = ['I','II','III','IV','V','VI','VII','VIII','IX','X'];
+
+function App() {
+  const ROWS = parseInt(Widget.getParam('rows', '5'), 10);
+  // Seed leaderboard
+  const [board, setBoard] = React.useState([
+    { name:'demetri_kx',   amount:420 },
+    { name:'lake_42',      amount:180 },
+    { name:'mira_gg',      amount:95  },
+    { name:'pixelnoise',   amount:72  },
+    { name:'fox_in_socks', amount:50  },
+  ]);
+  const [flashName, setFlashName] = React.useState(null);
+
+  React.useEffect(() => {
+    const updateFrom = (name, amount) => {
+      if (!name || !amount) return;
+      setBoard((prev) => {
+        const existing = prev.find(r => r.name === name);
+        let next;
+        if (existing) {
+          next = prev.map(r => r.name === name ? { ...r, amount: r.amount + amount } : r);
+        } else {
+          next = [...prev, { name, amount }];
+        }
+        next.sort((a, b) => b.amount - a.amount);
+        return next.slice(0, ROWS);
+      });
+      setFlashName(name);
+      setTimeout(() => setFlashName(null), 1200);
+    };
+    const subs = [
+      Widget.subscribe('tip',   (p) => updateFrom(p.name, p.amount)),
+      Widget.subscribe('cheer', (p) => updateFrom(p.name, Math.floor(p.amount / 100))),  // 100 bits ≈ $1
+    ];
+    return () => subs.forEach(u => u());
+  }, [ROWS]);
+
+  return (
+    <div className="st-card leaderboard">
+      <div className="lb-head">
+        <div className="st-eyebrow">patrons · this month</div>
+      </div>
+      <div className="lb-title">Top supporters</div>
+      <div className="st-rule" style={{marginTop:8}}/>
+      <div className="lb-list">
+        {board.map((row, i) => (
+          <div key={row.name} className={`lb-row ${flashName === row.name ? 'flash' : ''}`} data-rank={i}>
+            <div className="lb-place">{ROMAN[i] || (i + 1)}</div>
+            <div className="lb-name">{row.name}</div>
+            <div className="lb-amount">${row.amount}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+
+<!-- USAGE
+  OBS: 1920×1080 transparent. Right-edge stack under sub train.
+  Tips and bits cheers update the board live. Roman-numeral places
+  in italic serif keep the editorial mood.
+  URL params: ?rows=N (visible rows, default 5)
+-->
+</body>
+</html>
