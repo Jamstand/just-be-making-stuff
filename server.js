@@ -997,6 +997,223 @@ app.post('/ai/extract-image', async (req, res) => {
 
 app.get('/subs', (req, res) => res.sendFile(path.join(__dirname, 'public', 'subs.html')));
 
+// ── Claude Design (Max ed.) ──────────────────────────────────────────────────
+//
+// A small single-player clone of the iteration loop at claude.ai/design:
+//   POST /design/ingest    — read a URL / image / paste, extract brand tokens
+//   POST /design/generate  — produce an HTML design themed with those tokens
+//   GET  /design/tokens    — currently saved brand tokens
+//   POST /design/tokens    — save tokens (after live tweaking)
+//   GET  /design           — serve the editor page
+
+const DESIGN_MODEL = process.env.AI_DESIGN_MODEL || 'claude-opus-4-7';
+const BRAND_TOKENS_FILE = path.join(__dirname, '.brand-tokens.json');
+
+const DEFAULT_TOKENS = {
+  colors: {
+    bg:      '#F0EEE6',
+    surface: '#FAF9F5',
+    ink:     '#1F1F1E',
+    muted:   '#6B6A65',
+    accent:  '#CC785C',
+    accent2: '#6B6A48',
+  },
+  fonts: { display: 'Fraunces', body: 'Inter', mono: 'JetBrains Mono' },
+  radius: { sm: '4px', md: '10px', lg: '18px' },
+  notes: 'default Anthropic-style ivory + coral system',
+};
+
+function loadBrandTokens() {
+  try {
+    if (fs.existsSync(BRAND_TOKENS_FILE)) {
+      return JSON.parse(fs.readFileSync(BRAND_TOKENS_FILE, 'utf8'));
+    }
+  } catch {}
+  return DEFAULT_TOKENS;
+}
+function saveBrandTokens(t) {
+  fs.writeFileSync(BRAND_TOKENS_FILE, JSON.stringify(t, null, 2), 'utf8');
+}
+
+function parseLooseJson(text) {
+  if (!text) throw new Error('empty model output');
+  let t = String(text).trim();
+  // strip ```json … ``` fences if present
+  t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  try { return JSON.parse(t); } catch {}
+  const m = t.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch {} }
+  throw new Error('no valid JSON object in model output');
+}
+
+async function callDesignModel({ system, user, maxTokens = 16000 }) {
+  if (AI_BACKEND === 'claude-code') {
+    const prompt = `${system}\n\n${user}\n\nOutput ONLY the JSON object — no prose, no markdown fences.`;
+    const text = await runClaudeCode(prompt, 240000);
+    return parseLooseJson(text);
+  }
+  if (!anthropicReady()) { const e = new Error('AI not configured (set ANTHROPIC_API_KEY or AI_BACKEND=claude-code)'); e.status = 400; throw e; }
+  const response = await getAnthropicClient().messages.create({
+    model: DESIGN_MODEL,
+    max_tokens: maxTokens,
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    messages: [{ role: 'user', content: user }],
+  });
+  const text = response.content.find((b) => b.type === 'text')?.text;
+  return parseLooseJson(text);
+}
+
+async function callDesignVisionModel({ system, instruction, mediaType, b64, maxTokens = 4000 }) {
+  if (AI_BACKEND === 'claude-code') {
+    const ext = mediaType.split('/')[1] || 'png';
+    const tmpFile = path.join(os.tmpdir(), `brand-${crypto.randomUUID()}.${ext}`);
+    fs.writeFileSync(tmpFile, Buffer.from(b64, 'base64'));
+    try {
+      const prompt = `${system}\n\nUse the Read tool to view the image at ${tmpFile}. ${instruction}\n\nOutput ONLY the JSON object — no prose, no markdown fences.`;
+      const text = await runClaudeCode(prompt, 180000);
+      return parseLooseJson(text);
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch {}
+    }
+  }
+  if (!anthropicReady()) { const e = new Error('AI not configured'); e.status = 400; throw e; }
+  const response = await getAnthropicClient().messages.create({
+    model: DESIGN_MODEL,
+    max_tokens: maxTokens,
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+        { type: 'text', text: instruction },
+      ],
+    }],
+  });
+  const text = response.content.find((b) => b.type === 'text')?.text;
+  return parseLooseJson(text);
+}
+
+const INGEST_SYSTEM = `You are a brand-system extractor. From the input (a website's HTML, a pasted style guide, or an image), infer a minimal design token set that, applied to a fresh page, would feel like the same brand.
+
+Return exactly this JSON shape — no extra fields:
+{
+  "colors":  { "bg": "#hex", "surface": "#hex", "ink": "#hex", "muted": "#hex", "accent": "#hex", "accent2": "#hex" },
+  "fonts":   { "display": "Google Fonts family name", "body": "Google Fonts family name", "mono": "Google Fonts family name" },
+  "radius":  { "sm": "Xpx", "md": "Xpx", "lg": "Xpx" },
+  "notes":   "one short sentence summarizing the system"
+}
+
+Guidance:
+- bg = dominant page background; surface = card/panel; ink = primary text; muted = secondary text.
+- accent = the brand's signal color (usually the CTA / link / brand mark). accent2 = a complementary secondary.
+- Pick fonts that are on Google Fonts. If the brand uses a closed font (SF, Söhne, Styrene), choose a close Google Fonts substitute and say so in notes.
+- Radii should reflect the brand's softness (sharp = 0/2/6, soft = 6/14/24, very soft = 12/22/36).
+- Output ONLY the JSON object. No prose, no markdown fences.`;
+
+const GENERATE_SYSTEM = `You are a senior visual designer producing complete, polished single-file HTML pages — the kind of "specimen" output you'd see at claude.ai/design.
+
+You MUST output exactly this JSON shape:
+{
+  "html":    "<a complete standalone HTML5 document as a single string>",
+  "tokens":  { same shape as the input tokens, possibly tweaked to fit the design },
+  "summary": "one short sentence describing what you made"
+}
+
+Hard rules for the HTML:
+- Complete document: <!doctype html><html><head>…</head><body>…</body></html>.
+- Pull fonts from Google Fonts using the families in tokens.fonts (display, body, mono).
+- Define ALL of these CSS custom properties on :root and USE them everywhere:
+    --brand-bg, --brand-surface, --brand-ink, --brand-muted, --brand-accent, --brand-accent2,
+    --brand-font-display, --brand-font-body, --brand-font-mono,
+    --brand-radius-sm, --brand-radius-md, --brand-radius-lg
+- Set them from the supplied tokens. Never hardcode brand colors or fonts elsewhere — always use the variables. This is critical: a live tweak panel will mutate those variables and the page must reflect the changes.
+- One file, no external assets besides Google Fonts and inline SVG.
+- Editorial, designed, generous whitespace. Multiple sections. Real (illustrative) content — not lorem ipsum.
+- Mobile responsive with a single @media (max-width: 900px) breakpoint.
+- No JavaScript unless the design genuinely needs it.
+
+Output ONLY the JSON object — no prose, no markdown fences.`;
+
+app.get('/design', (req, res) => res.sendFile(path.join(__dirname, 'public', 'claude-design.html')));
+
+app.get('/design/tokens', (req, res) => {
+  res.json({ tokens: loadBrandTokens() });
+});
+
+app.post('/design/tokens', (req, res) => {
+  const t = req.body?.tokens;
+  if (!t || typeof t !== 'object') return res.status(400).json({ error: 'missing tokens' });
+  saveBrandTokens(t);
+  res.json({ ok: true, tokens: t });
+});
+
+app.post('/design/ingest', async (req, res) => {
+  const { url, image, paste } = req.body || {};
+  try {
+    let tokens;
+    if (typeof url === 'string' && url.trim()) {
+      const u = url.trim();
+      if (!/^https?:\/\//i.test(u)) return res.status(400).json({ error: 'url must start with http(s)://' });
+      const r = await axios.get(u, {
+        timeout: 15000,
+        maxRedirects: 4,
+        headers: { 'User-Agent': 'Mozilla/5.0 (claude-design ingest)' },
+        responseType: 'text',
+        transformResponse: [(d) => d],
+      });
+      const html = String(r.data || '').slice(0, 120_000);
+      tokens = await callDesignModel({
+        system: INGEST_SYSTEM,
+        user: `Source: ${u}\n\nFetched HTML (possibly truncated):\n\n${html}`,
+        maxTokens: 1500,
+      });
+    } else if (typeof image === 'string' && image.startsWith('data:image/')) {
+      const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+      if (!m) return res.status(400).json({ error: 'invalid image data URL' });
+      tokens = await callDesignVisionModel({
+        system: INGEST_SYSTEM,
+        instruction: 'Extract the brand tokens that would let me design a new page that feels like this image.',
+        mediaType: m[1], b64: m[2],
+      });
+    } else if (typeof paste === 'string' && paste.trim()) {
+      tokens = await callDesignModel({
+        system: INGEST_SYSTEM,
+        user: `Pasted brand material (style guide, tailwind config, CSS, notes):\n\n${paste.slice(0, 60_000)}`,
+        maxTokens: 1500,
+      });
+    } else {
+      return res.status(400).json({ error: 'provide one of: url, image (data URL), paste' });
+    }
+    saveBrandTokens(tokens);
+    res.json({ tokens });
+  } catch (err) {
+    const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
+    console.error('design/ingest error:', err.message);
+    res.status(status).json({ error: 'ingest_failed', detail: err.message });
+  }
+});
+
+app.post('/design/generate', async (req, res) => {
+  const { prompt, tokens } = req.body || {};
+  if (typeof prompt !== 'string' || !prompt.trim()) return res.status(400).json({ error: 'missing prompt' });
+  const t = (tokens && typeof tokens === 'object') ? tokens : loadBrandTokens();
+  try {
+    const out = await callDesignModel({
+      system: GENERATE_SYSTEM,
+      user: `Brand tokens to use:\n${JSON.stringify(t, null, 2)}\n\nDesign brief:\n${prompt.trim()}`,
+      maxTokens: 16000,
+    });
+    if (!out || typeof out.html !== 'string') {
+      return res.status(502).json({ error: 'bad model output', detail: 'missing html field' });
+    }
+    res.json({ html: out.html, tokens: out.tokens || t, summary: out.summary || '' });
+  } catch (err) {
+    const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
+    console.error('design/generate error:', err.message);
+    res.status(status).json({ error: 'generate_failed', detail: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Start ────────────────────────────────────────────────────────────────────
