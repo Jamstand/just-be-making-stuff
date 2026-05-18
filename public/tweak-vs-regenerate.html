@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tweak vs Regenerate — Claude Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;450;500;600&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ivory:#F0EEE6; --cream:#FAF9F5; --paper:#F5F3EC;
+    --ink:#1F1F1E; --char:#2B2A28; --muted:#6B6A65;
+    --hair:#C9C5B6; --mist:#E3DFD0; --slate:#B8B4A4;
+    --coral:#CC785C; --coral-ink:#7A3A28;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--ivory); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+  .serif { font-family: 'Fraunces', serif; }
+  .upper { text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; font-weight: 500; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+
+  /* ── Header ── */
+  header.page {
+    border-bottom: 1px solid var(--ink);
+    padding: 64px 0 48px;
+  }
+  header.page h1 {
+    font-family: 'Fraunces', serif; font-weight: 400;
+    font-size: clamp(48px, 7vw, 92px);
+    line-height: 0.95; letter-spacing: -0.035em;
+  }
+  header.page h1 em { font-style: italic; color: var(--coral-ink); }
+  header.page p {
+    margin-top: 18px; max-width: 56ch;
+    font-family: 'Fraunces',serif; font-size: 20px;
+    color: var(--char); line-height: 1.4;
+  }
+  header.page .eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    margin-bottom: 28px; color: var(--muted);
+  }
+  header.page .eyebrow .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--coral); }
+
+  /* ── The vs grid ── */
+  .vs {
+    display: grid; grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid var(--ink);
+  }
+  .col { padding: 56px 32px 64px; }
+  .col + .col { border-left: 1px solid var(--ink); }
+  .col h2 {
+    font-family: 'Fraunces', serif; font-weight: 400;
+    font-size: 44px; line-height: 1.0; letter-spacing: -0.025em;
+    display: flex; align-items: baseline; gap: 14px;
+  }
+  .col h2 .badge {
+    font-family: 'Inter',sans-serif; font-size: 10px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.16em;
+    padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--ink); color: var(--ink);
+  }
+  .col h2 em { font-style: italic; color: var(--coral-ink); }
+  .col .sub {
+    margin-top: 14px; max-width: 44ch;
+    font-size: 15.5px; color: var(--char);
+  }
+  .col .kbd {
+    margin-top: 18px; font-family: 'JetBrains Mono',monospace; font-size: 11px;
+    color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  .col .kbd b { color: var(--ink); font-weight: 500; }
+
+  .stack {
+    margin-top: 36px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .stack .row {
+    display: grid; grid-template-columns: 96px 1fr;
+    gap: 18px; align-items: stretch;
+  }
+  .stack .row .tag {
+    font-family: 'Fraunces',serif; font-size: 16px; color: var(--muted);
+    padding-top: 14px; line-height: 1.25;
+  }
+  .stack .row .tag em { font-style: italic; color: var(--coral-ink); font-size: 14px; display: block; }
+  .stack .row .frame {
+    border: 1px solid var(--ink);
+    border-radius: 10px;
+    overflow: hidden;
+    background: white;
+    box-shadow: 0 14px 32px -22px rgba(0,0,0,0.18);
+  }
+
+  /* ── Generated-page mockups ──
+     Each .gen is its own little themed page, scoped via .gen.t1, .gen.t2, etc.
+     Same DOM shape across t1 & t2 (the Tweak side) to show only tokens differ. */
+
+  .gen {
+    padding: 22px 22px 24px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .gen .gen-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .gen .gen-title { letter-spacing: -0.01em; }
+  .gen .gen-sub   { font-size: 11px; opacity: 0.7; }
+  .gen .big {
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .gen .big .n { line-height: 1; }
+  .gen .big .u { font-size: 12px; opacity: 0.65; }
+  .gen .bar {
+    height: 8px; border-radius: 999px;
+    background: var(--gen-mist, #e3dfd0); overflow: hidden;
+  }
+  .gen .bar > i {
+    display: block; height: 100%;
+    background: var(--gen-accent, #CC785C);
+    border-radius: 999px;
+  }
+  .gen .rows {
+    margin-top: 4px; display: flex; flex-direction: column;
+    border-top: 1px solid var(--gen-hair, rgba(0,0,0,0.1));
+  }
+  .gen .rows .r {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 12px;
+    padding: 8px 0; font-size: 12px;
+    border-bottom: 1px dotted var(--gen-hair, rgba(0,0,0,0.1));
+    align-items: center;
+  }
+  .gen .rows .r:last-child { border-bottom: none; }
+  .gen .rows .r .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 8px; vertical-align: middle; }
+  .gen .rows .r .qty { font-family: var(--gen-mono, 'JetBrains Mono',monospace); font-size: 11px; opacity: 0.75; }
+  .gen .rows .r .share { font-family: var(--gen-mono, 'JetBrains Mono',monospace); font-size: 11px; opacity: 0.55; width: 36px; text-align: right; }
+
+  /* TWEAK · variant 1 — Anthropic ivory + coral */
+  .gen.t1 {
+    background: #FAF9F5; color: #1F1F1E;
+    --gen-accent: #CC785C; --gen-mist: #E3DFD0; --gen-hair: rgba(31,31,30,0.14);
+    --gen-mono: 'JetBrains Mono',monospace;
+  }
+  .gen.t1 .gen-title { font-family: 'Fraunces',serif; font-weight: 400; font-size: 18px; }
+  .gen.t1 .gen-sub   { font-family: 'Inter',sans-serif; color: #6B6A65; }
+  .gen.t1 .big .n    { font-family: 'Fraunces',serif; font-size: 56px; letter-spacing: -0.035em; }
+  .gen.t1 .big .n em { font-style: italic; color: #7A3A28; }
+  .gen.t1 .big .u    { font-family: 'Inter',sans-serif; }
+
+  /* TWEAK · variant 2 — midnight + emerald */
+  .gen.t2 {
+    background: #0F1714; color: #E8EFEA;
+    --gen-accent: #4ADE80; --gen-mist: rgba(255,255,255,0.07); --gen-hair: rgba(255,255,255,0.12);
+    --gen-mono: 'JetBrains Mono',monospace;
+    border-radius: 16px;
+  }
+  .gen.t2 .gen-title { font-family: 'Manrope',sans-serif; font-weight: 600; font-size: 16px; letter-spacing: -0.01em; }
+  .gen.t2 .gen-sub   { font-family: 'Manrope',sans-serif; color: rgba(232,239,234,0.55); }
+  .gen.t2 .big .n    { font-family: 'Manrope',sans-serif; font-weight: 700; font-size: 52px; letter-spacing: -0.04em; }
+  .gen.t2 .big .n em { font-style: normal; color: #4ADE80; }
+  .gen.t2 .big .u    { font-family: 'Manrope',sans-serif; color: rgba(232,239,234,0.6); }
+  .gen.t2 .bar       { border-radius: 4px; }
+  .gen.t2 .bar > i   { border-radius: 4px; }
+
+  /* REGENERATE · v1 — meter dashboard (numbers + bar + table) */
+  .gen.r1 {
+    background: #FAF9F5; color: #1F1F1E;
+    --gen-accent: #CC785C; --gen-mist: #E3DFD0; --gen-hair: rgba(31,31,30,0.14);
+  }
+  .gen.r1 .gen-title { font-family: 'Fraunces',serif; font-weight: 400; font-size: 18px; }
+  .gen.r1 .gen-sub   { font-family: 'Inter',sans-serif; color: #6B6A65; }
+  .gen.r1 .big .n    { font-family: 'Fraunces',serif; font-size: 56px; letter-spacing: -0.035em; }
+  .gen.r1 .big .n em { font-style: italic; color: #7A3A28; }
+  .gen.r1 .big .u    { font-family: 'Inter',sans-serif; color: #6B6A65; }
+
+  /* REGENERATE · v2 — weekly timeline (7-day stacked-bar strip) */
+  .gen.r2 {
+    background: #FAF9F5; color: #1F1F1E;
+    padding: 22px 22px 18px;
+  }
+  .gen.r2 .gen-head .gen-title {
+    font-family: 'Fraunces',serif; font-weight: 400; font-size: 18px;
+  }
+  .gen.r2 .gen-head .gen-sub { font-family: 'Inter',sans-serif; color: #6B6A65; font-size: 11px; }
+  .gen.r2 .week-grid {
+    display: grid; grid-template-columns: 28px repeat(7, 1fr); gap: 5px;
+    margin-top: 4px;
+  }
+  .gen.r2 .yax {
+    display: flex; flex-direction: column; justify-content: space-between;
+    font-size: 9px; color: #6B6A65; padding: 2px 0;
+  }
+  .gen.r2 .day { display: flex; flex-direction: column; }
+  .gen.r2 .day .bars {
+    flex: 1; background: #F0EEE6; border: 1px solid rgba(31,31,30,0.1);
+    border-radius: 3px; height: 100px; position: relative;
+    display: flex; align-items: flex-end; overflow: hidden;
+  }
+  .gen.r2 .day .bars .seg { width: 100%; }
+  .gen.r2 .day .bars .seg.o { background: #CC785C; }
+  .gen.r2 .day .bars .seg.s { background: #6B6A48; }
+  .gen.r2 .day .bars .seg.h { background: #B8B4A4; }
+  .gen.r2 .day .bars .cap {
+    position: absolute; left: 0; right: 0; bottom: 70%;
+    border-top: 1px dashed #1F1F1E; height: 0;
+  }
+  .gen.r2 .day .lbl { text-align: center; font-size: 9px; color: #6B6A65; margin-top: 5px; }
+  .gen.r2 .day.today .lbl { color: #7A3A28; font-style: italic; }
+  .gen.r2 .legend { display: flex; gap: 14px; font-size: 10px; color: #6B6A65; margin-top: 8px; flex-wrap: wrap; }
+  .gen.r2 .legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 5px; vertical-align: 0; }
+
+  /* ── Bottom strip — the lesson ── */
+  .lesson {
+    padding: 56px 0 80px;
+  }
+  .lesson .grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 48px; max-width: 880px;
+  }
+  .lesson h3 {
+    font-family: 'Fraunces',serif; font-weight: 400; font-size: 28px;
+    letter-spacing: -0.02em; margin-bottom: 12px;
+  }
+  .lesson h3 em { font-style: italic; color: var(--coral-ink); }
+  .lesson p { font-size: 14.5px; color: var(--char); }
+  .lesson .meta {
+    margin-top: 14px; font-family: 'JetBrains Mono',monospace;
+    font-size: 11px; color: var(--muted);
+  }
+  .lesson .meta b { color: var(--ink); font-weight: 500; }
+
+  @media (max-width: 900px) {
+    .vs { grid-template-columns: 1fr; }
+    .col + .col { border-left: none; border-top: 1px solid var(--ink); }
+    .stack .row { grid-template-columns: 1fr; gap: 8px; }
+    .lesson .grid { grid-template-columns: 1fr; gap: 28px; }
+    .wrap { padding: 0 22px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <div class="wrap">
+    <div class="eyebrow">
+      <span class="dot"></span>
+      <span class="upper">A specimen comparison</span>
+    </div>
+    <h1>Tweak<br>vs <em>Regenerate</em>.</h1>
+    <p>
+      Two ways the design changes after the first generation. One is free
+      and instant — the other costs a round trip and a roll of the dice.
+      Both belong in the loop. Knowing which to reach for is the whole game.
+    </p>
+  </div>
+</header>
+
+<!-- ── The VS grid ── -->
+<section class="vs">
+
+  <!-- ── LEFT: TWEAK ── -->
+  <div class="col">
+    <h2><span class="badge">A</span>Tweak.</h2>
+    <p class="sub">
+      Sliders mutate the brand tokens. The page is the same page — same
+      structure, same words, same shapes — repainted with different
+      values. Instant. Free. Predictable.
+    </p>
+    <div class="kbd">
+      <span><b>cost</b> 0 tokens</span>
+      <span><b>latency</b> ~1 frame</span>
+      <span><b>changes</b> tokens only</span>
+    </div>
+
+    <div class="stack">
+      <div class="row">
+        <div class="tag">v1<em>ivory · coral</em></div>
+        <div class="frame">
+          <div class="gen t1">
+            <div class="gen-head">
+              <span class="gen-title">5-hour window</span>
+              <span class="gen-sub">resets 14:42</span>
+            </div>
+            <div class="big">
+              <span class="n"><em>64</em>%</span>
+              <span class="u">used of this window</span>
+            </div>
+            <div class="bar"><i style="width:64%"></i></div>
+            <div class="rows">
+              <div class="r"><span><span class="sw" style="background:#CC785C"></span>Opus 4.7</span><span class="qty">412k</span><span class="share">38%</span></div>
+              <div class="r"><span><span class="sw" style="background:#6B6A48"></span>Sonnet 4.6</span><span class="qty">198k</span><span class="share">19%</span></div>
+              <div class="r"><span><span class="sw" style="background:#B8B4A4"></span>Haiku 4.5</span><span class="qty">74k</span><span class="share">7%</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="tag">v2<em>midnight · emerald</em></div>
+        <div class="frame">
+          <div class="gen t2">
+            <div class="gen-head">
+              <span class="gen-title">5-hour window</span>
+              <span class="gen-sub">resets 14:42</span>
+            </div>
+            <div class="big">
+              <span class="n"><em>64</em>%</span>
+              <span class="u">used of this window</span>
+            </div>
+            <div class="bar"><i style="width:64%"></i></div>
+            <div class="rows">
+              <div class="r"><span><span class="sw" style="background:#4ADE80"></span>Opus 4.7</span><span class="qty">412k</span><span class="share">38%</span></div>
+              <div class="r"><span><span class="sw" style="background:#86EFAC"></span>Sonnet 4.6</span><span class="qty">198k</span><span class="share">19%</span></div>
+              <div class="r"><span><span class="sw" style="background:rgba(255,255,255,0.4)"></span>Haiku 4.5</span><span class="qty">74k</span><span class="share">7%</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT: REGENERATE ── -->
+  <div class="col">
+    <h2><span class="badge">B</span>Regenerate.</h2>
+    <p class="sub">
+      Send the prompt back to the model. It returns a new design that
+      may share a vibe with the last one but won't share its shape.
+      Slower. Costs tokens. Comes back with surprises — good and bad.
+    </p>
+    <div class="kbd">
+      <span><b>cost</b> ~10k tokens</span>
+      <span><b>latency</b> ~8–20s</span>
+      <span><b>changes</b> structure</span>
+    </div>
+
+    <div class="stack">
+      <div class="row">
+        <div class="tag">v1<em>meter dashboard</em></div>
+        <div class="frame">
+          <div class="gen r1">
+            <div class="gen-head">
+              <span class="gen-title">Max usage — today</span>
+              <span class="gen-sub">2 windows · live</span>
+            </div>
+            <div class="big">
+              <span class="n"><em>64</em>%</span>
+              <span class="u">5-hour window</span>
+            </div>
+            <div class="bar"><i style="width:64%"></i></div>
+            <div class="rows">
+              <div class="r"><span><span class="sw" style="background:#CC785C"></span>Opus 4.7</span><span class="qty">412k</span><span class="share">38%</span></div>
+              <div class="r"><span><span class="sw" style="background:#6B6A48"></span>Sonnet 4.6</span><span class="qty">198k</span><span class="share">19%</span></div>
+              <div class="r"><span><span class="sw" style="background:#B8B4A4"></span>Haiku 4.5</span><span class="qty">74k</span><span class="share">7%</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="tag">v2<em>weekly timeline</em></div>
+        <div class="frame">
+          <div class="gen r2">
+            <div class="gen-head">
+              <span class="gen-title">Max usage — this week</span>
+              <span class="gen-sub">Mon → Sun, by model</span>
+            </div>
+            <div class="week-grid">
+              <div class="yax"><span>100</span><span>50</span><span>0</span></div>
+              <div class="day"><div class="bars"><div class="cap"></div><div class="seg h" style="height:4%"></div><div class="seg s" style="height:18%"></div><div class="seg o" style="height:32%"></div></div><div class="lbl">Mon</div></div>
+              <div class="day"><div class="bars"><div class="cap"></div><div class="seg h" style="height:6%"></div><div class="seg s" style="height:14%"></div><div class="seg o" style="height:42%"></div></div><div class="lbl">Tue</div></div>
+              <div class="day"><div class="bars"><div class="cap"></div><div class="seg h" style="height:3%"></div><div class="seg s" style="height:22%"></div><div class="seg o" style="height:54%"></div></div><div class="lbl">Wed</div></div>
+              <div class="day"><div class="bars"><div class="cap"></div><div class="seg h" style="height:5%"></div><div class="seg s" style="height:28%"></div><div class="seg o" style="height:36%"></div></div><div class="lbl">Thu</div></div>
+              <div class="day"><div class="bars"><div class="cap"></div><div class="seg h" style="height:4%"></div><div class="seg s" style="height:12%"></div><div class="seg o" style="height:22%"></div></div><div class="lbl">Fri</div></div>
+              <div class="day today"><div class="bars"><div class="cap"></div><div class="seg h" style="height:2%"></div><div class="seg s" style="height:10%"></div><div class="seg o" style="height:28%"></div></div><div class="lbl">Sat</div></div>
+              <div class="day"><div class="bars"><div class="cap"></div></div><div class="lbl">Sun</div></div>
+            </div>
+            <div class="legend">
+              <span><i style="background:#CC785C"></i>Opus</span>
+              <span><i style="background:#6B6A48"></i>Sonnet</span>
+              <span><i style="background:#B8B4A4"></i>Haiku</span>
+              <span><i style="background:transparent;border:1px dashed #1F1F1E"></i>Pace</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ── Lesson ── -->
+<section class="lesson">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <h3>Reach for <em>Tweak</em> when…</h3>
+        <p>
+          you like the design but want it warmer, tighter, darker, rounder.
+          The brand color is wrong. The headline font is heavier than it
+          should be. The radii are too sharp. The composition is fine —
+          the surface isn't.
+        </p>
+        <div class="meta">↓ <b>same DOM</b> · different CSS variables</div>
+      </div>
+      <div>
+        <h3>Reach for <em>Regenerate</em> when…</h3>
+        <p>
+          the design itself isn't right. You want a timeline instead of a
+          meter. A different hero. New sections. More content. The tokens
+          are fine — the shape isn't. Pay the round trip; let the model
+          rebuild from the brief.
+        </p>
+        <div class="meta">↓ <b>new DOM</b> · same brief, fresh structure</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
