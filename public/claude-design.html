@@ -797,6 +797,7 @@
       if (!r.ok) throw new Error(j.detail || j.error || 'ingest failed');
       tokens = normalizeTokens(j.tokens);
       lastSavedTokens = JSON.parse(JSON.stringify(tokens));
+      lsSet(tokens);
       renderTokenControls();
       applyTokensLive();
       elIngestStatus.className = 'status ok';
@@ -808,20 +809,38 @@
   });
 
   // ── Save / reset / re-apply tokens ───────────────────────────────────────
+  // Persist tokens to localStorage so they survive server restarts and Render
+  // free-tier disk wipes; also best-effort POST to the server so other clients
+  // (or a fresh browser) get the same defaults on first load.
+  const TOKENS_LS_KEY = 'claudeDesign.brandTokens.v1';
+  function lsGet() {
+    try { const raw = localStorage.getItem(TOKENS_LS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+  }
+  function lsSet(t) {
+    try { localStorage.setItem(TOKENS_LS_KEY, JSON.stringify(t)); } catch {}
+  }
+  function lsClear() {
+    try { localStorage.removeItem(TOKENS_LS_KEY); } catch {}
+  }
+
   $('#btn-save-tokens').addEventListener('click', async () => {
-    try {
-      await fetch('/design/tokens', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokens }),
-      });
-      lastSavedTokens = JSON.parse(JSON.stringify(tokens));
-      flash($('#btn-save-tokens'), 'Saved ✓');
-    } catch {}
+    lsSet(tokens);
+    lastSavedTokens = JSON.parse(JSON.stringify(tokens));
+    fetch('/design/tokens', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tokens }),
+    }).catch(() => {}); // server-side disk save is best-effort
+    flash($('#btn-save-tokens'), 'Saved ✓');
   });
   $('#btn-reset-tokens').addEventListener('click', async () => {
-    const r = await fetch('/design/tokens'); const j = await r.json();
-    tokens = normalizeTokens(j.tokens);
+    lsClear();
+    try {
+      const r = await fetch('/design/tokens'); const j = await r.json();
+      tokens = normalizeTokens(j.tokens);
+    } catch {
+      tokens = normalizeTokens(null);
+    }
     renderTokenControls(); applyTokensLive();
   });
   $('#btn-apply-tokens').addEventListener('click', () => applyTokensLive());
@@ -871,14 +890,25 @@
     return { colors, fonts, radius, notes: t.notes || '' };
   }
 
-  fetch('/design/tokens').then(r => r.json()).then((j) => {
-    tokens = normalizeTokens(j.tokens);
-    lastSavedTokens = JSON.parse(JSON.stringify(tokens));
-    renderTokenControls();
-  }).catch(() => {
-    tokens = normalizeTokens(null);
-    renderTokenControls();
-  });
+  // Boot: localStorage wins (survives redeploys + free-tier disk wipes),
+  // server is the fallback default for a fresh browser.
+  (function bootTokens() {
+    const cached = lsGet();
+    if (cached) {
+      tokens = normalizeTokens(cached);
+      lastSavedTokens = JSON.parse(JSON.stringify(tokens));
+      renderTokenControls();
+      return;
+    }
+    fetch('/design/tokens').then(r => r.json()).then((j) => {
+      tokens = normalizeTokens(j.tokens);
+      lastSavedTokens = JSON.parse(JSON.stringify(tokens));
+      renderTokenControls();
+    }).catch(() => {
+      tokens = normalizeTokens(null);
+      renderTokenControls();
+    });
+  })();
 
 })();
 </script>
