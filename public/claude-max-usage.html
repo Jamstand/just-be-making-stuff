@@ -1,0 +1,871 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude Max Usage — Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ivory:    #F0EEE6;
+    --paper:    #F5F3EC;
+    --cream:    #FAF9F5;
+    --ink:      #1F1F1E;
+    --char:     #2B2A28;
+    --muted:    #6B6A65;
+    --rule:     #1F1F1E;
+    --hair:     #C9C5B6;
+    --coral:    #CC785C;
+    --coral-2:  #D97757;
+    --coral-ink:#7A3A28;
+    --olive:    #6B6A48;
+    --moss:     #4A5A3A;
+    --mist:     #E3DFD0;
+    --slate:    #B8B4A4;
+    --good:     #4A6B3A;
+    --warn:     #B7894E;
+    --bad:      #B5523B;
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: var(--ivory); color: var(--ink); }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-weight: 450;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection { background: var(--coral); color: var(--cream); }
+
+  /* ── Typography ── */
+  .serif { font-family: 'Fraunces', 'Iowan Old Style', Georgia, serif; font-weight: 400; letter-spacing: -0.01em; }
+  .mono  { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+  .upper { text-transform: uppercase; letter-spacing: 0.14em; font-size: 11px; font-weight: 500; }
+
+  a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--ink); }
+  a:hover { color: var(--coral-ink); border-color: var(--coral); }
+
+  /* ── Layout ── */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 40px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .nav .brand { display: flex; align-items: center; gap: 12px; font-family: 'Fraunces',serif; font-size: 22px; font-weight: 500; }
+  .nav .brand svg { display: block; }
+  .nav .links { display: flex; gap: 28px; }
+  .nav .links a { border: none; font-size: 14px; color: var(--char); }
+  .nav .links a:hover { color: var(--coral-ink); }
+  .nav .pill {
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 12px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .nav .pill:hover { background: var(--ink); color: var(--cream); }
+
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 0 40px; }
+
+  /* ── Hero ── */
+  .hero {
+    border-bottom: 1px solid var(--rule);
+    padding: 88px 0 64px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero .grid {
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 64px; align-items: end;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    margin-bottom: 36px;
+  }
+  .eyebrow .swatch {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--coral);
+  }
+  h1.display {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: clamp(56px, 9vw, 124px);
+    line-height: 0.92;
+    letter-spacing: -0.035em;
+    color: var(--ink);
+  }
+  h1.display em {
+    font-style: italic;
+    font-variation-settings: "opsz" 144;
+    color: var(--coral-ink);
+  }
+  .hero .lede {
+    font-family: 'Fraunces', serif;
+    font-size: 22px;
+    line-height: 1.35;
+    color: var(--char);
+    max-width: 36ch;
+    margin-top: 8px;
+  }
+  .hero .meta {
+    display: flex; gap: 28px; margin-top: 32px;
+  }
+  .hero .meta div .upper { color: var(--muted); display: block; margin-bottom: 4px; }
+  .hero .meta div .val { font-family: 'Fraunces',serif; font-size: 20px; }
+
+  /* ── Section frame ── */
+  section { border-bottom: 1px solid var(--rule); padding: 80px 0; }
+  .sec-head { display: grid; grid-template-columns: 200px 1fr; gap: 40px; margin-bottom: 56px; }
+  .sec-head .num { font-family: 'Fraunces',serif; font-size: 18px; color: var(--muted); }
+  .sec-head h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: clamp(36px, 5vw, 64px);
+    line-height: 1.0;
+    letter-spacing: -0.025em;
+  }
+  .sec-head .sub { margin-top: 18px; max-width: 60ch; color: var(--char); font-size: 17px; }
+
+  /* ── Quota cards (the centerpiece) ── */
+  .quotas { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--rule); background: var(--cream); }
+  .quota {
+    padding: 40px 40px 36px;
+    position: relative;
+  }
+  .quota + .quota { border-left: 1px solid var(--rule); }
+  .quota .label { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 22px; }
+  .quota .label .name { font-family: 'Fraunces',serif; font-size: 28px; letter-spacing: -0.01em; }
+  .quota .label .horizon { color: var(--muted); font-size: 13px; }
+  .quota .big {
+    font-family: 'Fraunces',serif;
+    font-size: 96px;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .quota .big .pct { color: var(--ink); }
+  .quota .big .pct em { font-style: italic; color: var(--coral-ink); }
+  .quota .big .unit { font-family: 'Inter',sans-serif; font-size: 16px; font-weight: 500; color: var(--muted); }
+  .quota .bar {
+    height: 8px; background: var(--mist);
+    margin-top: 24px; border-radius: 999px; overflow: hidden;
+    position: relative;
+  }
+  .quota .bar > i {
+    display: block; height: 100%;
+    background: var(--coral);
+    border-radius: 999px;
+  }
+  .quota .bar > b {
+    position: absolute; top: -3px; bottom: -3px; width: 2px;
+    background: var(--ink);
+  }
+  .quota .legend {
+    display: flex; justify-content: space-between; margin-top: 12px;
+    font-size: 12px; color: var(--muted);
+  }
+  .quota .rows {
+    margin-top: 28px; border-top: 1px solid var(--hair);
+  }
+  .quota .row {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px dotted var(--hair);
+    align-items: center;
+  }
+  .quota .row .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 10px; vertical-align: middle; }
+  .quota .row .what { font-size: 14px; }
+  .quota .row .qty  { font-family: 'JetBrains Mono',monospace; font-size: 13px; color: var(--char); }
+  .quota .row .share { font-family: 'JetBrains Mono',monospace; font-size: 12px; color: var(--muted); width: 64px; text-align: right; }
+
+  .quota.muted { background: var(--paper); }
+
+  .reset {
+    margin-top: 28px;
+    padding: 14px 18px;
+    border: 1px dashed var(--rule);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 13px;
+  }
+  .reset .when { font-family: 'JetBrains Mono',monospace; }
+
+  /* ── Plan ladder ── */
+  .ladder {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border: 1px solid var(--rule);
+  }
+  .ladder .tier {
+    padding: 36px 28px 32px;
+    border-left: 1px solid var(--rule);
+    display: flex; flex-direction: column; gap: 14px;
+    background: var(--cream);
+    position: relative;
+  }
+  .ladder .tier:first-child { border-left: none; }
+  .ladder .tier.current {
+    background: var(--ink); color: var(--cream);
+  }
+  .ladder .tier.current .upper,
+  .ladder .tier.current .muted-t { color: var(--slate); }
+  .ladder .tier.current h3 em { color: var(--coral); }
+  .ladder .tier h3 {
+    font-family: 'Fraunces',serif; font-weight: 400; font-size: 36px;
+    letter-spacing: -0.02em; line-height: 1;
+  }
+  .ladder .tier h3 em { font-style: italic; color: var(--coral-ink); }
+  .ladder .tier .price { font-family: 'Fraunces',serif; font-size: 20px; }
+  .ladder .tier .price small { font-family: 'Inter',sans-serif; font-size: 12px; color: inherit; opacity: 0.7; }
+  .ladder .tier .factor {
+    margin-top: 4px;
+    font-family: 'JetBrains Mono',monospace; font-size: 12px;
+    border-top: 1px dotted currentColor;
+    padding-top: 14px;
+    opacity: 0.9;
+  }
+  .ladder .tier .features { margin-top: 4px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+  .ladder .tier .features li { list-style: none; display: flex; gap: 8px; }
+  .ladder .tier .features li::before { content: "—"; opacity: 0.5; }
+  .ladder .tier .badge {
+    position: absolute; top: 14px; right: 16px;
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 4px 8px; border: 1px solid currentColor; border-radius: 999px;
+  }
+
+  /* ── Timeline / week strip ── */
+  .week {
+    border: 1px solid var(--rule);
+    background: var(--cream);
+    padding: 36px 40px;
+  }
+  .week .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 22px; }
+  .week .head h3 { font-family: 'Fraunces',serif; font-weight: 400; font-size: 28px; letter-spacing: -0.01em; }
+  .week .head .legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted); }
+  .week .head .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .grid7 {
+    display: grid; grid-template-columns: 56px repeat(7, 1fr);
+    gap: 6px;
+    align-items: stretch;
+  }
+  .grid7 .yaxis { display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; color: var(--muted); padding: 4px 0; }
+  .grid7 .day { display: flex; flex-direction: column; }
+  .grid7 .day .bars {
+    flex: 1;
+    background: var(--paper);
+    border: 1px solid var(--hair);
+    border-radius: 4px;
+    position: relative;
+    height: 160px;
+    display: flex; align-items: flex-end;
+    overflow: hidden;
+  }
+  .grid7 .day .bars .seg { width: 100%; }
+  .grid7 .day .bars .seg.opus    { background: var(--coral); }
+  .grid7 .day .bars .seg.sonnet  { background: var(--olive); }
+  .grid7 .day .bars .seg.haiku   { background: var(--slate); }
+  .grid7 .day .bars .cap {
+    position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--ink);
+    bottom: 70%;
+  }
+  .grid7 .day .lbl { text-align: center; font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .grid7 .day .num { text-align: center; font-family: 'Fraunces',serif; font-size: 18px; }
+  .grid7 .day.today .num { color: var(--coral-ink); font-style: italic; }
+  .grid7 .day.future { opacity: 0.45; }
+
+  /* ── Receipt / model ledger ── */
+  .ledger {
+    display: grid; grid-template-columns: 1.2fr 1fr; gap: 0;
+    border: 1px solid var(--rule);
+    background: var(--cream);
+  }
+  .ledger .left, .ledger .right { padding: 36px 40px; }
+  .ledger .right { border-left: 1px solid var(--rule); background: var(--paper); }
+  .ledger h3 { font-family: 'Fraunces',serif; font-weight: 400; font-size: 24px; margin-bottom: 18px; letter-spacing: -0.01em; }
+  .ledger table { width: 100%; border-collapse: collapse; }
+  .ledger th, .ledger td {
+    text-align: left; padding: 12px 0; font-size: 14px;
+    border-bottom: 1px dotted var(--hair);
+  }
+  .ledger th { font-weight: 500; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; }
+  .ledger td.num, .ledger th.num { text-align: right; font-family: 'JetBrains Mono',monospace; }
+  .ledger td.model { display: flex; align-items: center; gap: 10px; }
+  .ledger td.model .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .ledger .total td { font-weight: 600; border-top: 1px solid var(--ink); border-bottom: none; padding-top: 16px; }
+  .ledger .donut { display: flex; align-items: center; gap: 24px; }
+  .ledger .donut svg { flex-shrink: 0; }
+  .ledger .donut .key { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+  .ledger .donut .key div { display: flex; align-items: center; gap: 8px; }
+  .ledger .donut .key i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+
+  /* ── Tips ── */
+  .tips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border: 1px solid var(--rule); background: var(--cream); }
+  .tip { padding: 36px 32px; border-left: 1px solid var(--rule); display: flex; flex-direction: column; gap: 14px; }
+  .tip:first-child { border-left: none; }
+  .tip .n { font-family: 'Fraunces',serif; font-style: italic; font-size: 36px; color: var(--coral-ink); line-height: 1; }
+  .tip h4 { font-family: 'Fraunces',serif; font-weight: 400; font-size: 22px; letter-spacing: -0.01em; }
+  .tip p { font-size: 14.5px; color: var(--char); line-height: 1.55; }
+
+  /* ── Footer ── */
+  footer {
+    padding: 56px 0 80px;
+    background: var(--ink);
+    color: var(--cream);
+  }
+  footer .wrap { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 48px; }
+  footer h5 { font-family: 'Fraunces',serif; font-weight: 400; font-size: 36px; letter-spacing: -0.02em; line-height: 1; max-width: 14ch; }
+  footer h5 em { font-style: italic; color: var(--coral); }
+  footer ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  footer a { color: var(--cream); border-color: rgba(245,243,236,0.25); font-size: 14px; }
+  footer a:hover { color: var(--coral); border-color: var(--coral); }
+  footer .upper { color: var(--slate); display: block; margin-bottom: 18px; }
+  footer .colophon {
+    border-top: 1px solid rgba(245,243,236,0.18);
+    margin-top: 56px; padding-top: 24px;
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: var(--slate);
+  }
+
+  /* ── Small ── */
+  .muted-t { color: var(--muted); }
+  .hr-soft { border: 0; border-top: 1px solid var(--hair); margin: 28px 0; }
+
+  @media (max-width: 960px) {
+    .nav { padding: 18px 22px; }
+    .nav .links { display: none; }
+    .wrap { padding: 0 22px; }
+    .hero { padding: 56px 0 40px; }
+    .hero .grid { grid-template-columns: 1fr; gap: 28px; }
+    .sec-head { grid-template-columns: 1fr; gap: 14px; margin-bottom: 36px; }
+    .quotas, .ledger { grid-template-columns: 1fr; }
+    .quota + .quota, .ledger .right { border-left: none; border-top: 1px solid var(--rule); }
+    .ladder { grid-template-columns: 1fr 1fr; }
+    .ladder .tier { border-left: none; border-top: 1px solid var(--rule); }
+    .ladder .tier:nth-child(2) { border-left: 1px solid var(--rule); }
+    .tips { grid-template-columns: 1fr; }
+    .tip { border-left: none; border-top: 1px solid var(--rule); }
+    .tip:first-child { border-top: none; }
+    footer .wrap { grid-template-columns: 1fr; }
+    .grid7 { grid-template-columns: 36px repeat(7, 1fr); }
+    .grid7 .day .bars { height: 120px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <path d="M5 19 L12 5 L19 19 Z" stroke="#1F1F1E" stroke-width="1.6" fill="#CC785C"/>
+    </svg>
+    <span>Claude</span>
+    <span class="upper" style="color:var(--muted); margin-left:6px;">Design / Max Usage</span>
+  </div>
+  <nav class="links">
+    <a href="#quotas">Quotas</a>
+    <a href="#plans">Plans</a>
+    <a href="#week">This week</a>
+    <a href="#ledger">Ledger</a>
+    <a href="#tips">Tips</a>
+  </nav>
+  <button class="pill">Manage plan →</button>
+</header>
+
+<!-- ───────────────────────────── HERO ───────────────────────────── -->
+<section class="hero">
+  <div class="wrap grid">
+    <div>
+      <div class="eyebrow">
+        <span class="swatch"></span>
+        <span class="upper muted-t">A specimen page — Claude Max, in use</span>
+      </div>
+      <h1 class="display">
+        Usage,<br>
+        carefully <em>measured</em>.
+      </h1>
+      <div class="meta">
+        <div><span class="upper">Plan</span><span class="val">Max 20×</span></div>
+        <div><span class="upper">Cycle</span><span class="val">5h + weekly</span></div>
+        <div><span class="upper">Reset</span><span class="val mono" style="font-family:'JetBrains Mono',monospace;font-size:16px;">in 02:14</span></div>
+      </div>
+    </div>
+    <div>
+      <p class="lede">
+        Claude Max raises the ceiling, but the ceiling is still a shape worth
+        seeing. Two clocks run in parallel — a five-hour rolling window, and a
+        weekly budget that resets on Mondays at midnight, local.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── QUOTAS ───────────────────────────── -->
+<section id="quotas">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num">01 — Quotas</div>
+      <div>
+        <h2>Two clocks, one ceiling.</h2>
+        <p class="sub">
+          The 5-hour window keeps any single burst polite. The weekly budget
+          shapes the whole arc of the week. Both are shown below at the moment
+          this page was rendered.
+        </p>
+      </div>
+    </div>
+
+    <div class="quotas">
+      <!-- 5-hour quota -->
+      <div class="quota">
+        <div class="label">
+          <span class="name">5-hour window</span>
+          <span class="horizon">rolling · resets 14:42 local</span>
+        </div>
+        <div class="big">
+          <span class="pct"><em>64</em>%</span>
+          <span class="unit">used of this window</span>
+        </div>
+        <div class="bar" aria-hidden="true">
+          <i style="width: 64%;"></i>
+          <b style="left: 80%;"></b>
+        </div>
+        <div class="legend">
+          <span>0</span><span>warn @ 80%</span><span>100%</span>
+        </div>
+
+        <div class="rows">
+          <div class="row">
+            <span class="what"><span class="swatch" style="background:var(--coral)"></span>Opus 4.7</span>
+            <span class="qty">412k tok</span>
+            <span class="share">38%</span>
+          </div>
+          <div class="row">
+            <span class="what"><span class="swatch" style="background:var(--olive)"></span>Sonnet 4.6</span>
+            <span class="qty">198k tok</span>
+            <span class="share">19%</span>
+          </div>
+          <div class="row">
+            <span class="what"><span class="swatch" style="background:var(--slate)"></span>Haiku 4.5</span>
+            <span class="qty">74k tok</span>
+            <span class="share">7%</span>
+          </div>
+        </div>
+
+        <div class="reset">
+          <span>Window opened at 09:42 today</span>
+          <span class="when">→ 14:42:00</span>
+        </div>
+      </div>
+
+      <!-- weekly quota -->
+      <div class="quota muted">
+        <div class="label">
+          <span class="name">Weekly budget</span>
+          <span class="horizon">resets Mon · 00:00 local</span>
+        </div>
+        <div class="big">
+          <span class="pct"><em>41</em>%</span>
+          <span class="unit">used Mon → Sun</span>
+        </div>
+        <div class="bar" aria-hidden="true">
+          <i style="width: 41%;"></i>
+          <b style="left: 71%;"></b>
+        </div>
+        <div class="legend">
+          <span>Mon</span><span>on-pace</span><span>Sun</span>
+        </div>
+
+        <div class="rows">
+          <div class="row">
+            <span class="what"><span class="swatch" style="background:var(--coral)"></span>Opus 4.7</span>
+            <span class="qty">3.1M tok</span>
+            <span class="share">62%</span>
+          </div>
+          <div class="row">
+            <span class="what"><span class="swatch" style="background:var(--olive)"></span>Sonnet 4.6</span>
+            <span class="qty">1.4M tok</span>
+            <span class="share">28%</span>
+          </div>
+          <div class="row">
+            <span class="what"><span class="swatch" style="background:var(--slate)"></span>Haiku 4.5</span>
+            <span class="qty">0.5M tok</span>
+            <span class="share">10%</span>
+          </div>
+        </div>
+
+        <div class="reset">
+          <span>Pace allows ~71% by week-end at current rate</span>
+          <span class="when">→ Mon 00:00:00</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── PLAN LADDER ───────────────────────────── -->
+<section id="plans">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num">02 — Plans</div>
+      <div>
+        <h2>The ladder, drawn to scale.</h2>
+        <p class="sub">
+          Max is a multiplier on Pro — 5× or 20×. Same models, same windows,
+          taller ceiling. Your current rung is filled in.
+        </p>
+      </div>
+    </div>
+
+    <div class="ladder">
+      <div class="tier">
+        <span class="upper muted-t">Tier 01</span>
+        <h3>Free</h3>
+        <div class="price">$0 <small>/ month</small></div>
+        <div class="factor">~1× baseline</div>
+        <ul class="features">
+          <li>Sonnet 4.6, light Opus</li>
+          <li>5-hour window</li>
+          <li>No weekly cap stated</li>
+        </ul>
+      </div>
+
+      <div class="tier">
+        <span class="upper muted-t">Tier 02</span>
+        <h3>Pro</h3>
+        <div class="price">$20 <small>/ month</small></div>
+        <div class="factor">5× the Free quota</div>
+        <ul class="features">
+          <li>All current models</li>
+          <li>Projects & Artifacts</li>
+          <li>Weekly + 5h windows</li>
+        </ul>
+      </div>
+
+      <div class="tier current">
+        <span class="badge">You are here</span>
+        <span class="upper">Tier 03</span>
+        <h3>Max <em>5×</em></h3>
+        <div class="price">$100 <small>/ month</small></div>
+        <div class="factor">5× the Pro quota</div>
+        <ul class="features">
+          <li>Higher Opus budget</li>
+          <li>Priority bandwidth</li>
+          <li>Early access to new models</li>
+        </ul>
+      </div>
+
+      <div class="tier">
+        <span class="upper muted-t">Tier 04</span>
+        <h3>Max <em>20×</em></h3>
+        <div class="price">$200 <small>/ month</small></div>
+        <div class="factor">20× the Pro quota</div>
+        <ul class="features">
+          <li>Heavy Opus + Code use</li>
+          <li>Largest weekly budget</li>
+          <li>Priority during peaks</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── WEEK STRIP ───────────────────────────── -->
+<section id="week">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num">03 — This week</div>
+      <div>
+        <h2>Seven days, by model.</h2>
+        <p class="sub">
+          Each bar is a single day, stacked by model. The dashed line marks the
+          per-day pace that would land exactly on your weekly budget — above
+          the line is borrowed from tomorrow.
+        </p>
+      </div>
+    </div>
+
+    <div class="week">
+      <div class="head">
+        <h3>Week 20 · May 12 — May 18</h3>
+        <div class="legend">
+          <span><i style="background:var(--coral)"></i>Opus</span>
+          <span><i style="background:var(--olive)"></i>Sonnet</span>
+          <span><i style="background:var(--slate)"></i>Haiku</span>
+          <span><i style="background:transparent;border:1px dashed var(--ink)"></i>Pace</span>
+        </div>
+      </div>
+
+      <div class="grid7">
+        <div class="yaxis">
+          <span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0</span>
+        </div>
+
+        <!-- Mon -->
+        <div class="day">
+          <div class="bars">
+            <div class="cap"></div>
+            <div class="seg haiku"  style="height: 4%"></div>
+            <div class="seg sonnet" style="height: 18%"></div>
+            <div class="seg opus"   style="height: 32%"></div>
+          </div>
+          <div class="num">54</div>
+          <div class="lbl">Mon</div>
+        </div>
+        <!-- Tue -->
+        <div class="day">
+          <div class="bars">
+            <div class="cap"></div>
+            <div class="seg haiku"  style="height: 6%"></div>
+            <div class="seg sonnet" style="height: 14%"></div>
+            <div class="seg opus"   style="height: 42%"></div>
+          </div>
+          <div class="num">62</div>
+          <div class="lbl">Tue</div>
+        </div>
+        <!-- Wed -->
+        <div class="day">
+          <div class="bars">
+            <div class="cap"></div>
+            <div class="seg haiku"  style="height: 3%"></div>
+            <div class="seg sonnet" style="height: 22%"></div>
+            <div class="seg opus"   style="height: 54%"></div>
+          </div>
+          <div class="num">79</div>
+          <div class="lbl">Wed</div>
+        </div>
+        <!-- Thu -->
+        <div class="day">
+          <div class="bars">
+            <div class="cap"></div>
+            <div class="seg haiku"  style="height: 5%"></div>
+            <div class="seg sonnet" style="height: 28%"></div>
+            <div class="seg opus"   style="height: 36%"></div>
+          </div>
+          <div class="num">69</div>
+          <div class="lbl">Thu</div>
+        </div>
+        <!-- Fri -->
+        <div class="day">
+          <div class="bars">
+            <div class="cap"></div>
+            <div class="seg haiku"  style="height: 4%"></div>
+            <div class="seg sonnet" style="height: 12%"></div>
+            <div class="seg opus"   style="height: 22%"></div>
+          </div>
+          <div class="num">38</div>
+          <div class="lbl">Fri</div>
+        </div>
+        <!-- Sat (today) -->
+        <div class="day today">
+          <div class="bars">
+            <div class="cap"></div>
+            <div class="seg haiku"  style="height: 2%"></div>
+            <div class="seg sonnet" style="height: 10%"></div>
+            <div class="seg opus"   style="height: 28%"></div>
+          </div>
+          <div class="num">40</div>
+          <div class="lbl">Sat · today</div>
+        </div>
+        <!-- Sun -->
+        <div class="day future">
+          <div class="bars">
+            <div class="cap"></div>
+            <div class="seg haiku"  style="height: 0%"></div>
+            <div class="seg sonnet" style="height: 0%"></div>
+            <div class="seg opus"   style="height: 0%"></div>
+          </div>
+          <div class="num">—</div>
+          <div class="lbl">Sun</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── LEDGER ───────────────────────────── -->
+<section id="ledger">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num">04 — Ledger</div>
+      <div>
+        <h2>What the tokens were spent on.</h2>
+        <p class="sub">
+          A receipt for the last 24 hours, with a single-glance split of where
+          the weekly budget is going.
+        </p>
+      </div>
+    </div>
+
+    <div class="ledger">
+      <div class="left">
+        <h3>Last 24h, by surface</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Surface</th>
+              <th>Model</th>
+              <th class="num">Messages</th>
+              <th class="num">Tokens</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>claude.ai · chat</td>
+              <td class="model"><span class="dot" style="background:var(--coral)"></span>Opus 4.7</td>
+              <td class="num">62</td>
+              <td class="num">284k</td>
+            </tr>
+            <tr>
+              <td>claude.ai · projects</td>
+              <td class="model"><span class="dot" style="background:var(--olive)"></span>Sonnet 4.6</td>
+              <td class="num">18</td>
+              <td class="num">96k</td>
+            </tr>
+            <tr>
+              <td>Claude Code · CLI</td>
+              <td class="model"><span class="dot" style="background:var(--coral)"></span>Opus 4.7</td>
+              <td class="num">31</td>
+              <td class="num">412k</td>
+            </tr>
+            <tr>
+              <td>Claude Code · web</td>
+              <td class="model"><span class="dot" style="background:var(--olive)"></span>Sonnet 4.6</td>
+              <td class="num">24</td>
+              <td class="num">208k</td>
+            </tr>
+            <tr>
+              <td>Mobile app</td>
+              <td class="model"><span class="dot" style="background:var(--slate)"></span>Haiku 4.5</td>
+              <td class="num">47</td>
+              <td class="num">74k</td>
+            </tr>
+            <tr class="total">
+              <td colspan="2">Today</td>
+              <td class="num">182</td>
+              <td class="num">1.07M</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="right">
+        <h3>Weekly mix</h3>
+        <div class="donut">
+          <!-- Stroke-based donut. Total stroke-dasharray length = 2πr = 2π·40 ≈ 251.3 -->
+          <svg width="160" height="160" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="40" fill="none" stroke="var(--mist)" stroke-width="14"/>
+            <!-- Opus 62% -->
+            <circle cx="50" cy="50" r="40" fill="none" stroke="var(--coral)" stroke-width="14"
+                    stroke-dasharray="155.8 95.5" stroke-dashoffset="0"
+                    transform="rotate(-90 50 50)"/>
+            <!-- Sonnet 28% -->
+            <circle cx="50" cy="50" r="40" fill="none" stroke="var(--olive)" stroke-width="14"
+                    stroke-dasharray="70.4 180.9" stroke-dashoffset="-155.8"
+                    transform="rotate(-90 50 50)"/>
+            <!-- Haiku 10% -->
+            <circle cx="50" cy="50" r="40" fill="none" stroke="var(--slate)" stroke-width="14"
+                    stroke-dasharray="25.1 226.2" stroke-dashoffset="-226.2"
+                    transform="rotate(-90 50 50)"/>
+            <text x="50" y="49" text-anchor="middle" font-family="Fraunces,serif"
+                  font-size="16" fill="#1F1F1E">41%</text>
+            <text x="50" y="62" text-anchor="middle" font-family="Inter,sans-serif"
+                  font-size="6" fill="#6B6A65" letter-spacing="1">OF WEEK</text>
+          </svg>
+          <div class="key">
+            <div><i style="background:var(--coral)"></i> Opus 4.7 · <b style="font-weight:500">62%</b></div>
+            <div><i style="background:var(--olive)"></i> Sonnet 4.6 · <b style="font-weight:500">28%</b></div>
+            <div><i style="background:var(--slate)"></i> Haiku 4.5 · <b style="font-weight:500">10%</b></div>
+          </div>
+        </div>
+
+        <hr class="hr-soft">
+
+        <h3 style="margin-bottom:10px;">At this rate</h3>
+        <p style="font-size:14.5px;color:var(--char);">
+          You'll cross <b>80%</b> of the weekly budget on
+          <b>Saturday around 21:00</b>. Switching half of your remaining Opus
+          turns to Sonnet would end the week near <b>58%</b> instead.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── TIPS ───────────────────────────── -->
+<section id="tips">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num">05 — Tips</div>
+      <div>
+        <h2>Stretching the budget, gently.</h2>
+        <p class="sub">
+          Three small habits that keep both clocks honest, without changing
+          the work you do.
+        </p>
+      </div>
+    </div>
+
+    <div class="tips">
+      <div class="tip">
+        <span class="n">i.</span>
+        <h4>Right-size the model.</h4>
+        <p>Drafting, search, formatting? Sonnet or Haiku. Reach for Opus when
+           the problem is actually hard — long-context reasoning, gnarly bugs,
+           the writing that takes care.</p>
+      </div>
+      <div class="tip">
+        <span class="n">ii.</span>
+        <h4>Reuse the project, not the prompt.</h4>
+        <p>Projects keep instructions and files in one place, so cached context
+           does the work that re-prompting otherwise repeats. Cheaper per turn,
+           and the answers stay in tune.</p>
+      </div>
+      <div class="tip">
+        <span class="n">iii.</span>
+        <h4>Mind the five-hour window.</h4>
+        <p>Long parallel sessions are what trip the short window first. Stagger
+           heavy runs by 30–60 minutes and the weekly budget tends to follow
+           the line on its own.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── FOOTER ───────────────────────────── -->
+<footer>
+  <div class="wrap">
+    <div>
+      <h5>Designed for the <em>way you actually work.</em></h5>
+      <p style="margin-top:18px;font-size:13px;color:var(--slate);max-width:38ch;">
+        A specimen page in the Claude visual language. Numbers shown are
+        illustrative — your dashboard, drawn the same way.
+      </p>
+    </div>
+    <div>
+      <span class="upper">Design</span>
+      <ul>
+        <li><a href="#quotas">Quotas</a></li>
+        <li><a href="#plans">Plans</a></li>
+        <li><a href="#week">Week strip</a></li>
+        <li><a href="#ledger">Ledger</a></li>
+      </ul>
+    </div>
+    <div>
+      <span class="upper">Elsewhere</span>
+      <ul>
+        <li><a href="https://claude.ai/design">claude.ai/design</a></li>
+        <li><a href="https://claude.ai">claude.ai</a></li>
+        <li><a href="#tips">Tips for Max</a></li>
+      </ul>
+    </div>
+    <div class="colophon" style="grid-column: 1 / -1;">
+      <span>Set in Fraunces & Inter · ivory <span class="mono">#F0EEE6</span> · coral <span class="mono">#CC785C</span></span>
+      <span>Rendered Sat · 18 May 2026</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
