@@ -1127,10 +1127,28 @@ Hard rules for the HTML:
     --brand-font-display, --brand-font-body, --brand-font-mono,
     --brand-radius-sm, --brand-radius-md, --brand-radius-lg
 - Set them from the supplied tokens. Never hardcode brand colors or fonts elsewhere — always use the variables. This is critical: a live tweak panel will mutate those variables and the page must reflect the changes.
+- Give every top-level structural element (section, header, footer, etc.) a stable id, so partial-refine edits can target it.
 - One file, no external assets besides Google Fonts and inline SVG.
 - Editorial, designed, generous whitespace. Multiple sections. Real (illustrative) content — not lorem ipsum.
 - Mobile responsive with a single @media (max-width: 900px) breakpoint.
 - No JavaScript unless the design genuinely needs it.
+
+Output ONLY the JSON object — no prose, no markdown fences.`;
+
+const REFINE_SYSTEM = `You are doing surgical edits inside an already-generated design page. You receive ONE region of HTML and an instruction describing how to change it. Return a replacement for that region only — the rest of the page is untouched.
+
+Output exactly this JSON shape:
+{
+  "html":    "<replacement region as a single HTML string>",
+  "summary": "one short sentence describing what changed"
+}
+
+Hard rules:
+- Replace the WHOLE region. Your output must be valid HTML that can replace the input verbatim in the parent document.
+- Preserve the root element type and its id: a <section id="quotas"> must come back as <section id="quotas">. Keep major classes if they were present.
+- Continue using the same CSS custom properties (--brand-bg, --brand-surface, --brand-ink, --brand-muted, --brand-accent, --brand-accent2, --brand-font-display, --brand-font-body, --brand-font-mono, --brand-radius-sm/md/lg). Never hardcode brand colors or font families.
+- Inline <style> blocks are fine and may be embedded inside the region; do NOT add <link> tags or <script>. The host page already loads fonts.
+- Do not include <html>, <head>, or <body> wrappers. Just the region.
 
 Output ONLY the JSON object — no prose, no markdown fences.`;
 
@@ -1190,6 +1208,26 @@ app.post('/design/ingest', async (req, res) => {
     const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
     console.error('design/ingest error:', err.message);
     res.status(status).json({ error: 'ingest_failed', detail: err.message });
+  }
+});
+
+app.post('/design/refine', async (req, res) => {
+  const { html, instruction, tokens } = req.body || {};
+  if (typeof html !== 'string' || !html.trim()) return res.status(400).json({ error: 'missing html region' });
+  if (typeof instruction !== 'string' || !instruction.trim()) return res.status(400).json({ error: 'missing instruction' });
+  const t = (tokens && typeof tokens === 'object') ? tokens : loadBrandTokens();
+  try {
+    const out = await callDesignModel({
+      system: REFINE_SYSTEM,
+      user: `Brand tokens in use:\n${JSON.stringify(t, null, 2)}\n\nRegion to refine:\n${html.slice(0, 40000)}\n\nInstruction:\n${instruction.trim()}`,
+      maxTokens: 8000,
+    });
+    if (!out || typeof out.html !== 'string') return res.status(502).json({ error: 'bad model output', detail: 'missing html field' });
+    res.json({ html: out.html, summary: out.summary || '' });
+  } catch (err) {
+    const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
+    console.error('design/refine error:', err.message);
+    res.status(status).json({ error: 'refine_failed', detail: err.message });
   }
 });
 

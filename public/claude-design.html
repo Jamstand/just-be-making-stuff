@@ -185,6 +185,28 @@
   .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--char); cursor: pointer; }
   .toggle input { accent-color: var(--coral); }
 
+  /* refine bar (surgical regenerate) */
+  .refine-bar {
+    max-width: 1280px; margin: 12px auto 0; padding: 10px 12px;
+    display: flex; gap: 10px; align-items: center;
+    border: 1px solid var(--ink); background: var(--cream); border-radius: 10px;
+  }
+  .refine-bar .ref-meta { display: flex; align-items: center; gap: 8px; white-space: nowrap; font-size: 11px; color: var(--muted); }
+  .refine-bar .ref-meta code {
+    font-family: 'JetBrains Mono',monospace; font-size: 11px; color: var(--coral-ink);
+    background: var(--ivory); padding: 3px 6px; border-radius: 4px; border: 1px solid var(--hair);
+    max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .refine-bar #ref-size { color: var(--slate); font-family: 'JetBrains Mono',monospace; font-size: 10px; }
+  .refine-bar input {
+    flex: 1; min-width: 0;
+    border: 1px solid var(--hair); background: var(--ivory); color: var(--ink);
+    padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px;
+  }
+  .refine-bar input:focus { outline: none; border-color: var(--ink); }
+
+  .canvas.refining { cursor: crosshair; }
+
   .busy {
     position: absolute; inset: 0; background: rgba(240,238,230,0.75);
     display: none; align-items: center; justify-content: center;
@@ -219,6 +241,7 @@
       <span class="stat" id="stat-backend"><span class="dot"></span>backend…</span>
       <button class="btn ghost" id="btn-save-tokens">Save brand</button>
       <button class="btn ghost" id="btn-edit" title="Toggle direct text editing">Edit text</button>
+      <button class="btn ghost" id="btn-refine" title="Click a section, change just that part" disabled>Refine ✂</button>
       <button class="btn primary" id="btn-download" disabled>Download HTML ↓</button>
     </div>
   </header>
@@ -303,6 +326,17 @@
       <iframe id="canvas-iframe" sandbox="allow-same-origin" hidden></iframe>
       <div class="busy" id="busy"><span class="spin"></span><span id="busy-text">Generating…</span></div>
     </div>
+
+    <div class="refine-bar" id="refine-bar" hidden>
+      <div class="ref-meta">
+        <span class="upper">Refining</span>
+        <code id="ref-sel">—</code>
+        <span id="ref-size"></span>
+      </div>
+      <input type="text" id="ref-input" placeholder="make this a 7-day timeline instead">
+      <button class="btn primary" id="btn-refine-go">Refine →</button>
+      <button class="btn ghost" id="btn-refine-cancel">Cancel</button>
+    </div>
   </main>
 
 </div>
@@ -314,6 +348,8 @@
   let lastSavedTokens = null;   // last persisted to server
   let rawHtml = '';             // the model's HTML before our live token edits
   let editing = false;
+  let refineMode = false;
+  let refineSelectedEl = null;
 
   const $ = (s) => document.querySelector(s);
   const elFrame   = $('#canvas-iframe');
@@ -499,9 +535,12 @@
     elFrame.hidden = false;
     elFrame.srcdoc = html;
     elBtnDownload.disabled = false;
+    document.getElementById('btn-refine').disabled = false;
     elFrame.onload = () => {
       applyTokensLive();
       applyEditMode();
+      attachRefineListeners();
+      if (refineMode) injectRefineStyle();
     };
   }
 
@@ -528,6 +567,7 @@
   }
   function setEditing(on) {
     editing = on;
+    if (editing && refineMode) setRefineMode(false); // mutually exclusive
     elBtnEdit.textContent = editing ? 'Done editing' : 'Edit text';
     elBtnEdit.classList.toggle('primary', editing);
     elChkEdit.checked = editing;
@@ -535,6 +575,160 @@
   }
   elBtnEdit.addEventListener('click', () => setEditing(!editing));
   elChkEdit.addEventListener('change', () => setEditing(elChkEdit.checked));
+
+  // ── Refine (surgical regenerate) ─────────────────────────────────────────
+  const REFINE_ROOT_TAGS = /^(SECTION|ARTICLE|ASIDE|HEADER|FOOTER|NAV|MAIN|FORM|TABLE|FIGURE)$/;
+  const elRefineBar    = document.getElementById('refine-bar');
+  const elRefineSel    = document.getElementById('ref-sel');
+  const elRefineSize   = document.getElementById('ref-size');
+  const elRefineInput  = document.getElementById('ref-input');
+  const elBtnRefine    = document.getElementById('btn-refine');
+  const elBtnRefineGo  = document.getElementById('btn-refine-go');
+  const elBtnRefineCancel = document.getElementById('btn-refine-cancel');
+  const elCanvasMain   = document.querySelector('.canvas');
+
+  function refineLabel(el) {
+    const tag = el.tagName.toLowerCase();
+    const id = el.id ? '#' + el.id : '';
+    const cls = el.classList && el.classList[0] ? '.' + el.classList[0] : '';
+    return tag + id + cls;
+  }
+  function refineSizeLabel(el) {
+    const n = el.outerHTML.length;
+    return n < 1024 ? n + 'B' : (Math.round(n/102.4)/10) + 'KB';
+  }
+  function findRefineTarget(node) {
+    const doc = elFrame.contentDocument; if (!doc) return null;
+    let n = node;
+    while (n && n !== doc.body) {
+      if (n.tagName && REFINE_ROOT_TAGS.test(n.tagName)) return n;
+      n = n.parentNode;
+    }
+    return node && node.tagName ? node : null;
+  }
+  function clearHoverMarks() {
+    const doc = elFrame.contentDocument; if (!doc) return;
+    doc.querySelectorAll('[data-refine-hover]').forEach(n => n.removeAttribute('data-refine-hover'));
+  }
+  function injectRefineStyle() {
+    const doc = elFrame.contentDocument; if (!doc) return;
+    if (doc.getElementById('brand-refine-style')) return;
+    const s = doc.createElement('style');
+    s.id = 'brand-refine-style';
+    s.textContent = `[data-refine-hover] { outline: 2px dashed rgba(204,120,92,0.6) !important; outline-offset: -2px !important; cursor: pointer !important; }
+                      [data-refine-selected] { outline: 3px solid #CC785C !important; outline-offset: -3px !important; }`;
+    doc.head.appendChild(s);
+  }
+  function removeRefineStyle() {
+    const doc = elFrame.contentDocument; if (!doc) return;
+    const s = doc.getElementById('brand-refine-style');
+    if (s) s.remove();
+    clearHoverMarks();
+  }
+
+  let refineListenersAttached = false;
+  function attachRefineListeners() {
+    const doc = elFrame.contentDocument; if (!doc) return;
+    // each new srcdoc gives us a fresh document, so always re-attach
+    refineListenersAttached = false;
+    doc.body.addEventListener('mouseover', (e) => {
+      if (!refineMode) return;
+      const tgt = findRefineTarget(e.target); if (!tgt) return;
+      clearHoverMarks();
+      tgt.setAttribute('data-refine-hover', '');
+    });
+    doc.body.addEventListener('mouseout', () => {
+      if (!refineMode) return;
+      clearHoverMarks();
+    });
+    doc.body.addEventListener('click', (e) => {
+      if (!refineMode) return;
+      e.preventDefault(); e.stopPropagation();
+      const tgt = findRefineTarget(e.target); if (!tgt) return;
+      setRefineSelection(tgt);
+    }, true);
+    refineListenersAttached = true;
+  }
+
+  function setRefineSelection(el) {
+    if (refineSelectedEl && refineSelectedEl.removeAttribute) {
+      refineSelectedEl.removeAttribute('data-refine-selected');
+    }
+    refineSelectedEl = el;
+    el.setAttribute('data-refine-selected', '');
+    elRefineSel.textContent = refineLabel(el);
+    elRefineSize.textContent = '~' + refineSizeLabel(el);
+    elRefineBar.hidden = false;
+    elRefineInput.focus();
+  }
+  function clearRefineSelection() {
+    if (refineSelectedEl && refineSelectedEl.removeAttribute) {
+      refineSelectedEl.removeAttribute('data-refine-selected');
+    }
+    refineSelectedEl = null;
+    elRefineBar.hidden = true;
+    elRefineInput.value = '';
+    elRefineInput.placeholder = 'make this a 7-day timeline instead';
+  }
+
+  function setRefineMode(on) {
+    refineMode = on;
+    if (on && editing) setEditing(false);
+    elBtnRefine.textContent = on ? 'Done ✓' : 'Refine ✂';
+    elBtnRefine.classList.toggle('primary', on);
+    elCanvasMain.classList.toggle('refining', on);
+    if (on) injectRefineStyle();
+    else { removeRefineStyle(); clearRefineSelection(); }
+  }
+
+  elBtnRefine.addEventListener('click', () => {
+    if (elBtnRefine.disabled) return;
+    setRefineMode(!refineMode);
+  });
+  elBtnRefineCancel.addEventListener('click', () => clearRefineSelection());
+
+  elRefineInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); elBtnRefineGo.click(); }
+    if (e.key === 'Escape') { clearRefineSelection(); }
+  });
+
+  elBtnRefineGo.addEventListener('click', async () => {
+    if (!refineSelectedEl) return;
+    const instruction = elRefineInput.value.trim();
+    if (!instruction) { elRefineInput.focus(); return; }
+    const html = refineSelectedEl.outerHTML;
+    const origTxt = elBtnRefineGo.textContent;
+    elBtnRefineGo.textContent = 'Refining…'; elBtnRefineGo.disabled = true;
+    elBusy.classList.add('on'); elBusyTxt.textContent = 'Refining selection…';
+    try {
+      const r = await fetch('/design/refine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html, instruction, tokens }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail || j.error || 'refine failed');
+      const doc = elFrame.contentDocument;
+      const tmp = doc.createElement('div');
+      tmp.innerHTML = String(j.html || '').trim();
+      const newNode = tmp.firstElementChild;
+      if (!newNode) throw new Error('empty replacement');
+      refineSelectedEl.parentNode.replaceChild(newNode, refineSelectedEl);
+      refineSelectedEl = newNode;
+      newNode.setAttribute('data-refine-selected', '');
+      applyTokensLive();
+      elRefineSel.textContent = refineLabel(newNode);
+      elRefineSize.textContent = '~' + refineSizeLabel(newNode);
+      elRefineInput.value = '';
+      elRefineInput.placeholder = j.summary ? j.summary + ' — what next?' : 'another change?';
+      elSummary.textContent = j.summary || elSummary.textContent;
+    } catch (err) {
+      alert('Refine failed: ' + err.message);
+    } finally {
+      elBtnRefineGo.textContent = origTxt; elBtnRefineGo.disabled = false;
+      elBusy.classList.remove('on');
+    }
+  });
 
   // ── Download (captures the current iframe state, including text edits) ──
   elBtnDownload.addEventListener('click', () => {
