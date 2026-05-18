@@ -10,6 +10,10 @@ const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
 const WebSocket = require('ws');
+const dns = require('dns');
+const net = require('net');
+const http = require('http');
+const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1165,16 +1169,79 @@ app.post('/design/tokens', (req, res) => {
   res.json({ ok: true, tokens: t });
 });
 
+// SSRF guard for /design/ingest URL fetches. Block loopback, private,
+// link-local (incl. cloud metadata at 169.254.169.254), multicast, ULA.
+// Applied at the DNS-lookup layer via custom http(s) Agents so it also
+// catches redirects and DNS rebinding.
+function isBlockedIp(ip) {
+  if (!ip || typeof ip !== 'string') return true;
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 0) return true;                                  // 0/8 unspecified
+    if (a === 10) return true;                                 // 10/8 private
+    if (a === 127) return true;                                // 127/8 loopback
+    if (a === 169 && b === 254) return true;                   // 169.254/16 link-local (cloud metadata)
+    if (a === 172 && b >= 16 && b <= 31) return true;          // 172.16/12 private
+    if (a === 192 && b === 168) return true;                   // 192.168/16 private
+    if (a >= 224) return true;                                 // 224/4 multicast + 240/4 reserved
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const v = ip.toLowerCase();
+    if (v === '::' || v === '::1') return true;                // unspecified / loopback
+    if (/^fe[89ab]/.test(v)) return true;                      // fe80::/10 link-local
+    if (/^f[cd]/.test(v)) return true;                         // fc00::/7 unique-local
+    if (/^ff/.test(v)) return true;                            // ff00::/8 multicast
+    const m = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);        // IPv4-mapped
+    if (m) return isBlockedIp(m[1]);
+    return false;
+  }
+  return true;
+}
+function safeLookup(hostname, options, cb) {
+  if (typeof options === 'function') { cb = options; options = {}; }
+  dns.lookup(hostname, options || {}, (err, addressOrList, family) => {
+    if (err) return cb(err);
+    // Node may return a string (default) or an array of {address,family} (autoSelectFamily / all:true).
+    const records = Array.isArray(addressOrList)
+      ? addressOrList
+      : [{ address: addressOrList, family }];
+    for (const rec of records) {
+      if (isBlockedIp(rec.address)) {
+        return cb(Object.assign(
+          new Error('refused: host resolves to a private/loopback/link-local address (' + rec.address + ')'),
+          { code: 'EBLOCKEDHOST', status: 400 }
+        ));
+      }
+    }
+    cb(null, addressOrList, family);
+  });
+}
+const safeHttpAgent  = new http.Agent({ lookup: safeLookup, keepAlive: false });
+const safeHttpsAgent = new https.Agent({ lookup: safeLookup, keepAlive: false });
+
+const INGEST_MAX_BYTES = 200_000;
+
 app.post('/design/ingest', async (req, res) => {
   const { url, image, paste } = req.body || {};
   try {
     let tokens;
     if (typeof url === 'string' && url.trim()) {
       const u = url.trim();
-      if (!/^https?:\/\//i.test(u)) return res.status(400).json({ error: 'url must start with http(s)://' });
+      let parsed;
+      try { parsed = new URL(u); } catch { return res.status(400).json({ error: 'invalid url' }); }
+      if (!/^https?:$/.test(parsed.protocol)) return res.status(400).json({ error: 'url must be http or https' });
+      // Reject IP literals in blocked ranges before any network IO (clearer error).
+      if (net.isIP(parsed.hostname) && isBlockedIp(parsed.hostname)) {
+        return res.status(400).json({ error: 'refused: host is private/loopback/link-local' });
+      }
       const r = await axios.get(u, {
         timeout: 15000,
-        maxRedirects: 4,
+        maxRedirects: 3,
+        maxContentLength: INGEST_MAX_BYTES,
+        maxBodyLength:    INGEST_MAX_BYTES,
+        httpAgent:  safeHttpAgent,
+        httpsAgent: safeHttpsAgent,
         headers: { 'User-Agent': 'Mozilla/5.0 (claude-design ingest)' },
         responseType: 'text',
         transformResponse: [(d) => d],
@@ -1205,7 +1272,12 @@ app.post('/design/ingest', async (req, res) => {
     saveBrandTokens(tokens);
     res.json({ tokens });
   } catch (err) {
-    const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
+    // Surface SSRF blocks and oversize responses as 4xx (axios wraps the underlying error).
+    const blockedHost = err.code === 'EBLOCKEDHOST' || err.cause?.code === 'EBLOCKEDHOST';
+    const tooLarge    = err.code === 'ERR_FR_MAX_CONTENT_LENGTH_EXCEEDED' || err.code === 'ERR_FR_MAX_BODY_LENGTH_EXCEEDED';
+    const status = blockedHost || tooLarge ? 400
+                 : err.status
+                 || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
     console.error('design/ingest error:', err.message);
     res.status(status).json({ error: 'ingest_failed', detail: err.message });
   }
