@@ -997,6 +997,100 @@ app.post('/ai/extract-image', async (req, res) => {
 
 app.get('/subs', (req, res) => res.sendFile(path.join(__dirname, 'public', 'subs.html')));
 
+// ── Live Photo AI ────────────────────────────────────────────────────────────
+//
+// Webcam editor at /photo-ai. Claude looks at a snapshot from the camera + the
+// user's prompt, and returns filter / overlay parameters that the canvas
+// applies to every frame in real time. Vision-language model picks the look;
+// the browser does the actual pixel work.
+
+const LOOK_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'caption','brightness','contrast','saturate','hueRotate','sepia','grayscale',
+    'blur','invert','vignette','grain','tintColor','tintAlpha','glow',
+  ],
+  properties: {
+    caption:    { type: 'string', description: 'Short name of the look, 2–6 words.' },
+    brightness: { type: 'number', minimum: 0.4, maximum: 1.8, description: '1 = neutral.' },
+    contrast:   { type: 'number', minimum: 0.4, maximum: 1.8, description: '1 = neutral.' },
+    saturate:   { type: 'number', minimum: 0,   maximum: 2.5, description: '1 = neutral. 0 = grayscale.' },
+    hueRotate:  { type: 'number', minimum: -180, maximum: 180, description: 'Degrees.' },
+    sepia:      { type: 'number', minimum: 0,   maximum: 1 },
+    grayscale:  { type: 'number', minimum: 0,   maximum: 1 },
+    blur:       { type: 'number', minimum: 0,   maximum: 4, description: 'Pixels. Subtle softening only.' },
+    invert:     { type: 'number', minimum: 0,   maximum: 1, description: 'Usually 0.' },
+    vignette:   { type: 'number', minimum: 0,   maximum: 1, description: 'Dark corners.' },
+    grain:      { type: 'number', minimum: 0,   maximum: 1, description: 'Film grain overlay.' },
+    tintColor:  { type: 'string', pattern: '^#[0-9a-fA-F]{6}$', description: 'Hex color of soft-light tint overlay.' },
+    tintAlpha:  { type: 'number', minimum: 0,   maximum: 0.6, description: 'Strength of tint. Usually 0–0.3.' },
+    glow:       { type: 'number', minimum: 0,   maximum: 1, description: 'Soft halation around highlights.' },
+  },
+};
+
+const EDIT_SYSTEM = `You are a virtual colorist for a live webcam photo app. You can't repaint pixels — you choose a set of filter and overlay parameters that the browser will apply to every frame in real time.
+
+You receive:
+1. A snapshot of the current camera frame.
+2. A short user prompt describing the desired feel (it may be empty — in that case pick something tasteful and flattering for what you see).
+
+Return a JSON object matching the schema. Guidelines:
+- 1.0 means neutral for brightness / contrast / saturate. Don't push values to the extremes unless the prompt clearly calls for it.
+- For black-and-white looks, set saturate to 0 OR grayscale to 1 (not both).
+- For warm looks, use a small positive hueRotate (5–15) or a tintColor in the orange/amber range with tintAlpha 0.1–0.25.
+- For cool looks, negative hueRotate or a blue/teal tintColor.
+- Sepia is heavy — use 0.2–0.5 for vintage, only above 0.6 for very strong sepia.
+- vignette 0.2–0.5 reads as cinematic. 0.7+ is theatrical.
+- grain 0.1–0.3 is filmic; above 0.6 is heavy grain.
+- glow 0.1–0.3 adds soft halation; above 0.5 gets dreamy/hazy.
+- blur should almost always be 0 or under 1. It softens the whole frame — use sparingly.
+- caption is a 2–6 word name for the look (e.g. "warm 70s film", "noir contrast", "neon dream").
+- Consider the actual scene: a dim indoor shot probably wants brightness a hair above 1; a blown-out window scene wants contrast up and brightness down.
+
+Output ONLY the JSON object matching the schema. No prose, no markdown.`;
+
+app.post('/ai/photo-edit', async (req, res) => {
+  const { image, prompt } = req.body || {};
+  if (typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'image must be a data URL (data:image/...;base64,...)' });
+  }
+  const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!m) return res.status(400).json({ error: 'invalid image data URL' });
+  if (!anthropicReady()) return res.status(400).json({ error: 'ai_not_configured', detail: 'Set ANTHROPIC_API_KEY to enable.' });
+
+  const userPrompt = (typeof prompt === 'string' ? prompt : '').trim();
+  const userText = userPrompt
+    ? `User prompt: ${userPrompt}\n\nLook at the snapshot and choose filter parameters that produce this feel.`
+    : `No prompt given — choose a tasteful, flattering look for what you see in this snapshot.`;
+
+  try {
+    const response = await getAnthropicClient().messages.create({
+      model: AI_MODEL,
+      max_tokens: 512,
+      system: [{ type: 'text', text: EDIT_SYSTEM, cache_control: { type: 'ephemeral' } }],
+      output_config: { format: { type: 'json_schema', schema: LOOK_SCHEMA } },
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
+          { type: 'text', text: userText },
+        ],
+      }],
+    });
+    const text = response.content.find((b) => b.type === 'text')?.text;
+    const look = text ? JSON.parse(text) : null;
+    if (!look) return res.status(502).json({ error: 'ai_empty', detail: 'no JSON returned' });
+    res.json({ look });
+  } catch (err) {
+    const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
+    console.error('photo-edit error:', err.message);
+    res.status(status).json({ error: 'ai_failed', detail: err.message });
+  }
+});
+
+app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', 'photo-ai.html')));
+
 // ── Claude Design (Max ed.) ──────────────────────────────────────────────────
 //
 // A small single-player clone of the iteration loop at claude.ai/design:

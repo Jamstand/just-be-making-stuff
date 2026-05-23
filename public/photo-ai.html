@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live Photo AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ivory:#F0EEE6; --cream:#FAF9F5; --paper:#F5F3EC;
+    --ink:#1F1F1E; --char:#2B2A28; --muted:#6B6A65;
+    --hair:#C9C5B6; --mist:#E3DFD0; --slate:#B8B4A4;
+    --coral:#CC785C; --coral-ink:#7A3A28;
+    --good:#4A6B3A; --bad:#B5523B;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--ivory); color: var(--ink);
+    font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .serif { font-family: 'Fraunces', serif; font-weight: 400; letter-spacing: -0.01em; }
+  .mono  { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+  .upper { text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; font-weight: 500; color: var(--muted); }
+
+  .app {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    grid-template-rows: 56px 1fr;
+    grid-template-areas: "top top" "side stage";
+    height: 100vh; min-height: 0;
+  }
+  .top {
+    grid-area: top;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--ink);
+    background: var(--ivory);
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand .mark { font-family: 'Fraunces',serif; font-size: 20px; font-weight: 500; }
+  .brand .tag  { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.14em; }
+  .top-right { display: flex; gap: 10px; align-items: center; }
+  .stat { font-size: 11px; color: var(--muted); }
+  .stat .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--slate); margin-right: 6px; vertical-align: 1px; }
+  .stat.ok .dot { background: var(--good); }
+  .stat.err .dot { background: var(--bad); }
+  .stat.busy .dot { background: var(--coral); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .btn {
+    border: 1px solid var(--ink); background: transparent; color: var(--ink);
+    border-radius: 999px; padding: 7px 14px; font-size: 12px; font-weight: 500;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn:hover { background: var(--ink); color: var(--cream); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn.primary { background: var(--ink); color: var(--cream); }
+  .btn.primary:hover { background: var(--coral); border-color: var(--coral); color: var(--ink); }
+  .btn.ghost { border-color: var(--hair); color: var(--char); }
+  .btn.ghost:hover { background: var(--paper); color: var(--ink); }
+  .btn.coral { background: var(--coral); border-color: var(--coral); color: var(--ink); }
+  .btn.coral:hover { background: var(--coral-ink); border-color: var(--coral-ink); color: var(--cream); }
+
+  .side {
+    grid-area: side;
+    border-right: 1px solid var(--ink);
+    background: var(--cream);
+    overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+  .panel { padding: 18px 20px; border-bottom: 1px solid var(--hair); }
+  .panel h3 {
+    font-family: 'Fraunces',serif; font-weight: 400; font-size: 18px;
+    letter-spacing: -0.01em; margin-bottom: 4px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .panel h3 .n { font-style: italic; color: var(--coral-ink); font-size: 14px; }
+  .panel .help { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+
+  textarea, input[type=text] {
+    width: 100%; border: 1px solid var(--hair); background: var(--ivory);
+    border-radius: 8px; padding: 10px 12px; font-family: inherit; font-size: 13px;
+    color: var(--ink); resize: vertical; min-height: 60px;
+  }
+  textarea:focus, input[type=text]:focus { outline: none; border-color: var(--coral); }
+
+  .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+  .preset {
+    border: 1px solid var(--hair); background: var(--ivory); color: var(--ink);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; cursor: pointer;
+    font-family: inherit; text-align: left; line-height: 1.3;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .preset:hover { border-color: var(--coral); background: var(--paper); }
+  .preset .name { font-weight: 500; }
+  .preset .sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+  .knobs { display: grid; gap: 10px; }
+  .knob { display: grid; grid-template-columns: 90px 1fr 44px; gap: 8px; align-items: center; }
+  .knob label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+  .knob input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    height: 3px; background: var(--hair); border-radius: 2px; outline: none;
+  }
+  .knob input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--ink); cursor: pointer; border: 2px solid var(--cream);
+  }
+  .knob input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--ink); cursor: pointer; border: 2px solid var(--cream);
+  }
+  .knob .val { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--char); text-align: right; }
+
+  .stage {
+    grid-area: stage;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px; background: var(--ivory); overflow: hidden; gap: 16px; min-height: 0;
+  }
+  .frame {
+    position: relative;
+    background: var(--ink);
+    border: 1px solid var(--ink);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 12px 40px rgba(31, 31, 30, 0.18);
+    max-width: 100%; max-height: calc(100vh - 200px);
+    aspect-ratio: 4 / 3;
+  }
+  .frame canvas, .frame video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .frame video { position: absolute; inset: 0; visibility: hidden; }
+  .frame .overlay-text {
+    position: absolute; left: 12px; bottom: 10px;
+    color: var(--cream); font-family: 'Fraunces',serif; font-size: 15px;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+    background: rgba(31, 31, 30, 0.4); padding: 4px 10px; border-radius: 6px;
+    backdrop-filter: blur(6px); pointer-events: none;
+    max-width: 70%;
+  }
+  .frame .recording-dot {
+    position: absolute; top: 12px; right: 12px;
+    width: 10px; height: 10px; border-radius: 50%; background: var(--bad);
+    box-shadow: 0 0 0 0 rgba(181, 82, 59, 0.7); animation: rec 1.4s infinite;
+  }
+  @keyframes rec { 0% { box-shadow: 0 0 0 0 rgba(181, 82, 59, 0.5); } 70% { box-shadow: 0 0 0 10px rgba(181, 82, 59, 0); } 100% { box-shadow: 0 0 0 0 rgba(181, 82, 59, 0); } }
+
+  .stage-actions { display: flex; gap: 10px; }
+  .start-card {
+    text-align: center; padding: 40px;
+    background: var(--cream); border: 1px solid var(--hair);
+    border-radius: 12px; max-width: 460px;
+  }
+  .start-card h2 { font-family: 'Fraunces',serif; font-weight: 500; font-size: 28px; margin-bottom: 8px; }
+  .start-card p { color: var(--muted); margin-bottom: 18px; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: var(--cream);
+    padding: 10px 18px; border-radius: 999px; font-size: 13px;
+    box-shadow: 0 6px 20px rgba(31, 31, 30, 0.25);
+    opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 100;
+  }
+  .toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="mark serif">Live Photo AI</span>
+      <span class="tag">claude as your colorist</span>
+    </div>
+    <div class="top-right">
+      <span id="status" class="stat"><span class="dot"></span><span class="msg">camera off</span></span>
+      <button id="capture" class="btn coral" disabled>Capture</button>
+    </div>
+  </header>
+
+  <aside class="side">
+    <section class="panel">
+      <h3>Describe the look <span class="n">i.</span></h3>
+      <p class="help">Tell Claude what feel you want. It looks at the live frame and picks the filters.</p>
+      <textarea id="prompt" placeholder="e.g. warm 70s film, soft halation, slight grain"></textarea>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button id="apply" class="btn primary" style="flex:1;" disabled>Apply look</button>
+        <button id="auto" class="btn ghost" disabled title="Let Claude pick a flattering look for this scene">Auto</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Quick looks <span class="n">ii.</span></h3>
+      <div class="presets">
+        <button class="preset" data-prompt="warm golden-hour 70s film with soft halation and subtle grain"><div class="name">Golden hour</div><div class="sub">warm, glowy, filmic</div></button>
+        <button class="preset" data-prompt="moody high-contrast black and white, deep blacks, slight grain"><div class="name">Noir</div><div class="sub">dramatic B&amp;W</div></button>
+        <button class="preset" data-prompt="cyberpunk neon, magenta and cyan tint, high saturation, soft glow"><div class="name">Neon</div><div class="sub">cyberpunk, vivid</div></button>
+        <button class="preset" data-prompt="washed out polaroid, faded contrast, warm cream tint, heavy grain"><div class="name">Polaroid</div><div class="sub">faded, vintage</div></button>
+        <button class="preset" data-prompt="cool teal-orange cinematic grade, balanced shadows and highlights"><div class="name">Cinematic</div><div class="sub">teal &amp; orange</div></button>
+        <button class="preset" data-prompt="dreamy soft-focus pastel haze with a gentle pink tint"><div class="name">Dreamy</div><div class="sub">soft, pastel</div></button>
+        <button class="preset" data-prompt="cold blue overcast morning, desaturated, slight blue tint"><div class="name">Overcast</div><div class="sub">cool, muted</div></button>
+        <button class="preset" data-prompt="vivid sun-drenched summer, boosted saturation, warm highlights"><div class="name">Summer</div><div class="sub">bright, saturated</div></button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Manual tweak <span class="n">iii.</span></h3>
+      <p class="help">Override Claude's choices live.</p>
+      <div class="knobs" id="knobs"></div>
+      <button id="reset" class="btn ghost" style="margin-top:12px; width:100%;">Reset to neutral</button>
+    </section>
+
+    <section class="panel">
+      <h3>How it works <span class="n">iv.</span></h3>
+      <p class="help" style="margin-bottom:0;">
+        Claude doesn't repaint pixels — it watches a snapshot, reads your prompt, and returns filter parameters
+        (brightness, contrast, hue, tint, vignette, grain). The canvas applies them to every webcam frame in real time.
+      </p>
+    </section>
+  </aside>
+
+  <main class="stage">
+    <div id="startCard" class="start-card">
+      <h2 class="serif">Edit photos live</h2>
+      <p>This app connects to your camera and re-grades every frame in real time, using Claude to interpret your prompt as filter parameters.</p>
+      <button id="startBtn" class="btn primary">Connect camera</button>
+    </div>
+
+    <div class="frame" id="frame" hidden>
+      <video id="video" playsinline autoplay muted></video>
+      <canvas id="canvas"></canvas>
+      <div class="overlay-text" id="caption" hidden></div>
+    </div>
+    <div class="stage-actions" id="stageActions" hidden>
+      <button id="flip" class="btn ghost">Flip camera</button>
+      <button id="stop" class="btn ghost">Stop</button>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+const NEUTRAL = {
+  caption:    '',
+  brightness: 1.0,
+  contrast:   1.0,
+  saturate:   1.0,
+  hueRotate:  0,
+  sepia:      0,
+  grayscale:  0,
+  blur:       0,
+  invert:     0,
+  vignette:   0,
+  grain:      0,
+  tintColor:  '#000000',
+  tintAlpha:  0,
+  glow:       0,
+};
+
+const KNOB_DEFS = [
+  ['brightness', 0.4, 1.8, 0.01],
+  ['contrast',   0.4, 1.8, 0.01],
+  ['saturate',   0,   2.5, 0.01],
+  ['hueRotate', -180, 180, 1],
+  ['sepia',      0,   1,   0.01],
+  ['grayscale',  0,   1,   0.01],
+  ['blur',       0,   4,   0.05],
+  ['vignette',   0,   1,   0.01],
+  ['grain',      0,   1,   0.01],
+  ['glow',       0,   1,   0.01],
+  ['tintAlpha',  0,   0.6, 0.01],
+];
+
+let look = { ...NEUTRAL };
+let stream = null;
+let facingMode = 'user';
+let rafHandle = 0;
+let grainCanvas = null;
+let pendingRequest = false;
+let lastApplyPrompt = '';
+
+function toast(msg, ms = 2200) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('on'), ms);
+}
+
+function setStatus(state, msg) {
+  const el = $('status');
+  el.classList.remove('ok','err','busy');
+  if (state) el.classList.add(state);
+  el.querySelector('.msg').textContent = msg;
+}
+
+// ── Grain texture ────────────────────────────────────────────────────────────
+function makeGrain(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const v = (Math.random() * 255) | 0;
+    d[i] = v; d[i+1] = v; d[i+2] = v; d[i+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+// ── Render loop ──────────────────────────────────────────────────────────────
+function render() {
+  const video = $('video');
+  const canvas = $('canvas');
+  if (!video.videoWidth) { rafHandle = requestAnimationFrame(render); return; }
+
+  if (canvas.width !== video.videoWidth) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    grainCanvas = makeGrain(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2));
+  }
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+
+  // Mirror selfie cam so the preview matches a real mirror.
+  ctx.save();
+  if (facingMode === 'user') {
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+  }
+
+  // CSS filter chain on the underlying draw.
+  ctx.filter =
+    `brightness(${look.brightness}) ` +
+    `contrast(${look.contrast}) ` +
+    `saturate(${look.saturate}) ` +
+    `hue-rotate(${look.hueRotate}deg) ` +
+    `sepia(${look.sepia}) ` +
+    `grayscale(${look.grayscale}) ` +
+    `blur(${look.blur}px) ` +
+    `invert(${look.invert})`;
+  ctx.drawImage(video, 0, 0, w, h);
+  ctx.restore();
+
+  ctx.filter = 'none';
+
+  // Soft glow / halation: blurred lighten pass.
+  if (look.glow > 0.02) {
+    ctx.globalCompositeOperation = 'lighten';
+    ctx.globalAlpha = Math.min(1, look.glow * 0.55);
+    ctx.filter = `blur(${8 + look.glow * 14}px) brightness(1.1)`;
+    ctx.save();
+    if (facingMode === 'user') { ctx.translate(w, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, 0, 0, w, h);
+    ctx.restore();
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Color tint.
+  if (look.tintAlpha > 0.005) {
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha = look.tintAlpha;
+    ctx.fillStyle = look.tintColor;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Vignette.
+  if (look.vignette > 0.01) {
+    const grad = ctx.createRadialGradient(w/2, h/2, Math.min(w,h)*0.35, w/2, h/2, Math.max(w,h)*0.72);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, `rgba(0,0,0,${0.85 * look.vignette})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // Grain.
+  if (look.grain > 0.01 && grainCanvas) {
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = Math.min(0.45, look.grain * 0.45);
+    const ox = (Math.random() * grainCanvas.width) | 0;
+    const oy = (Math.random() * grainCanvas.height) | 0;
+    ctx.drawImage(grainCanvas, -ox, -oy, w, h);
+    ctx.drawImage(grainCanvas, grainCanvas.width - ox, grainCanvas.height - oy, w, h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  rafHandle = requestAnimationFrame(render);
+}
+
+// ── Camera control ───────────────────────────────────────────────────────────
+async function startCamera() {
+  try {
+    setStatus('busy', 'requesting camera…');
+    if (stream) stopCamera();
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 960 } },
+      audio: false,
+    });
+    const video = $('video');
+    video.srcObject = stream;
+    await video.play();
+    $('startCard').hidden = true;
+    $('frame').hidden = false;
+    $('stageActions').hidden = false;
+    $('capture').disabled = false;
+    $('apply').disabled = false;
+    $('auto').disabled = false;
+    setStatus('ok', 'camera live');
+    if (!rafHandle) render();
+  } catch (err) {
+    setStatus('err', 'camera blocked');
+    toast('Camera permission needed: ' + (err && err.message ? err.message : 'unknown'));
+  }
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+  }
+  cancelAnimationFrame(rafHandle); rafHandle = 0;
+  $('frame').hidden = true;
+  $('stageActions').hidden = true;
+  $('startCard').hidden = false;
+  $('capture').disabled = true;
+  $('apply').disabled = true;
+  $('auto').disabled = true;
+  setStatus('', 'camera off');
+}
+
+// ── Knobs ────────────────────────────────────────────────────────────────────
+function buildKnobs() {
+  const c = $('knobs');
+  c.innerHTML = '';
+  for (const [key, min, max, step] of KNOB_DEFS) {
+    const row = document.createElement('div');
+    row.className = 'knob';
+    row.innerHTML = `
+      <label>${key}</label>
+      <input type="range" data-k="${key}" min="${min}" max="${max}" step="${step}" value="${look[key]}">
+      <span class="val" data-v="${key}">${formatVal(look[key], step)}</span>
+    `;
+    c.appendChild(row);
+  }
+  // Tint color picker as an extra row.
+  const row = document.createElement('div');
+  row.className = 'knob';
+  row.innerHTML = `
+    <label>tint color</label>
+    <input type="color" data-k="tintColor" value="${look.tintColor}" style="height:24px; width:100%; border:none; background:transparent; cursor:pointer;">
+    <span class="val" data-v="tintColor" style="font-size:10px;">${look.tintColor}</span>
+  `;
+  c.appendChild(row);
+
+  c.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', (e) => {
+      const k = e.target.dataset.k;
+      const v = e.target.type === 'color' ? e.target.value : parseFloat(e.target.value);
+      look[k] = v;
+      const valEl = c.querySelector(`[data-v="${k}"]`);
+      if (valEl) valEl.textContent = e.target.type === 'color' ? v : formatVal(v, parseFloat(e.target.step || '0.01'));
+    });
+  });
+}
+
+function formatVal(v, step) {
+  if (step >= 1) return String(Math.round(v));
+  if (step >= 0.05) return v.toFixed(2);
+  return v.toFixed(2);
+}
+
+function syncKnobsFromLook() {
+  const c = $('knobs');
+  c.querySelectorAll('input').forEach((input) => {
+    const k = input.dataset.k;
+    if (look[k] === undefined) return;
+    input.value = look[k];
+    const valEl = c.querySelector(`[data-v="${k}"]`);
+    if (valEl) {
+      valEl.textContent = input.type === 'color' ? look[k] : formatVal(look[k], parseFloat(input.step || '0.01'));
+    }
+  });
+}
+
+// ── AI call ──────────────────────────────────────────────────────────────────
+function grabSnapshot(maxW = 640) {
+  const video = $('video');
+  if (!video.videoWidth) return null;
+  const scale = Math.min(1, maxW / video.videoWidth);
+  const w = Math.round(video.videoWidth * scale);
+  const h = Math.round(video.videoHeight * scale);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(video, 0, 0, w, h);
+  return c.toDataURL('image/jpeg', 0.78);
+}
+
+async function askClaude(prompt) {
+  if (pendingRequest) { toast('still thinking about the last look…'); return; }
+  const image = grabSnapshot();
+  if (!image) { toast('no frame yet'); return; }
+  pendingRequest = true;
+  setStatus('busy', 'claude is grading…');
+  $('apply').disabled = true;
+  $('auto').disabled = true;
+  try {
+    const res = await fetch('/ai/photo-edit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image, prompt }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'request failed');
+    look = { ...NEUTRAL, ...data.look };
+    syncKnobsFromLook();
+    const cap = $('caption');
+    if (look.caption) { cap.textContent = look.caption; cap.hidden = false; }
+    else { cap.hidden = true; }
+    setStatus('ok', 'look applied');
+  } catch (err) {
+    setStatus('err', 'ai failed');
+    toast(err.message || 'failed to apply look');
+  } finally {
+    pendingRequest = false;
+    $('apply').disabled = !stream;
+    $('auto').disabled = !stream;
+  }
+}
+
+// ── Capture ──────────────────────────────────────────────────────────────────
+function capture() {
+  const canvas = $('canvas');
+  const link = document.createElement('a');
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  link.download = `photo-ai-${ts}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  toast('saved photo');
+}
+
+// ── Wire up ──────────────────────────────────────────────────────────────────
+buildKnobs();
+
+$('startBtn').addEventListener('click', startCamera);
+$('stop').addEventListener('click', stopCamera);
+$('flip').addEventListener('click', async () => {
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  await startCamera();
+});
+$('capture').addEventListener('click', capture);
+$('apply').addEventListener('click', () => {
+  const p = $('prompt').value.trim();
+  if (!p) { toast('describe a look first, or use Auto'); return; }
+  lastApplyPrompt = p;
+  askClaude(p);
+});
+$('auto').addEventListener('click', () => askClaude(''));
+$('prompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('apply').click(); }
+});
+$('reset').addEventListener('click', () => {
+  look = { ...NEUTRAL };
+  syncKnobsFromLook();
+  $('caption').hidden = true;
+  toast('reset to neutral');
+});
+document.querySelectorAll('.preset').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const p = btn.dataset.prompt;
+    $('prompt').value = p;
+    askClaude(p);
+  });
+});
+
+setStatus('', 'camera off');
+</script>
+</body>
+</html>
