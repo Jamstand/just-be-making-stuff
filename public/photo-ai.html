@@ -215,10 +215,24 @@
     </section>
 
     <section class="panel">
-      <h3>How it works <span class="n">iv.</span></h3>
+      <h3>Background <span class="n">iv.</span></h3>
+      <p class="help" id="segHelp">Segments you from the background using MediaPipe in the browser. Loading…</p>
+      <div class="presets">
+        <button class="bg-preset preset" data-mode="off"><div class="name">Off</div><div class="sub">no segmentation</div></button>
+        <button class="bg-preset preset" data-mode="blur"><div class="name">Blur</div><div class="sub">portrait bokeh</div></button>
+        <button class="bg-preset preset" data-mode="dark"><div class="name">Studio dark</div><div class="sub">spotlight on you</div></button>
+        <button class="bg-preset preset" data-mode="green"><div class="name">Greenscreen</div><div class="sub">chroma-key green</div></button>
+        <button class="bg-preset preset" data-mode="white"><div class="name">White cyc</div><div class="sub">clean white bg</div></button>
+        <button class="bg-preset preset" data-mode="warm"><div class="name">Warm wall</div><div class="sub">soft cream bg</div></button>
+      </div>
+      <div class="knobs" id="bgKnobs" style="margin-top:14px;"></div>
+    </section>
+
+    <section class="panel">
+      <h3>How it works <span class="n">v.</span></h3>
       <p class="help" style="margin-bottom:0;">
-        Claude doesn't repaint pixels — it watches a snapshot, reads your prompt, and returns filter parameters
-        (brightness, contrast, hue, tint, vignette, grain). The canvas applies them to every webcam frame in real time.
+        Two layers of AI: <b>MediaPipe</b> runs in your browser and masks you from the background every frame, so background blur / replace are real and live.
+        <b>Claude</b> watches a snapshot and picks the colour grading parameters that the canvas applies on top.
       </p>
     </section>
   </aside>
@@ -244,7 +258,9 @@
 
 <div id="toast" class="toast"></div>
 
-<script>
+<script type="module">
+import { FilesetResolver, ImageSegmenter } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+
 const $ = (id) => document.getElementById(id);
 
 const NEUTRAL = {
@@ -262,6 +278,11 @@ const NEUTRAL = {
   tintColor:  '#000000',
   tintAlpha:  0,
   glow:       0,
+  // Background segmentation (applied only to background pixels, requires MediaPipe).
+  bgMode:     'off',         // 'off' | 'blur' | 'fill' | 'darken'
+  bgBlur:     12,            // px, when mode = blur
+  bgDarken:   0.35,          // 0..1, amount to darken bg, when mode = darken
+  bgColor:    '#1F1F1E',     // when mode = fill
 };
 
 const KNOB_DEFS = [
@@ -285,6 +306,40 @@ let rafHandle = 0;
 let grainCanvas = null;
 let pendingRequest = false;
 let lastApplyPrompt = '';
+
+// MediaPipe selfie segmenter (runs in browser, ~30fps on most machines).
+let segmenter = null;
+let segmenterReady = false;
+let lastSegMs = 0;
+// Hidden scratch canvases for the layered render pipeline.
+const layers = {
+  bg:   document.createElement('canvas'),  // background, with bg effect applied
+  fg:   document.createElement('canvas'),  // foreground (person) cutout
+  mask: document.createElement('canvas'),  // grayscale alpha mask: white = person
+};
+
+async function initSegmenter() {
+  try {
+    const fileset = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+    );
+    segmenter = await ImageSegmenter.createFromOptions(fileset, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite',
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      outputCategoryMask: false,
+      outputConfidenceMasks: true,
+    });
+    segmenterReady = true;
+    $('segHelp').textContent = 'Segments you from the background using MediaPipe in the browser. Ready.';
+  } catch (err) {
+    console.warn('segmenter init failed:', err);
+    $('segHelp').textContent = 'Segmentation unavailable (model failed to load). Filters still work.';
+  }
+}
+initSegmenter();
 
 function toast(msg, ms = 2200) {
   const el = $('toast');
@@ -317,6 +372,60 @@ function makeGrain(w, h) {
 }
 
 // ── Render loop ──────────────────────────────────────────────────────────────
+function buildFilterStr(extraBlurPx = 0) {
+  return (
+    `brightness(${look.brightness}) ` +
+    `contrast(${look.contrast}) ` +
+    `saturate(${look.saturate}) ` +
+    `hue-rotate(${look.hueRotate}deg) ` +
+    `sepia(${look.sepia}) ` +
+    `grayscale(${look.grayscale}) ` +
+    `blur(${look.blur + extraBlurPx}px) ` +
+    `invert(${look.invert})`
+  );
+}
+
+function drawVideoMirrored(ctx, video, w, h) {
+  ctx.save();
+  if (facingMode === 'user') {
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(video, 0, 0, w, h);
+  ctx.restore();
+}
+
+// Convert the MediaPipe MPMask (Float32 per-pixel person confidence) into a
+// grayscale alpha mask sized to the canvas. White = person, transparent = bg.
+function writeMaskToCanvas(mask, maskCanvas, targetW, targetH) {
+  const mw = mask.width, mh = mask.height;
+  const floats = mask.getAsFloat32Array();
+  // Render the mask at its native resolution to a small canvas, then upscale.
+  const tmp = layers._maskTmp || (layers._maskTmp = document.createElement('canvas'));
+  if (tmp.width !== mw) { tmp.width = mw; tmp.height = mh; }
+  const tctx = tmp.getContext('2d');
+  const img = tctx.createImageData(mw, mh);
+  const data = img.data;
+  for (let i = 0, j = 0; i < floats.length; i++, j += 4) {
+    const v = floats[i];
+    const a = v > 0.5 ? 255 : (v > 0.1 ? Math.round((v - 0.1) / 0.4 * 255) : 0);
+    data[j] = 255; data[j + 1] = 255; data[j + 2] = 255; data[j + 3] = a;
+  }
+  tctx.putImageData(img, 0, 0);
+
+  if (maskCanvas.width !== targetW) { maskCanvas.width = targetW; maskCanvas.height = targetH; }
+  const mctx = maskCanvas.getContext('2d');
+  mctx.clearRect(0, 0, targetW, targetH);
+  // Mirror the mask to match the mirrored video draw.
+  mctx.save();
+  if (facingMode === 'user') { mctx.translate(targetW, 0); mctx.scale(-1, 1); }
+  // Soften mask edges a touch — selfie segmenter has crunchy borders.
+  mctx.filter = 'blur(1.5px)';
+  mctx.drawImage(tmp, 0, 0, targetW, targetH);
+  mctx.restore();
+  mctx.filter = 'none';
+}
+
 function render() {
   const video = $('video');
   const canvas = $('canvas');
@@ -330,37 +439,93 @@ function render() {
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
 
-  // Mirror selfie cam so the preview matches a real mirror.
-  ctx.save();
-  if (facingMode === 'user') {
-    ctx.translate(w, 0);
-    ctx.scale(-1, 1);
+  const useSeg = segmenterReady && look.bgMode && look.bgMode !== 'off';
+
+  // Run segmentation if needed. We segment every frame — selfie_segmenter is
+  // light enough to keep up at ~30fps on most hardware.
+  let mask = null;
+  if (useSeg) {
+    try {
+      const now = performance.now();
+      // segmentForVideo requires monotonically-increasing timestamps in ms.
+      if (now <= lastSegMs) lastSegMs += 1; else lastSegMs = now;
+      const result = segmenter.segmentForVideo(video, lastSegMs);
+      mask = result.confidenceMasks && result.confidenceMasks[0];
+      if (mask) writeMaskToCanvas(mask, layers.mask, w, h);
+    } catch (err) {
+      // Segmenter failures are non-fatal — just fall back to flat render.
+      console.warn('segment frame error:', err);
+    } finally {
+      if (mask && mask.close) mask.close();
+    }
   }
 
-  // CSS filter chain on the underlying draw.
-  ctx.filter =
-    `brightness(${look.brightness}) ` +
-    `contrast(${look.contrast}) ` +
-    `saturate(${look.saturate}) ` +
-    `hue-rotate(${look.hueRotate}deg) ` +
-    `sepia(${look.sepia}) ` +
-    `grayscale(${look.grayscale}) ` +
-    `blur(${look.blur}px) ` +
-    `invert(${look.invert})`;
-  ctx.drawImage(video, 0, 0, w, h);
-  ctx.restore();
+  if (useSeg && mask) {
+    // ── Layered render: bg layer (with bg effect) + fg cutout on top ─────────
+    if (layers.bg.width !== w) { layers.bg.width = w; layers.bg.height = h; }
+    if (layers.fg.width !== w) { layers.fg.width = w; layers.fg.height = h; }
+    const bgCtx = layers.bg.getContext('2d');
+    const fgCtx = layers.fg.getContext('2d');
 
-  ctx.filter = 'none';
+    // 1. Background layer — what shows BEHIND the person.
+    bgCtx.globalCompositeOperation = 'source-over';
+    bgCtx.globalAlpha = 1;
+    if (look.bgMode === 'fill') {
+      // Solid colour backdrop.
+      bgCtx.filter = 'none';
+      bgCtx.fillStyle = look.bgColor;
+      bgCtx.fillRect(0, 0, w, h);
+    } else if (look.bgMode === 'blur') {
+      // Blur the actual scene behind you (portrait-mode look).
+      bgCtx.filter = buildFilterStr(look.bgBlur);
+      drawVideoMirrored(bgCtx, video, w, h);
+    } else if (look.bgMode === 'darken') {
+      // Keep the scene but darken it so the subject pops.
+      bgCtx.filter = buildFilterStr(0);
+      drawVideoMirrored(bgCtx, video, w, h);
+      bgCtx.filter = 'none';
+      bgCtx.fillStyle = `rgba(0,0,0,${look.bgDarken})`;
+      bgCtx.fillRect(0, 0, w, h);
+    } else {
+      bgCtx.filter = buildFilterStr(0);
+      drawVideoMirrored(bgCtx, video, w, h);
+    }
+    bgCtx.filter = 'none';
 
-  // Soft glow / halation: blurred lighten pass.
+    // 2. Foreground layer — the person, with the base look.
+    fgCtx.globalCompositeOperation = 'source-over';
+    fgCtx.globalAlpha = 1;
+    fgCtx.clearRect(0, 0, w, h);
+    fgCtx.filter = buildFilterStr(0);
+    drawVideoMirrored(fgCtx, video, w, h);
+    fgCtx.filter = 'none';
+    // Punch the fg into a cutout using the person mask as alpha.
+    fgCtx.globalCompositeOperation = 'destination-in';
+    fgCtx.drawImage(layers.mask, 0, 0, w, h);
+    fgCtx.globalCompositeOperation = 'source-over';
+
+    // 3. Composite: bg first, then fg on top.
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.filter = 'none';
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(layers.bg, 0, 0);
+    ctx.drawImage(layers.fg, 0, 0);
+  } else {
+    // ── Flat render: original single-pass path ───────────────────────────────
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.filter = buildFilterStr(0);
+    drawVideoMirrored(ctx, video, w, h);
+    ctx.filter = 'none';
+  }
+
+  // Soft glow / halation: blurred lighten pass on top of everything.
   if (look.glow > 0.02) {
     ctx.globalCompositeOperation = 'lighten';
     ctx.globalAlpha = Math.min(1, look.glow * 0.55);
     ctx.filter = `blur(${8 + look.glow * 14}px) brightness(1.1)`;
-    ctx.save();
-    if (facingMode === 'user') { ctx.translate(w, 0); ctx.scale(-1, 1); }
-    ctx.drawImage(video, 0, 0, w, h);
-    ctx.restore();
+    drawVideoMirrored(ctx, video, w, h);
     ctx.filter = 'none';
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
@@ -574,16 +739,97 @@ $('prompt').addEventListener('keydown', (e) => {
 $('reset').addEventListener('click', () => {
   look = { ...NEUTRAL };
   syncKnobsFromLook();
+  syncBgKnobsFromLook();
+  setActiveBgPreset('off');
   $('caption').hidden = true;
   toast('reset to neutral');
 });
-document.querySelectorAll('.preset').forEach((btn) => {
+// Claude-prompt presets only — bg-presets are handled separately below.
+document.querySelectorAll('.preset[data-prompt]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const p = btn.dataset.prompt;
     $('prompt').value = p;
     askClaude(p);
   });
 });
+
+// Background preset buttons — each one sets bgMode (+ params) instantly. No AI call.
+const BG_PRESETS = {
+  off:   { bgMode: 'off' },
+  blur:  { bgMode: 'blur',   bgBlur: 14 },
+  dark:  { bgMode: 'darken', bgDarken: 0.55 },
+  green: { bgMode: 'fill',   bgColor: '#00B140' },
+  white: { bgMode: 'fill',   bgColor: '#F5F3EC' },
+  warm:  { bgMode: 'fill',   bgColor: '#D9B98C' },
+};
+document.querySelectorAll('.bg-preset').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const p = BG_PRESETS[btn.dataset.mode];
+    if (!p) return;
+    if (!segmenterReady && p.bgMode !== 'off') { toast('segmentation still loading…'); return; }
+    Object.assign(look, p);
+    syncBgKnobsFromLook();
+    setActiveBgPreset(btn.dataset.mode);
+  });
+});
+
+function setActiveBgPreset(mode) {
+  document.querySelectorAll('.bg-preset').forEach((b) => {
+    b.style.borderColor = b.dataset.mode === mode ? 'var(--coral)' : '';
+    b.style.background = b.dataset.mode === mode ? 'var(--paper)' : '';
+  });
+}
+
+// Manual background controls live in their own knob group.
+function buildBgKnobs() {
+  const c = $('bgKnobs');
+  c.innerHTML = '';
+  const defs = [
+    ['bgBlur',   0, 30, 1, 'bg blur (px)'],
+    ['bgDarken', 0, 0.9, 0.01, 'bg darken'],
+  ];
+  for (const [key, min, max, step, label] of defs) {
+    const row = document.createElement('div');
+    row.className = 'knob';
+    row.innerHTML = `
+      <label>${label}</label>
+      <input type="range" data-bk="${key}" min="${min}" max="${max}" step="${step}" value="${look[key]}">
+      <span class="val" data-bv="${key}">${formatVal(look[key], step)}</span>
+    `;
+    c.appendChild(row);
+  }
+  const colorRow = document.createElement('div');
+  colorRow.className = 'knob';
+  colorRow.innerHTML = `
+    <label>bg color</label>
+    <input type="color" data-bk="bgColor" value="${look.bgColor}" style="height:24px; width:100%; border:none; background:transparent; cursor:pointer;">
+    <span class="val" data-bv="bgColor" style="font-size:10px;">${look.bgColor}</span>
+  `;
+  c.appendChild(colorRow);
+
+  c.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', (e) => {
+      const k = e.target.dataset.bk;
+      const v = e.target.type === 'color' ? e.target.value : parseFloat(e.target.value);
+      look[k] = v;
+      const valEl = c.querySelector(`[data-bv="${k}"]`);
+      if (valEl) valEl.textContent = e.target.type === 'color' ? v : formatVal(v, parseFloat(e.target.step || '0.01'));
+    });
+  });
+}
+
+function syncBgKnobsFromLook() {
+  const c = $('bgKnobs');
+  c.querySelectorAll('input').forEach((input) => {
+    const k = input.dataset.bk;
+    if (look[k] === undefined) return;
+    input.value = look[k];
+    const valEl = c.querySelector(`[data-bv="${k}"]`);
+    if (valEl) valEl.textContent = input.type === 'color' ? look[k] : formatVal(look[k], parseFloat(input.step || '0.01'));
+  });
+}
+buildBgKnobs();
+setActiveBgPreset('off');
 
 setStatus('', 'camera off');
 
