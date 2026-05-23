@@ -30,9 +30,29 @@
   .app {
     display: grid;
     grid-template-columns: 380px 1fr;
-    grid-template-rows: 56px 1fr;
-    grid-template-areas: "top top" "side stage";
+    grid-template-rows: 56px auto 1fr;
+    grid-template-areas: "top top" "banner banner" "side stage";
     height: 100vh; min-height: 0;
+  }
+  .setup-banner {
+    grid-area: banner;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 20px;
+    background: rgba(181, 82, 59, 0.08);
+    border-bottom: 1px solid rgba(181, 82, 59, 0.35);
+    color: var(--coral-ink);
+    font-size: 13px; line-height: 1.45;
+  }
+  .setup-banner[hidden] { display: none; }
+  .setup-banner .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--bad); flex: 0 0 auto;
+  }
+  .setup-banner strong { font-weight: 600; }
+  .setup-banner code {
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    background: rgba(181, 82, 59, 0.12);
+    padding: 1px 6px; border-radius: 4px; font-size: 12px;
   }
   .top {
     grid-area: top;
@@ -271,6 +291,14 @@
       <button id="capture" class="btn coral" disabled>Capture</button>
     </div>
   </header>
+
+  <div class="setup-banner" id="setupBanner" hidden>
+    <span class="dot"></span>
+    <span>
+      <strong>Claude isn't wired up yet.</strong>
+      Set <code>ANTHROPIC_API_KEY</code> in your environment, or run with <code>AI_BACKEND=claude-code</code> to use your Claude Max plan via the <code>claude</code> CLI, then reload this page.
+    </span>
+  </div>
 
   <aside class="side">
     <section class="panel">
@@ -1120,6 +1148,10 @@ function setBadge(photo, status, label) {
   const b = photo.card.querySelector('.badge');
   b.className = 'badge ' + status;
   b.textContent = label;
+  // Show original/Download only make sense once there's an edited image.
+  const hasEdit = status === 'done';
+  photo.card.querySelector('[data-action="toggle"]').hidden = !hasEdit;
+  photo.card.querySelector('[data-action="download"]').hidden = !hasEdit;
 }
 
 function enqueue(photo, customPrompt) {
@@ -1159,7 +1191,10 @@ async function pump() {
   }
 }
 
+let aiReady = true;
+
 async function handleFiles(fileList) {
+  if (!aiReady) { toast('set ANTHROPIC_API_KEY or AI_BACKEND=claude-code first'); return; }
   const files = [...fileList].filter((f) => f.type.startsWith('image/'));
   if (!files.length) { toast('no image files'); return; }
   for (const file of files) {
@@ -1264,13 +1299,24 @@ viewerOrigBtn.addEventListener('touchstart', (e) => { e.preventDefault(); setSho
 viewerOrigBtn.addEventListener('touchend', () => setShowOrig(false));
 
 // Surface which backend Claude is reaching through, so users can confirm
-// their Max plan is wired in when they set AI_BACKEND=claude-code.
+// their Max plan is wired in when they set AI_BACKEND=claude-code. If the
+// backend isn't reachable, light up a setup banner and lock the upload /
+// capture buttons so users don't drop a pile of photos that all fail.
 fetch('/ai/status')
   .then((r) => r.json())
   .then((s) => {
     const tag = $('backendTag');
     if (s.backend === 'claude-code') tag.textContent = s.ready ? 'via Claude Max plan' : 'claude-code CLI not found';
     else tag.textContent = s.ready ? 'via Anthropic SDK' : 'set ANTHROPIC_API_KEY';
+
+    aiReady = !!s.ready;
+    if (!s.ready) {
+      $('setupBanner').hidden = false;
+      $('pickBtn').disabled = true;
+      $('startBtn').disabled = true;
+      $('filePicker').disabled = true;
+      $('batchPrompt').disabled = true;
+    }
   })
   .catch(() => {});
 </script>
