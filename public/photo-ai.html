@@ -1,0 +1,1278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live Photo AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ivory:#F0EEE6; --cream:#FAF9F5; --paper:#F5F3EC;
+    --ink:#1F1F1E; --char:#2B2A28; --muted:#6B6A65;
+    --hair:#C9C5B6; --mist:#E3DFD0; --slate:#B8B4A4;
+    --coral:#CC785C; --coral-ink:#7A3A28;
+    --good:#4A6B3A; --bad:#B5523B;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--ivory); color: var(--ink);
+    font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .serif { font-family: 'Fraunces', serif; font-weight: 400; letter-spacing: -0.01em; }
+  .mono  { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+  .upper { text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; font-weight: 500; color: var(--muted); }
+
+  .app {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    grid-template-rows: 56px 1fr;
+    grid-template-areas: "top top" "side stage";
+    height: 100vh; min-height: 0;
+  }
+  .top {
+    grid-area: top;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--ink);
+    background: var(--ivory);
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand .mark { font-family: 'Fraunces',serif; font-size: 20px; font-weight: 500; }
+  .brand .tag  { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.14em; }
+  .top-right { display: flex; gap: 10px; align-items: center; }
+  .stat { font-size: 11px; color: var(--muted); }
+  .stat .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--slate); margin-right: 6px; vertical-align: 1px; }
+  .stat.ok .dot { background: var(--good); }
+  .stat.err .dot { background: var(--bad); }
+  .stat.busy .dot { background: var(--coral); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .btn {
+    border: 1px solid var(--ink); background: transparent; color: var(--ink);
+    border-radius: 999px; padding: 7px 14px; font-size: 12px; font-weight: 500;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn:hover { background: var(--ink); color: var(--cream); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn.primary { background: var(--ink); color: var(--cream); }
+  .btn.primary:hover { background: var(--coral); border-color: var(--coral); color: var(--ink); }
+  .btn.ghost { border-color: var(--hair); color: var(--char); }
+  .btn.ghost:hover { background: var(--paper); color: var(--ink); }
+  .btn.coral { background: var(--coral); border-color: var(--coral); color: var(--ink); }
+  .btn.coral:hover { background: var(--coral-ink); border-color: var(--coral-ink); color: var(--cream); }
+
+  .side {
+    grid-area: side;
+    border-right: 1px solid var(--ink);
+    background: var(--cream);
+    overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+  .panel { padding: 18px 20px; border-bottom: 1px solid var(--hair); }
+  .panel h3 {
+    font-family: 'Fraunces',serif; font-weight: 400; font-size: 18px;
+    letter-spacing: -0.01em; margin-bottom: 4px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .panel h3 .n { font-style: italic; color: var(--coral-ink); font-size: 14px; }
+  .panel .help { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+
+  textarea, input[type=text] {
+    width: 100%; border: 1px solid var(--hair); background: var(--ivory);
+    border-radius: 8px; padding: 10px 12px; font-family: inherit; font-size: 13px;
+    color: var(--ink); resize: vertical; min-height: 60px;
+  }
+  textarea:focus, input[type=text]:focus { outline: none; border-color: var(--coral); }
+
+  .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+  .preset {
+    border: 1px solid var(--hair); background: var(--ivory); color: var(--ink);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; cursor: pointer;
+    font-family: inherit; text-align: left; line-height: 1.3;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .preset:hover { border-color: var(--coral); background: var(--paper); }
+  .preset .name { font-weight: 500; }
+  .preset .sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+  .knobs { display: grid; gap: 10px; }
+  .knob { display: grid; grid-template-columns: 90px 1fr 44px; gap: 8px; align-items: center; }
+  .knob label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+  .knob input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    height: 3px; background: var(--hair); border-radius: 2px; outline: none;
+  }
+  .knob input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--ink); cursor: pointer; border: 2px solid var(--cream);
+  }
+  .knob input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--ink); cursor: pointer; border: 2px solid var(--cream);
+  }
+  .knob .val { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--char); text-align: right; }
+
+  .stage {
+    grid-area: stage;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px; background: var(--ivory); overflow: hidden; gap: 16px; min-height: 0;
+  }
+  .frame {
+    position: relative;
+    background: var(--ink);
+    border: 1px solid var(--ink);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 12px 40px rgba(31, 31, 30, 0.18);
+    max-width: 100%; max-height: calc(100vh - 200px);
+    aspect-ratio: 4 / 3;
+  }
+  .frame canvas, .frame video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .frame video { position: absolute; inset: 0; visibility: hidden; }
+  .frame .overlay-text {
+    position: absolute; left: 12px; bottom: 10px;
+    color: var(--cream); font-family: 'Fraunces',serif; font-size: 15px;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+    background: rgba(31, 31, 30, 0.4); padding: 4px 10px; border-radius: 6px;
+    backdrop-filter: blur(6px); pointer-events: none;
+    max-width: 70%;
+  }
+  .frame .recording-dot {
+    position: absolute; top: 12px; right: 12px;
+    width: 10px; height: 10px; border-radius: 50%; background: var(--bad);
+    box-shadow: 0 0 0 0 rgba(181, 82, 59, 0.7); animation: rec 1.4s infinite;
+  }
+  @keyframes rec { 0% { box-shadow: 0 0 0 0 rgba(181, 82, 59, 0.5); } 70% { box-shadow: 0 0 0 10px rgba(181, 82, 59, 0); } 100% { box-shadow: 0 0 0 0 rgba(181, 82, 59, 0); } }
+
+  .stage-actions { display: flex; gap: 10px; }
+  .start-card {
+    text-align: center; padding: 40px;
+    background: var(--cream); border: 1px solid var(--hair);
+    border-radius: 12px; max-width: 460px;
+  }
+  .start-card h2 { font-family: 'Fraunces',serif; font-weight: 500; font-size: 28px; margin-bottom: 8px; }
+  .start-card p { color: var(--muted); margin-bottom: 18px; }
+
+  /* ── Mode tabs ── */
+  .mode-tabs {
+    display: flex; gap: 4px; background: var(--cream); border: 1px solid var(--hair);
+    padding: 3px; border-radius: 999px;
+  }
+  .mode-tab {
+    border: none; background: transparent; color: var(--char); padding: 7px 16px;
+    border-radius: 999px; font-size: 12px; font-weight: 500; cursor: pointer;
+    font-family: inherit;
+  }
+  .mode-tab.on { background: var(--ink); color: var(--cream); }
+
+  .mode-pane { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; min-height: 0; flex: 1; }
+  .mode-pane[hidden] { display: none; }
+
+  /* ── Drop mode ── */
+  .drop-zone {
+    width: 100%; max-width: 720px; min-height: 220px;
+    border: 2px dashed var(--hair); border-radius: 12px;
+    background: var(--cream);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px; gap: 10px; text-align: center;
+    transition: border-color 0.15s, background 0.15s;
+    cursor: pointer;
+  }
+  .drop-zone.dragover { border-color: var(--coral); background: var(--paper); }
+  .drop-zone h2 { font-family: 'Fraunces',serif; font-weight: 500; font-size: 22px; }
+  .drop-zone p { color: var(--muted); font-size: 13px; }
+  .drop-zone .or { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; }
+  .drop-prompt-row {
+    width: 100%; max-width: 720px; display: flex; gap: 8px;
+  }
+  .drop-prompt-row input { flex: 1; }
+
+  .batch-grid {
+    width: 100%; display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    max-height: calc(100vh - 230px); overflow-y: auto;
+    padding: 4px;
+  }
+  .card {
+    background: var(--cream); border: 1px solid var(--hair); border-radius: 12px;
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .card .compare {
+    position: relative; aspect-ratio: 4 / 3; background: var(--ink); cursor: zoom-in;
+    overflow: hidden;
+  }
+  .card .compare canvas, .card .compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .compare .orig { opacity: 0; transition: opacity 0.15s; }
+  .card.show-orig .compare .orig { opacity: 1; }
+  .card .badge {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(31,31,30,0.7); color: var(--cream); font-size: 10px;
+    padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.1em;
+    pointer-events: none; backdrop-filter: blur(4px);
+  }
+  .card .badge.queued { background: rgba(107,106,101,0.8); }
+  .card .badge.busy { background: rgba(204,120,92,0.9); }
+  .card .badge.done { background: rgba(74,107,58,0.85); }
+  .card .badge.err { background: rgba(181,82,59,0.9); }
+  .card .meta { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .card .cap {
+    font-family: 'Fraunces',serif; font-size: 14px; line-height: 1.2; min-height: 18px;
+    color: var(--ink);
+  }
+  .card .filename { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+  .card .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .card .actions button { font-size: 11px; padding: 5px 10px; }
+  .card .reprompt { display: flex; gap: 6px; margin-top: 4px; }
+  .card .reprompt input { font-size: 12px; padding: 6px 8px; min-height: 0; }
+  .card .reprompt button { padding: 5px 10px; font-size: 11px; }
+
+  /* ── Fullscreen viewer for the edited preview ── */
+  .viewer {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(31,31,30,0.92); backdrop-filter: blur(8px);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px; gap: 16px;
+  }
+  .viewer[hidden] { display: none; }
+  .viewer .vshell { max-width: 92vw; max-height: 80vh; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border-radius: 8px; overflow: hidden; }
+  .viewer canvas, .viewer img { display: block; max-width: 92vw; max-height: 80vh; object-fit: contain; }
+  .viewer .vbar { display: flex; gap: 10px; align-items: center; color: var(--cream); }
+  .viewer .vbar .cap { font-family: 'Fraunces',serif; font-size: 18px; }
+  .viewer .vbar .filename { font-size: 11px; opacity: 0.7; font-family: 'JetBrains Mono', monospace; }
+  .viewer .vactions { display: flex; gap: 8px; }
+  .viewer .vactions .btn { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3); color: var(--cream); }
+  .viewer .vactions .btn:hover { background: var(--cream); color: var(--ink); }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: var(--cream);
+    padding: 10px 18px; border-radius: 999px; font-size: 13px;
+    box-shadow: 0 6px 20px rgba(31, 31, 30, 0.25);
+    opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 100;
+  }
+  .toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="mark serif">Live Photo AI</span>
+      <span class="tag" id="backendTag">claude as your colorist</span>
+    </div>
+    <div class="top-right">
+      <span id="status" class="stat"><span class="dot"></span><span class="msg">camera off</span></span>
+      <button id="capture" class="btn coral" disabled>Capture</button>
+    </div>
+  </header>
+
+  <aside class="side">
+    <section class="panel">
+      <h3>Describe the look <span class="n">i.</span></h3>
+      <p class="help">Tell Claude what feel you want. It looks at the live frame and picks the filters.</p>
+      <textarea id="prompt" placeholder="e.g. warm 70s film, soft halation, slight grain"></textarea>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button id="apply" class="btn primary" style="flex:1;" disabled>Apply look</button>
+        <button id="auto" class="btn ghost" disabled title="Let Claude pick a flattering look for this scene">Auto</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Quick looks <span class="n">ii.</span></h3>
+      <div class="presets">
+        <button class="preset" data-prompt="warm golden-hour 70s film with soft halation and subtle grain"><div class="name">Golden hour</div><div class="sub">warm, glowy, filmic</div></button>
+        <button class="preset" data-prompt="moody high-contrast black and white, deep blacks, slight grain"><div class="name">Noir</div><div class="sub">dramatic B&amp;W</div></button>
+        <button class="preset" data-prompt="cyberpunk neon, magenta and cyan tint, high saturation, soft glow"><div class="name">Neon</div><div class="sub">cyberpunk, vivid</div></button>
+        <button class="preset" data-prompt="washed out polaroid, faded contrast, warm cream tint, heavy grain"><div class="name">Polaroid</div><div class="sub">faded, vintage</div></button>
+        <button class="preset" data-prompt="cool teal-orange cinematic grade, balanced shadows and highlights"><div class="name">Cinematic</div><div class="sub">teal &amp; orange</div></button>
+        <button class="preset" data-prompt="dreamy soft-focus pastel haze with a gentle pink tint"><div class="name">Dreamy</div><div class="sub">soft, pastel</div></button>
+        <button class="preset" data-prompt="cold blue overcast morning, desaturated, slight blue tint"><div class="name">Overcast</div><div class="sub">cool, muted</div></button>
+        <button class="preset" data-prompt="vivid sun-drenched summer, boosted saturation, warm highlights"><div class="name">Summer</div><div class="sub">bright, saturated</div></button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Manual tweak <span class="n">iii.</span></h3>
+      <p class="help">Override Claude's choices live.</p>
+      <div class="knobs" id="knobs"></div>
+      <button id="reset" class="btn ghost" style="margin-top:12px; width:100%;">Reset to neutral</button>
+    </section>
+
+    <section class="panel">
+      <h3>Background <span class="n">iv.</span></h3>
+      <p class="help" id="segHelp">Segments you from the background using MediaPipe in the browser. Loading…</p>
+      <div class="presets">
+        <button class="bg-preset preset" data-mode="off"><div class="name">Off</div><div class="sub">no segmentation</div></button>
+        <button class="bg-preset preset" data-mode="blur"><div class="name">Blur</div><div class="sub">portrait bokeh</div></button>
+        <button class="bg-preset preset" data-mode="dark"><div class="name">Studio dark</div><div class="sub">spotlight on you</div></button>
+        <button class="bg-preset preset" data-mode="green"><div class="name">Greenscreen</div><div class="sub">chroma-key green</div></button>
+        <button class="bg-preset preset" data-mode="white"><div class="name">White cyc</div><div class="sub">clean white bg</div></button>
+        <button class="bg-preset preset" data-mode="warm"><div class="name">Warm wall</div><div class="sub">soft cream bg</div></button>
+      </div>
+      <div class="knobs" id="bgKnobs" style="margin-top:14px;"></div>
+    </section>
+
+    <section class="panel">
+      <h3>How it works <span class="n">v.</span></h3>
+      <p class="help" style="margin-bottom:0;">
+        Two layers of AI: <b>MediaPipe</b> runs in your browser and masks you from the background every frame, so background blur / replace are real and live.
+        <b>Claude</b> watches a snapshot and picks the colour grading parameters that the canvas applies on top.
+      </p>
+    </section>
+  </aside>
+
+  <main class="stage">
+    <div class="mode-tabs" role="tablist">
+      <button class="mode-tab on" data-mode="live" role="tab">Live camera</button>
+      <button class="mode-tab" data-mode="drop" role="tab">Drop photos</button>
+    </div>
+
+    <!-- Live camera mode -->
+    <div class="mode-pane" id="liveMode">
+      <div id="startCard" class="start-card">
+        <h2 class="serif">Edit photos live</h2>
+        <p>This app connects to your camera and re-grades every frame in real time, using Claude to interpret your prompt as filter parameters.</p>
+        <button id="startBtn" class="btn primary">Connect camera</button>
+      </div>
+
+      <div class="frame" id="frame" hidden>
+        <video id="video" playsinline autoplay muted></video>
+        <canvas id="canvas"></canvas>
+        <div class="overlay-text" id="caption" hidden></div>
+      </div>
+      <div class="stage-actions" id="stageActions" hidden>
+        <button id="flip" class="btn ghost">Flip camera</button>
+        <button id="stop" class="btn ghost">Stop</button>
+      </div>
+    </div>
+
+    <!-- Drop photos mode -->
+    <div class="mode-pane" id="dropMode" hidden>
+      <div class="drop-prompt-row">
+        <input type="text" id="batchPrompt" placeholder="(optional) describe a look to apply to every photo — leave blank to let Claude auto-style each one">
+        <button id="reeditAll" class="btn ghost" disabled>Re-edit all</button>
+      </div>
+      <div class="drop-zone" id="dropZone">
+        <h2 class="serif">Drop photos here</h2>
+        <p>Each photo gets sent to Claude. It picks a look, the canvas applies it, you get a preview.</p>
+        <p class="or">or</p>
+        <button id="pickBtn" class="btn primary">Choose files</button>
+        <input type="file" id="filePicker" accept="image/*" multiple hidden>
+      </div>
+      <div class="batch-grid" id="batchGrid"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Fullscreen viewer for inspecting an edited preview -->
+<div class="viewer" id="viewer" hidden>
+  <div class="vbar">
+    <div>
+      <div class="cap serif" id="viewerCap"></div>
+      <div class="filename" id="viewerName"></div>
+    </div>
+  </div>
+  <div class="vshell" id="viewerShell"></div>
+  <div class="vactions">
+    <button id="viewerOrig" class="btn">Hold to see original</button>
+    <button id="viewerDownload" class="btn">Download</button>
+    <button id="viewerClose" class="btn">Close</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script type="module">
+import { FilesetResolver, ImageSegmenter } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+
+const $ = (id) => document.getElementById(id);
+
+const NEUTRAL = {
+  caption:    '',
+  brightness: 1.0,
+  contrast:   1.0,
+  saturate:   1.0,
+  hueRotate:  0,
+  sepia:      0,
+  grayscale:  0,
+  blur:       0,
+  invert:     0,
+  vignette:   0,
+  grain:      0,
+  tintColor:  '#000000',
+  tintAlpha:  0,
+  glow:       0,
+  // Background segmentation (applied only to background pixels, requires MediaPipe).
+  bgMode:     'off',         // 'off' | 'blur' | 'fill' | 'darken'
+  bgBlur:     12,            // px, when mode = blur
+  bgDarken:   0.35,          // 0..1, amount to darken bg, when mode = darken
+  bgColor:    '#1F1F1E',     // when mode = fill
+};
+
+const KNOB_DEFS = [
+  ['brightness', 0.4, 1.8, 0.01],
+  ['contrast',   0.4, 1.8, 0.01],
+  ['saturate',   0,   2.5, 0.01],
+  ['hueRotate', -180, 180, 1],
+  ['sepia',      0,   1,   0.01],
+  ['grayscale',  0,   1,   0.01],
+  ['blur',       0,   4,   0.05],
+  ['vignette',   0,   1,   0.01],
+  ['grain',      0,   1,   0.01],
+  ['glow',       0,   1,   0.01],
+  ['tintAlpha',  0,   0.6, 0.01],
+];
+
+let look = { ...NEUTRAL };
+let stream = null;
+let facingMode = 'user';
+let rafHandle = 0;
+let grainCanvas = null;
+let pendingRequest = false;
+let lastApplyPrompt = '';
+
+// MediaPipe selfie segmenter (runs in browser, ~30fps on most machines).
+let segmenter = null;
+let segmenterReady = false;
+let lastSegMs = 0;
+// Hidden scratch canvases for the layered render pipeline.
+const layers = {
+  bg:   document.createElement('canvas'),  // background, with bg effect applied
+  fg:   document.createElement('canvas'),  // foreground (person) cutout
+  mask: document.createElement('canvas'),  // grayscale alpha mask: white = person
+};
+
+async function initSegmenter() {
+  try {
+    const fileset = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+    );
+    segmenter = await ImageSegmenter.createFromOptions(fileset, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite',
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      outputCategoryMask: false,
+      outputConfidenceMasks: true,
+    });
+    segmenterReady = true;
+    $('segHelp').textContent = 'Segments you from the background using MediaPipe in the browser. Ready.';
+  } catch (err) {
+    console.warn('segmenter init failed:', err);
+    $('segHelp').textContent = 'Segmentation unavailable (model failed to load). Filters still work.';
+  }
+}
+initSegmenter();
+
+function toast(msg, ms = 2200) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('on'), ms);
+}
+
+function setStatus(state, msg) {
+  const el = $('status');
+  el.classList.remove('ok','err','busy');
+  if (state) el.classList.add(state);
+  el.querySelector('.msg').textContent = msg;
+}
+
+// ── Grain texture ────────────────────────────────────────────────────────────
+function makeGrain(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const v = (Math.random() * 255) | 0;
+    d[i] = v; d[i+1] = v; d[i+2] = v; d[i+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+// ── Render loop ──────────────────────────────────────────────────────────────
+function buildFilterStr(extraBlurPx = 0) {
+  return (
+    `brightness(${look.brightness}) ` +
+    `contrast(${look.contrast}) ` +
+    `saturate(${look.saturate}) ` +
+    `hue-rotate(${look.hueRotate}deg) ` +
+    `sepia(${look.sepia}) ` +
+    `grayscale(${look.grayscale}) ` +
+    `blur(${look.blur + extraBlurPx}px) ` +
+    `invert(${look.invert})`
+  );
+}
+
+function drawVideoMirrored(ctx, video, w, h) {
+  ctx.save();
+  if (facingMode === 'user') {
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(video, 0, 0, w, h);
+  ctx.restore();
+}
+
+// Convert the MediaPipe MPMask (Float32 per-pixel person confidence) into a
+// grayscale alpha mask sized to the canvas. White = person, transparent = bg.
+function writeMaskToCanvas(mask, maskCanvas, targetW, targetH) {
+  const mw = mask.width, mh = mask.height;
+  const floats = mask.getAsFloat32Array();
+  // Render the mask at its native resolution to a small canvas, then upscale.
+  const tmp = layers._maskTmp || (layers._maskTmp = document.createElement('canvas'));
+  if (tmp.width !== mw) { tmp.width = mw; tmp.height = mh; }
+  const tctx = tmp.getContext('2d');
+  const img = tctx.createImageData(mw, mh);
+  const data = img.data;
+  for (let i = 0, j = 0; i < floats.length; i++, j += 4) {
+    const v = floats[i];
+    const a = v > 0.5 ? 255 : (v > 0.1 ? Math.round((v - 0.1) / 0.4 * 255) : 0);
+    data[j] = 255; data[j + 1] = 255; data[j + 2] = 255; data[j + 3] = a;
+  }
+  tctx.putImageData(img, 0, 0);
+
+  if (maskCanvas.width !== targetW) { maskCanvas.width = targetW; maskCanvas.height = targetH; }
+  const mctx = maskCanvas.getContext('2d');
+  mctx.clearRect(0, 0, targetW, targetH);
+  // Mirror the mask to match the mirrored video draw.
+  mctx.save();
+  if (facingMode === 'user') { mctx.translate(targetW, 0); mctx.scale(-1, 1); }
+  // Soften mask edges a touch — selfie segmenter has crunchy borders.
+  mctx.filter = 'blur(1.5px)';
+  mctx.drawImage(tmp, 0, 0, targetW, targetH);
+  mctx.restore();
+  mctx.filter = 'none';
+}
+
+function render() {
+  const video = $('video');
+  const canvas = $('canvas');
+  if (!video.videoWidth) { rafHandle = requestAnimationFrame(render); return; }
+
+  if (canvas.width !== video.videoWidth) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    grainCanvas = makeGrain(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2));
+  }
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+
+  const useSeg = segmenterReady && look.bgMode && look.bgMode !== 'off';
+
+  // Run segmentation if needed. We segment every frame — selfie_segmenter is
+  // light enough to keep up at ~30fps on most hardware.
+  let mask = null;
+  if (useSeg) {
+    try {
+      const now = performance.now();
+      // segmentForVideo requires monotonically-increasing timestamps in ms.
+      if (now <= lastSegMs) lastSegMs += 1; else lastSegMs = now;
+      const result = segmenter.segmentForVideo(video, lastSegMs);
+      mask = result.confidenceMasks && result.confidenceMasks[0];
+      if (mask) writeMaskToCanvas(mask, layers.mask, w, h);
+    } catch (err) {
+      // Segmenter failures are non-fatal — just fall back to flat render.
+      console.warn('segment frame error:', err);
+    } finally {
+      if (mask && mask.close) mask.close();
+    }
+  }
+
+  if (useSeg && mask) {
+    // ── Layered render: bg layer (with bg effect) + fg cutout on top ─────────
+    if (layers.bg.width !== w) { layers.bg.width = w; layers.bg.height = h; }
+    if (layers.fg.width !== w) { layers.fg.width = w; layers.fg.height = h; }
+    const bgCtx = layers.bg.getContext('2d');
+    const fgCtx = layers.fg.getContext('2d');
+
+    // 1. Background layer — what shows BEHIND the person.
+    bgCtx.globalCompositeOperation = 'source-over';
+    bgCtx.globalAlpha = 1;
+    if (look.bgMode === 'fill') {
+      // Solid colour backdrop.
+      bgCtx.filter = 'none';
+      bgCtx.fillStyle = look.bgColor;
+      bgCtx.fillRect(0, 0, w, h);
+    } else if (look.bgMode === 'blur') {
+      // Blur the actual scene behind you (portrait-mode look).
+      bgCtx.filter = buildFilterStr(look.bgBlur);
+      drawVideoMirrored(bgCtx, video, w, h);
+    } else if (look.bgMode === 'darken') {
+      // Keep the scene but darken it so the subject pops.
+      bgCtx.filter = buildFilterStr(0);
+      drawVideoMirrored(bgCtx, video, w, h);
+      bgCtx.filter = 'none';
+      bgCtx.fillStyle = `rgba(0,0,0,${look.bgDarken})`;
+      bgCtx.fillRect(0, 0, w, h);
+    } else {
+      bgCtx.filter = buildFilterStr(0);
+      drawVideoMirrored(bgCtx, video, w, h);
+    }
+    bgCtx.filter = 'none';
+
+    // 2. Foreground layer — the person, with the base look.
+    fgCtx.globalCompositeOperation = 'source-over';
+    fgCtx.globalAlpha = 1;
+    fgCtx.clearRect(0, 0, w, h);
+    fgCtx.filter = buildFilterStr(0);
+    drawVideoMirrored(fgCtx, video, w, h);
+    fgCtx.filter = 'none';
+    // Punch the fg into a cutout using the person mask as alpha.
+    fgCtx.globalCompositeOperation = 'destination-in';
+    fgCtx.drawImage(layers.mask, 0, 0, w, h);
+    fgCtx.globalCompositeOperation = 'source-over';
+
+    // 3. Composite: bg first, then fg on top.
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.filter = 'none';
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(layers.bg, 0, 0);
+    ctx.drawImage(layers.fg, 0, 0);
+  } else {
+    // ── Flat render: original single-pass path ───────────────────────────────
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.filter = buildFilterStr(0);
+    drawVideoMirrored(ctx, video, w, h);
+    ctx.filter = 'none';
+  }
+
+  // Soft glow / halation: blurred lighten pass on top of everything.
+  if (look.glow > 0.02) {
+    ctx.globalCompositeOperation = 'lighten';
+    ctx.globalAlpha = Math.min(1, look.glow * 0.55);
+    ctx.filter = `blur(${8 + look.glow * 14}px) brightness(1.1)`;
+    drawVideoMirrored(ctx, video, w, h);
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Color tint.
+  if (look.tintAlpha > 0.005) {
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha = look.tintAlpha;
+    ctx.fillStyle = look.tintColor;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Vignette.
+  if (look.vignette > 0.01) {
+    const grad = ctx.createRadialGradient(w/2, h/2, Math.min(w,h)*0.35, w/2, h/2, Math.max(w,h)*0.72);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, `rgba(0,0,0,${0.85 * look.vignette})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // Grain.
+  if (look.grain > 0.01 && grainCanvas) {
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = Math.min(0.45, look.grain * 0.45);
+    const ox = (Math.random() * grainCanvas.width) | 0;
+    const oy = (Math.random() * grainCanvas.height) | 0;
+    ctx.drawImage(grainCanvas, -ox, -oy, w, h);
+    ctx.drawImage(grainCanvas, grainCanvas.width - ox, grainCanvas.height - oy, w, h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  rafHandle = requestAnimationFrame(render);
+}
+
+// Apply a look to a still image (HTMLImageElement) and draw into dstCanvas.
+// Uses the same filter+overlay stack as live render(), minus segmentation
+// (selfie segmenter runs in VIDEO mode here — stills get the colour/effect
+// grade only). Mirror defaults to off since dropped photos aren't selfies.
+function renderStill(img, theLook, dstCanvas) {
+  const w = dstCanvas.width = img.naturalWidth || img.width;
+  const h = dstCanvas.height = img.naturalHeight || img.height;
+  const ctx = dstCanvas.getContext('2d');
+
+  const f = (k) => theLook[k];
+  const filter =
+    `brightness(${f('brightness')}) ` +
+    `contrast(${f('contrast')}) ` +
+    `saturate(${f('saturate')}) ` +
+    `hue-rotate(${f('hueRotate')}deg) ` +
+    `sepia(${f('sepia')}) ` +
+    `grayscale(${f('grayscale')}) ` +
+    `blur(${f('blur')}px) ` +
+    `invert(${f('invert')})`;
+  ctx.filter = filter;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.drawImage(img, 0, 0, w, h);
+  ctx.filter = 'none';
+
+  // Soft glow / halation.
+  if (theLook.glow > 0.02) {
+    ctx.globalCompositeOperation = 'lighten';
+    ctx.globalAlpha = Math.min(1, theLook.glow * 0.55);
+    ctx.filter = `blur(${8 + theLook.glow * 14}px) brightness(1.1)`;
+    ctx.drawImage(img, 0, 0, w, h);
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Colour tint.
+  if (theLook.tintAlpha > 0.005) {
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha = theLook.tintAlpha;
+    ctx.fillStyle = theLook.tintColor;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Vignette.
+  if (theLook.vignette > 0.01) {
+    const grad = ctx.createRadialGradient(w/2, h/2, Math.min(w,h)*0.35, w/2, h/2, Math.max(w,h)*0.72);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, `rgba(0,0,0,${0.85 * theLook.vignette})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // Grain — generate a noise tile sized for this image.
+  if (theLook.grain > 0.01) {
+    const g = makeGrain(Math.floor(w / 2), Math.floor(h / 2));
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = Math.min(0.45, theLook.grain * 0.45);
+    const ox = (Math.random() * g.width) | 0;
+    const oy = (Math.random() * g.height) | 0;
+    ctx.drawImage(g, -ox, -oy, w, h);
+    ctx.drawImage(g, g.width - ox, g.height - oy, w, h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+// ── Camera control ───────────────────────────────────────────────────────────
+async function startCamera() {
+  try {
+    setStatus('busy', 'requesting camera…');
+    if (stream) stopCamera();
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 960 } },
+      audio: false,
+    });
+    const video = $('video');
+    video.srcObject = stream;
+    await video.play();
+    $('startCard').hidden = true;
+    $('frame').hidden = false;
+    $('stageActions').hidden = false;
+    $('capture').disabled = false;
+    $('apply').disabled = false;
+    $('auto').disabled = false;
+    setStatus('ok', 'camera live');
+    if (!rafHandle) render();
+  } catch (err) {
+    setStatus('err', 'camera blocked');
+    toast('Camera permission needed: ' + (err && err.message ? err.message : 'unknown'));
+  }
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+  }
+  cancelAnimationFrame(rafHandle); rafHandle = 0;
+  $('frame').hidden = true;
+  $('stageActions').hidden = true;
+  $('startCard').hidden = false;
+  $('capture').disabled = true;
+  $('apply').disabled = true;
+  $('auto').disabled = true;
+  setStatus('', 'camera off');
+}
+
+// ── Knobs ────────────────────────────────────────────────────────────────────
+function buildKnobs() {
+  const c = $('knobs');
+  c.innerHTML = '';
+  for (const [key, min, max, step] of KNOB_DEFS) {
+    const row = document.createElement('div');
+    row.className = 'knob';
+    row.innerHTML = `
+      <label>${key}</label>
+      <input type="range" data-k="${key}" min="${min}" max="${max}" step="${step}" value="${look[key]}">
+      <span class="val" data-v="${key}">${formatVal(look[key], step)}</span>
+    `;
+    c.appendChild(row);
+  }
+  // Tint color picker as an extra row.
+  const row = document.createElement('div');
+  row.className = 'knob';
+  row.innerHTML = `
+    <label>tint color</label>
+    <input type="color" data-k="tintColor" value="${look.tintColor}" style="height:24px; width:100%; border:none; background:transparent; cursor:pointer;">
+    <span class="val" data-v="tintColor" style="font-size:10px;">${look.tintColor}</span>
+  `;
+  c.appendChild(row);
+
+  c.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', (e) => {
+      const k = e.target.dataset.k;
+      const v = e.target.type === 'color' ? e.target.value : parseFloat(e.target.value);
+      look[k] = v;
+      const valEl = c.querySelector(`[data-v="${k}"]`);
+      if (valEl) valEl.textContent = e.target.type === 'color' ? v : formatVal(v, parseFloat(e.target.step || '0.01'));
+    });
+  });
+}
+
+function formatVal(v, step) {
+  if (step >= 1) return String(Math.round(v));
+  if (step >= 0.05) return v.toFixed(2);
+  return v.toFixed(2);
+}
+
+function syncKnobsFromLook() {
+  const c = $('knobs');
+  c.querySelectorAll('input').forEach((input) => {
+    const k = input.dataset.k;
+    if (look[k] === undefined) return;
+    input.value = look[k];
+    const valEl = c.querySelector(`[data-v="${k}"]`);
+    if (valEl) {
+      valEl.textContent = input.type === 'color' ? look[k] : formatVal(look[k], parseFloat(input.step || '0.01'));
+    }
+  });
+}
+
+// ── AI call ──────────────────────────────────────────────────────────────────
+function grabSnapshot(maxW = 640) {
+  const video = $('video');
+  if (!video.videoWidth) return null;
+  const scale = Math.min(1, maxW / video.videoWidth);
+  const w = Math.round(video.videoWidth * scale);
+  const h = Math.round(video.videoHeight * scale);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(video, 0, 0, w, h);
+  return c.toDataURL('image/jpeg', 0.78);
+}
+
+async function askClaude(prompt) {
+  if (pendingRequest) { toast('still thinking about the last look…'); return; }
+  const image = grabSnapshot();
+  if (!image) { toast('no frame yet'); return; }
+  pendingRequest = true;
+  setStatus('busy', 'claude is grading…');
+  $('apply').disabled = true;
+  $('auto').disabled = true;
+  try {
+    const res = await fetch('/ai/photo-edit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image, prompt }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'request failed');
+    look = { ...NEUTRAL, ...data.look };
+    syncKnobsFromLook();
+    const cap = $('caption');
+    if (look.caption) { cap.textContent = look.caption; cap.hidden = false; }
+    else { cap.hidden = true; }
+    setStatus('ok', 'look applied');
+  } catch (err) {
+    setStatus('err', 'ai failed');
+    toast(err.message || 'failed to apply look');
+  } finally {
+    pendingRequest = false;
+    $('apply').disabled = !stream;
+    $('auto').disabled = !stream;
+  }
+}
+
+// ── Capture ──────────────────────────────────────────────────────────────────
+function capture() {
+  const canvas = $('canvas');
+  const link = document.createElement('a');
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  link.download = `photo-ai-${ts}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  toast('saved photo');
+}
+
+// ── Wire up ──────────────────────────────────────────────────────────────────
+buildKnobs();
+
+$('startBtn').addEventListener('click', startCamera);
+$('stop').addEventListener('click', stopCamera);
+$('flip').addEventListener('click', async () => {
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  await startCamera();
+});
+$('capture').addEventListener('click', capture);
+$('apply').addEventListener('click', () => {
+  const p = $('prompt').value.trim();
+  if (!p) { toast('describe a look first, or use Auto'); return; }
+  lastApplyPrompt = p;
+  askClaude(p);
+});
+$('auto').addEventListener('click', () => askClaude(''));
+$('prompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('apply').click(); }
+});
+$('reset').addEventListener('click', () => {
+  look = { ...NEUTRAL };
+  syncKnobsFromLook();
+  syncBgKnobsFromLook();
+  setActiveBgPreset('off');
+  $('caption').hidden = true;
+  toast('reset to neutral');
+});
+// Claude-prompt presets only — bg-presets are handled separately below.
+document.querySelectorAll('.preset[data-prompt]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const p = btn.dataset.prompt;
+    $('prompt').value = p;
+    askClaude(p);
+  });
+});
+
+// Background preset buttons — each one sets bgMode (+ params) instantly. No AI call.
+const BG_PRESETS = {
+  off:   { bgMode: 'off' },
+  blur:  { bgMode: 'blur',   bgBlur: 14 },
+  dark:  { bgMode: 'darken', bgDarken: 0.55 },
+  green: { bgMode: 'fill',   bgColor: '#00B140' },
+  white: { bgMode: 'fill',   bgColor: '#F5F3EC' },
+  warm:  { bgMode: 'fill',   bgColor: '#D9B98C' },
+};
+document.querySelectorAll('.bg-preset').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const p = BG_PRESETS[btn.dataset.mode];
+    if (!p) return;
+    if (!segmenterReady && p.bgMode !== 'off') { toast('segmentation still loading…'); return; }
+    Object.assign(look, p);
+    syncBgKnobsFromLook();
+    setActiveBgPreset(btn.dataset.mode);
+  });
+});
+
+function setActiveBgPreset(mode) {
+  document.querySelectorAll('.bg-preset').forEach((b) => {
+    b.style.borderColor = b.dataset.mode === mode ? 'var(--coral)' : '';
+    b.style.background = b.dataset.mode === mode ? 'var(--paper)' : '';
+  });
+}
+
+// Manual background controls live in their own knob group.
+function buildBgKnobs() {
+  const c = $('bgKnobs');
+  c.innerHTML = '';
+  const defs = [
+    ['bgBlur',   0, 30, 1, 'bg blur (px)'],
+    ['bgDarken', 0, 0.9, 0.01, 'bg darken'],
+  ];
+  for (const [key, min, max, step, label] of defs) {
+    const row = document.createElement('div');
+    row.className = 'knob';
+    row.innerHTML = `
+      <label>${label}</label>
+      <input type="range" data-bk="${key}" min="${min}" max="${max}" step="${step}" value="${look[key]}">
+      <span class="val" data-bv="${key}">${formatVal(look[key], step)}</span>
+    `;
+    c.appendChild(row);
+  }
+  const colorRow = document.createElement('div');
+  colorRow.className = 'knob';
+  colorRow.innerHTML = `
+    <label>bg color</label>
+    <input type="color" data-bk="bgColor" value="${look.bgColor}" style="height:24px; width:100%; border:none; background:transparent; cursor:pointer;">
+    <span class="val" data-bv="bgColor" style="font-size:10px;">${look.bgColor}</span>
+  `;
+  c.appendChild(colorRow);
+
+  c.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', (e) => {
+      const k = e.target.dataset.bk;
+      const v = e.target.type === 'color' ? e.target.value : parseFloat(e.target.value);
+      look[k] = v;
+      const valEl = c.querySelector(`[data-bv="${k}"]`);
+      if (valEl) valEl.textContent = e.target.type === 'color' ? v : formatVal(v, parseFloat(e.target.step || '0.01'));
+    });
+  });
+}
+
+function syncBgKnobsFromLook() {
+  const c = $('bgKnobs');
+  c.querySelectorAll('input').forEach((input) => {
+    const k = input.dataset.bk;
+    if (look[k] === undefined) return;
+    input.value = look[k];
+    const valEl = c.querySelector(`[data-bv="${k}"]`);
+    if (valEl) valEl.textContent = input.type === 'color' ? look[k] : formatVal(look[k], parseFloat(input.step || '0.01'));
+  });
+}
+buildBgKnobs();
+setActiveBgPreset('off');
+
+setStatus('', 'camera off');
+
+// ── Mode tabs ────────────────────────────────────────────────────────────────
+document.querySelectorAll('.mode-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    const m = tab.dataset.mode;
+    document.querySelectorAll('.mode-tab').forEach((t) => t.classList.toggle('on', t === tab));
+    $('liveMode').hidden = (m !== 'live');
+    $('dropMode').hidden = (m !== 'drop');
+  });
+});
+
+// ── Drop photos mode ─────────────────────────────────────────────────────────
+const photos = [];   // { id, file, originalUrl, img, look, status, card, canvas }
+let photoSeq = 0;
+let inflight = 0;
+const MAX_CONCURRENT = 2;
+
+function downscaleDataUrl(img, maxW = 768) {
+  const scale = Math.min(1, maxW / img.naturalWidth);
+  const w = Math.round(img.naturalWidth * scale);
+  const h = Math.round(img.naturalHeight * scale);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(img, 0, 0, w, h);
+  return c.toDataURL('image/jpeg', 0.82);
+}
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function makeCard(photo) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="compare" data-action="view">
+      <canvas class="edited"></canvas>
+      <img class="orig" alt="">
+      <span class="badge queued">Queued</span>
+    </div>
+    <div class="meta">
+      <div class="cap">…</div>
+      <div class="filename"></div>
+      <div class="actions">
+        <button class="btn ghost" data-action="toggle">Show original</button>
+        <button class="btn coral" data-action="download">Download</button>
+        <button class="btn ghost" data-action="remove">Remove</button>
+      </div>
+      <div class="reprompt">
+        <input type="text" placeholder="describe a different look…">
+        <button class="btn ghost" data-action="redo">Redo</button>
+      </div>
+    </div>
+  `;
+  card.querySelector('.filename').textContent = photo.file.name;
+  card.querySelector('.orig').src = photo.originalUrl;
+  photo.canvas = card.querySelector('canvas.edited');
+
+  card.addEventListener('click', (e) => {
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (action === 'view') {
+      if (photo.status === 'done') openViewer(photo);
+    } else if (action === 'toggle') {
+      card.classList.toggle('show-orig');
+      e.target.textContent = card.classList.contains('show-orig') ? 'Show edited' : 'Show original';
+    } else if (action === 'download') {
+      downloadPhoto(photo);
+    } else if (action === 'remove') {
+      removePhoto(photo);
+    } else if (action === 'redo') {
+      const input = card.querySelector('.reprompt input');
+      enqueue(photo, input.value.trim());
+    }
+  });
+
+  photo.card = card;
+  $('batchGrid').appendChild(card);
+}
+
+function setBadge(photo, status, label) {
+  photo.status = status;
+  const b = photo.card.querySelector('.badge');
+  b.className = 'badge ' + status;
+  b.textContent = label;
+}
+
+function enqueue(photo, customPrompt) {
+  photo._prompt = customPrompt !== undefined ? customPrompt : ($('batchPrompt').value.trim() || '');
+  setBadge(photo, 'queued', 'Queued');
+  pump();
+}
+
+async function pump() {
+  if (inflight >= MAX_CONCURRENT) return;
+  const next = photos.find((p) => p.status === 'queued');
+  if (!next) {
+    $('reeditAll').disabled = photos.length === 0;
+    return;
+  }
+  inflight++;
+  setBadge(next, 'busy', 'Grading…');
+  try {
+    const dataUrl = downscaleDataUrl(next.img, 768);
+    const res = await fetch('/ai/photo-edit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, prompt: next._prompt || '' }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'request failed');
+    next.look = { ...NEUTRAL, ...data.look };
+    renderStill(next.img, next.look, next.canvas);
+    next.card.querySelector('.cap').textContent = next.look.caption || 'edited';
+    setBadge(next, 'done', 'Done');
+  } catch (err) {
+    setBadge(next, 'err', 'Failed');
+    next.card.querySelector('.cap').textContent = (err.message || 'failed').slice(0, 80);
+  } finally {
+    inflight--;
+    pump();
+  }
+}
+
+async function handleFiles(fileList) {
+  const files = [...fileList].filter((f) => f.type.startsWith('image/'));
+  if (!files.length) { toast('no image files'); return; }
+  for (const file of files) {
+    const id = ++photoSeq;
+    const originalUrl = URL.createObjectURL(file);
+    let img;
+    try { img = await loadImage(originalUrl); }
+    catch { toast('couldn’t read ' + file.name); continue; }
+    const photo = { id, file, originalUrl, img, status: 'queued' };
+    photos.push(photo);
+    makeCard(photo);
+    enqueue(photo);
+  }
+}
+
+function downloadPhoto(photo) {
+  if (photo.status !== 'done' || !photo.canvas) { toast('not edited yet'); return; }
+  const link = document.createElement('a');
+  const base = photo.file.name.replace(/\.[^.]+$/, '');
+  link.download = `${base}-edited.png`;
+  link.href = photo.canvas.toDataURL('image/png');
+  link.click();
+}
+
+function removePhoto(photo) {
+  const i = photos.indexOf(photo);
+  if (i >= 0) photos.splice(i, 1);
+  URL.revokeObjectURL(photo.originalUrl);
+  photo.card.remove();
+  $('reeditAll').disabled = photos.length === 0;
+}
+
+// Drag & drop wiring.
+const dz = $('dropZone');
+dz.addEventListener('click', (e) => { if (e.target === dz || e.target.tagName !== 'BUTTON') $('filePicker').click(); });
+$('pickBtn').addEventListener('click', (e) => { e.stopPropagation(); $('filePicker').click(); });
+$('filePicker').addEventListener('change', (e) => { handleFiles(e.target.files); e.target.value = ''; });
+['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('dragover'); }));
+['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('dragover'); }));
+dz.addEventListener('drop', (e) => { if (e.dataTransfer.files) handleFiles(e.dataTransfer.files); });
+// Also accept drops anywhere on the drop pane.
+$('dropMode').addEventListener('dragover', (e) => e.preventDefault());
+$('dropMode').addEventListener('drop', (e) => {
+  e.preventDefault();
+  if (e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+// Paste support — Cmd/Ctrl+V from clipboard.
+window.addEventListener('paste', (e) => {
+  if ($('dropMode').hidden) return;
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) handleFiles(files);
+});
+
+$('reeditAll').addEventListener('click', () => {
+  for (const p of photos) enqueue(p);
+});
+$('batchPrompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); $('reeditAll').click(); }
+});
+
+// ── Fullscreen viewer ────────────────────────────────────────────────────────
+let viewerPhoto = null;
+function openViewer(photo) {
+  viewerPhoto = photo;
+  $('viewerCap').textContent = photo.look?.caption || 'edited';
+  $('viewerName').textContent = photo.file.name;
+  const shell = $('viewerShell');
+  shell.innerHTML = '';
+  // Clone the edited canvas so the live one keeps its content.
+  const c = document.createElement('canvas');
+  c.width = photo.canvas.width; c.height = photo.canvas.height;
+  c.getContext('2d').drawImage(photo.canvas, 0, 0);
+  c.id = 'viewerEdited';
+  shell.appendChild(c);
+  const origImg = document.createElement('img');
+  origImg.src = photo.originalUrl;
+  origImg.id = 'viewerOrigImg';
+  origImg.style.display = 'none';
+  shell.appendChild(origImg);
+  $('viewer').hidden = false;
+}
+function closeViewer() {
+  viewerPhoto = null;
+  $('viewer').hidden = true;
+  $('viewerShell').innerHTML = '';
+}
+$('viewerClose').addEventListener('click', closeViewer);
+$('viewer').addEventListener('click', (e) => { if (e.target === $('viewer')) closeViewer(); });
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('viewer').hidden) closeViewer(); });
+$('viewerDownload').addEventListener('click', () => { if (viewerPhoto) downloadPhoto(viewerPhoto); });
+const viewerOrigBtn = $('viewerOrig');
+const setShowOrig = (show) => {
+  const ed = document.getElementById('viewerEdited');
+  const og = document.getElementById('viewerOrigImg');
+  if (ed) ed.style.display = show ? 'none' : 'block';
+  if (og) og.style.display = show ? 'block' : 'none';
+};
+viewerOrigBtn.addEventListener('mousedown', () => setShowOrig(true));
+viewerOrigBtn.addEventListener('mouseup', () => setShowOrig(false));
+viewerOrigBtn.addEventListener('mouseleave', () => setShowOrig(false));
+viewerOrigBtn.addEventListener('touchstart', (e) => { e.preventDefault(); setShowOrig(true); });
+viewerOrigBtn.addEventListener('touchend', () => setShowOrig(false));
+
+// Surface which backend Claude is reaching through, so users can confirm
+// their Max plan is wired in when they set AI_BACKEND=claude-code.
+fetch('/ai/status')
+  .then((r) => r.json())
+  .then((s) => {
+    const tag = $('backendTag');
+    if (s.backend === 'claude-code') tag.textContent = s.ready ? 'via Claude Max plan' : 'claude-code CLI not found';
+    else tag.textContent = s.ready ? 'via Anthropic SDK' : 'set ANTHROPIC_API_KEY';
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>
