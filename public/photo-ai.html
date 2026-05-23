@@ -159,6 +159,96 @@
   .start-card h2 { font-family: 'Fraunces',serif; font-weight: 500; font-size: 28px; margin-bottom: 8px; }
   .start-card p { color: var(--muted); margin-bottom: 18px; }
 
+  /* ── Mode tabs ── */
+  .mode-tabs {
+    display: flex; gap: 4px; background: var(--cream); border: 1px solid var(--hair);
+    padding: 3px; border-radius: 999px;
+  }
+  .mode-tab {
+    border: none; background: transparent; color: var(--char); padding: 7px 16px;
+    border-radius: 999px; font-size: 12px; font-weight: 500; cursor: pointer;
+    font-family: inherit;
+  }
+  .mode-tab.on { background: var(--ink); color: var(--cream); }
+
+  .mode-pane { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; min-height: 0; flex: 1; }
+  .mode-pane[hidden] { display: none; }
+
+  /* ── Drop mode ── */
+  .drop-zone {
+    width: 100%; max-width: 720px; min-height: 220px;
+    border: 2px dashed var(--hair); border-radius: 12px;
+    background: var(--cream);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px; gap: 10px; text-align: center;
+    transition: border-color 0.15s, background 0.15s;
+    cursor: pointer;
+  }
+  .drop-zone.dragover { border-color: var(--coral); background: var(--paper); }
+  .drop-zone h2 { font-family: 'Fraunces',serif; font-weight: 500; font-size: 22px; }
+  .drop-zone p { color: var(--muted); font-size: 13px; }
+  .drop-zone .or { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; }
+  .drop-prompt-row {
+    width: 100%; max-width: 720px; display: flex; gap: 8px;
+  }
+  .drop-prompt-row input { flex: 1; }
+
+  .batch-grid {
+    width: 100%; display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    max-height: calc(100vh - 230px); overflow-y: auto;
+    padding: 4px;
+  }
+  .card {
+    background: var(--cream); border: 1px solid var(--hair); border-radius: 12px;
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .card .compare {
+    position: relative; aspect-ratio: 4 / 3; background: var(--ink); cursor: zoom-in;
+    overflow: hidden;
+  }
+  .card .compare canvas, .card .compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .compare .orig { opacity: 0; transition: opacity 0.15s; }
+  .card.show-orig .compare .orig { opacity: 1; }
+  .card .badge {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(31,31,30,0.7); color: var(--cream); font-size: 10px;
+    padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.1em;
+    pointer-events: none; backdrop-filter: blur(4px);
+  }
+  .card .badge.queued { background: rgba(107,106,101,0.8); }
+  .card .badge.busy { background: rgba(204,120,92,0.9); }
+  .card .badge.done { background: rgba(74,107,58,0.85); }
+  .card .badge.err { background: rgba(181,82,59,0.9); }
+  .card .meta { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .card .cap {
+    font-family: 'Fraunces',serif; font-size: 14px; line-height: 1.2; min-height: 18px;
+    color: var(--ink);
+  }
+  .card .filename { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+  .card .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .card .actions button { font-size: 11px; padding: 5px 10px; }
+  .card .reprompt { display: flex; gap: 6px; margin-top: 4px; }
+  .card .reprompt input { font-size: 12px; padding: 6px 8px; min-height: 0; }
+  .card .reprompt button { padding: 5px 10px; font-size: 11px; }
+
+  /* ── Fullscreen viewer for the edited preview ── */
+  .viewer {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(31,31,30,0.92); backdrop-filter: blur(8px);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px; gap: 16px;
+  }
+  .viewer[hidden] { display: none; }
+  .viewer .vshell { max-width: 92vw; max-height: 80vh; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border-radius: 8px; overflow: hidden; }
+  .viewer canvas, .viewer img { display: block; max-width: 92vw; max-height: 80vh; object-fit: contain; }
+  .viewer .vbar { display: flex; gap: 10px; align-items: center; color: var(--cream); }
+  .viewer .vbar .cap { font-family: 'Fraunces',serif; font-size: 18px; }
+  .viewer .vbar .filename { font-size: 11px; opacity: 0.7; font-family: 'JetBrains Mono', monospace; }
+  .viewer .vactions { display: flex; gap: 8px; }
+  .viewer .vactions .btn { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3); color: var(--cream); }
+  .viewer .vactions .btn:hover { background: var(--cream); color: var(--ink); }
+
   .toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
     background: var(--ink); color: var(--cream);
@@ -238,22 +328,62 @@
   </aside>
 
   <main class="stage">
-    <div id="startCard" class="start-card">
-      <h2 class="serif">Edit photos live</h2>
-      <p>This app connects to your camera and re-grades every frame in real time, using Claude to interpret your prompt as filter parameters.</p>
-      <button id="startBtn" class="btn primary">Connect camera</button>
+    <div class="mode-tabs" role="tablist">
+      <button class="mode-tab on" data-mode="live" role="tab">Live camera</button>
+      <button class="mode-tab" data-mode="drop" role="tab">Drop photos</button>
     </div>
 
-    <div class="frame" id="frame" hidden>
-      <video id="video" playsinline autoplay muted></video>
-      <canvas id="canvas"></canvas>
-      <div class="overlay-text" id="caption" hidden></div>
+    <!-- Live camera mode -->
+    <div class="mode-pane" id="liveMode">
+      <div id="startCard" class="start-card">
+        <h2 class="serif">Edit photos live</h2>
+        <p>This app connects to your camera and re-grades every frame in real time, using Claude to interpret your prompt as filter parameters.</p>
+        <button id="startBtn" class="btn primary">Connect camera</button>
+      </div>
+
+      <div class="frame" id="frame" hidden>
+        <video id="video" playsinline autoplay muted></video>
+        <canvas id="canvas"></canvas>
+        <div class="overlay-text" id="caption" hidden></div>
+      </div>
+      <div class="stage-actions" id="stageActions" hidden>
+        <button id="flip" class="btn ghost">Flip camera</button>
+        <button id="stop" class="btn ghost">Stop</button>
+      </div>
     </div>
-    <div class="stage-actions" id="stageActions" hidden>
-      <button id="flip" class="btn ghost">Flip camera</button>
-      <button id="stop" class="btn ghost">Stop</button>
+
+    <!-- Drop photos mode -->
+    <div class="mode-pane" id="dropMode" hidden>
+      <div class="drop-prompt-row">
+        <input type="text" id="batchPrompt" placeholder="(optional) describe a look to apply to every photo — leave blank to let Claude auto-style each one">
+        <button id="reeditAll" class="btn ghost" disabled>Re-edit all</button>
+      </div>
+      <div class="drop-zone" id="dropZone">
+        <h2 class="serif">Drop photos here</h2>
+        <p>Each photo gets sent to Claude. It picks a look, the canvas applies it, you get a preview.</p>
+        <p class="or">or</p>
+        <button id="pickBtn" class="btn primary">Choose files</button>
+        <input type="file" id="filePicker" accept="image/*" multiple hidden>
+      </div>
+      <div class="batch-grid" id="batchGrid"></div>
     </div>
   </main>
+</div>
+
+<!-- Fullscreen viewer for inspecting an edited preview -->
+<div class="viewer" id="viewer" hidden>
+  <div class="vbar">
+    <div>
+      <div class="cap serif" id="viewerCap"></div>
+      <div class="filename" id="viewerName"></div>
+    </div>
+  </div>
+  <div class="vshell" id="viewerShell"></div>
+  <div class="vactions">
+    <button id="viewerOrig" class="btn">Hold to see original</button>
+    <button id="viewerDownload" class="btn">Download</button>
+    <button id="viewerClose" class="btn">Close</button>
+  </div>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -565,6 +695,75 @@ function render() {
   rafHandle = requestAnimationFrame(render);
 }
 
+// Apply a look to a still image (HTMLImageElement) and draw into dstCanvas.
+// Uses the same filter+overlay stack as live render(), minus segmentation
+// (selfie segmenter runs in VIDEO mode here — stills get the colour/effect
+// grade only). Mirror defaults to off since dropped photos aren't selfies.
+function renderStill(img, theLook, dstCanvas) {
+  const w = dstCanvas.width = img.naturalWidth || img.width;
+  const h = dstCanvas.height = img.naturalHeight || img.height;
+  const ctx = dstCanvas.getContext('2d');
+
+  const f = (k) => theLook[k];
+  const filter =
+    `brightness(${f('brightness')}) ` +
+    `contrast(${f('contrast')}) ` +
+    `saturate(${f('saturate')}) ` +
+    `hue-rotate(${f('hueRotate')}deg) ` +
+    `sepia(${f('sepia')}) ` +
+    `grayscale(${f('grayscale')}) ` +
+    `blur(${f('blur')}px) ` +
+    `invert(${f('invert')})`;
+  ctx.filter = filter;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.drawImage(img, 0, 0, w, h);
+  ctx.filter = 'none';
+
+  // Soft glow / halation.
+  if (theLook.glow > 0.02) {
+    ctx.globalCompositeOperation = 'lighten';
+    ctx.globalAlpha = Math.min(1, theLook.glow * 0.55);
+    ctx.filter = `blur(${8 + theLook.glow * 14}px) brightness(1.1)`;
+    ctx.drawImage(img, 0, 0, w, h);
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Colour tint.
+  if (theLook.tintAlpha > 0.005) {
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha = theLook.tintAlpha;
+    ctx.fillStyle = theLook.tintColor;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Vignette.
+  if (theLook.vignette > 0.01) {
+    const grad = ctx.createRadialGradient(w/2, h/2, Math.min(w,h)*0.35, w/2, h/2, Math.max(w,h)*0.72);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, `rgba(0,0,0,${0.85 * theLook.vignette})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // Grain — generate a noise tile sized for this image.
+  if (theLook.grain > 0.01) {
+    const g = makeGrain(Math.floor(w / 2), Math.floor(h / 2));
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = Math.min(0.45, theLook.grain * 0.45);
+    const ox = (Math.random() * g.width) | 0;
+    const oy = (Math.random() * g.height) | 0;
+    ctx.drawImage(g, -ox, -oy, w, h);
+    ctx.drawImage(g, g.width - ox, g.height - oy, w, h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
 // ── Camera control ───────────────────────────────────────────────────────────
 async function startCamera() {
   try {
@@ -832,6 +1031,237 @@ buildBgKnobs();
 setActiveBgPreset('off');
 
 setStatus('', 'camera off');
+
+// ── Mode tabs ────────────────────────────────────────────────────────────────
+document.querySelectorAll('.mode-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    const m = tab.dataset.mode;
+    document.querySelectorAll('.mode-tab').forEach((t) => t.classList.toggle('on', t === tab));
+    $('liveMode').hidden = (m !== 'live');
+    $('dropMode').hidden = (m !== 'drop');
+  });
+});
+
+// ── Drop photos mode ─────────────────────────────────────────────────────────
+const photos = [];   // { id, file, originalUrl, img, look, status, card, canvas }
+let photoSeq = 0;
+let inflight = 0;
+const MAX_CONCURRENT = 2;
+
+function downscaleDataUrl(img, maxW = 768) {
+  const scale = Math.min(1, maxW / img.naturalWidth);
+  const w = Math.round(img.naturalWidth * scale);
+  const h = Math.round(img.naturalHeight * scale);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(img, 0, 0, w, h);
+  return c.toDataURL('image/jpeg', 0.82);
+}
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function makeCard(photo) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="compare" data-action="view">
+      <canvas class="edited"></canvas>
+      <img class="orig" alt="">
+      <span class="badge queued">Queued</span>
+    </div>
+    <div class="meta">
+      <div class="cap">…</div>
+      <div class="filename"></div>
+      <div class="actions">
+        <button class="btn ghost" data-action="toggle">Show original</button>
+        <button class="btn coral" data-action="download">Download</button>
+        <button class="btn ghost" data-action="remove">Remove</button>
+      </div>
+      <div class="reprompt">
+        <input type="text" placeholder="describe a different look…">
+        <button class="btn ghost" data-action="redo">Redo</button>
+      </div>
+    </div>
+  `;
+  card.querySelector('.filename').textContent = photo.file.name;
+  card.querySelector('.orig').src = photo.originalUrl;
+  photo.canvas = card.querySelector('canvas.edited');
+
+  card.addEventListener('click', (e) => {
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (action === 'view') {
+      if (photo.status === 'done') openViewer(photo);
+    } else if (action === 'toggle') {
+      card.classList.toggle('show-orig');
+      e.target.textContent = card.classList.contains('show-orig') ? 'Show edited' : 'Show original';
+    } else if (action === 'download') {
+      downloadPhoto(photo);
+    } else if (action === 'remove') {
+      removePhoto(photo);
+    } else if (action === 'redo') {
+      const input = card.querySelector('.reprompt input');
+      enqueue(photo, input.value.trim());
+    }
+  });
+
+  photo.card = card;
+  $('batchGrid').appendChild(card);
+}
+
+function setBadge(photo, status, label) {
+  photo.status = status;
+  const b = photo.card.querySelector('.badge');
+  b.className = 'badge ' + status;
+  b.textContent = label;
+}
+
+function enqueue(photo, customPrompt) {
+  photo._prompt = customPrompt !== undefined ? customPrompt : ($('batchPrompt').value.trim() || '');
+  setBadge(photo, 'queued', 'Queued');
+  pump();
+}
+
+async function pump() {
+  if (inflight >= MAX_CONCURRENT) return;
+  const next = photos.find((p) => p.status === 'queued');
+  if (!next) {
+    $('reeditAll').disabled = photos.length === 0;
+    return;
+  }
+  inflight++;
+  setBadge(next, 'busy', 'Grading…');
+  try {
+    const dataUrl = downscaleDataUrl(next.img, 768);
+    const res = await fetch('/ai/photo-edit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, prompt: next._prompt || '' }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'request failed');
+    next.look = { ...NEUTRAL, ...data.look };
+    renderStill(next.img, next.look, next.canvas);
+    next.card.querySelector('.cap').textContent = next.look.caption || 'edited';
+    setBadge(next, 'done', 'Done');
+  } catch (err) {
+    setBadge(next, 'err', 'Failed');
+    next.card.querySelector('.cap').textContent = (err.message || 'failed').slice(0, 80);
+  } finally {
+    inflight--;
+    pump();
+  }
+}
+
+async function handleFiles(fileList) {
+  const files = [...fileList].filter((f) => f.type.startsWith('image/'));
+  if (!files.length) { toast('no image files'); return; }
+  for (const file of files) {
+    const id = ++photoSeq;
+    const originalUrl = URL.createObjectURL(file);
+    let img;
+    try { img = await loadImage(originalUrl); }
+    catch { toast('couldn’t read ' + file.name); continue; }
+    const photo = { id, file, originalUrl, img, status: 'queued' };
+    photos.push(photo);
+    makeCard(photo);
+    enqueue(photo);
+  }
+}
+
+function downloadPhoto(photo) {
+  if (photo.status !== 'done' || !photo.canvas) { toast('not edited yet'); return; }
+  const link = document.createElement('a');
+  const base = photo.file.name.replace(/\.[^.]+$/, '');
+  link.download = `${base}-edited.png`;
+  link.href = photo.canvas.toDataURL('image/png');
+  link.click();
+}
+
+function removePhoto(photo) {
+  const i = photos.indexOf(photo);
+  if (i >= 0) photos.splice(i, 1);
+  URL.revokeObjectURL(photo.originalUrl);
+  photo.card.remove();
+  $('reeditAll').disabled = photos.length === 0;
+}
+
+// Drag & drop wiring.
+const dz = $('dropZone');
+dz.addEventListener('click', (e) => { if (e.target === dz || e.target.tagName !== 'BUTTON') $('filePicker').click(); });
+$('pickBtn').addEventListener('click', (e) => { e.stopPropagation(); $('filePicker').click(); });
+$('filePicker').addEventListener('change', (e) => { handleFiles(e.target.files); e.target.value = ''; });
+['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('dragover'); }));
+['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('dragover'); }));
+dz.addEventListener('drop', (e) => { if (e.dataTransfer.files) handleFiles(e.dataTransfer.files); });
+// Also accept drops anywhere on the drop pane.
+$('dropMode').addEventListener('dragover', (e) => e.preventDefault());
+$('dropMode').addEventListener('drop', (e) => {
+  e.preventDefault();
+  if (e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+// Paste support — Cmd/Ctrl+V from clipboard.
+window.addEventListener('paste', (e) => {
+  if ($('dropMode').hidden) return;
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) handleFiles(files);
+});
+
+$('reeditAll').addEventListener('click', () => {
+  for (const p of photos) enqueue(p);
+});
+$('batchPrompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); $('reeditAll').click(); }
+});
+
+// ── Fullscreen viewer ────────────────────────────────────────────────────────
+let viewerPhoto = null;
+function openViewer(photo) {
+  viewerPhoto = photo;
+  $('viewerCap').textContent = photo.look?.caption || 'edited';
+  $('viewerName').textContent = photo.file.name;
+  const shell = $('viewerShell');
+  shell.innerHTML = '';
+  // Clone the edited canvas so the live one keeps its content.
+  const c = document.createElement('canvas');
+  c.width = photo.canvas.width; c.height = photo.canvas.height;
+  c.getContext('2d').drawImage(photo.canvas, 0, 0);
+  c.id = 'viewerEdited';
+  shell.appendChild(c);
+  const origImg = document.createElement('img');
+  origImg.src = photo.originalUrl;
+  origImg.id = 'viewerOrigImg';
+  origImg.style.display = 'none';
+  shell.appendChild(origImg);
+  $('viewer').hidden = false;
+}
+function closeViewer() {
+  viewerPhoto = null;
+  $('viewer').hidden = true;
+  $('viewerShell').innerHTML = '';
+}
+$('viewerClose').addEventListener('click', closeViewer);
+$('viewer').addEventListener('click', (e) => { if (e.target === $('viewer')) closeViewer(); });
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('viewer').hidden) closeViewer(); });
+$('viewerDownload').addEventListener('click', () => { if (viewerPhoto) downloadPhoto(viewerPhoto); });
+const viewerOrigBtn = $('viewerOrig');
+const setShowOrig = (show) => {
+  const ed = document.getElementById('viewerEdited');
+  const og = document.getElementById('viewerOrigImg');
+  if (ed) ed.style.display = show ? 'none' : 'block';
+  if (og) og.style.display = show ? 'block' : 'none';
+};
+viewerOrigBtn.addEventListener('mousedown', () => setShowOrig(true));
+viewerOrigBtn.addEventListener('mouseup', () => setShowOrig(false));
+viewerOrigBtn.addEventListener('mouseleave', () => setShowOrig(false));
+viewerOrigBtn.addEventListener('touchstart', (e) => { e.preventDefault(); setShowOrig(true); });
+viewerOrigBtn.addEventListener('touchend', () => setShowOrig(false));
 
 // Surface which backend Claude is reaching through, so users can confirm
 // their Max plan is wired in when they set AI_BACKEND=claude-code.
