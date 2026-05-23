@@ -279,6 +279,29 @@ Output ONLY the JSON object — no prose, no markdown fences.`;
   }
 }
 
+async function claudeCodePhotoEdit(mediaType, b64, userPrompt) {
+  const ext = mediaType.split('/')[1] || 'jpg';
+  const tmpFile = path.join(os.tmpdir(), `photoai-${crypto.randomUUID()}.${ext}`);
+  fs.writeFileSync(tmpFile, Buffer.from(b64, 'base64'));
+  try {
+    const instruction = userPrompt
+      ? `User prompt: ${userPrompt}\n\nLook at the snapshot and choose filter parameters that produce this feel.`
+      : `No prompt given — choose a tasteful, flattering look for what you see in this snapshot.`;
+    const prompt = `${EDIT_SYSTEM}
+
+Use the Read tool to view the snapshot at ${tmpFile}. ${instruction}
+
+Schema you must follow:
+${JSON.stringify(LOOK_SCHEMA, null, 2)}
+
+Output ONLY the JSON object — no prose, no markdown fences.`;
+    const text = await runClaudeCode(prompt, 120000);
+    return extractJsonObject(text);
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch {}
+  }
+}
+
 function checkClaudeCodeAvailable() {
   return new Promise((resolve) => {
     const proc = spawn(CLAUDE_CODE_BIN, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -1057,29 +1080,36 @@ app.post('/ai/photo-edit', async (req, res) => {
   }
   const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!m) return res.status(400).json({ error: 'invalid image data URL' });
-  if (!anthropicReady()) return res.status(400).json({ error: 'ai_not_configured', detail: 'Set ANTHROPIC_API_KEY to enable.' });
 
   const userPrompt = (typeof prompt === 'string' ? prompt : '').trim();
-  const userText = userPrompt
-    ? `User prompt: ${userPrompt}\n\nLook at the snapshot and choose filter parameters that produce this feel.`
-    : `No prompt given — choose a tasteful, flattering look for what you see in this snapshot.`;
 
   try {
-    const response = await getAnthropicClient().messages.create({
-      model: AI_MODEL,
-      max_tokens: 512,
-      system: [{ type: 'text', text: EDIT_SYSTEM, cache_control: { type: 'ephemeral' } }],
-      output_config: { format: { type: 'json_schema', schema: LOOK_SCHEMA } },
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
-          { type: 'text', text: userText },
-        ],
-      }],
-    });
-    const text = response.content.find((b) => b.type === 'text')?.text;
-    const look = text ? JSON.parse(text) : null;
+    let look;
+    if (AI_BACKEND === 'claude-code') {
+      look = await claudeCodePhotoEdit(m[1], m[2], userPrompt);
+    } else {
+      if (!anthropicReady()) {
+        return res.status(400).json({ error: 'ai_not_configured', detail: 'Set ANTHROPIC_API_KEY or AI_BACKEND=claude-code to enable.' });
+      }
+      const userText = userPrompt
+        ? `User prompt: ${userPrompt}\n\nLook at the snapshot and choose filter parameters that produce this feel.`
+        : `No prompt given — choose a tasteful, flattering look for what you see in this snapshot.`;
+      const response = await getAnthropicClient().messages.create({
+        model: AI_MODEL,
+        max_tokens: 512,
+        system: [{ type: 'text', text: EDIT_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        output_config: { format: { type: 'json_schema', schema: LOOK_SCHEMA } },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
+            { type: 'text', text: userText },
+          ],
+        }],
+      });
+      const text = response.content.find((b) => b.type === 'text')?.text;
+      look = text ? JSON.parse(text) : null;
+    }
     if (!look) return res.status(502).json({ error: 'ai_empty', detail: 'no JSON returned' });
     res.json({ look });
   } catch (err) {

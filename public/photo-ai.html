@@ -174,7 +174,7 @@
   <header class="top">
     <div class="brand">
       <span class="mark serif">Live Photo AI</span>
-      <span class="tag">claude as your colorist</span>
+      <span class="tag" id="backendTag">claude as your colorist</span>
     </div>
     <div class="top-right">
       <span id="status" class="stat"><span class="dot"></span><span class="msg">camera off</span></span>
@@ -586,6 +586,17 @@ document.querySelectorAll('.preset').forEach((btn) => {
 });
 
 setStatus('', 'camera off');
+
+// Surface which backend Claude is reaching through, so users can confirm
+// their Max plan is wired in when they set AI_BACKEND=claude-code.
+fetch('/ai/status')
+  .then((r) => r.json())
+  .then((s) => {
+    const tag = $('backendTag');
+    if (s.backend === 'claude-code') tag.textContent = s.ready ? 'via Claude Max plan' : 'claude-code CLI not found';
+    else tag.textContent = s.ready ? 'via Anthropic SDK' : 'set ANTHROPIC_API_KEY';
+  })
+  .catch(() => {});
 </script>
 </body>
 </html>
