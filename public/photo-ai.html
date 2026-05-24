@@ -1430,7 +1430,12 @@ $('pickBtn').addEventListener('click', (e) => { e.stopPropagation(); $('filePick
 $('filePicker').addEventListener('change', (e) => { handleFiles(e.target.files); e.target.value = ''; });
 ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('dragover'); }));
 ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('dragover'); }));
-dz.addEventListener('drop', (e) => { if (e.dataTransfer.files) handleFiles(e.dataTransfer.files); });
+dz.addEventListener('drop', (e) => {
+  // Stop the event from bubbling to #dropMode's catch-all drop listener
+  // below, otherwise handleFiles runs twice and every file gets added twice.
+  e.stopPropagation();
+  if (e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+});
 // Also accept drops anywhere on the drop pane.
 $('dropMode').addEventListener('dragover', (e) => e.preventDefault());
 $('dropMode').addEventListener('drop', (e) => {
