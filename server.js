@@ -7,6 +7,7 @@ const path = require('path');
 const { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } = require('plaid');
 const Anthropic = require('@anthropic-ai/sdk');
 const { spawn } = require('child_process');
+const spawnCli = require('cross-spawn');
 const os = require('os');
 const crypto = require('crypto');
 const WebSocket = require('ws');
@@ -219,7 +220,12 @@ function runClaudeCode(prompt, timeoutMs = 120000) {
       '--output-format', 'json',
       '--permission-mode', 'bypassPermissions',
     ];
-    const proc = spawn(CLAUDE_CODE_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    // cross-spawn handles Windows `.cmd`/`.bat` shims (`claude` is installed
+    // as `claude.cmd` by npm on Windows). Node's built-in spawn refuses to
+    // execute those directly since the CVE-2024-27980 fix in Node 22+, and
+    // spawn({ shell: true }) would let the user-controlled prompt inject
+    // shell metacharacters. cross-spawn does the safe escape internally.
+    const proc = spawnCli(CLAUDE_CODE_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     const t = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} reject(new Error('claude timed out')); }, timeoutMs);
@@ -308,7 +314,7 @@ Output ONLY the JSON object — no prose, no markdown fences.`;
 
 function checkClaudeCodeAvailable() {
   return new Promise((resolve) => {
-    const proc = spawn(CLAUDE_CODE_BIN, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawnCli(CLAUDE_CODE_BIN, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.on('error', () => resolve(false));
     proc.on('close', (code) => resolve(code === 0));
   });
