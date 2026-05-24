@@ -198,6 +198,11 @@
     content:"";position:absolute;inset:0;
     background-image:inherit;background-size:inherit;background-position:inherit;
     filter:saturate(var(--sat)) contrast(var(--con)) brightness(var(--bri)) hue-rotate(var(--warm)) sepia(var(--sep));
+    /* User-controlled zoom (wheel inside slot in edit mode). Default 1
+       behaves like the original 'cover' fit; > 1 zooms into the photo,
+       < 1 pulls back to show more of the image inside the frame. */
+    transform: scale(var(--zoom, 1));
+    transform-origin: center center;
   }
   .slot::after{
     content:"";position:absolute;inset:0;pointer-events:none;
@@ -1080,7 +1085,7 @@
 
 <button id="tweaksToggle" class="tweaks-toggle">Tweaks</button>
 <a href="/photo-ai" style="position:fixed;left:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none;font-family:inherit">← back to /photo-ai</a>
-<div class="edit-mode-banner"><span class="dot"></span>Edit mode — click text to edit · drag slot to move · corner = resize · top circle = rotate · <kbd>Shift</kbd>+drag = re-crop · <kbd>Esc</kbd> to exit</div>
+<div class="edit-mode-banner"><span class="dot"></span>Edit mode — click text to edit · drag = move · corner = resize · top circle = rotate · <kbd>Shift</kbd>+drag = re-crop · <kbd>wheel</kbd> = zoom · <kbd>Esc</kbd> to exit</div>
 
 <div id="tweaks" class="tweaks" style="display:none">
   <button class="close" id="tweaksClose">×</button>
@@ -2096,6 +2101,9 @@ function applySlotDims(slot){
   if (typeof d.bgX === 'number' || typeof d.bgY === 'number') {
     slot.style.backgroundPosition = `${d.bgX || 50}% ${d.bgY || 50}%`;
   }
+  if (typeof d.zoom === 'number') {
+    slot.style.setProperty('--zoom', d.zoom);
+  }
 }
 function saveDims(slot, partial){
   const id = slot.dataset.slot;
@@ -2166,6 +2174,7 @@ function handleToolClick(slot, tool){
       slot.style.width = d.width + 'px'; slot.style.height = d.height + 'px';
       slot.style.transform = '';
       slot.style.removeProperty('--rot');
+      slot.style.removeProperty('--zoom');
       slot.style.backgroundPosition = '';
       delete savedDims[slot.dataset.slot];
       try { localStorage.setItem('garage-slot-dims', JSON.stringify(savedDims)); } catch(e){}
@@ -2378,6 +2387,19 @@ function slotMouseDown(e){
 // (which was being intercepted by something we couldn't reproduce here).
 document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
   slot.addEventListener('mousedown', slotMouseDown);
+  // Wheel-to-zoom inside a slot in edit mode. Updates --zoom on the slot
+  // which the .slot::before transform: scale(var(--zoom)) consumes,
+  // zooming the photo within the frame (overflow:hidden keeps it neat).
+  slot.addEventListener('wheel', (e) => {
+    if (!editMode) return;
+    if (e.target.closest('.slot-tools')) return;
+    e.preventDefault();
+    const current = parseFloat(slot.style.getPropertyValue('--zoom') || savedDims[slot.dataset.slot]?.zoom || '1') || 1;
+    // Scroll up (deltaY negative) zooms in; clamp to [0.4, 4].
+    const next = Math.max(0.4, Math.min(4, current + (e.deltaY < 0 ? 0.1 : -0.1)));
+    slot.style.setProperty('--zoom', next.toFixed(2));
+    saveDims(slot, { zoom: parseFloat(next.toFixed(2)) });
+  }, { passive: false });
 });
 
 // 10. Reset-all button — wipes every customisation.
