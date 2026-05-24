@@ -1101,23 +1101,36 @@ app.post('/ai/photo-generate', async (req, res) => {
 // Magnific: async POST → poll task_id → fetch URL.
 // Clarity: same Replicate /predictions pattern as flux-kontext.
 const POLISH_PROVIDERS = {
-  magnific: {
+  magnific_2k: {
+    envKey: 'FREEPIK_API_KEY',
+    estCostUsd: 0.08,
+    label: 'Magnific 2K',
+    maxInputDim: 1024,
+  },
+  magnific_4k: {
     envKey: 'FREEPIK_API_KEY',
     estCostUsd: 0.16,
     label: 'Magnific 4K',
+    maxInputDim: 2048,
   },
   clarity: {
     envKey: 'REPLICATE_API_TOKEN',
     defaultModel: 'philz1337x/clarity-upscaler',
     estCostUsd: 0.03,
     label: 'Clarity (Replicate)',
+    maxInputDim: 2048,
   },
 };
 
 function polishProviderStatus() {
   const out = {};
   for (const [id, p] of Object.entries(POLISH_PROVIDERS)) {
-    out[id] = { ready: !!process.env[p.envKey], estCostUsd: p.estCostUsd, label: p.label };
+    out[id] = {
+      ready: !!process.env[p.envKey],
+      estCostUsd: p.estCostUsd,
+      label: p.label,
+      maxInputDim: p.maxInputDim,
+    };
   }
   return out;
 }
@@ -1217,7 +1230,7 @@ app.post('/ai/photo-polish', async (req, res) => {
   if (!m) return res.status(400).json({ error: 'invalid image data URL' });
   try {
     let result;
-    if (p === 'magnific') result = await magnificPolish({ image: m[2] });
+    if (p.startsWith('magnific')) result = await magnificPolish({ image: m[2] });
     else if (p === 'clarity') result = await clarityPolish({ image: m[2], mediaType: m[1] });
     res.json({ image: `data:${result.mediaType};base64,${result.data}`, provider: p });
   } catch (err) {

@@ -1408,7 +1408,7 @@ async function polishPhoto(photo, btn, provider) {
   btn.innerHTML = '<span class="spinner"></span>Polishing…';
   setBadge(photo, 'busy', `${p.label}…`);
   try {
-    const dataUrl = await normalizePhotoForUpload(photo.file);
+    const dataUrl = await normalizePhotoForUpload(photo.file, p.maxInputDim || 2048);
     const res = await fetch('/ai/photo-polish', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1721,7 +1721,8 @@ function makeCard(photo) {
         <button class="btn ghost" data-action="toggle">Show original</button>
         <button class="btn coral" data-action="download">Download</button>
         <button class="btn ghost" data-action="gen" hidden>Gen edit</button>
-        <button class="btn ghost" data-action="polish" data-provider="magnific" hidden>✨ Magnific</button>
+        <button class="btn ghost" data-action="polish" data-provider="magnific_2k" hidden>✨ Magnific 2K</button>
+        <button class="btn ghost" data-action="polish" data-provider="magnific_4k" hidden>✨ Magnific 4K</button>
         <button class="btn ghost" data-action="polish" data-provider="clarity" hidden>✨ Clarity</button>
         <button class="btn ghost" data-action="remove">Remove</button>
       </div>
