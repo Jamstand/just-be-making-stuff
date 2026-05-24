@@ -1085,8 +1085,9 @@ Return a JSON object matching the schema. Guidelines:
 - Sepia is heavy — use 0.2–0.5 for vintage, only above 0.6 for very strong sepia.
 - vignette 0.2–0.5 reads as cinematic. 0.7+ is theatrical.
 - grain 0.1–0.3 is filmic; above 0.6 is heavy grain.
-- glow 0.1–0.3 adds soft halation; above 0.5 gets dreamy/hazy.
-- blur should almost always be 0 or under 1. It softens the whole frame — use sparingly.
+- glow 0.1–0.3 adds soft halation; above 0.5 gets dreamy/hazy. glow ≥ 0.7 washes the frame out — only use that for explicit "dreamy / foggy / hazy" prompts. NEVER use glow for "smooth", "polish", "clean", or "denoise" — that's what blur is for.
+- blur is the right tool for "smooth", "polish", "soft", "remove noise", "denoise", "clean up" requests — use 0.5–1.5 for those. For other looks keep blur at 0 or under 1.
+- Don't stack multiple lightening effects: brightness > 1.2 + glow > 0.4 + a light tintColor with tintAlpha > 0.2 together will produce a near-white, washed-out frame. Pick one lightening tool and keep the others restrained.
 - caption is a 2–6 word name for the look (e.g. "warm 70s film", "noir contrast", "neon dream").
 - Consider the actual scene: a dim indoor shot probably wants brightness a hair above 1; a blown-out window scene wants contrast up and brightness down.
 
