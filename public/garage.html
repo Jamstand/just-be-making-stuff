@@ -944,6 +944,25 @@
        land on them so contentEditable can take focus. */
     pointer-events: auto !important;
   }
+  body.edit-mode [data-edit-id]:hover {
+    background: rgba(76,210,255,0.18);
+    outline: 1.5px solid rgba(76,210,255,0.9);
+  }
+  body.edit-mode [data-edit-id]:focus {
+    outline: 2px solid var(--accent-2, #4cd2ff);
+    background: rgba(76,210,255,0.22);
+  }
+  /* Force text-bearing layers above the photos layer in edit mode so
+     contentEditable clicks reliably hit the .t / .sig / .tickLabel /
+     .num / .anno / .sticker / .topline elements even when a slot is
+     positioned under them. Slot chrome floats above this via z-index 200. */
+  body.edit-mode .layer.type,
+  body.edit-mode .layer.specs,
+  body.edit-mode .layer.deco,
+  body.edit-mode .layer.numbers,
+  body.edit-mode .layer.topline {
+    z-index: 50;
+  }
   /* The .tap zones (left + right 33% of the viewport, z-index 34) sit
      ABOVE every text element (z-index 7) and silently absorb clicks
      before they reach the contentEditable text. Disable them in edit
