@@ -509,10 +509,19 @@
     cursor: move;
     outline: 1px dashed rgba(76,210,255,0.4);
     outline-offset: 0;
+    /* CRITICAL: slot needs to sit ABOVE the .layer.type elements (panel
+       titles, kickers) and the topline strip, otherwise their bounding
+       rectangle — with pointer-events: auto for contentEditable — eats
+       clicks on slot toolbar buttons and drag-to-move. */
+    z-index: 100 !important;
   }
   body.edit-mode .slot[data-slot]:hover {
     outline: 2px solid rgba(76,210,255,0.7);
+    z-index: 101 !important;
   }
+  /* Raise the photos layer too so any slot inside it floats above the
+     type/specs/numbers/deco layers in edit mode. */
+  body.edit-mode .layer.photos { z-index: 50; }
   .slot-id {
     position: absolute; top: 6px; left: 6px; z-index: 41;
     background: rgba(20,20,24,0.85); color: var(--accent-2);
