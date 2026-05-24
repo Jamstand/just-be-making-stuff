@@ -1046,10 +1046,11 @@ async function openaiEdit({ image, prompt, mask, mediaType }) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error('OPENAI_API_KEY not set');
   const model = process.env.OPENAI_IMAGE_MODEL || GEN_PROVIDERS.openai.defaultModel;
+  const ext = mediaType === 'image/jpeg' ? 'jpg' : mediaType === 'image/webp' ? 'webp' : 'png';
   const form = new FormData();
   form.append('model', model);
   form.append('prompt', prompt);
-  form.append('image', new Blob([Buffer.from(image, 'base64')], { type: mediaType }), 'image.png');
+  form.append('image', new Blob([Buffer.from(image, 'base64')], { type: mediaType }), `image.${ext}`);
   if (mask) form.append('mask', new Blob([Buffer.from(mask, 'base64')], { type: 'image/png' }), 'mask.png');
   const res = await fetch('https://api.openai.com/v1/images/edits', {
     method: 'POST',
