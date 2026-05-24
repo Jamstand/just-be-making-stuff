@@ -574,6 +574,34 @@
     cursor: nwse-resize; border-radius: 2px;
     opacity: 0; pointer-events: none; transition: opacity 0.12s;
   }
+  .rotate-handle {
+    position: absolute; width: 16px; height: 16px;
+    background: var(--accent-2); border: 1.5px solid #fff;
+    border-radius: 50%; top: -28px; left: 50%; transform: translateX(-50%);
+    z-index: 40; cursor: grab;
+    opacity: 0; pointer-events: none; transition: opacity 0.12s;
+  }
+  .rotate-handle::before {
+    content: ''; position: absolute; left: 50%; top: 100%;
+    width: 1px; height: 14px; background: var(--accent-2);
+    transform: translateX(-50%);
+  }
+  body.edit-mode .slot[data-slot]:hover .rotate-handle {
+    opacity: 1; pointer-events: auto;
+  }
+  body.edit-mode.dragging .slot[data-slot]:not(.dragging-this) {
+    pointer-events: none;
+  }
+  body.edit-mode .slot[data-slot].dragging-this {
+    opacity: 0.85; cursor: grabbing;
+  }
+  /* Shift held → crop mode cursor + faint cyan tint to signal mode change */
+  body.edit-mode.shift-held .slot[data-slot] {
+    cursor: crosshair;
+  }
+  body.edit-mode.shift-held .slot[data-slot]::before {
+    box-shadow: inset 0 0 0 2px rgba(76,210,255,0.6);
+  }
 
   .edit-mode-banner {
     position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
@@ -596,7 +624,7 @@
 
 <button id="tweaksToggle" class="tweaks-toggle">Tweaks</button>
 <a href="/photo-ai" style="position:fixed;left:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none;font-family:inherit">← back to /photo-ai</a>
-<div class="edit-mode-banner"><span class="dot"></span>Edit mode — click any text · hover a slot for tools · drag the cyan corner to resize · <kbd>Esc</kbd> to exit</div>
+<div class="edit-mode-banner"><span class="dot"></span>Edit mode — click text to edit · drag slot to move · corner = resize · top circle = rotate · <kbd>Shift</kbd>+drag = re-crop · <kbd>Esc</kbd> to exit</div>
 
 <div id="tweaks" class="tweaks" style="display:none">
   <button class="close" id="tweaksClose">×</button>
@@ -617,7 +645,16 @@
 
   <h4>Edit mode</h4>
   <div class="toggle"><span>Customise everything</span><div class="switch" id="tEdit"></div></div>
-  <div class="hint">When on, click any text to edit, hover a slot for clear / swap / reset tools, drag the cyan corner to resize. <button class="opt" id="resetAll" style="margin-top:8px;width:100%">Reset all customisations</button></div>
+  <div class="hint">
+    When on:<br>
+    · click any text to edit<br>
+    · drag any slot to move it<br>
+    · drag the cyan <b>corner</b> to resize (Shift snaps)<br>
+    · drag the yellow <b>top circle</b> to rotate (Shift snaps to 15°)<br>
+    · hold <b>Shift</b> + drag inside a slot to re-crop the photo<br>
+    · hover for clear / swap / reset / replace tools
+    <button class="opt" id="resetAll" style="margin-top:10px;width:100%">Reset all customisations</button>
+  </div>
 
   <h4>Enhance preset</h4>
   <div class="row" id="presets">
@@ -1398,31 +1435,51 @@ const savedDims = (()=>{try{return JSON.parse(localStorage.getItem('garage-slot-
 function applySlotDims(slot){
   const d = savedDims[slot.dataset.slot];
   if (!d) return;
-  slot.style.left   = d.left   + 'px';
-  slot.style.top    = d.top    + 'px';
-  slot.style.width  = d.width  + 'px';
-  slot.style.height = d.height + 'px';
+  if (typeof d.left   === 'number') slot.style.left   = d.left   + 'px';
+  if (typeof d.top    === 'number') slot.style.top    = d.top    + 'px';
+  if (typeof d.width  === 'number') slot.style.width  = d.width  + 'px';
+  if (typeof d.height === 'number') slot.style.height = d.height + 'px';
+  if (typeof d.rotation === 'number') {
+    // Override the inline transform:rotate(-5deg) baked into some slots.
+    slot.style.transform = `rotate(${d.rotation}deg)`;
+    slot.style.setProperty('--rot', d.rotation + 'deg');
+  }
+  if (typeof d.bgX === 'number' || typeof d.bgY === 'number') {
+    slot.style.backgroundPosition = `${d.bgX || 50}% ${d.bgY || 50}%`;
+  }
+}
+function saveDims(slot, partial){
+  const id = slot.dataset.slot;
+  savedDims[id] = Object.assign({}, savedDims[id], partial);
+  try { localStorage.setItem('garage-slot-dims', JSON.stringify(savedDims)); } catch(e){}
 }
 document.querySelectorAll('.slot[data-slot]').forEach(applySlotDims);
 
 // 5. Build per-slot tools (toolbar + resize handle) — always in the DOM,
 //    only visible via CSS in edit mode.
 document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
+  buildSlotChrome(slot);
+});
+function buildSlotChrome(slot){
+  slot.querySelectorAll('.slot-tools, .resize-handle, .rotate-handle').forEach((n) => n.remove());
   const tools = document.createElement('div');
   tools.className = 'slot-tools';
   tools.innerHTML = `
     <button data-tool="replace" title="Replace photo">↻</button>
     <button data-tool="swap" title="Swap with another slot">⇄</button>
-    <button data-tool="reset" title="Reset position + size">↺</button>
+    <button data-tool="reset" title="Reset position + size + rotation + crop">↺</button>
     <button data-tool="clear" class="danger" title="Clear photo">×</button>
   `;
   slot.appendChild(tools);
-
   const handle = document.createElement('div');
   handle.className = 'resize-handle';
   handle.title = 'Drag to resize';
   slot.appendChild(handle);
-});
+  const rot = document.createElement('div');
+  rot.className = 'rotate-handle';
+  rot.title = 'Drag to rotate';
+  slot.appendChild(rot);
+}
 
 // 6. Edit-mode toggle + persistence.
 const EDIT_KEY = 'garage-edit-mode';
@@ -1442,7 +1499,12 @@ try { setEditMode(localStorage.getItem(EDIT_KEY) === '1'); } catch(e){ setEditMo
 document.getElementById('tEdit').addEventListener('click', () => setEditMode(!editMode));
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && editMode) setEditMode(false);
+  if (e.key === 'Shift' && editMode) document.body.classList.add('shift-held');
 });
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Shift') document.body.classList.remove('shift-held');
+});
+window.addEventListener('blur', () => document.body.classList.remove('shift-held'));
 
 // 7. Save text edits on blur (or input, debounced).
 let textSaveTimer = null;
@@ -1488,6 +1550,9 @@ document.addEventListener('click', (e) => {
     if (d) {
       slot.style.left = d.left + 'px'; slot.style.top = d.top + 'px';
       slot.style.width = d.width + 'px'; slot.style.height = d.height + 'px';
+      slot.style.transform = '';   // restore the inline transform from HTML
+      slot.style.removeProperty('--rot');
+      slot.style.backgroundPosition = '';
       delete savedDims[slot.dataset.slot];
       try { localStorage.setItem('garage-slot-dims', JSON.stringify(savedDims)); } catch(e){}
     }
@@ -1504,15 +1569,8 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Clicking another slot (anywhere, not just toolbar) completes a swap.
-document.addEventListener('click', (e) => {
-  if (!editMode || !swapSource) return;
-  const slot = e.target.closest('.slot[data-slot]');
-  if (slot && slot !== swapSource && !e.target.closest('.slot-tools') && !e.target.closest('.resize-handle')) {
-    doSwap(swapSource, slot);
-    clearSwap();
-  }
-});
+// (Click-to-complete-swap is handled inside the mousedown dispatcher's
+// onUp branch when no drag movement happened.)
 function doSwap(a, b){
   const aId = a.dataset.slot, bId = b.dataset.slot;
   const aSrc = stored[aId], bSrc = stored[bId];
@@ -1523,57 +1581,120 @@ function doSwap(a, b){
   rebuildSlotChrome(a); rebuildSlotChrome(b);
 }
 
-// Empty slots have their inner text wiped by applySlot — re-add tools.
+// Empty slots have their inner text wiped by applySlot — re-add chrome.
 function rebuildSlotChrome(slot){
-  // Drop existing chrome to avoid duplicates.
-  slot.querySelectorAll('.slot-tools, .resize-handle').forEach((n) => n.remove());
-  const tools = document.createElement('div');
-  tools.className = 'slot-tools';
-  tools.innerHTML = `
-    <button data-tool="replace" title="Replace photo">↻</button>
-    <button data-tool="swap" title="Swap with another slot">⇄</button>
-    <button data-tool="reset" title="Reset position + size">↺</button>
-    <button data-tool="clear" class="danger" title="Clear photo">×</button>
-  `;
-  slot.appendChild(tools);
-  const handle = document.createElement('div');
-  handle.className = 'resize-handle';
-  slot.appendChild(handle);
+  buildSlotChrome(slot);
 }
 
-// 9. Resize handle drag.
+// 9. Slot interaction dispatcher: resize / rotate / crop / move.
+//
+//    resize-handle drag → width + height
+//    rotate-handle drag → rotation around slot centre
+//    Shift+drag on body → re-crop (move bg-position within slot frame)
+//    plain drag on body → move (update left + top)
+//
+//    Click without drag on the slot body completes an active swap.
+//    Pixel-distance threshold (4px) distinguishes a click from a drag.
+function getStageScale(){
+  const m = (document.getElementById('stage').style.transform || '').match(/scale\(([0-9.]+)\)/);
+  return m ? parseFloat(m[1]) : 1;
+}
 document.addEventListener('mousedown', (e) => {
   if (!editMode) return;
-  const handle = e.target.closest('.resize-handle');
-  if (!handle) return;
-  e.preventDefault(); e.stopPropagation();
-  const slot = handle.parentElement;
-  const startX = e.clientX, startY = e.clientY;
-  const startW = slot.offsetWidth, startH = slot.offsetHeight;
+  if (e.target.closest('.slot-tools')) return; // tools button handles its own click
+  const slot = e.target.closest('.slot[data-slot]');
+  if (!slot) return;
+  const onResize = !!e.target.closest('.resize-handle');
+  const onRotate = !!e.target.closest('.rotate-handle');
+  const cropping = e.shiftKey && !onResize && !onRotate;
 
-  // Account for the viewport's CSS transform scale (phone fits the viewport).
-  const stage = document.getElementById('stage');
-  const m = (stage.style.transform || '').match(/scale\(([0-9.]+)\)/);
-  const scale = m ? parseFloat(m[1]) : 1;
+  e.preventDefault();
+  e.stopPropagation();
+  const startX = e.clientX, startY = e.clientY;
+  const scale = getStageScale();
+
+  const startW = slot.offsetWidth, startH = slot.offsetHeight;
+  const startL = parseInt(slot.style.left) || 0;
+  const startT = parseInt(slot.style.top) || 0;
+  const startRot = (savedDims[slot.dataset.slot]?.rotation ?? parseFloat((slot.style.transform.match(/rotate\(([-0-9.]+)deg\)/) || [])[1]) ?? 0);
+  const startBgX = savedDims[slot.dataset.slot]?.bgX ?? 50;
+  const startBgY = savedDims[slot.dataset.slot]?.bgY ?? 50;
+  const rect = slot.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const startAngle = Math.atan2(startY - centerY, startX - centerX) * 180 / Math.PI;
+
+  let moved = false;
+  document.body.classList.add('dragging');
+  slot.classList.add('dragging-this');
 
   function onMove(ev){
     const dx = (ev.clientX - startX) / scale;
     const dy = (ev.clientY - startY) / scale;
-    const w = Math.max(60, Math.round(startW + dx));
-    const h = Math.max(60, Math.round(startH + dy));
-    slot.style.width = w + 'px';
-    slot.style.height = h + 'px';
+    if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > 4) moved = true;
+
+    if (onResize) {
+      const w = Math.max(60, Math.round(startW + dx));
+      const h = Math.max(60, Math.round(startH + dy));
+      slot.style.width = w + 'px';
+      slot.style.height = h + 'px';
+    } else if (onRotate) {
+      const a = Math.atan2(ev.clientY - centerY, ev.clientX - centerX) * 180 / Math.PI;
+      let deg = startRot + (a - startAngle);
+      // Snap to 15° when Shift held during rotate.
+      if (ev.shiftKey) deg = Math.round(deg / 15) * 15;
+      slot.style.transform = `rotate(${deg.toFixed(1)}deg)`;
+      slot.style.setProperty('--rot', deg.toFixed(1) + 'deg');
+      slot.dataset._pendingRot = deg;
+    } else if (cropping) {
+      // bg-position is in % relative to slot. Convert px delta to % by
+      // comparing against slot dimensions. Drag direction: drag image
+      // RIGHT → reveal more of image's LEFT → bg-position increases.
+      const newBgX = Math.max(0, Math.min(100, startBgX - (dx / startW) * 100));
+      const newBgY = Math.max(0, Math.min(100, startBgY - (dy / startH) * 100));
+      slot.style.backgroundPosition = `${newBgX.toFixed(1)}% ${newBgY.toFixed(1)}%`;
+      slot.dataset._pendingBgX = newBgX;
+      slot.dataset._pendingBgY = newBgY;
+    } else {
+      // Plain drag = move
+      const newL = Math.round(startL + dx);
+      const newT = Math.round(startT + dy);
+      slot.style.left = newL + 'px';
+      slot.style.top = newT + 'px';
+    }
   }
-  function onUp(){
+  function onUp(ev){
     window.removeEventListener('mousemove', onMove);
     window.removeEventListener('mouseup', onUp);
-    savedDims[slot.dataset.slot] = {
-      left: parseInt(slot.style.left) || 0,
-      top: parseInt(slot.style.top) || 0,
-      width: parseInt(slot.style.width) || 0,
-      height: parseInt(slot.style.height) || 0,
-    };
-    try { localStorage.setItem('garage-slot-dims', JSON.stringify(savedDims)); } catch(e){}
+    document.body.classList.remove('dragging');
+    slot.classList.remove('dragging-this');
+
+    if (!moved) {
+      // Click (no drag) — complete a swap if armed, else do nothing.
+      if (swapSource && swapSource !== slot) {
+        doSwap(swapSource, slot);
+        clearSwap();
+      }
+      return;
+    }
+    // Persist whatever changed.
+    const partial = {};
+    if (onResize) {
+      partial.width  = parseInt(slot.style.width)  || 0;
+      partial.height = parseInt(slot.style.height) || 0;
+    } else if (onRotate) {
+      partial.rotation = parseFloat(slot.dataset._pendingRot);
+      delete slot.dataset._pendingRot;
+    } else if (cropping) {
+      partial.bgX = parseFloat(slot.dataset._pendingBgX);
+      partial.bgY = parseFloat(slot.dataset._pendingBgY);
+      delete slot.dataset._pendingBgX;
+      delete slot.dataset._pendingBgY;
+    } else {
+      partial.left = parseInt(slot.style.left) || 0;
+      partial.top  = parseInt(slot.style.top)  || 0;
+    }
+    saveDims(slot, partial);
   }
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
