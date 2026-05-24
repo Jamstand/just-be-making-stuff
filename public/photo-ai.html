@@ -294,7 +294,7 @@
   .card .reprompt button { padding: 4px 8px; font-size: 10px; }
   .card.needs-setup .reprompt { display: none; }
 
-  /* List view — horizontal cards, redo hidden until hover/focus. */
+  /* List view — horizontal cards. */
   .batch-grid.view-list .card {
     flex-direction: row; align-items: stretch;
   }
@@ -309,13 +309,7 @@
     flex: 1; padding: 6px 10px; gap: 2px;
   }
   .batch-grid.view-list .card .actions { margin-top: 0; }
-  .batch-grid.view-list .card .reprompt {
-    display: none; margin-top: 4px;
-  }
-  .batch-grid.view-list .card:hover .reprompt,
-  .batch-grid.view-list .card:focus-within .reprompt {
-    display: flex;
-  }
+  .batch-grid.view-list .card .reprompt { margin-top: 4px; }
   .batch-grid.view-list .card .badge {
     top: 4px; left: 4px; font-size: 8px; padding: 2px 5px;
   }
