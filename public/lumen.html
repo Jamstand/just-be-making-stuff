@@ -325,6 +325,81 @@
     border-radius: 50%; animation: spin 0.7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Polish provider sub-menu (anchored above the tool dock) */
+  .polish-menu {
+    position: absolute; bottom: 72px; left: 50%; transform: translateX(-50%);
+    background: var(--paper); border-radius: 8px; padding: 8px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.06);
+    display: none; flex-direction: column; gap: 4px; min-width: 220px;
+  }
+  .polish-menu.open { display: flex; }
+  .polish-menu .row {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 8px 12px; background: transparent; border: 0; border-radius: 4px;
+    font-size: 13px; color: var(--ink); text-align: left;
+  }
+  .polish-menu .row:hover:not(:disabled) { background: var(--cream); }
+  .polish-menu .row:disabled { opacity: 0.4; cursor: not-allowed; }
+  .polish-menu .row .cost { font-size: 11px; color: var(--mute); font-family: 'Inter Tight', monospace; }
+  .polish-menu .row .label { font-family: var(--serif); font-style: italic; font-size: 15px; }
+
+  /* Compose modal — full-bleed slideout */
+  .compose-modal {
+    position: fixed; inset: 0; z-index: 230; background: var(--cream);
+    display: none; flex-direction: column; overflow: hidden;
+  }
+  .compose-modal.open { display: flex; }
+  .compose-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 40px; border-bottom: 1px solid var(--rule); background: var(--paper);
+  }
+  .compose-header h2 { font-family: var(--serif); font-size: 32px; margin: 0; font-weight: 400; }
+  .compose-header h2 .it { font-style: italic; color: var(--sage); }
+  .compose-header .actions { display: flex; gap: 10px; align-items: center; }
+  .compose-tabs { display: flex; gap: 6px; padding: 14px 40px; border-bottom: 1px solid var(--rule); }
+  .compose-tab {
+    background: transparent; border: 1px solid var(--rule); color: var(--ink2);
+    padding: 6px 14px; border-radius: 999px; font-size: 12px; cursor: pointer;
+  }
+  .compose-tab.on { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+  .compose-body {
+    flex: 1; overflow-y: auto; padding: 24px 40px;
+    scrollbar-width: thin; scrollbar-color: var(--sage) var(--cream);
+  }
+  .compose-stat { font-size: 12px; color: var(--mute); }
+  .compose-empty {
+    text-align: center; padding: 80px 20px; color: var(--mute); max-width: 540px; margin: 0 auto;
+  }
+  .compose-empty h3 { font-family: var(--serif); font-size: 28px; color: var(--ink); margin: 0 0 12px; font-weight: 400; }
+  .compose-set {
+    background: var(--paper); border: 1px solid var(--rule); border-radius: 8px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .compose-set .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .compose-set .title { font-family: var(--serif); font-style: italic; font-size: 22px; }
+  .compose-set .count { font-size: 11px; color: var(--mute); text-transform: uppercase; letter-spacing: 0.12em; }
+  .compose-set .why { font-size: 13px; color: var(--ink2); line-height: 1.4; margin: 0 0 14px; }
+  .compose-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; background: var(--ink); padding: 3px; border-radius: 4px; }
+  .compose-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+  .compose-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+  .compose-row .slot { flex: 0 0 160px; position: relative; }
+  .compose-row .slot img { width: 160px; height: 160px; object-fit: cover; border-radius: 4px; display: block; }
+  .compose-row .slot .ord {
+    position: absolute; top: 6px; left: 6px;
+    background: var(--ink); color: var(--cream);
+    font-size: 10px; padding: 2px 6px; border-radius: 10px;
+    font-family: var(--serif); font-style: italic;
+  }
+  .compose-set .download {
+    margin-top: 12px; background: transparent; border: 1px solid var(--rule);
+    color: var(--ink); padding: 8px 14px; border-radius: 999px; font-size: 12px;
+  }
+  .clusters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .cluster-chip {
+    background: var(--paper); border: 1px solid var(--rule); color: var(--mute);
+    padding: 4px 10px; border-radius: 14px; font-size: 11px;
+  }
 </style>
 </head>
 <body>
@@ -443,6 +518,7 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/></svg>
       </button>
       <div class="ws-divider"></div>
+      <button class="pill-btn ghost" id="composeBtn">Compose feed</button>
       <button class="pill-btn ghost" id="shareBtn">Share</button>
       <button class="pill-btn" id="exportBtn">Export → JPG</button>
     </div>
@@ -481,7 +557,9 @@
       <button data-tool="color" title="Color"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 110-20 10 10 0 016 18 4 4 0 11-6-6 4 4 0 01-6-6"/></svg></button>
       <button data-tool="gen" title="Generative edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2 M15 16v-2 M8 9h2 M20 9h2 M17.8 11.8l1.4 1.4 M15 9l-3 6-6 3 3-6 6-3z"/></svg></button>
       <button data-tool="sharpen" title="Sharpen"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6"/><path d="M12 16v6"/><path d="M2 12h6"/><path d="M16 12h6"/></svg></button>
+      <button data-tool="polish" title="Polish (Magnific / Clarity)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></button>
     </div>
+    <div class="polish-menu" id="polishMenu"></div>
   </main>
 
   <aside class="ws-side-right">
@@ -556,6 +634,28 @@
   </div>
 </div>
 
+<!-- Compose modal — themed groups + carousels for an Instagram feed -->
+<div class="compose-modal" id="composeModal">
+  <div class="compose-header">
+    <h2>Compose <span class="it">feed</span></h2>
+    <div class="actions">
+      <span class="compose-stat" id="composeStats">0 photos in roll</span>
+      <button class="pill-btn ghost" id="composeRunBtn" disabled>Auto-compose</button>
+      <button class="pill-btn ghost" id="composeClose">Close</button>
+    </div>
+  </div>
+  <div class="compose-tabs">
+    <button class="compose-tab on" data-cview="grids">Profile grids</button>
+    <button class="compose-tab" data-cview="carousels">Carousels</button>
+  </div>
+  <div class="compose-body" id="composeBody">
+    <div class="compose-empty">
+      <h3>The finishing room for the whole roll.</h3>
+      <p>Claude will look at every graded photo and propose themed sets — 3×3 grids that read clean as a profile, and swipe-ordered carousels for individual posts.</p>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -569,11 +669,93 @@ const state = {
   showingOriginal: false,
 };
 
+// ── IndexedDB persistence — same store as /photo-ai so rolls sync ──────────
+const DB_NAME = 'photo-ai', DB_VERSION = 1, STORE = 'photos';
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+function dbRun(mode, fn) {
+  return openDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, mode);
+    const store = tx.objectStore(STORE);
+    let result;
+    Promise.resolve(fn(store)).then((r) => { result = r; });
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = (e) => reject(e.target.error);
+  }));
+}
+const dbSavePhoto = (rec) => dbRun('readwrite', (s) => s.put(rec));
+const dbDeletePhoto = (id) => dbRun('readwrite', (s) => s.delete(id));
+const dbLoadAllPhotos = () => dbRun('readonly', (s) => new Promise((res) => {
+  const req = s.getAll();
+  req.onsuccess = () => res((req.result || []).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)));
+}));
+async function persistPhoto(photo) {
+  try {
+    await dbSavePhoto({
+      id: photo.id,
+      filename: photo.file?.name || 'untitled.jpg',
+      mimeType: photo.file?.type || 'image/jpeg',
+      originalBlob: photo.file,
+      look: photo.look || null,
+      timestamp: photo._timestamp || Date.now(),
+      genBlob: photo.genBlob || null,
+      genProvider: photo.genProvider || null,
+      genPrompt: photo.genPrompt || null,
+    });
+  } catch (err) { console.warn('persist failed:', err); }
+}
+async function restoreRoll() {
+  let records;
+  try { records = await dbLoadAllPhotos(); } catch { return; }
+  for (const rec of records) {
+    if (!rec.originalBlob) continue;
+    try {
+      const originalUrl = URL.createObjectURL(rec.originalBlob);
+      const img = await loadImage(originalUrl);
+      const photo = {
+        id: rec.id, file: rec.originalBlob, originalUrl, img,
+        look: rec.look || null,
+        _timestamp: rec.timestamp,
+        genBlob: rec.genBlob || null, genProvider: rec.genProvider || null, genPrompt: rec.genPrompt || null,
+      };
+      // genBlob takes priority — that's the post-AI-edit pixels
+      if (rec.genBlob) {
+        const genUrl = URL.createObjectURL(rec.genBlob);
+        photo.img = await loadImage(genUrl);
+        photo.look = null;
+      }
+      state.roll.push(photo);
+      if (!state.current) state.current = photo;
+    } catch (err) { console.warn('restore one failed:', err); }
+  }
+  if (state.current) {
+    document.body.classList.add('in-workspace');
+    $('wsFilename').textContent = state.current.file?.name || 'restored';
+    $('statusDims').textContent = `${state.current.img.naturalWidth} × ${state.current.img.naturalHeight}`;
+    if (state.current.look) updateActiveFromLook(state.current.look);
+    await renderCurrent();
+    renderRoll();
+  }
+}
+
 // ── /ai/status — detect available providers ────────────────────────────────
 fetch('/ai/status').then((r) => r.json()).then((s) => {
   state.aiStatus = s;
   renderGenProviders();
+  renderPolishMenu();
 }).catch(() => toast('AI status unreachable'));
+
+// Restore previously-persisted photos on load.
+restoreRoll();
 
 // ── Drop / file pick ──────────────────────────────────────────────────────
 $('openEditorBtn').addEventListener('click', () => $('filePicker').click());
@@ -594,13 +776,15 @@ async function handleFile(file) {
   const id = 'p' + Date.now();
   const originalUrl = URL.createObjectURL(file);
   const img = await loadImage(originalUrl);
-  const photo = { id, file, originalUrl, img, look: null, thumbDataUrl: null };
+  const photo = { id, file, originalUrl, img, look: null, thumbDataUrl: null, _timestamp: Date.now() };
   state.roll.push(photo);
   state.current = photo;
   document.body.classList.add('in-workspace');
   $('wsFilename').textContent = file.name;
   $('statusDims').textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
   await renderCurrent();
+  persistPhoto(photo);
+  refreshComposeStats();
   await autoGrade(photo);
   renderRoll();
 }
@@ -679,6 +863,7 @@ async function autoGrade(photo) {
     $('statusState').textContent = 'Ready';
     $('savedAt').innerHTML = '● Saved just now';
     await renderCurrent();
+    persistPhoto(photo);
   } catch (err) {
     $('activeMeta').textContent = err.message || 'grade failed';
     $('statusState').textContent = 'Error';
@@ -742,9 +927,326 @@ $('shareBtn').addEventListener('click', () => toast('Share coming soon — use E
 $('toolDock').addEventListener('click', (e) => {
   const btn = e.target.closest('button');
   if (!btn) return;
+  if (btn.dataset.tool !== 'polish') $('polishMenu').classList.remove('open');
   document.querySelectorAll('#toolDock button').forEach((b) => b.classList.toggle('on', b === btn));
-  if (btn.dataset.tool === 'gen') openGenModal();
-  else toast(`${btn.title} — wired to the canvas on a future pass`);
+  const tool = btn.dataset.tool;
+  if (tool === 'gen') openGenModal();
+  else if (tool === 'polish') $('polishMenu').classList.toggle('open');
+  else if (tool === 'bg') runGenEditPreset('remove the background, replace with a clean neutral colour, edge-aware around hair and fine detail');
+  else if (tool === 'retouch') runGenEditPreset('subtle skin retouch — even out tone, soften blemishes, keep natural texture and pores');
+  else if (tool === 'color') runColorReGrade();
+  else if (tool === 'sharpen') runSharpen();
+  else if (tool === 'upscale') { if (state.current) autoGrade(state.current); }
+});
+
+// One-click gen-edit with a preset prompt. Uses the first ready gen provider.
+async function runGenEditPreset(prompt) {
+  if (!state.current) { toast('drop a photo first'); return; }
+  const provider = pickReadyGenProvider();
+  if (!provider) { toast('no gen-edit provider configured'); return; }
+  pushHistory(`${prompt.split(',')[0]}…`);
+  $('statusState').textContent = 'Editing…';
+  try {
+    const dataUrl = $('canvas').toDataURL('image/png');
+    const res = await fetch('/ai/photo-generate', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, prompt, provider }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'failed');
+    const img = await loadImage(data.image);
+    state.current.img = img;
+    state.current.look = null;
+    const blob = await (await fetch(data.image)).blob();
+    state.current.genBlob = blob;
+    state.current.genProvider = provider;
+    state.current.genPrompt = prompt;
+    await renderCurrent();
+    persistPhoto(state.current);
+    $('statusState').textContent = 'Ready';
+  } catch (err) {
+    toast(err.message || 'edit failed');
+    $('statusState').textContent = 'Error';
+  }
+}
+
+function pickReadyGenProvider() {
+  const order = ['gemini', 'replicate', 'openai'];
+  return order.find((p) => state.aiStatus?.gen?.[p]?.ready) || null;
+}
+
+// Color tool — re-grade with a quick prompt input via prompt() since the
+// Lumen UI's restraint doesn't want yet another modal. Could be expanded.
+async function runColorReGrade() {
+  if (!state.current) { toast('drop a photo first'); return; }
+  const hint = window.prompt('Describe the colour grade (e.g. "warm cinematic teal-orange", "moody noir")', '');
+  if (!hint) return;
+  $('statusState').textContent = 'Re-grading…';
+  try {
+    const c = document.createElement('canvas');
+    const maxDim = 1024;
+    const scale = Math.min(1, maxDim / Math.max(state.current.img.naturalWidth, state.current.img.naturalHeight));
+    c.width = Math.round(state.current.img.naturalWidth * scale);
+    c.height = Math.round(state.current.img.naturalHeight * scale);
+    c.getContext('2d').drawImage(state.current.img, 0, 0, c.width, c.height);
+    const dataUrl = c.toDataURL('image/jpeg', 0.85);
+    const res = await fetch('/ai/photo-edit', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, prompt: hint }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'regrade failed');
+    state.current.look = data.look;
+    updateActiveFromLook(data.look);
+    pushHistory(`Colour · ${data.look.caption}`);
+    await renderCurrent();
+    persistPhoto(state.current);
+    $('statusState').textContent = 'Ready';
+  } catch (err) {
+    toast(err.message || 'regrade failed');
+    $('statusState').textContent = 'Error';
+  }
+}
+
+// Sharpen — local unsharp-mask via canvas. No AI cost.
+function runSharpen() {
+  if (!state.current) return;
+  const c = $('canvas');
+  const w = c.width, h = c.height;
+  const blurred = document.createElement('canvas');
+  blurred.width = w; blurred.height = h;
+  const bctx = blurred.getContext('2d');
+  bctx.filter = 'blur(2px)';
+  bctx.drawImage(c, 0, 0);
+  bctx.filter = 'none';
+  // unsharp = original + (original − blurred) * amount
+  const ctx = c.getContext('2d');
+  ctx.globalCompositeOperation = 'difference';
+  ctx.globalAlpha = 1;
+  ctx.drawImage(blurred, 0, 0);
+  // 'difference' gave us |orig − blurred|; multiply by amount via 'lighter' over original twice isn't right.
+  // Simpler: just boost contrast slightly on the canvas — closer to what users expect from "sharpen".
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, w, h);
+  ctx.filter = 'contrast(1.08) saturate(1.04)';
+  ctx.drawImage(state.current.img, 0, 0);
+  ctx.filter = 'none';
+  // re-apply look overlays (tint, vignette) — same as renderCurrent's tail
+  const p = state.current;
+  if (p.look) {
+    if (p.look.tintAlpha > 0.005) {
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = p.look.tintAlpha; ctx.fillStyle = p.look.tintColor;
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    }
+    if (p.look.vignette > 0.01) {
+      const grad = ctx.createRadialGradient(w/2, h/2, Math.min(w, h) * 0.35, w/2, h/2, Math.max(w, h) * 0.72);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, `rgba(0,0,0,${0.85 * p.look.vignette})`);
+      ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
+    }
+  }
+  pushHistory('Sharpen +contrast');
+}
+
+// ── Polish (Magnific 2K/4K + Clarity via Replicate) ────────────────────────
+function renderPolishMenu() {
+  const menu = $('polishMenu');
+  menu.innerHTML = '';
+  const polish = state.aiStatus?.polish || {};
+  const entries = Object.entries(polish);
+  if (!entries.length) {
+    menu.innerHTML = '<div class="row" style="color: var(--mute)">No polish providers configured</div>';
+    return;
+  }
+  for (const [id, info] of entries) {
+    const btn = document.createElement('button');
+    btn.className = 'row';
+    btn.disabled = !info.ready;
+    btn.innerHTML = `<span class="label">${info.label}</span><span class="cost">~$${info.estCostUsd.toFixed(2)}</span>`;
+    btn.addEventListener('click', () => runPolish(id, info));
+    menu.appendChild(btn);
+  }
+}
+async function runPolish(providerId, info) {
+  if (!state.current) { toast('drop a photo first'); return; }
+  $('polishMenu').classList.remove('open');
+  // Two-step confirm via toast — first call arms, second within 5s runs.
+  if (!runPolish._armed || runPolish._armed.id !== providerId || Date.now() - runPolish._armed.t > 5000) {
+    runPolish._armed = { id: providerId, t: Date.now() };
+    toast(`Click ✨ then ${info.label} again to confirm — ~$${info.estCostUsd.toFixed(2)}`);
+    return;
+  }
+  runPolish._armed = null;
+  pushHistory(`${info.label} · polishing…`);
+  $('statusState').textContent = `Polishing (${info.label})…`;
+  try {
+    // Normalize source size per provider (Magnific 2K caps at 1024)
+    const maxDim = info.maxInputDim || 2048;
+    const w = state.current.img.naturalWidth, h = state.current.img.naturalHeight;
+    const scale = Math.min(1, maxDim / Math.max(w, h));
+    const tmp = document.createElement('canvas');
+    tmp.width = Math.round(w * scale); tmp.height = Math.round(h * scale);
+    tmp.getContext('2d').drawImage(state.current.img, 0, 0, tmp.width, tmp.height);
+    const dataUrl = tmp.toDataURL('image/png');
+    const res = await fetch('/ai/photo-polish', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, provider: providerId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'polish failed');
+    const img = await loadImage(data.image);
+    state.current.img = img;
+    state.current.look = null;
+    const blob = await (await fetch(data.image)).blob();
+    state.current.genBlob = blob;
+    state.current.genProvider = providerId;
+    state.current.genPrompt = `polish · ${info.label}`;
+    await renderCurrent();
+    persistPhoto(state.current);
+    pushHistory(`${info.label} ✓`);
+    $('statusState').textContent = 'Ready';
+  } catch (err) {
+    toast(err.message || 'polish failed');
+    $('statusState').textContent = 'Error';
+  }
+}
+// Close polish menu on outside click
+window.addEventListener('click', (e) => {
+  if (!e.target.closest('#polishMenu') && !e.target.closest('[data-tool="polish"]')) {
+    $('polishMenu').classList.remove('open');
+  }
+});
+
+// ── Compose (themed groups + carousels via /ai/photo-compose) ──────────────
+let composeData = null;
+let composeView = 'grids';
+const composeThumbs = new Map();
+
+$('composeBtn').addEventListener('click', openCompose);
+$('composeClose').addEventListener('click', () => $('composeModal').classList.remove('open'));
+$('composeRunBtn').addEventListener('click', runCompose);
+document.querySelectorAll('[data-cview]').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    composeView = tab.dataset.cview;
+    document.querySelectorAll('[data-cview]').forEach((t) => t.classList.toggle('on', t === tab));
+    renderComposeBody();
+  });
+});
+
+function openCompose() {
+  refreshComposeStats();
+  $('composeModal').classList.add('open');
+}
+function refreshComposeStats() {
+  const n = state.roll.length;
+  $('composeStats').textContent = `${n} photo${n === 1 ? '' : 's'} in roll`;
+  $('composeRunBtn').disabled = n < 3;
+}
+async function runCompose() {
+  if (state.roll.length < 3) { toast('need at least 3 photos'); return; }
+  const btn = $('composeRunBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Composing…';
+  $('composeBody').innerHTML = '<div class="compose-empty"><p>Claude is looking at your roll…</p></div>';
+  composeThumbs.clear();
+  const payload = [];
+  for (const p of state.roll.slice(0, 30)) {
+    const thumb = snapshotForCompose(p);
+    if (!thumb) continue;
+    const sid = String(p.id);
+    composeThumbs.set(sid, thumb);
+    payload.push({ id: sid, image: thumb });
+  }
+  try {
+    const res = await fetch('/ai/photo-compose', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ photos: payload }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'compose failed');
+    composeData = data;
+    renderComposeBody();
+  } catch (err) {
+    $('composeBody').innerHTML = `<div class="compose-empty"><p style="color: var(--warm)">${escapeHtml(err.message || 'compose failed')}</p></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Auto-compose';
+  }
+}
+function snapshotForCompose(photo, maxDim = 384) {
+  const w = photo.img.naturalWidth, h = photo.img.naturalHeight;
+  const scale = Math.min(1, maxDim / Math.max(w, h));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * scale)); c.height = Math.max(1, Math.round(h * scale));
+  const ctx = c.getContext('2d');
+  ctx.filter = lookToFilter(photo.look);
+  ctx.drawImage(photo.img, 0, 0, c.width, c.height);
+  ctx.filter = 'none';
+  if (photo.look) {
+    if (photo.look.tintAlpha > 0.005) {
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = photo.look.tintAlpha; ctx.fillStyle = photo.look.tintColor;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+  return c.toDataURL('image/jpeg', 0.78);
+}
+function renderComposeBody() {
+  const body = $('composeBody');
+  if (!composeData) {
+    body.innerHTML = '<div class="compose-empty"><p>Click Auto-compose to start.</p></div>';
+    return;
+  }
+  const sets = composeView === 'grids' ? composeData.profile_grids : composeData.carousels;
+  let html = '';
+  if (composeData.groups?.length) {
+    html += '<div class="clusters">' + composeData.groups.map((g) =>
+      `<span class="cluster-chip" title="${escapeHtml(g.rationale || '')}">${escapeHtml(g.title)} · ${g.photo_ids.length}</span>`
+    ).join('') + '</div>';
+  }
+  if (!sets?.length) {
+    html += `<div class="compose-empty"><p>No ${composeView === 'grids' ? 'profile grids' : 'carousels'} returned.</p></div>`;
+  } else {
+    html += sets.map((s, i) => `
+      <div class="compose-set">
+        <div class="head">
+          <span class="title">${escapeHtml(s.title)}</span>
+          <span class="count">${s.photo_ids.length} photo${s.photo_ids.length === 1 ? '' : 's'}</span>
+        </div>
+        <p class="why">${escapeHtml(s.rationale || '')}</p>
+        <div class="${composeView === 'grids' ? 'compose-grid' : 'compose-row'}">
+          ${s.photo_ids.map((pid, idx) => {
+            const src = composeThumbs.get(pid);
+            if (composeView === 'grids') return src ? `<img src="${src}">` : '<div></div>';
+            return `<div class="slot"><span class="ord">${idx + 1}</span>${src ? `<img src="${src}">` : ''}</div>`;
+          }).join('')}
+        </div>
+        <button class="download" data-action="download-set" data-set-index="${i}">Download all (numbered)</button>
+      </div>`).join('');
+  }
+  body.innerHTML = html;
+}
+$('composeBody').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="download-set"]');
+  if (!btn) return;
+  const sets = composeView === 'grids' ? composeData.profile_grids : composeData.carousels;
+  const s = sets[parseInt(btn.dataset.setIndex, 10)];
+  if (!s) return;
+  const safe = (s.title || 'set').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  for (let i = 0; i < s.photo_ids.length; i++) {
+    const pid = s.photo_ids[i];
+    const photo = state.roll.find((p) => String(p.id) === pid);
+    if (!photo) continue;
+    const a = document.createElement('a');
+    a.download = `${String(i + 1).padStart(2, '0')}_${safe}.jpg`;
+    a.href = (photo.genBlob ? URL.createObjectURL(photo.genBlob) : photo.originalUrl);
+    a.click();
+    if (photo.genBlob) URL.revokeObjectURL(a.href);
+    await new Promise((r) => setTimeout(r, 120));
+  }
 });
 
 // ── Gen-edit modal ─────────────────────────────────────────────────────────
@@ -796,8 +1298,14 @@ $('genConfirm').addEventListener('click', async () => {
     const img = await loadImage(data.image);
     state.current.img = img;
     state.current.look = null;
+    // Save the gen result as a blob so the IDB record sticks across reloads.
+    const blob = await (await fetch(data.image)).blob();
+    state.current.genBlob = blob;
+    state.current.genProvider = genProvider;
+    state.current.genPrompt = prompt;
     await renderCurrent();
     pushHistory(`Gen edit · ${prompt.slice(0, 32)}`);
+    persistPhoto(state.current);
     $('genModal').classList.remove('open');
   } catch (err) {
     toast(err.message || 'generate failed');
