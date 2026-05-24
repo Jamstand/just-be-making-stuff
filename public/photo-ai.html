@@ -1614,8 +1614,9 @@ async function runCompose() {
   for (const p of ready) {
     const dataUrl = snapshotPhotoForCompose(p);
     if (!dataUrl) continue;
-    composeThumbs.set(p.id, dataUrl);
-    payload.push({ id: p.id, image: dataUrl });
+    const sid = String(p.id);
+    composeThumbs.set(sid, dataUrl);
+    payload.push({ id: sid, image: dataUrl });
   }
   try {
     const res = await fetch('/ai/photo-compose', {
@@ -1710,7 +1711,7 @@ async function downloadComposeSet(setIndex) {
   if (!s) return;
   for (let i = 0; i < s.photo_ids.length; i++) {
     const pid = s.photo_ids[i];
-    const photo = photos.find((p) => p.id === pid);
+    const photo = photos.find((p) => String(p.id) === pid);
     if (!photo) continue;
     const blob = photo.genBlob || photo.file;
     const ext = blob.type?.split('/')[1] || 'jpg';
