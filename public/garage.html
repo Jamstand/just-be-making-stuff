@@ -441,6 +441,62 @@
   .stage[data-theme="mixtape"] .sig .x{color:var(--accent-2)}
 
   /* ─────────────────────────────────────────────
+     LAYOUT VARIANTS — re-shape slots without moving panel positions
+     Standard = original (mostly landscape rectangles).
+     Portrait = phone-photo friendly: hero slots become tall portraits.
+     Square   = uniform 1:1 slots, gridded feel.
+     ───────────────────────────────────────────── */
+  .stage[data-layout="portrait"] .slot[data-slot="A"]{
+    width:300px;height:430px;top:60px;left:60px;
+  }
+  .stage[data-layout="portrait"] .slot[data-slot="B"]{
+    width:240px;height:300px;top:170px;left:370px;
+  }
+  .stage[data-layout="portrait"] .slot[data-slot="C"]{
+    width:300px;height:300px;top:110px;left:700px;
+  }
+  .stage[data-layout="portrait"] .slot[data-slot="D"]{
+    width:240px;height:300px;top:170px;left:1080px;
+  }
+  .stage[data-layout="portrait"] .slot[data-slot="E"]{
+    width:280px;height:430px;top:60px;left:1380px;
+  }
+  .stage[data-layout="portrait"] .slot[data-slot="F"]{
+    width:240px;height:300px;top:180px;left:1720px;
+  }
+  .stage[data-layout="portrait"] .slot[data-slot="G"]{
+    width:300px;height:430px;top:60px;left:2030px;
+  }
+  .stage[data-layout="portrait"] .slot[data-slot="H"]{
+    width:220px;height:280px;top:200px;left:2080px;
+  }
+
+  .stage[data-layout="square"] .slot[data-slot="A"]{
+    width:340px;height:340px;top:90px;left:60px;border-radius:4px;
+  }
+  .stage[data-layout="square"] .slot[data-slot="B"]{
+    width:260px;height:260px;top:180px;left:380px;
+  }
+  .stage[data-layout="square"] .slot[data-slot="C"]{
+    width:340px;height:340px;top:90px;left:720px;
+  }
+  .stage[data-layout="square"] .slot[data-slot="D"]{
+    width:260px;height:260px;top:180px;left:1100px;
+  }
+  .stage[data-layout="square"] .slot[data-slot="E"]{
+    width:340px;height:340px;top:90px;left:1380px;
+  }
+  .stage[data-layout="square"] .slot[data-slot="F"]{
+    width:260px;height:260px;top:200px;left:1720px;
+  }
+  .stage[data-layout="square"] .slot[data-slot="G"]{
+    width:340px;height:340px;top:90px;left:2050px;
+  }
+  .stage[data-layout="square"] .slot[data-slot="H"]{
+    width:220px;height:220px;top:230px;left:2100px;
+  }
+
+  /* ─────────────────────────────────────────────
      KEN BURNS — subtle zoom on slots in active panel
      ───────────────────────────────────────────── */
   @keyframes kb { from{transform:scale(1)} to{transform:scale(1.05)} }
@@ -473,6 +529,13 @@
     <button class="opt" data-t="mixtape">Mixtape</button>
   </div>
 
+  <h4>Layout</h4>
+  <div class="row" id="layouts">
+    <button class="opt on" data-layout="standard">Standard</button>
+    <button class="opt" data-layout="portrait">Portrait</button>
+    <button class="opt" data-layout="square">Square grid</button>
+  </div>
+
   <h4>Enhance preset</h4>
   <div class="row" id="presets">
     <button class="opt on" data-p="showroom">Showroom</button>
@@ -502,7 +565,7 @@
   <div class="hint">Drag any photo onto a slot to swap, or drop here to auto-fill slots left-to-right starting at the current slide. Settings + image swaps persist between reloads.</div>
 </div>
 
-<div class="stage" id="stage" data-theme="editorial">
+<div class="stage" id="stage" data-theme="editorial" data-layout="standard">
   <div class="phone">
 
     <!-- iOS status -->
@@ -912,6 +975,20 @@ slots.forEach(applySlot);
     records = records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   }
 
+  // Compute each record's natural aspect ratio so we can match it to a slot
+  // whose dimensions crop the photo well. Reading from the blob is cheap
+  // (just creates an HTMLImageElement) so we batch it before assignment.
+  await Promise.all(records.map(async (rec) => {
+    if (rec.aspect) return;
+    const src = rec.genBlob || rec.originalBlob;
+    if (!src) return;
+    try {
+      const img = await loadImage(URL.createObjectURL(src));
+      rec.aspect = img.naturalWidth / img.naturalHeight;
+      rec._img = img;
+    } catch {}
+  }));
+
   function blobToDataUrl(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); }); }
   function loadImage(src)      { return new Promise((res, rej) => { const i = new Image();      i.onload = () => res(i);      i.onerror = rej; i.src = src; }); }
 
@@ -946,12 +1023,33 @@ slots.forEach(applySlot);
     return c.toDataURL('image/jpeg', 0.88);
   }
 
-  for (let i = 0; i < slotIds.length && i < records.length; i++) {
-    const slot = slots.find((s) => s.dataset.slot === slotIds[i]);
-    if (!slot) continue;
-    if (stored[slotIds[i]]) continue; // don't overwrite a swap the user already made
+  // Read each slot's aspect ratio from its current computed size so the
+  // matcher picks up whatever layout (Standard / Portrait / Square) is
+  // active. Then greedily assign each slot the photo whose aspect ratio
+  // is closest in log space — log makes 'portrait vs landscape' diffs
+  // symmetric (0.5 and 2.0 are equally far from 1.0).
+  const pool = records.filter((r) => r.aspect && !stored[r.id]);
+  const slotsToFill = slotIds
+    .map((id) => slots.find((s) => s.dataset.slot === id))
+    .filter((s) => s && !stored[s.dataset.slot])
+    .map((s) => {
+      const r = s.getBoundingClientRect();
+      return { slot: s, aspect: r.width / r.height || 1 };
+    });
+
+  // Assign biggest slots first so the hero gets the best-fitting photo.
+  slotsToFill.sort((a, b) => (b.slot.offsetWidth * b.slot.offsetHeight) - (a.slot.offsetWidth * a.slot.offsetHeight));
+
+  for (const { slot, aspect: slotAspect } of slotsToFill) {
+    if (!pool.length) break;
+    let bestI = 0, bestDiff = Infinity;
+    for (let i = 0; i < pool.length; i++) {
+      const diff = Math.abs(Math.log(pool[i].aspect / slotAspect));
+      if (diff < bestDiff) { bestDiff = diff; bestI = i; }
+    }
+    const rec = pool.splice(bestI, 1)[0];
     try {
-      const url = await photoToDataUrl(records[i]);
+      const url = await photoToDataUrl(rec);
       if (url) setSlot(slot, url);
     } catch (err) { console.warn('garage slot fill failed:', err); }
   }
@@ -1049,6 +1147,23 @@ document.querySelectorAll('#themes .opt').forEach(b=>{
     document.querySelectorAll('#themes .opt').forEach(o=>o.classList.remove('on'));
     b.classList.add('on');
     stage.dataset.theme = b.dataset.t;
+  });
+});
+
+/* ─── layout switch ─── */
+// Changing layout reshapes slots — re-fit photos so they match the new
+// aspects (a portrait photo gets shuffled to the new tall slot instead
+// of staying stretched across a wide one).
+document.querySelectorAll('#layouts .opt').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#layouts .opt').forEach(o=>o.classList.remove('on'));
+    b.classList.add('on');
+    stage.dataset.layout = b.dataset.layout;
+    // Drop any persisted swaps so the matcher can re-assign from scratch
+    // for the new layout. The previous swap data is per-slot, so old
+    // photos would stay stuck in slots that just changed shape.
+    try { localStorage.removeItem('garage3-slots'); } catch(e){}
+    location.reload();
   });
 });
 
