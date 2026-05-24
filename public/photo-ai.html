@@ -264,6 +264,62 @@
     padding: 4px 10px; border-radius: 14px; font-size: 11px; color: var(--muted);
   }
 
+  /* Slideshow editor — sized larger than the gen-edit modal. */
+  .slideshow-panel { max-width: 900px; }
+  .aesthetic-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .aesthetic-chip {
+    border: 1px solid var(--hair); background: var(--ivory); color: var(--ink);
+    border-radius: 999px; padding: 6px 14px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  .aesthetic-chip.on { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+  .slide-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+  .slide-row {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--ivory); border-radius: 8px; padding: 8px;
+  }
+  .slide-row .num {
+    width: 24px; height: 24px; border-radius: 999px; background: var(--ink);
+    color: var(--cream); font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .slide-row img.src {
+    width: 48px; height: 48px; object-fit: cover; border-radius: 4px; flex-shrink: 0;
+  }
+  .slide-row .effects { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+  .slide-row .effect-chip {
+    border: 1px solid var(--hair); background: var(--cream); color: var(--ink);
+    border-radius: 999px; padding: 3px 9px; font-size: 11px; cursor: pointer;
+    font-family: inherit;
+  }
+  .slide-row .effect-chip.on { background: var(--coral); color: var(--cream); border-color: var(--coral); }
+  .slide-row .effect-chip.ai { border-style: dashed; }
+
+  .slide-previews { display: flex; flex-direction: column; gap: 10px; }
+  .slide-previews-row {
+    display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px;
+    scrollbar-width: thin; scrollbar-color: var(--coral) var(--ivory);
+  }
+  .slide-previews-row .slide-preview {
+    flex: 0 0 240px; position: relative;
+    background: var(--ink); border-radius: 6px; overflow: hidden;
+  }
+  .slide-previews-row .slide-preview img,
+  .slide-previews-row .slide-preview canvas {
+    width: 100%; height: 320px; object-fit: cover; display: block;
+  }
+  .slide-previews-row .slide-preview .order {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(31,31,30,0.85); color: var(--cream);
+    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+  }
+  .slide-previews-row .slide-preview .effect-label {
+    position: absolute; bottom: 8px; left: 8px; right: 8px;
+    background: rgba(31,31,30,0.85); color: var(--cream);
+    font-size: 10px; padding: 3px 8px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+
   /* ── Drop mode ── */
   .drop-zone {
     width: 100%; max-width: 720px; min-height: 220px;
@@ -732,6 +788,40 @@
     <div class="actions-row">
       <button class="btn ghost" id="genCancel">Cancel</button>
       <button class="btn coral" id="genConfirm">Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Slideshow editor modal — turn a carousel set into a styled, swipeable post. -->
+<div class="gen-modal slideshow-modal" id="slideshowModal" hidden>
+  <div class="panel slideshow-panel">
+    <div>
+      <h3>Slideshow editor</h3>
+      <p class="sub">Pick an aesthetic. Each slide gets a built-in effect (free, canvas-based) or an AI generative edit (uses your gen-edit provider). Render the whole post, then download numbered.</p>
+    </div>
+
+    <div>
+      <div class="field-label">Aesthetic</div>
+      <div class="aesthetic-chips" id="aestheticChips"></div>
+    </div>
+
+    <div>
+      <div class="field-label">Slides — click an effect chip to change it</div>
+      <div class="slide-list" id="slideList"></div>
+    </div>
+
+    <div class="actions-row">
+      <button class="btn ghost" id="slideshowCancel">Cancel</button>
+      <button class="btn ghost" id="slideshowAiPlan">🧠 Let Claude plan effects</button>
+      <button class="btn coral" id="slideshowRender">Render all</button>
+    </div>
+
+    <div class="slide-previews" id="slidePreviews" hidden>
+      <div class="field-label">Preview — swipe order</div>
+      <div class="slide-previews-row" id="slidePreviewsRow"></div>
+      <div class="actions-row">
+        <button class="btn coral" id="slideshowDownload">Download all (numbered)</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1676,6 +1766,7 @@ function renderCompose() {
       <div class="photos"></div>
       <div class="actions">
         <button class="btn ghost" data-action="download-set" data-set-index="${i}">Download all (numbered)</button>
+        ${!isGrid ? `<button class="btn coral" data-action="edit-slideshow" data-set-index="${i}">✨ Edit as slideshow</button>` : ''}
       </div>`;
     const photosEl = setEl.querySelector('.photos');
     s.photo_ids.forEach((pid, idx) => {
@@ -1729,6 +1820,8 @@ $('composeRunBtn').addEventListener('click', runCompose);
 $('composeResults').addEventListener('click', (e) => {
   const a = e.target.closest('[data-action="download-set"]');
   if (a) downloadComposeSet(parseInt(a.dataset.setIndex, 10));
+  const s = e.target.closest('[data-action="edit-slideshow"]');
+  if (s) openSlideshowEditor(parseInt(s.dataset.setIndex, 10));
 });
 document.querySelectorAll('[data-compose-view]').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -1736,6 +1829,389 @@ document.querySelectorAll('[data-compose-view]').forEach((btn) => {
     document.querySelectorAll('[data-compose-view]').forEach((b) => b.classList.toggle('on', b === btn));
     renderCompose();
   });
+});
+
+// ── Slideshow editor (per-slide effects for Instagram carousel posts) ──────
+// Canvas-based effect engine + optional AI gen-edit per slide. The user
+// opens this from a Compose carousel suggestion; we keep the photo set
+// fixed and let them dial the per-slide treatment.
+
+const SLIDE_EFFECTS = {
+  none:     { label: 'Original',   ai: false, apply: (c) => c },
+  chroma:   { label: 'Chroma',     ai: false, apply: (c) => effectChromatic(c, 6) },
+  liquid:   { label: 'Liquid',     ai: false, apply: (c) => effectLiquid(c, 12) },
+  glow:     { label: 'Glow',       ai: false, apply: (c) => effectGlow(c, 0.5) },
+  halftone: { label: 'Halftone',   ai: false, apply: (c) => effectHalftone(c, 4) },
+  duotone:  { label: 'Duotone',    ai: false, apply: (c) => effectDuotone(c, '#0a1a3a', '#ff5b8a') },
+  grade:    { label: 'Cine grade', ai: false, apply: (c) => effectCineGrade(c) },
+  ai:       { label: '✨ AI edit', ai: true,  apply: null },
+};
+
+// Aesthetic → recommended effect rotation across slides. The user can
+// override any single slide after the aesthetic is applied.
+const AESTHETICS = {
+  neon: {
+    label: 'Neon',
+    aiPrompt: 'add a glowing neon-sign light spill onto this image, magenta and cyan glow, slight wet-street reflection — keep the subject intact',
+    rotation: ['glow', 'chroma', 'liquid', 'glow', 'chroma', 'grade', 'glow', 'chroma', 'liquid', 'grade'],
+  },
+  cyberpunk: {
+    label: 'Cyberpunk',
+    aiPrompt: 'cyberpunk treatment: heavy chromatic aberration, magenta and cyan colour cast, slight liquid distortion, dark moody background — keep the subject readable',
+    rotation: ['chroma', 'liquid', 'glow', 'duotone', 'chroma', 'liquid', 'glow', 'duotone', 'grade'],
+  },
+  vintage: {
+    label: 'Vintage',
+    aiPrompt: 'faded 90s film look: warm cream tint, lifted shadows, heavy grain, slight halation around highlights — keep the subject sharp',
+    rotation: ['grade', 'glow', 'halftone', 'grade', 'glow', 'grade', 'halftone', 'glow'],
+  },
+  noir: {
+    label: 'Noir',
+    aiPrompt: 'high-contrast black-and-white noir: deep blacks, blown highlights, hard shadow falloff, slight grain — moody and cinematic',
+    rotation: ['duotone', 'grade', 'glow', 'duotone', 'grade', 'glow', 'duotone'],
+  },
+  dreamy: {
+    label: 'Dreamy',
+    aiPrompt: 'dreamy soft haze: pastel pink and lavender tint, soft glow around highlights, gentle vignette — ethereal mood',
+    rotation: ['glow', 'grade', 'glow', 'halftone', 'glow', 'grade', 'glow'],
+  },
+  editorial: {
+    label: 'Editorial',
+    aiPrompt: 'magazine editorial polish: clean colour grade, deep contrast, subtle vignette, neutral whites — premium and refined',
+    rotation: ['grade', 'none', 'grade', 'none', 'glow', 'grade'],
+  },
+};
+
+const slideshow = {
+  el: $('slideshowModal'),
+  setIndex: -1,        // which compose carousel set we're editing
+  photos: [],          // [{ id, photo, baseDataUrl, srcThumbDataUrl }]
+  effects: [],         // parallel: effect id per slide
+  aiPrompts: [],       // parallel: ai prompt per slide (only used if effect === 'ai')
+  aesthetic: 'neon',
+  rendered: [],        // parallel: rendered DataURLs after Render-all
+  rendering: false,
+};
+
+function openSlideshowEditor(setIndex) {
+  if (!composeData) return;
+  const sets = composeView === 'grids' ? composeData.profile_grids : composeData.carousels;
+  const s = sets?.[setIndex];
+  if (!s) return;
+  slideshow.setIndex = setIndex;
+  slideshow.photos = [];
+  for (const pid of s.photo_ids) {
+    const photo = photos.find((p) => String(p.id) === pid);
+    if (!photo || !photo.canvas) continue;
+    slideshow.photos.push({
+      id: pid,
+      photo,
+      // baseDataUrl = full-res rendered canvas (with grading look applied).
+      baseDataUrl: photo.canvas.toDataURL('image/png'),
+      srcThumbDataUrl: composeThumbs.get(pid) || photo.canvas.toDataURL('image/jpeg', 0.7),
+    });
+  }
+  if (slideshow.photos.length < 2) { toast('need at least 2 graded photos in this set'); return; }
+  slideshow.aesthetic = 'neon';
+  slideshow.rendered = [];
+  applyAestheticRotation();
+  renderAestheticChips();
+  renderSlideList();
+  $('slidePreviews').hidden = true;
+  $('slidePreviewsRow').innerHTML = '';
+  slideshow.el.hidden = false;
+}
+
+function closeSlideshowEditor() {
+  slideshow.el.hidden = true;
+  slideshow.photos = [];
+  slideshow.rendered = [];
+}
+
+function applyAestheticRotation() {
+  const a = AESTHETICS[slideshow.aesthetic] || AESTHETICS.neon;
+  slideshow.effects = slideshow.photos.map((_, i) => a.rotation[i % a.rotation.length]);
+  slideshow.aiPrompts = slideshow.photos.map(() => a.aiPrompt);
+}
+
+function renderAestheticChips() {
+  const wrap = $('aestheticChips');
+  wrap.innerHTML = '';
+  for (const [id, a] of Object.entries(AESTHETICS)) {
+    const btn = document.createElement('button');
+    btn.className = 'aesthetic-chip' + (id === slideshow.aesthetic ? ' on' : '');
+    btn.textContent = a.label;
+    btn.addEventListener('click', () => {
+      slideshow.aesthetic = id;
+      applyAestheticRotation();
+      renderAestheticChips();
+      renderSlideList();
+    });
+    wrap.appendChild(btn);
+  }
+}
+
+function renderSlideList() {
+  const list = $('slideList');
+  list.innerHTML = '';
+  slideshow.photos.forEach((s, idx) => {
+    const row = document.createElement('div');
+    row.className = 'slide-row';
+    row.innerHTML = `
+      <span class="num">${idx + 1}</span>
+      <img class="src" src="${s.srcThumbDataUrl}" alt="">
+      <div class="effects"></div>
+    `;
+    const fx = row.querySelector('.effects');
+    for (const [eid, def] of Object.entries(SLIDE_EFFECTS)) {
+      const chip = document.createElement('button');
+      chip.className = 'effect-chip' + (slideshow.effects[idx] === eid ? ' on' : '') + (def.ai ? ' ai' : '');
+      chip.textContent = def.label;
+      chip.addEventListener('click', () => {
+        slideshow.effects[idx] = eid;
+        renderSlideList();
+      });
+      fx.appendChild(chip);
+    }
+    list.appendChild(row);
+  });
+}
+
+// ── Canvas-effect primitives (operate on a canvas, return a canvas) ─────────
+
+function effectChromatic(srcCanvas, offsetPx) {
+  const c = document.createElement('canvas');
+  c.width = srcCanvas.width; c.height = srcCanvas.height;
+  const ctx = c.getContext('2d');
+  // Red shifted right, blue shifted left — classic RGB split.
+  ctx.globalCompositeOperation = 'lighten';
+  ctx.filter = 'brightness(0) saturate(0)';
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none';
+  // Now layer the channels.
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, c.width, c.height);
+  // Use composite-mode tricks to isolate channels approximately.
+  // R channel: keep red, multiply out G/B by drawing magenta-only mask.
+  drawChannel(ctx, srcCanvas, '#ff0000', offsetPx, 0);
+  drawChannel(ctx, srcCanvas, '#00ff00', 0, 0);
+  drawChannel(ctx, srcCanvas, '#0000ff', -offsetPx, 0);
+  return c;
+}
+function drawChannel(ctx, src, color, dx, dy) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighten';
+  const tmp = document.createElement('canvas');
+  tmp.width = src.width; tmp.height = src.height;
+  const t = tmp.getContext('2d');
+  t.drawImage(src, 0, 0);
+  t.globalCompositeOperation = 'multiply';
+  t.fillStyle = color;
+  t.fillRect(0, 0, tmp.width, tmp.height);
+  ctx.drawImage(tmp, dx, dy);
+  ctx.restore();
+}
+
+function effectLiquid(srcCanvas, scale) {
+  // SVG turbulence + displacement applied via canvas filter — baked in.
+  const c = document.createElement('canvas');
+  c.width = srcCanvas.width; c.height = srcCanvas.height;
+  const ctx = c.getContext('2d');
+  const svgId = 'liquidFilter_' + Math.random().toString(36).slice(2);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0">
+    <filter id="${svgId}">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="${Math.floor(Math.random()*99)}"/>
+      <feDisplacementMap in="SourceGraphic" scale="${scale}"/>
+    </filter>
+  </svg>`;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = svg;
+  document.body.appendChild(wrap);
+  ctx.filter = `url(#${svgId})`;
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none';
+  document.body.removeChild(wrap);
+  return c;
+}
+
+function effectGlow(srcCanvas, strength) {
+  const c = document.createElement('canvas');
+  c.width = srcCanvas.width; c.height = srcCanvas.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.globalCompositeOperation = 'lighten';
+  ctx.globalAlpha = Math.min(0.85, strength);
+  ctx.filter = `blur(${10 + strength * 30}px) brightness(1.4) saturate(1.2)`;
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none'; ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  return c;
+}
+
+function effectHalftone(srcCanvas, dotSize) {
+  // Resize down, then draw scaled up with image-rendering: pixelated effect.
+  // Real halftone is heavier; this is the cheap, visually similar version.
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const dw = Math.max(2, Math.floor(w / dotSize));
+  const dh = Math.max(2, Math.floor(h / dotSize));
+  const small = document.createElement('canvas');
+  small.width = dw; small.height = dh;
+  const sctx = small.getContext('2d');
+  sctx.drawImage(srcCanvas, 0, 0, dw, dh);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(small, 0, 0, w, h);
+  // Overlay original at lower alpha so subject stays readable.
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.globalAlpha = 0.5;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  return c;
+}
+
+function effectDuotone(srcCanvas, darkHex, lightHex) {
+  // Convert to greyscale via filter, then tint with gradient mapping by
+  // overlaying dark in multiply + light in screen.
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.filter = 'grayscale(1) contrast(1.15)';
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none';
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = lightHex;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'screen';
+  ctx.fillStyle = darkHex;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'source-over';
+  return c;
+}
+
+function effectCineGrade(srcCanvas) {
+  const c = document.createElement('canvas');
+  c.width = srcCanvas.width; c.height = srcCanvas.height;
+  const ctx = c.getContext('2d');
+  ctx.filter = 'contrast(1.15) saturate(0.85) brightness(0.96)';
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none';
+  // Soft warm tint on highlights, cool tint in shadows = teal/orange.
+  ctx.globalCompositeOperation = 'soft-light';
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = '#cc7a4c';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  // Vignette.
+  const grad = ctx.createRadialGradient(c.width/2, c.height/2, Math.min(c.width, c.height)*0.35, c.width/2, c.height/2, Math.max(c.width, c.height)*0.7);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.45)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, c.width, c.height);
+  return c;
+}
+
+// ── Render & preview ────────────────────────────────────────────────────────
+
+async function renderAllSlides() {
+  if (slideshow.rendering) return;
+  if (!slideshow.photos.length) return;
+  slideshow.rendering = true;
+  const btn = $('slideshowRender');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Rendering…';
+  const rendered = [];
+  try {
+    for (let i = 0; i < slideshow.photos.length; i++) {
+      const s = slideshow.photos[i];
+      const eid = slideshow.effects[i];
+      const def = SLIDE_EFFECTS[eid] || SLIDE_EFFECTS.none;
+      btn.innerHTML = `<span class="spinner"></span>Rendering ${i + 1}/${slideshow.photos.length}…`;
+      if (def.ai) {
+        const aiUrl = await renderAiSlide(s, slideshow.aiPrompts[i]);
+        rendered.push({ dataUrl: aiUrl, effect: def.label });
+      } else {
+        // Load base canvas from data URL, run effect, output data URL.
+        const img = await loadImage(s.baseDataUrl);
+        const base = document.createElement('canvas');
+        base.width = img.naturalWidth; base.height = img.naturalHeight;
+        base.getContext('2d').drawImage(img, 0, 0);
+        const out = def.apply(base);
+        rendered.push({ dataUrl: out.toDataURL('image/png'), effect: def.label });
+      }
+    }
+    slideshow.rendered = rendered;
+    renderSlidePreviews();
+    $('slidePreviews').hidden = false;
+  } catch (err) {
+    toast(err.message || 'render failed');
+    console.error(err);
+  } finally {
+    slideshow.rendering = false;
+    btn.disabled = false;
+    btn.textContent = 'Render all';
+  }
+}
+
+async function renderAiSlide(slide, prompt) {
+  // Use the gen-edit endpoint with whichever provider is ready, preferring
+  // Gemini (cheapest + best for natural overlays), then Replicate, then OpenAI.
+  const order = ['gemini', 'replicate', 'openai'];
+  const provider = order.find((p) => aiStatus?.gen?.[p]?.ready);
+  if (!provider) throw new Error('no gen-edit provider configured for AI slides');
+  const res = await fetch('/ai/photo-generate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ image: slide.baseDataUrl, prompt, provider }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || data.error || 'AI render failed');
+  return data.image;
+}
+
+function renderSlidePreviews() {
+  const row = $('slidePreviewsRow');
+  row.innerHTML = '';
+  slideshow.rendered.forEach((r, idx) => {
+    const div = document.createElement('div');
+    div.className = 'slide-preview';
+    div.innerHTML = `
+      <span class="order">${idx + 1}</span>
+      <img src="${r.dataUrl}" alt="">
+      <div class="effect-label">${r.effect}</div>`;
+    row.appendChild(div);
+  });
+}
+
+async function downloadSlideshow() {
+  const sets = composeView === 'grids' ? composeData?.profile_grids : composeData?.carousels;
+  const setName = sets?.[slideshow.setIndex]?.title || 'slideshow';
+  const safe = setName.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  for (let i = 0; i < slideshow.rendered.length; i++) {
+    const prefix = String(i + 1).padStart(2, '0');
+    const a = document.createElement('a');
+    a.href = slideshow.rendered[i].dataUrl;
+    a.download = `${prefix}_${safe}.png`;
+    a.click();
+    await new Promise((r) => setTimeout(r, 150));
+  }
+}
+
+$('slideshowCancel').addEventListener('click', closeSlideshowEditor);
+$('slideshowRender').addEventListener('click', renderAllSlides);
+$('slideshowDownload').addEventListener('click', downloadSlideshow);
+$('slideshowAiPlan').addEventListener('click', () => {
+  // Future: ask Claude to pick the best effect per slide. For now, the
+  // aesthetic rotation already varies effects across slides reasonably.
+  toast('Aesthetic rotation already picks effects per slide — change individual chips to override');
+});
+slideshow.el.addEventListener('click', (e) => {
+  if (e.target === slideshow.el) closeSlideshowEditor();
 });
 
 // ── Generative edit modal (Gemini / Replicate / OpenAI) ─────────────────────
