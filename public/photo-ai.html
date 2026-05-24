@@ -221,6 +221,13 @@
   .batch-grid.view-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    /* Without this, when the grid is squeezed by the flex-column parent
+       (multiple rows of cards but limited vertical room), grid-auto-rows
+       defaults to `auto` and silently compresses rows to fit — which
+       collapses each card's thumbnail to a sliver. Force rows to their
+       full max-content height; the grid's overflow-y: auto handles the
+       scroll if there's still too much. */
+    grid-auto-rows: max-content;
   }
   .batch-grid.view-list { display: flex; flex-direction: column; gap: 6px; }
 
@@ -228,11 +235,22 @@
     background: var(--cream); border: 1px solid var(--hair); border-radius: 12px;
     overflow: hidden; display: flex; flex-direction: column;
   }
+  /* .compare is a CSS grid so the canvas and overlay <img> share cell 1/1
+     and stack. The canvas reports its natural width/height (set by
+     renderStill), so width:100% + height:auto keeps the thumbnail at the
+     photo's own aspect ratio and gives .compare a real intrinsic height —
+     which is the thing aspect-ratio: 1/1 + position:absolute children
+     was failing to do once the card landed in a CSS grid row. */
   .card .compare {
-    position: relative; aspect-ratio: 1 / 1; background: var(--ink); cursor: zoom-in;
+    position: relative; background: var(--ink); cursor: zoom-in;
     overflow: hidden;
+    display: grid;
   }
-  .card .compare canvas, .card .compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .compare canvas, .card .compare img {
+    grid-area: 1 / 1;
+    width: 100%; height: auto;
+    object-fit: cover; display: block;
+  }
   .card .compare .orig { opacity: 0; transition: opacity 0.15s; }
   .card.show-orig .compare .orig { opacity: 1; }
   .card .badge {
@@ -263,7 +281,11 @@
     flex-direction: row; align-items: stretch;
   }
   .batch-grid.view-list .card .compare {
-    aspect-ratio: 1 / 1; width: 64px; flex: 0 0 64px; border-radius: 0;
+    width: 64px; height: 64px; flex: 0 0 64px; border-radius: 0;
+  }
+  .batch-grid.view-list .card .compare canvas,
+  .batch-grid.view-list .card .compare img {
+    width: 100%; height: 100%; object-fit: cover;
   }
   .batch-grid.view-list .card .meta {
     flex: 1; padding: 6px 10px; gap: 2px;
