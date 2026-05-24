@@ -968,19 +968,22 @@
     cursor: move;
     outline: 1px dashed rgba(76,210,255,0.4);
     outline-offset: 0;
-    /* CRITICAL: slot needs to sit ABOVE the .layer.type elements (panel
-       titles, kickers) and the topline strip, otherwise their bounding
-       rectangle — with pointer-events: auto for contentEditable — eats
-       clicks on slot toolbar buttons and drag-to-move. */
-    z-index: 100 !important;
   }
   body.edit-mode .slot[data-slot]:hover {
     outline: 2px solid rgba(76,210,255,0.7);
-    z-index: 101 !important;
   }
-  /* Raise the photos layer too so any slot inside it floats above the
-     type/specs/numbers/deco layers in edit mode. */
-  body.edit-mode .layer.photos { z-index: 50; }
+  /* Raise ONLY the slot's chrome (toolbar buttons + handles + id label)
+     above every layer so they're always clickable, even where text or
+     other higher-stacked layers would otherwise cover them. The slot
+     BODY stays at its natural z-index so clicks on text-covered area
+     go to the text (contentEditable focuses, edit works). To drag a
+     slot, grab a corner, the slot ID, or any area not covered by text. */
+  body.edit-mode .slot[data-slot] .slot-tools,
+  body.edit-mode .slot[data-slot] .resize-handle,
+  body.edit-mode .slot[data-slot] .rotate-handle,
+  body.edit-mode .slot[data-slot] .slot-id {
+    z-index: 200 !important;
+  }
   .slot-id {
     position: absolute; top: 6px; left: 6px; z-index: 41;
     background: rgba(20,20,24,0.85); color: var(--accent-2);
@@ -1085,7 +1088,7 @@
 
 <button id="tweaksToggle" class="tweaks-toggle">Tweaks</button>
 <a href="/photo-ai" style="position:fixed;left:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none;font-family:inherit">← back to /photo-ai</a>
-<div class="edit-mode-banner"><span class="dot"></span>Edit mode — click text to edit · drag = move · corner = resize · top circle = rotate · <kbd>Shift</kbd>+drag = re-crop · <kbd>wheel</kbd> = zoom · <kbd>Esc</kbd> to exit</div>
+<div class="edit-mode-banner"><span class="dot"></span>Edit mode — click text to edit · drag slot edge/corner to move · corner handle = resize · top circle = rotate · <kbd>Shift</kbd>+drag inside slot = re-crop · <kbd>wheel</kbd> over slot = zoom · <kbd>Esc</kbd> to exit</div>
 
 <div id="tweaks" class="tweaks" style="display:none">
   <button class="close" id="tweaksClose">×</button>
@@ -2391,14 +2394,15 @@ document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
   // which the .slot::before transform: scale(var(--zoom)) consumes,
   // zooming the photo within the frame (overflow:hidden keeps it neat).
   slot.addEventListener('wheel', (e) => {
-    if (!editMode) return;
+    if (!editMode) { console.log('[garage] wheel on slot but edit mode OFF'); return; }
     if (e.target.closest('.slot-tools')) return;
     e.preventDefault();
+    e.stopPropagation();
     const current = parseFloat(slot.style.getPropertyValue('--zoom') || savedDims[slot.dataset.slot]?.zoom || '1') || 1;
-    // Scroll up (deltaY negative) zooms in; clamp to [0.4, 4].
     const next = Math.max(0.4, Math.min(4, current + (e.deltaY < 0 ? 0.1 : -0.1)));
     slot.style.setProperty('--zoom', next.toFixed(2));
     saveDims(slot, { zoom: parseFloat(next.toFixed(2)) });
+    console.log('[garage] wheel zoom', slot.dataset.slot, current, '→', next);
   }, { passive: false });
 });
 
