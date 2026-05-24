@@ -633,6 +633,10 @@
           <input type="checkbox" id="autoEditToggle" checked>
           <span>Auto-grade on drop</span>
         </label>
+        <label class="auto-toggle" title="Bakes a subtle blur into the render to soften sensor noise. Light touch — safe to leave on.">
+          <input type="checkbox" id="denoiseToggle" checked>
+          <span>Auto-denoise</span>
+        </label>
         <div class="view-toggle" role="tablist" aria-label="View mode">
           <button class="view-btn on" data-view="grid" title="Grid view" aria-label="Grid view">▦</button>
           <button class="view-btn" data-view="list" title="List view" aria-label="List view">☰</button>
@@ -854,7 +858,7 @@ function buildFilterStr(extraBlurPx = 0) {
     `hue-rotate(${look.hueRotate}deg) ` +
     `sepia(${look.sepia}) ` +
     `grayscale(${look.grayscale}) ` +
-    `blur(${look.blur + extraBlurPx}px) ` +
+    `blur(${look.blur + extraBlurPx + denoisePx()}px) ` +
     `invert(${look.invert})`
   );
 }
@@ -1056,7 +1060,7 @@ function renderStill(img, theLook, dstCanvas) {
     `hue-rotate(${f('hueRotate')}deg) ` +
     `sepia(${f('sepia')}) ` +
     `grayscale(${f('grayscale')}) ` +
-    `blur(${f('blur')}px) ` +
+    `blur(${f('blur') + denoisePx()}px) ` +
     `invert(${f('invert')})`;
   ctx.filter = filter;
   ctx.globalCompositeOperation = 'source-over';
@@ -1460,6 +1464,28 @@ const autoToggle = $('autoEditToggle');
     try { localStorage.setItem(AUTO_KEY, autoToggle.checked ? '1' : '0'); } catch {}
   });
 })();
+
+// ── Auto-denoise toggle ──────────────────────────────────────────────────────
+// Bakes a small blur into every rendered photo to soften sensor noise.
+// Re-renders all existing cards on toggle so the change is visible immediately.
+const DENOISE_KEY = 'photo-ai-denoise';
+const DENOISE_PX = 0.5;
+let denoiseEnabled = true;
+const denoiseToggle = $('denoiseToggle');
+(function initDenoiseToggle() {
+  let saved = '1';
+  try { saved = localStorage.getItem(DENOISE_KEY); if (saved === null) saved = '1'; } catch {}
+  denoiseEnabled = saved !== '0';
+  denoiseToggle.checked = denoiseEnabled;
+  denoiseToggle.addEventListener('change', () => {
+    denoiseEnabled = denoiseToggle.checked;
+    try { localStorage.setItem(DENOISE_KEY, denoiseEnabled ? '1' : '0'); } catch {}
+    for (const p of photos) {
+      if (p.img && p.look && p.canvas) renderStill(p.img, p.look, p.canvas);
+    }
+  });
+})();
+function denoisePx() { return denoiseEnabled ? DENOISE_PX : 0; }
 
 // ── View toggle (grid vs list) ───────────────────────────────────────────────
 const VIEW_KEY = 'photo-ai-view';
