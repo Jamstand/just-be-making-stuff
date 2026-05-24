@@ -1450,15 +1450,37 @@ app.post('/ai/photo-edit', async (req, res) => {
 });
 
 // Guardrail: even with the system-prompt warning, Claude occasionally pairs
-// brightness < 1.0 with vignette > 0.4 on dim source photos, which crushes
-// the image to near-black. Lift brightness and cap vignette when the combo
-// is dangerous so the user always gets a readable result.
+// brightness < 1.0 with vignette > 0.4 on dim source photos, or applies a
+// dark tintColor at high tintAlpha — both crush the image to near-black.
+// Lift brightness, cap vignette, cap dark tints when the combo is dangerous
+// so the user always gets a readable result.
 function softenDarkLook(look) {
-  if (typeof look?.brightness === 'number' && typeof look?.vignette === 'number') {
-    const darkening = (1 - Math.min(1, look.brightness)) + look.vignette * 0.5;
-    if (darkening > 0.55) {
-      look.brightness = Math.max(look.brightness, 1.0);
-      look.vignette = Math.min(look.vignette, 0.35);
+  if (!look) return look;
+  // Vignette + brightness interaction.
+  if (typeof look.brightness === 'number' && typeof look.vignette === 'number') {
+    // If vignette is meaningful, brightness MUST stay bright.
+    if (look.vignette > 0.3 && look.brightness < 1.1) {
+      look.brightness = 1.1;
+    }
+    // If brightness is low at all, vignette must be tiny.
+    if (look.brightness < 1.0 && look.vignette > 0.25) {
+      look.vignette = 0.25;
+    }
+    // Hard cap: vignette never above 0.5 on auto-grade — anything more is
+    // theatrical and the user can dial it manually if they want.
+    if (look.vignette > 0.5) look.vignette = 0.5;
+  }
+  // Dark tintColor + high tintAlpha = soft-light overlay that darkens.
+  if (typeof look.tintColor === 'string' && typeof look.tintAlpha === 'number') {
+    const m = look.tintColor.match(/^#([0-9a-f]{6})$/i);
+    if (m) {
+      const r = parseInt(m[1].slice(0, 2), 16);
+      const g = parseInt(m[1].slice(2, 4), 16);
+      const b = parseInt(m[1].slice(4, 6), 16);
+      const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      // Dark tints cap at low alpha; mid tints cap at moderate.
+      if (luma < 0.3 && look.tintAlpha > 0.15) look.tintAlpha = 0.15;
+      else if (luma < 0.5 && look.tintAlpha > 0.3) look.tintAlpha = 0.3;
     }
   }
   return look;
