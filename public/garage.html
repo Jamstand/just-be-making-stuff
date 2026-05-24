@@ -451,55 +451,8 @@
      Portrait = phone-photo friendly: hero slots become tall portraits.
      Square   = uniform 1:1 slots, gridded feel.
      ───────────────────────────────────────────── */
-  .stage[data-layout="portrait"] .slot[data-slot="A"]{
-    width:300px;height:430px;top:60px;left:60px;
-  }
-  .stage[data-layout="portrait"] .slot[data-slot="B"]{
-    width:240px;height:300px;top:170px;left:370px;
-  }
-  .stage[data-layout="portrait"] .slot[data-slot="C"]{
-    width:300px;height:300px;top:110px;left:700px;
-  }
-  .stage[data-layout="portrait"] .slot[data-slot="D"]{
-    width:240px;height:300px;top:170px;left:1080px;
-  }
-  .stage[data-layout="portrait"] .slot[data-slot="E"]{
-    width:280px;height:430px;top:60px;left:1380px;
-  }
-  .stage[data-layout="portrait"] .slot[data-slot="F"]{
-    width:240px;height:300px;top:180px;left:1720px;
-  }
-  .stage[data-layout="portrait"] .slot[data-slot="G"]{
-    width:300px;height:430px;top:60px;left:2030px;
-  }
-  .stage[data-layout="portrait"] .slot[data-slot="H"]{
-    width:220px;height:280px;top:200px;left:2080px;
-  }
-
-  .stage[data-layout="square"] .slot[data-slot="A"]{
-    width:340px;height:340px;top:90px;left:60px;border-radius:4px;
-  }
-  .stage[data-layout="square"] .slot[data-slot="B"]{
-    width:260px;height:260px;top:180px;left:380px;
-  }
-  .stage[data-layout="square"] .slot[data-slot="C"]{
-    width:340px;height:340px;top:90px;left:720px;
-  }
-  .stage[data-layout="square"] .slot[data-slot="D"]{
-    width:260px;height:260px;top:180px;left:1100px;
-  }
-  .stage[data-layout="square"] .slot[data-slot="E"]{
-    width:340px;height:340px;top:90px;left:1380px;
-  }
-  .stage[data-layout="square"] .slot[data-slot="F"]{
-    width:260px;height:260px;top:200px;left:1720px;
-  }
-  .stage[data-layout="square"] .slot[data-slot="G"]{
-    width:340px;height:340px;top:90px;left:2050px;
-  }
-  .stage[data-layout="square"] .slot[data-slot="H"]{
-    width:220px;height:220px;top:230px;left:2100px;
-  }
+  /* Layout dimensions are applied via JS (see applyLayout) — keeping them
+     out of CSS so user drag-to-resize / drag-to-move always wins. */
 
   /* ─────────────────────────────────────────────
      KEN BURNS — subtle zoom on slots in active panel
@@ -1276,34 +1229,85 @@ document.querySelectorAll('#themes .opt').forEach(b=>{
 });
 
 /* ─── layout switch ─── */
-// Changing layout reshapes slots — re-fit photos so they match the new
-// aspects (a portrait photo gets shuffled to the new tall slot instead
-// of staying stretched across a wide one).
+// Layouts are applied via JS now (not CSS) so that any user-dragged
+// position / size always wins. Standard = the design's original inline
+// values; the JS table provides overrides only for non-standard layouts.
+const LAYOUT_DIMS = {
+  portrait: {
+    A: { left:60,   top:60,  width:300, height:430 },
+    B: { left:370,  top:170, width:240, height:300 },
+    C: { left:700,  top:110, width:300, height:300 },
+    D: { left:1080, top:170, width:240, height:300 },
+    E: { left:1380, top:60,  width:280, height:430 },
+    F: { left:1720, top:180, width:240, height:300 },
+    G: { left:2030, top:60,  width:300, height:430 },
+    H: { left:2080, top:200, width:220, height:280 },
+  },
+  square: {
+    A: { left:60,   top:90,  width:340, height:340 },
+    B: { left:380,  top:180, width:260, height:260 },
+    C: { left:720,  top:90,  width:340, height:340 },
+    D: { left:1100, top:180, width:260, height:260 },
+    E: { left:1380, top:90,  width:340, height:340 },
+    F: { left:1720, top:200, width:260, height:260 },
+    G: { left:2050, top:90,  width:340, height:340 },
+    H: { left:2100, top:230, width:220, height:220 },
+  },
+};
+function applyLayout(name){
+  stage.dataset.layout = name;
+  if (name === 'standard') {
+    // Restore each slot to its captured-on-load default.
+    document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
+      const d = slotDefaults[slot.dataset.slot];
+      if (!d) return;
+      slot.style.left   = d.left   + 'px';
+      slot.style.top    = d.top    + 'px';
+      slot.style.width  = d.width  + 'px';
+      slot.style.height = d.height + 'px';
+    });
+    return;
+  }
+  const dims = LAYOUT_DIMS[name];
+  if (!dims) return;
+  document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
+    const d = dims[slot.dataset.slot];
+    if (!d) return;
+    slot.style.left   = d.left   + 'px';
+    slot.style.top    = d.top    + 'px';
+    slot.style.width  = d.width  + 'px';
+    slot.style.height = d.height + 'px';
+  });
+}
+
 const LAYOUT_KEY = 'garage-layout';
 (function restoreLayout(){
   let saved = 'standard';
   try { saved = localStorage.getItem(LAYOUT_KEY) || 'standard'; } catch(e){}
   if (saved !== 'standard') {
-    stage.dataset.layout = saved;
+    applyLayout(saved);
     document.querySelectorAll('#layouts .opt').forEach((o) => {
       o.classList.toggle('on', o.dataset.layout === saved);
     });
+    // Re-apply any user-saved per-slot tweaks after the layout dims.
+    document.querySelectorAll('.slot[data-slot]').forEach(applySlotDims);
   }
 })();
 document.querySelectorAll('#layouts .opt').forEach(b=>{
   b.addEventListener('click', ()=>{
     document.querySelectorAll('#layouts .opt').forEach(o=>o.classList.remove('on'));
     b.classList.add('on');
-    stage.dataset.layout = b.dataset.layout;
+    applyLayout(b.dataset.layout);
     try {
       localStorage.setItem(LAYOUT_KEY, b.dataset.layout);
-      // Drop swaps + saved slot dims so the matcher can re-assign from
-      // scratch for the new layout. Old swap data is per-slot, so old
-      // photos would stay stuck in slots that just changed shape; old
-      // dims would fight the new layout's CSS overrides.
-      localStorage.removeItem('garage3-slots');
+      // New layout = different slot shapes. Drop saved dims (they were
+      // for the old layout's slots) and any photo swaps so the matcher
+      // re-runs. No reload needed — applyLayout did the visual change.
       localStorage.removeItem('garage-slot-dims');
+      localStorage.removeItem('garage3-slots');
+      for (const k of Object.keys(savedDims)) delete savedDims[k];
     } catch(e){}
+    // Re-fit photos to the new slot shapes.
     location.reload();
   });
 });
