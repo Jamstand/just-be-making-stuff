@@ -1449,6 +1449,183 @@ app.post('/ai/photo-edit', async (req, res) => {
 
 app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', 'photo-ai.html')));
 
+// ── Compose (auto-group photos into Instagram-ready sets) ────────────────────
+// Sends a batch of thumbnails to Claude with vision and asks for:
+//   - themed groups (subject/style clusters)
+//   - profile_grids (3 / 6 / 9 photos that look cohesive in a 3-col feed)
+//   - carousels (3–10 photos in best swipe order)
+// Photos are referenced by client-supplied id so the response stays small
+// and the client can map back to its IDB records.
+
+const COMPOSE_MAX_PHOTOS = 30;
+const COMPOSE_MODEL = process.env.AI_COMPOSE_MODEL || 'claude-opus-4-7';
+
+const COMPOSE_SYSTEM = `You are an Instagram art director with an eye for cohesive visual sets.
+
+You will receive a batch of photos, each tagged with an ID like "p1", "p2", "p3". Your job:
+
+1. CLUSTER the photos into themed groups based on subject, lighting, palette, and mood. Each group should feel like it belongs in the same post or feed section.
+2. PROPOSE PROFILE_GRIDS — groups of exactly 3, 6, or 9 photos that would look clean as a 3-column Instagram profile grid (so visual flow across rows matters).
+3. PROPOSE CAROUSELS — sets of 3 to 10 photos in best swipe order for a single carousel post (open with a hero, vary pacing, close strong).
+
+Rules:
+- Only use the photo IDs given to you. Never invent IDs.
+- A photo may appear in multiple proposals (e.g. cluster + grid + carousel) but inside ONE proposal it must appear at most once.
+- Skip blurry / duplicate / weak photos rather than padding a group with them.
+- Titles are 1–4 words, concrete (e.g. "Track day", "Garage moody"), not generic ("Cool shots").
+- Rationales are one sentence, specific to THESE photos — call out what makes them cohesive (palette, subject, lighting).
+
+Output ONLY the JSON object matching the schema. No prose, no markdown fences.`;
+
+const COMPOSE_SCHEMA = {
+  type: 'object',
+  required: ['groups', 'profile_grids', 'carousels'],
+  properties: {
+    groups: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['title', 'rationale', 'photo_ids'],
+        properties: {
+          title: { type: 'string' },
+          rationale: { type: 'string' },
+          photo_ids: { type: 'array', items: { type: 'string' }, minItems: 2 },
+        },
+      },
+    },
+    profile_grids: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['title', 'rationale', 'photo_ids'],
+        properties: {
+          title: { type: 'string' },
+          rationale: { type: 'string' },
+          photo_ids: {
+            type: 'array', items: { type: 'string' },
+            minItems: 3, maxItems: 9,
+          },
+        },
+      },
+    },
+    carousels: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['title', 'rationale', 'photo_ids'],
+        properties: {
+          title: { type: 'string' },
+          rationale: { type: 'string' },
+          photo_ids: {
+            type: 'array', items: { type: 'string' },
+            minItems: 3, maxItems: 10,
+          },
+        },
+      },
+    },
+  },
+};
+
+function validateComposeResponse(parsed, validIds) {
+  const ids = new Set(validIds);
+  const filterValid = (arr) => arr.filter((id) => ids.has(id));
+  const out = { groups: [], profile_grids: [], carousels: [] };
+  for (const g of parsed.groups || []) {
+    const photo_ids = filterValid(g.photo_ids || []);
+    if (photo_ids.length >= 2) out.groups.push({ ...g, photo_ids });
+  }
+  for (const g of parsed.profile_grids || []) {
+    const photo_ids = filterValid(g.photo_ids || []);
+    if (photo_ids.length >= 3) out.profile_grids.push({ ...g, photo_ids: photo_ids.slice(0, 9) });
+  }
+  for (const c of parsed.carousels || []) {
+    const photo_ids = filterValid(c.photo_ids || []);
+    if (photo_ids.length >= 3) out.carousels.push({ ...c, photo_ids: photo_ids.slice(0, 10) });
+  }
+  return out;
+}
+
+async function claudeCodeCompose(photos) {
+  const tmpFiles = [];
+  try {
+    const fileLines = photos.map((p, i) => {
+      const ext = (p.mediaType || 'image/jpeg').split('/')[1] || 'jpg';
+      const tmpFile = path.join(os.tmpdir(), `compose-${crypto.randomUUID()}.${ext}`);
+      fs.writeFileSync(tmpFile, Buffer.from(p.image, 'base64'));
+      tmpFiles.push(tmpFile);
+      return `  ${p.id} → ${tmpFile}`;
+    }).join('\n');
+
+    const prompt = `${COMPOSE_SYSTEM}
+
+Read each photo with the Read tool. Photos and their IDs:
+${fileLines}
+
+Schema you must follow:
+${JSON.stringify(COMPOSE_SCHEMA, null, 2)}
+
+Output ONLY the JSON object — no prose, no markdown fences.`;
+    const text = await runClaudeCode(prompt, 240000);
+    return extractJsonObject(text);
+  } finally {
+    for (const f of tmpFiles) { try { fs.unlinkSync(f); } catch {} }
+  }
+}
+
+app.post('/ai/photo-compose', async (req, res) => {
+  const { photos } = req.body || {};
+  if (!Array.isArray(photos) || photos.length < 3) {
+    return res.status(400).json({ error: 'need at least 3 photos to compose' });
+  }
+  if (photos.length > COMPOSE_MAX_PHOTOS) {
+    return res.status(400).json({ error: `too many photos — cap is ${COMPOSE_MAX_PHOTOS}` });
+  }
+
+  const parsed = [];
+  for (const p of photos) {
+    if (typeof p.id !== 'string' || !p.id) return res.status(400).json({ error: 'each photo needs an id' });
+    if (typeof p.image !== 'string' || !p.image.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'each photo needs an image data URL' });
+    }
+    const m = p.image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!m) return res.status(400).json({ error: 'invalid image data URL' });
+    parsed.push({ id: p.id, mediaType: m[1], image: m[2] });
+  }
+  const validIds = parsed.map((p) => p.id);
+
+  try {
+    let raw;
+    if (AI_BACKEND === 'claude-code') {
+      raw = await claudeCodeCompose(parsed);
+    } else {
+      if (!anthropicReady()) {
+        return res.status(400).json({ error: 'ai_not_configured', detail: 'Set ANTHROPIC_API_KEY or AI_BACKEND=claude-code.' });
+      }
+      const content = [];
+      for (const p of parsed) {
+        content.push({ type: 'text', text: `[id: ${p.id}]` });
+        content.push({ type: 'image', source: { type: 'base64', media_type: p.mediaType, data: p.image } });
+      }
+      content.push({ type: 'text', text: 'Group these photos into themed clusters, propose profile grids (3/6/9 photos), and carousel posts (3–10 photos in swipe order). Output JSON matching the schema.' });
+      const response = await getAnthropicClient().messages.create({
+        model: COMPOSE_MODEL,
+        max_tokens: 4096,
+        system: [{ type: 'text', text: COMPOSE_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        output_config: { format: { type: 'json_schema', schema: COMPOSE_SCHEMA } },
+        messages: [{ role: 'user', content }],
+      });
+      const text = response.content.find((b) => b.type === 'text')?.text;
+      raw = text ? JSON.parse(text) : null;
+    }
+    if (!raw) return res.status(502).json({ error: 'ai_empty' });
+    const cleaned = validateComposeResponse(raw, validIds);
+    res.json(cleaned);
+  } catch (err) {
+    console.error('photo-compose error:', err.message);
+    res.status(500).json({ error: 'compose_failed', detail: err.message });
+  }
+});
+
 // ── Claude Design (Max ed.) ──────────────────────────────────────────────────
 //
 // A small single-player clone of the iteration loop at claude.ai/design:
