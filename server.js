@@ -1441,7 +1441,7 @@ app.post('/ai/photo-edit', async (req, res) => {
       look = text ? JSON.parse(text) : null;
     }
     if (!look) return res.status(502).json({ error: 'ai_empty', detail: 'no JSON returned' });
-    res.json({ look: softenDarkLook(look) });
+    res.json({ look: softenDarkLook(look, !!userPrompt) });
   } catch (err) {
     const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
     console.error('photo-edit error:', err.message);
@@ -1452,26 +1452,24 @@ app.post('/ai/photo-edit', async (req, res) => {
 // Guardrail: even with the system-prompt warning, Claude occasionally pairs
 // brightness < 1.0 with vignette > 0.4 on dim source photos, or applies a
 // dark tintColor at high tintAlpha — both crush the image to near-black.
-// Lift brightness, cap vignette, cap dark tints when the combo is dangerous
-// so the user always gets a readable result.
-function softenDarkLook(look) {
+// AUTO-grade gets aggressive caps so the user always sees a readable photo.
+// When the user explicitly prompts (e.g. "moody noir"), we relax everything
+// because they've asked for the dark mood.
+function softenDarkLook(look, hasUserPrompt) {
   if (!look) return look;
   const before = { ...look };
-  // Vignette + brightness interaction.
-  if (typeof look.brightness === 'number' && typeof look.vignette === 'number') {
-    if (look.vignette > 0.3 && look.brightness < 1.1) look.brightness = 1.1;
-    if (look.brightness < 1.0 && look.vignette > 0.25) look.vignette = 0.25;
-    if (look.vignette > 0.5) look.vignette = 0.5;
+
+  if (typeof look.brightness === 'number') {
+    if (!hasUserPrompt && look.brightness < 1.0) look.brightness = 1.0;
   }
-  // High contrast crushes shadows on dim sources. Cap it on auto-grade and
-  // require a brightness lift if Claude wants real contrast.
   if (typeof look.contrast === 'number') {
-    if (look.contrast > 1.4) look.contrast = 1.4;
-    if (look.contrast > 1.25 && typeof look.brightness === 'number' && look.brightness < 1.1) {
-      look.brightness = 1.1;
-    }
+    if (!hasUserPrompt && look.contrast > 1.2) look.contrast = 1.2;
+    if (hasUserPrompt && look.contrast > 1.4) look.contrast = 1.4;
   }
-  // Dark tintColor + high tintAlpha = soft-light overlay that darkens.
+  if (typeof look.vignette === 'number') {
+    if (!hasUserPrompt && look.vignette > 0.2) look.vignette = 0.2;
+    if (hasUserPrompt && look.vignette > 0.5) look.vignette = 0.5;
+  }
   if (typeof look.tintColor === 'string' && typeof look.tintAlpha === 'number') {
     const m = look.tintColor.match(/^#([0-9a-f]{6})$/i);
     if (m) {
@@ -1479,17 +1477,22 @@ function softenDarkLook(look) {
       const g = parseInt(m[1].slice(2, 4), 16);
       const b = parseInt(m[1].slice(4, 6), 16);
       const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-      if (luma < 0.3 && look.tintAlpha > 0.15) look.tintAlpha = 0.15;
-      else if (luma < 0.5 && look.tintAlpha > 0.3) look.tintAlpha = 0.3;
+      const cap = !hasUserPrompt ? (luma < 0.5 ? 0.12 : 0.25)
+                                 : (luma < 0.3 ? 0.2 : luma < 0.5 ? 0.35 : 0.5);
+      if (look.tintAlpha > cap) look.tintAlpha = cap;
     }
   }
-  // Log what changed so we can debug user reports.
+  if (typeof look.grain === 'number') {
+    if (!hasUserPrompt && look.grain > 0.3) look.grain = 0.3;
+  }
+
   const diffs = [];
-  for (const k of ['brightness', 'contrast', 'vignette', 'tintAlpha']) {
+  for (const k of ['brightness', 'contrast', 'vignette', 'tintAlpha', 'grain']) {
     if (before[k] !== look[k]) diffs.push(`${k}: ${before[k]} → ${look[k]}`);
   }
-  if (diffs.length) console.log(`[guardrail] softened look "${look.caption}":`, diffs.join(', '));
-  else console.log(`[grade] "${look.caption}": brightness=${look.brightness} contrast=${look.contrast} vignette=${look.vignette} tint=${look.tintColor}@${look.tintAlpha}`);
+  const mode = hasUserPrompt ? 'prompt' : 'auto';
+  if (diffs.length) console.log(`[guardrail/${mode}] softened "${look.caption}":`, diffs.join(', '));
+  else console.log(`[grade/${mode}] "${look.caption}": brightness=${look.brightness} contrast=${look.contrast} vignette=${look.vignette} tint=${look.tintColor}@${look.tintAlpha}`);
   return look;
 }
 
