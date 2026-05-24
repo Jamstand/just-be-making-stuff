@@ -204,6 +204,17 @@
     transform: scale(var(--zoom, 1));
     transform-origin: center center;
   }
+  /* In edit mode, kill the inline transform:rotate(...) on slots (it
+     creates a stacking context that traps the chrome's z-index inside
+     the slot, so clicks on toolbar buttons get eaten by other layers).
+     Apply the rotation to the ::before pseudo instead so the photo
+     still rotates within the slot frame visually. */
+  body.edit-mode .slot[data-slot] {
+    transform: none !important;
+  }
+  body.edit-mode .slot[data-slot]::before {
+    transform: scale(var(--zoom, 1)) rotate(var(--rot, 0deg));
+  }
   .slot::after{
     content:"";position:absolute;inset:0;pointer-events:none;
     background:
@@ -1108,7 +1119,7 @@
 <button id="tweaksToggle" class="tweaks-toggle">Tweaks</button>
 <a href="/photo-ai" style="position:fixed;left:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none;font-family:inherit">← back to /photo-ai</a>
 <div class="edit-mode-banner"><span class="dot"></span>Edit mode — click text to edit · drag slot edge/corner to move · corner handle = resize · top circle = rotate · <kbd>Shift</kbd>+drag inside slot = re-crop · <kbd>wheel</kbd> over slot = zoom · <kbd>Esc</kbd> to exit</div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v8 · 2026-05-24-22:00</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v9 · capture-phase</div>
 
 <div id="tweaks" class="tweaks" style="display:none">
   <button class="close" id="tweaksClose">×</button>
@@ -2058,7 +2069,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v8 loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v9-capture loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — wires up full customisation: editable text, slot tools
@@ -2409,8 +2420,49 @@ function slotMouseDown(e){
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
 }
-// Bind directly to each slot so we don't rely on document-level delegation
-// (which was being intercepted by something we couldn't reproduce here).
+// Document-level CAPTURE-phase handlers — fire BEFORE any per-element
+// listener or other layer can intercept. The most reliable hit-detection
+// strategy because the event must traverse the document on the way down
+// to the target, so this always runs first.
+document.addEventListener('click', (e) => {
+  if (!editMode) return;
+  const btn = e.target.closest('.slot-tools [data-tool]');
+  if (!btn) return;
+  const slot = btn.closest('.slot[data-slot]');
+  if (!slot) return;
+  console.log('[garage] CAPTURE click → tool', btn.dataset.tool, 'on', slot.dataset.slot);
+  e.preventDefault();
+  e.stopImmediatePropagation(); // prevent per-button click handler from also firing
+  handleToolClick(slot, btn.dataset.tool);
+}, true);
+document.addEventListener('mousedown', (e) => {
+  if (!editMode) return;
+  if (e.target.closest('.slot-tools')) return;
+  if (e.target.closest('[data-edit-id]')) return; // text → focus normally
+  const slot = e.target.closest('.slot[data-slot]');
+  if (!slot) return;
+  console.log('[garage] CAPTURE mousedown on slot', slot.dataset.slot);
+  e.stopPropagation(); // prevent per-slot bubble handler from also firing
+  // slotMouseDown reads from e.currentTarget — patch it onto the cloned event
+  Object.defineProperty(e, 'currentTarget', { value: slot, configurable: true });
+  slotMouseDown(e);
+}, true);
+document.addEventListener('wheel', (e) => {
+  if (!editMode) return;
+  if (e.target.closest('.slot-tools')) return;
+  const slot = e.target.closest('.slot[data-slot]');
+  if (!slot) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const current = parseFloat(slot.style.getPropertyValue('--zoom') || savedDims[slot.dataset.slot]?.zoom || '1') || 1;
+  const next = Math.max(0.4, Math.min(4, current + (e.deltaY < 0 ? 0.1 : -0.1)));
+  slot.style.setProperty('--zoom', next.toFixed(2));
+  saveDims(slot, { zoom: parseFloat(next.toFixed(2)) });
+  console.log('[garage] CAPTURE wheel zoom', slot.dataset.slot, current, '→', next);
+}, { capture: true, passive: false });
+
+// Old per-slot mousedown / wheel bindings — kept as a backup, but only
+// fire if the capture handler somehow didn't catch the event.
 document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
   slot.addEventListener('mousedown', slotMouseDown);
   // Wheel-to-zoom inside a slot in edit mode. Updates --zoom on the slot
@@ -2446,7 +2498,7 @@ document.getElementById('resetAll').addEventListener('click', () => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v8 · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v9-capture · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
