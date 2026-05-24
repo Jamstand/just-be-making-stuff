@@ -400,6 +400,52 @@
     background: var(--paper); border: 1px solid var(--rule); color: var(--mute);
     padding: 4px 10px; border-radius: 14px; font-size: 11px;
   }
+
+  /* Variant preview strip — sits above the canvas inside .ws-canvas */
+  .variants {
+    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; padding: 8px;
+    background: rgba(244, 240, 232, 0.92); border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.06);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    max-width: 90%; overflow-x: auto;
+    z-index: 4;
+  }
+  .variants[hidden] { display: none; }
+  .variant {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    cursor: pointer; padding: 4px; border-radius: 4px;
+    background: transparent; border: 0; font-family: inherit;
+    transition: background 0.15s;
+    min-width: 76px;
+  }
+  .variant:hover { background: rgba(0,0,0,0.05); }
+  .variant.on { background: var(--ink); }
+  .variant .thumb {
+    width: 64px; height: 64px; object-fit: cover; border-radius: 3px;
+    background: var(--ink);
+    box-shadow: 0 0 0 1px var(--rule);
+    display: block;
+  }
+  .variant.on .thumb { box-shadow: 0 0 0 1.5px var(--warm); }
+  .variant .name {
+    font-family: var(--serif); font-style: italic; font-size: 13px;
+    color: var(--ink); line-height: 1;
+  }
+  .variant.on .name { color: var(--cream); }
+  .variant .cap {
+    font-size: 9px; color: var(--mute); letter-spacing: 0.06em;
+    text-transform: uppercase; max-width: 76px; text-align: center;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .variant.on .cap { color: rgba(244,240,232,0.65); }
+  .variant.loading .thumb {
+    background: linear-gradient(90deg, var(--ink) 0%, var(--ink2) 50%, var(--ink) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s linear infinite;
+  }
+  .variant.loading .name, .variant.loading .cap { opacity: 0.4; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 </style>
 </head>
 <body>
@@ -536,6 +582,7 @@
   </aside>
 
   <main class="ws-canvas">
+    <div class="variants" id="variants" hidden></div>
     <div class="canvas-frame" id="canvasFrame">
       <canvas id="canvas"></canvas>
       <img id="originalImg" alt="" style="display:none">
@@ -710,6 +757,10 @@ async function persistPhoto(photo) {
       genBlob: photo.genBlob || null,
       genProvider: photo.genProvider || null,
       genPrompt: photo.genPrompt || null,
+      // Store only the look JSON for each variant — thumbs are re-rendered
+      // from the source image at display time, so no need to persist them.
+      lumenVariants: (photo.variants || []).map((v) => ({ id: v.id, name: v.name, prompt: v.prompt, look: v.look, status: v.status })),
+      lumenVariantIndex: photo.variantIndex ?? 0,
     });
   } catch (err) { console.warn('persist failed:', err); }
 }
@@ -726,6 +777,8 @@ async function restoreRoll() {
         look: rec.look || null,
         _timestamp: rec.timestamp,
         genBlob: rec.genBlob || null, genProvider: rec.genProvider || null, genPrompt: rec.genPrompt || null,
+        variants: rec.lumenVariants || null,
+        variantIndex: rec.lumenVariantIndex ?? 0,
       };
       // genBlob takes priority — that's the post-AI-edit pixels
       if (rec.genBlob) {
@@ -742,6 +795,7 @@ async function restoreRoll() {
     $('wsFilename').textContent = state.current.file?.name || 'restored';
     $('statusDims').textContent = `${state.current.img.naturalWidth} × ${state.current.img.naturalHeight}`;
     if (state.current.look) updateActiveFromLook(state.current.look);
+    renderVariants(state.current);
     await renderCurrent();
     renderRoll();
   }
@@ -837,38 +891,124 @@ function lookToFilter(look) {
   return `brightness(${f('brightness')}) contrast(${f('contrast')}) saturate(${f('saturate')}) hue-rotate(${f('hueRotate', 0)}deg) sepia(${f('sepia', 0)}) grayscale(${f('grayscale', 0)}) blur(${f('blur', 0)}px) invert(${f('invert', 0)})`;
 }
 
-// ── Auto-grade via /ai/photo-edit ──────────────────────────────────────────
+// ── Auto-grade with 4 variants ─────────────────────────────────────────────
+// Fires the /ai/photo-edit endpoint 4× in parallel with different style
+// hints so the user picks the look they want instead of accepting Claude's
+// first guess. The first variant has no prompt (Claude's own pick); the
+// rest steer toward specific aesthetics.
+const VARIANT_PRESETS = [
+  { id: 'natural',   name: 'Natural',   prompt: '' },
+  { id: 'cinematic', name: 'Cinematic', prompt: 'moody cinematic teal-orange grade, modest contrast and vignette' },
+  { id: 'film',      name: 'Film',      prompt: 'warm vintage film, faded shadows, subtle warm tint and grain' },
+  { id: 'vivid',     name: 'Vivid',     prompt: 'vivid editorial pop, boosted saturation, crisp clean contrast' },
+];
+
 async function autoGrade(photo) {
-  $('activeTitle').innerHTML = 'Auto grade <span class="accent">v1</span>';
-  $('activeMeta').innerHTML = '<span class="spinner"></span> Looking at your photo…';
+  $('activeTitle').innerHTML = 'Auto grade <span class="accent">×4</span>';
+  $('activeMeta').innerHTML = '<span class="spinner"></span> Generating 4 looks in parallel…';
   $('statusState').textContent = 'Grading…';
-  try {
-    const c = document.createElement('canvas');
-    const maxDim = 1024;
-    const scale = Math.min(1, maxDim / Math.max(photo.img.naturalWidth, photo.img.naturalHeight));
-    c.width = Math.round(photo.img.naturalWidth * scale);
-    c.height = Math.round(photo.img.naturalHeight * scale);
-    c.getContext('2d').drawImage(photo.img, 0, 0, c.width, c.height);
-    const dataUrl = c.toDataURL('image/jpeg', 0.85);
-    const res = await fetch('/ai/photo-edit', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || data.error || 'grade failed');
-    photo.look = data.look;
-    photo._timestamp = Date.now();
-    updateActiveFromLook(photo.look);
-    pushHistory(photo.look.caption || 'Auto grade');
-    $('statusState').textContent = 'Ready';
-    $('savedAt').innerHTML = '● Saved just now';
-    await renderCurrent();
-    persistPhoto(photo);
-  } catch (err) {
-    $('activeMeta').textContent = err.message || 'grade failed';
-    $('statusState').textContent = 'Error';
-    toast(err.message || 'grade failed');
+
+  // Downscale once and reuse across all 4 requests.
+  const c = document.createElement('canvas');
+  const maxDim = 1024;
+  const scale = Math.min(1, maxDim / Math.max(photo.img.naturalWidth, photo.img.naturalHeight));
+  c.width = Math.round(photo.img.naturalWidth * scale);
+  c.height = Math.round(photo.img.naturalHeight * scale);
+  c.getContext('2d').drawImage(photo.img, 0, 0, c.width, c.height);
+  const dataUrl = c.toDataURL('image/jpeg', 0.85);
+
+  photo.variants = VARIANT_PRESETS.map((v) => ({ ...v, look: null, status: 'loading', err: null }));
+  photo.variantIndex = 0;
+  renderVariants(photo);
+
+  // Fire all 4 in parallel; render each variant as it lands.
+  await Promise.all(VARIANT_PRESETS.map(async (preset, i) => {
+    try {
+      const res = await fetch('/ai/photo-edit', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl, prompt: preset.prompt }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || 'grade failed');
+      photo.variants[i].look = data.look;
+      photo.variants[i].status = 'ready';
+    } catch (err) {
+      photo.variants[i].status = 'error';
+      photo.variants[i].err = err.message;
+    }
+    renderVariants(photo);
+    // First successful variant becomes the active look right away.
+    if (photo === state.current && !photo.look && photo.variants[i].look) {
+      photo.variantIndex = i;
+      applyVariant(photo, i);
+    }
+  }));
+
+  // After all complete: persist + status
+  $('statusState').textContent = 'Ready';
+  $('savedAt').innerHTML = '● Saved just now';
+  photo._timestamp = Date.now();
+  persistPhoto(photo);
+}
+
+function renderVariants(photo) {
+  const strip = $('variants');
+  if (!photo?.variants || photo !== state.current) { strip.hidden = true; return; }
+  strip.hidden = false;
+  strip.innerHTML = '';
+  photo.variants.forEach((v, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'variant' + (i === photo.variantIndex ? ' on' : '') + (v.status === 'loading' ? ' loading' : '');
+    const thumbSrc = v.status === 'ready' ? renderVariantThumb(photo, v.look) : '';
+    btn.innerHTML = `
+      ${thumbSrc ? `<img class="thumb" src="${thumbSrc}">` : '<div class="thumb"></div>'}
+      <div class="name">${v.name}</div>
+      <div class="cap">${v.status === 'error' ? 'failed' : (v.look?.caption || (v.status === 'loading' ? '…' : ''))}</div>
+    `;
+    btn.disabled = v.status !== 'ready';
+    btn.addEventListener('click', () => applyVariant(photo, i));
+    strip.appendChild(btn);
+  });
+}
+
+function renderVariantThumb(photo, look) {
+  // Build a small thumbnail with the look applied so the user can preview
+  // each variant at a glance without us calling the AI again.
+  const max = 96;
+  const w = photo.img.naturalWidth, h = photo.img.naturalHeight;
+  const s = Math.min(1, max / Math.max(w, h));
+  const cw = Math.max(1, Math.round(w * s)), ch = Math.max(1, Math.round(h * s));
+  const c = document.createElement('canvas');
+  c.width = cw; c.height = ch;
+  const ctx = c.getContext('2d');
+  ctx.filter = lookToFilter(look);
+  ctx.drawImage(photo.img, 0, 0, cw, ch);
+  ctx.filter = 'none';
+  if (look?.tintAlpha > 0.005) {
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha = look.tintAlpha; ctx.fillStyle = look.tintColor;
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   }
+  if (look?.vignette > 0.01) {
+    const grad = ctx.createRadialGradient(cw/2, ch/2, Math.min(cw,ch) * 0.35, cw/2, ch/2, Math.max(cw,ch) * 0.72);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, `rgba(0,0,0,${0.85 * look.vignette})`);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, cw, ch);
+  }
+  return c.toDataURL('image/jpeg', 0.78);
+}
+
+async function applyVariant(photo, i) {
+  const v = photo.variants?.[i];
+  if (!v || v.status !== 'ready') return;
+  photo.variantIndex = i;
+  photo.look = v.look;
+  updateActiveFromLook(v.look);
+  pushHistory(`${v.name} · ${v.look.caption || ''}`);
+  renderVariants(photo);
+  await renderCurrent();
+  persistPhoto(photo);
 }
 
 function updateActiveFromLook(look) {
@@ -908,7 +1048,14 @@ $('rollGrid').addEventListener('click', (e) => {
   const tile = e.target.closest('.roll-tile');
   if (!tile) return;
   const p = state.roll.find((x) => x.id === tile.dataset.id);
-  if (p) { state.current = p; $('wsFilename').textContent = p.file.name; renderCurrent(); if (p.look) updateActiveFromLook(p.look); }
+  if (p) {
+    state.current = p;
+    $('wsFilename').textContent = p.file.name;
+    $('statusDims').textContent = `${p.img.naturalWidth} × ${p.img.naturalHeight}`;
+    if (p.look) updateActiveFromLook(p.look);
+    renderVariants(p);
+    renderCurrent();
+  }
 });
 
 // ── Header actions ─────────────────────────────────────────────────────────
