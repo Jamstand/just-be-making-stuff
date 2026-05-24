@@ -1396,8 +1396,10 @@ Return a JSON object matching the schema. Guidelines:
 - glow 0.1–0.3 adds soft halation; above 0.5 gets dreamy/hazy. glow ≥ 0.7 washes the frame out — only use that for explicit "dreamy / foggy / hazy" prompts. NEVER use glow for "smooth", "polish", "clean", or "denoise" — that's what blur is for.
 - blur is the right tool for "smooth", "polish", "soft", "remove noise", "denoise", "clean up" requests — use 0.5–1.5 for those. For other looks keep blur at 0 or under 1.
 - Don't stack multiple lightening effects: brightness > 1.2 + glow > 0.4 + a light tintColor with tintAlpha > 0.2 together will produce a near-white, washed-out frame. Pick one lightening tool and keep the others restrained.
+- CRITICAL — DO NOT DARKEN DIM PHOTOS. If the source is already dim (showroom, garage, indoor low-light, night scene, underexposed) then brightness MUST be ≥ 1.05 and vignette MUST be ≤ 0.3. Cinematic mood on a dim photo comes from contrast (1.15–1.35) + a tintColor (teal/orange/amber with tintAlpha 0.15–0.25), NOT from lowering brightness or piling on vignette. A "cinematic" look on an already-dark photo with brightness 0.7 + vignette 0.7 makes it unreadable — never do that.
+- Only LOWER brightness (< 1.0) on photos that are clearly OVER-exposed: blown highlights, washed-out scenes, harsh midday sun. If the photo looks normally exposed or dim, keep brightness ≥ 1.0.
 - caption is a 2–6 word name for the look (e.g. "warm 70s film", "noir contrast", "neon dream").
-- Consider the actual scene: a dim indoor shot probably wants brightness a hair above 1; a blown-out window scene wants contrast up and brightness down.
+- Consider the actual scene: a dim indoor shot wants brightness 1.05–1.2 + contrast bump; a blown-out window scene wants contrast up and brightness down (0.85–0.95).
 
 Output ONLY the JSON object matching the schema. No prose, no markdown.`;
 
@@ -1439,13 +1441,28 @@ app.post('/ai/photo-edit', async (req, res) => {
       look = text ? JSON.parse(text) : null;
     }
     if (!look) return res.status(502).json({ error: 'ai_empty', detail: 'no JSON returned' });
-    res.json({ look });
+    res.json({ look: softenDarkLook(look) });
   } catch (err) {
     const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
     console.error('photo-edit error:', err.message);
     res.status(status).json({ error: 'ai_failed', detail: err.message });
   }
 });
+
+// Guardrail: even with the system-prompt warning, Claude occasionally pairs
+// brightness < 1.0 with vignette > 0.4 on dim source photos, which crushes
+// the image to near-black. Lift brightness and cap vignette when the combo
+// is dangerous so the user always gets a readable result.
+function softenDarkLook(look) {
+  if (typeof look?.brightness === 'number' && typeof look?.vignette === 'number') {
+    const darkening = (1 - Math.min(1, look.brightness)) + look.vignette * 0.5;
+    if (darkening > 0.55) {
+      look.brightness = Math.max(look.brightness, 1.0);
+      look.vignette = Math.min(look.vignette, 0.35);
+    }
+  }
+  return look;
+}
 
 app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', 'photo-ai.html')));
 
