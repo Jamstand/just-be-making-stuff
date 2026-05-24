@@ -1283,11 +1283,35 @@ document.querySelectorAll('#presets .opt').forEach(b=>{
 
 /* ─── theme switch ─── */
 const stage = document.getElementById('stage');
+// Track each .t element's original inline font-size so we can restore it
+// when switching back from spec theme.
+document.querySelectorAll('.t').forEach((t) => {
+  t._origFontSize = t.style.fontSize || '';
+});
+function applyThemeStyles(theme){
+  // In spec theme, the panel-title .t elements sit in the same coords as
+  // the spec callout cards and read as overlap. Shrink them down inline
+  // (and dim them) so the spec callouts are the readable element. Do this
+  // via direct inline JS so we don't fight CSS cascade specificity.
+  document.querySelectorAll('.t').forEach((t) => {
+    if (theme === 'spec') {
+      t.style.fontSize = '20px';
+      t.style.opacity = '0.55';
+      t.style.letterSpacing = '-0.5px';
+    } else {
+      t.style.fontSize = t._origFontSize || '';
+      t.style.opacity = '';
+      t.style.letterSpacing = '';
+    }
+  });
+}
+applyThemeStyles(stage.dataset.theme);
 document.querySelectorAll('#themes .opt').forEach(b=>{
   b.addEventListener('click', ()=>{
     document.querySelectorAll('#themes .opt').forEach(o=>o.classList.remove('on'));
     b.classList.add('on');
     stage.dataset.theme = b.dataset.t;
+    applyThemeStyles(b.dataset.t);
   });
 });
 
@@ -1544,12 +1568,22 @@ function buildSlotChrome(slot){
   const tools = document.createElement('div');
   tools.className = 'slot-tools';
   tools.innerHTML = `
-    <button data-tool="replace" title="Replace photo">↻</button>
-    <button data-tool="swap" title="Swap with another slot">⇄</button>
-    <button data-tool="reset" title="Reset position + size + rotation + crop">↺</button>
-    <button data-tool="clear" class="danger" title="Clear photo">×</button>
+    <button type="button" data-tool="replace" title="Replace photo">↻</button>
+    <button type="button" data-tool="swap" title="Swap with another slot">⇄</button>
+    <button type="button" data-tool="reset" title="Reset position + size + rotation + crop">↺</button>
+    <button type="button" data-tool="clear" class="danger" title="Clear photo">×</button>
   `;
   slot.appendChild(tools);
+  // Bind each tool button directly so clicks can't be eaten by anything
+  // upstream. Stop mousedown on the button to keep slot drag from
+  // triggering. handleToolClick lives below.
+  tools.querySelectorAll('button[data-tool]').forEach((btn) => {
+    btn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleToolClick(slot, btn.dataset.tool);
+    });
+  });
   const handle = document.createElement('div');
   handle.className = 'resize-handle';
   handle.title = 'Drag to resize';
@@ -1558,6 +1592,45 @@ function buildSlotChrome(slot){
   rot.className = 'rotate-handle';
   rot.title = 'Drag to rotate';
   slot.appendChild(rot);
+}
+
+// Tool action — replaces the previous document-level click delegation.
+function handleToolClick(slot, tool){
+  console.log('[garage] tool', tool, 'on', slot.dataset.slot);
+  if (!editMode) return;
+  if (tool === 'replace') {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*';
+    inp.onchange = () => { if (inp.files[0]) handleFile(inp.files[0], slot); };
+    inp.click();
+  } else if (tool === 'clear') {
+    delete stored[slot.dataset.slot];
+    try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch(e){}
+    slot.style.backgroundImage = '';
+    slot.classList.add('empty'); slot.textContent = 'drop image';
+    buildSlotChrome(slot);
+  } else if (tool === 'reset') {
+    const d = slotDefaults[slot.dataset.slot];
+    if (d) {
+      slot.style.left = d.left + 'px'; slot.style.top = d.top + 'px';
+      slot.style.width = d.width + 'px'; slot.style.height = d.height + 'px';
+      slot.style.transform = '';
+      slot.style.removeProperty('--rot');
+      slot.style.backgroundPosition = '';
+      delete savedDims[slot.dataset.slot];
+      try { localStorage.setItem('garage-slot-dims', JSON.stringify(savedDims)); } catch(e){}
+    }
+  } else if (tool === 'swap') {
+    if (swapSource && swapSource !== slot) {
+      doSwap(swapSource, slot);
+      clearSwap();
+    } else if (swapSource === slot) {
+      clearSwap();
+    } else {
+      swapSource = slot;
+      slot.classList.add('swap-source');
+    }
+  }
 }
 
 // 6. Edit-mode toggle + persistence.
@@ -1621,48 +1694,8 @@ function clearSwap(){
   });
   swapSource = null;
 }
-document.addEventListener('click', (e) => {
-  if (!editMode) return;
-  const toolBtn = e.target.closest('.slot-tools [data-tool]');
-  if (!toolBtn) return;
-  e.stopPropagation();
-  const slot = toolBtn.closest('.slot[data-slot]');
-  const tool = toolBtn.dataset.tool;
-  if (tool === 'replace') {
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = 'image/*';
-    inp.onchange = () => { if (inp.files[0]) handleFile(inp.files[0], slot); };
-    inp.click();
-  } else if (tool === 'clear') {
-    delete stored[slot.dataset.slot];
-    try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch(e){}
-    slot.style.backgroundImage = '';
-    slot.classList.add('empty'); slot.textContent = 'drop image';
-    // The tools/handle got wiped by textContent — rebuild.
-    rebuildSlotChrome(slot);
-  } else if (tool === 'reset') {
-    const d = slotDefaults[slot.dataset.slot];
-    if (d) {
-      slot.style.left = d.left + 'px'; slot.style.top = d.top + 'px';
-      slot.style.width = d.width + 'px'; slot.style.height = d.height + 'px';
-      slot.style.transform = '';   // restore the inline transform from HTML
-      slot.style.removeProperty('--rot');
-      slot.style.backgroundPosition = '';
-      delete savedDims[slot.dataset.slot];
-      try { localStorage.setItem('garage-slot-dims', JSON.stringify(savedDims)); } catch(e){}
-    }
-  } else if (tool === 'swap') {
-    if (swapSource && swapSource !== slot) {
-      doSwap(swapSource, slot);
-      clearSwap();
-    } else if (swapSource === slot) {
-      clearSwap();
-    } else {
-      swapSource = slot;
-      slot.classList.add('swap-source');
-    }
-  }
-});
+// Tool clicks are bound directly in buildSlotChrome (more reliable than
+// document-level delegation, which was being silently intercepted).
 
 // (Click-to-complete-swap is handled inside the mousedown dispatcher's
 // onUp branch when no drag movement happened.)
