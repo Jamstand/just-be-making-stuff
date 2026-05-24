@@ -933,12 +933,175 @@ app.post('/plaid/disconnect', async (req, res) => {
 
 // ── AI routes ─────────────────────────────────────────────────────────────────
 
+// ── Generative image editing providers ───────────────────────────────────────
+// Claude can't generate images, so generative edits route to a separate
+// vendor (Gemini / Replicate / OpenAI). Each adapter takes a base64 image
+// + a text prompt + an optional mask (white = area to change), returns a
+// new image as { mediaType, data }. Pricing & model defaults are read from
+// env vars so the user can swap without code changes.
+
+const GEN_PROVIDERS = {
+  gemini: {
+    envKey: 'GEMINI_API_KEY',
+    defaultModel: 'gemini-2.5-flash-image',
+    estCostUsd: 0.039,
+    label: 'Google Gemini Image',
+  },
+  replicate: {
+    envKey: 'REPLICATE_API_TOKEN',
+    defaultModel: 'black-forest-labs/flux-kontext-pro',
+    estCostUsd: 0.04,
+    label: 'Replicate',
+  },
+  openai: {
+    envKey: 'OPENAI_API_KEY',
+    defaultModel: 'gpt-image-1',
+    estCostUsd: 0.05,
+    label: 'OpenAI gpt-image-1',
+  },
+};
+
+function genProviderStatus() {
+  const out = {};
+  for (const [id, p] of Object.entries(GEN_PROVIDERS)) {
+    out[id] = {
+      ready: !!process.env[p.envKey],
+      model: process.env[`${id.toUpperCase()}_IMAGE_MODEL`] || p.defaultModel,
+      estCostUsd: p.estCostUsd,
+      label: p.label,
+    };
+  }
+  return out;
+}
+
+async function geminiEdit({ image, prompt, mask, mediaType }) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('GEMINI_API_KEY not set');
+  const model = process.env.GEMINI_IMAGE_MODEL || GEN_PROVIDERS.gemini.defaultModel;
+  const parts = [
+    { text: mask
+        ? `${prompt}\n\nThe attached mask marks (in white) the area you should change. Keep everything else identical.`
+        : prompt },
+    { inline_data: { mime_type: mediaType, data: image } },
+  ];
+  if (mask) parts.push({ inline_data: { mime_type: 'image/png', data: mask } });
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: { responseModalities: ['IMAGE'] },
+    }),
+  });
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  const data = await res.json();
+  const part = data.candidates?.[0]?.content?.parts?.find((p) => p.inline_data || p.inlineData);
+  const id = part?.inline_data || part?.inlineData;
+  if (!id?.data) throw new Error('Gemini returned no image');
+  return { mediaType: id.mime_type || id.mimeType || 'image/png', data: id.data };
+}
+
+async function replicateEdit({ image, prompt, mask, mediaType }) {
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) throw new Error('REPLICATE_API_TOKEN not set');
+  const model = process.env.REPLICATE_IMAGE_MODEL || GEN_PROVIDERS.replicate.defaultModel;
+  const input = {
+    prompt,
+    input_image: `data:${mediaType};base64,${image}`,
+    output_format: 'png',
+  };
+  if (mask) input.mask = `data:image/png;base64,${mask}`;
+
+  const createRes = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+    method: 'POST',
+    headers: {
+      'authorization': `Bearer ${token}`,
+      'content-type': 'application/json',
+      'prefer': 'wait=60',
+    },
+    body: JSON.stringify({ input }),
+  });
+  if (!createRes.ok) throw new Error(`Replicate ${createRes.status}: ${(await createRes.text()).slice(0, 400)}`);
+  let pred = await createRes.json();
+
+  const deadline = Date.now() + 180_000;
+  while ((pred.status === 'starting' || pred.status === 'processing') && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${pred.id}`, {
+      headers: { 'authorization': `Bearer ${token}` },
+    });
+    pred = await pollRes.json();
+  }
+  if (pred.status !== 'succeeded') throw new Error(`Replicate ${pred.status}: ${pred.error || 'timeout'}`);
+  const outUrl = Array.isArray(pred.output) ? pred.output[0] : pred.output;
+  if (typeof outUrl !== 'string') throw new Error('Replicate returned no image URL');
+  const imgRes = await fetch(outUrl);
+  if (!imgRes.ok) throw new Error(`Replicate output fetch ${imgRes.status}`);
+  const buf = Buffer.from(await imgRes.arrayBuffer());
+  return { mediaType: imgRes.headers.get('content-type') || 'image/png', data: buf.toString('base64') };
+}
+
+async function openaiEdit({ image, prompt, mask, mediaType }) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error('OPENAI_API_KEY not set');
+  const model = process.env.OPENAI_IMAGE_MODEL || GEN_PROVIDERS.openai.defaultModel;
+  const form = new FormData();
+  form.append('model', model);
+  form.append('prompt', prompt);
+  form.append('image', new Blob([Buffer.from(image, 'base64')], { type: mediaType }), 'image.png');
+  if (mask) form.append('mask', new Blob([Buffer.from(mask, 'base64')], { type: 'image/png' }), 'mask.png');
+  const res = await fetch('https://api.openai.com/v1/images/edits', {
+    method: 'POST',
+    headers: { 'authorization': `Bearer ${key}` },
+    body: form,
+  });
+  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  const data = await res.json();
+  const b64 = data.data?.[0]?.b64_json;
+  if (!b64) throw new Error('OpenAI returned no image');
+  return { mediaType: 'image/png', data: b64 };
+}
+
+app.post('/ai/photo-generate', async (req, res) => {
+  const { image, prompt, mask, provider } = req.body || {};
+  if (typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'image must be a data URL' });
+  }
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    return res.status(400).json({ error: 'prompt required' });
+  }
+  if (!GEN_PROVIDERS[provider]) {
+    return res.status(400).json({ error: `unknown provider: ${provider}` });
+  }
+  const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!m) return res.status(400).json({ error: 'invalid image data URL' });
+  let maskData;
+  if (mask) {
+    const mm = mask.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
+    if (!mm) return res.status(400).json({ error: 'invalid mask data URL' });
+    maskData = mm[1];
+  }
+  try {
+    const args = { image: m[2], prompt: prompt.trim(), mask: maskData, mediaType: m[1] };
+    let result;
+    if (provider === 'gemini') result = await geminiEdit(args);
+    else if (provider === 'replicate') result = await replicateEdit(args);
+    else if (provider === 'openai') result = await openaiEdit(args);
+    res.json({ image: `data:${result.mediaType};base64,${result.data}`, provider });
+  } catch (err) {
+    console.error('photo-generate error:', err.message);
+    res.status(500).json({ error: 'gen_failed', detail: err.message });
+  }
+});
+
 app.get('/ai/status', async (req, res) => {
+  const gen = genProviderStatus();
   if (AI_BACKEND === 'claude-code') {
     const ok = await checkClaudeCodeAvailable();
-    return res.json({ ready: ok, model: 'claude-code', backend: 'claude-code' });
+    return res.json({ ready: ok, model: 'claude-code', backend: 'claude-code', gen });
   }
-  res.json({ ready: anthropicReady(), model: AI_MODEL, backend: 'sdk' });
+  res.json({ ready: anthropicReady(), model: AI_MODEL, backend: 'sdk', gen });
 });
 
 app.post('/ai/detect', async (req, res) => {

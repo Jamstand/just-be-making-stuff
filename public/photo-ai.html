@@ -347,6 +347,86 @@
   .viewer .vactions .btn { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3); color: var(--cream); }
   .viewer .vactions .btn:hover { background: var(--cream); color: var(--ink); }
 
+  /* ── Generative edit modal ── */
+  .gen-modal {
+    position: fixed; inset: 0; z-index: 220;
+    background: rgba(31,31,30,0.78); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .gen-modal[hidden] { display: none; }
+  .gen-modal .panel {
+    background: var(--cream); border-radius: 14px;
+    padding: 22px; width: 100%; max-width: 720px; max-height: 92vh;
+    overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  .gen-modal h3 { font-family: 'Fraunces',serif; font-weight: 500; font-size: 22px; }
+  .gen-modal .sub { font-size: 12px; color: var(--muted); margin-top: -8px; }
+  .gen-modal .field-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--muted); font-weight: 500; margin-bottom: 4px;
+  }
+  .gen-modal .providers { display: flex; flex-wrap: wrap; gap: 6px; }
+  .gen-modal .provider-chip {
+    border: 1px solid var(--hair); background: var(--ivory); color: var(--ink);
+    border-radius: 999px; padding: 8px 14px; font-size: 12px; cursor: pointer;
+    font-family: inherit; display: flex; flex-direction: column; gap: 2px; line-height: 1.2;
+    min-width: 140px; text-align: left;
+  }
+  .gen-modal .provider-chip:hover:not(:disabled) { border-color: var(--coral); }
+  .gen-modal .provider-chip.on {
+    background: var(--ink); border-color: var(--ink); color: var(--cream);
+  }
+  .gen-modal .provider-chip:disabled {
+    opacity: 0.5; cursor: not-allowed;
+  }
+  .gen-modal .provider-chip .cost { font-size: 10px; opacity: 0.7; font-family: 'JetBrains Mono', monospace; }
+  .gen-modal textarea {
+    min-height: 70px; font-family: inherit; font-size: 13px;
+  }
+  .gen-modal .mask-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--char); cursor: pointer; user-select: none;
+  }
+  .gen-modal .mask-toggle input { accent-color: var(--coral); }
+  .gen-modal .mask-painter {
+    position: relative; width: 100%; max-width: 600px;
+    margin: 0 auto; background: var(--ink); border-radius: 8px; overflow: hidden;
+    aspect-ratio: 4 / 3;
+  }
+  .gen-modal .mask-painter img,
+  .gen-modal .mask-painter canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  }
+  .gen-modal .mask-painter canvas {
+    opacity: 0.55; cursor: crosshair; touch-action: none;
+  }
+  .gen-modal .mask-controls {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 12px; color: var(--char);
+  }
+  .gen-modal .mask-controls input[type=range] { width: 140px; }
+  .gen-modal .actions-row {
+    display: flex; gap: 8px; justify-content: flex-end;
+    margin-top: 4px; flex-wrap: wrap;
+  }
+  .gen-modal .est-cost {
+    font-size: 13px; color: var(--char); padding: 8px 12px;
+    background: rgba(204,120,92,0.10); border-radius: 8px;
+    border: 1px solid rgba(204,120,92,0.25);
+  }
+  .gen-modal .est-cost b { font-family: 'JetBrains Mono', monospace; }
+  .gen-modal .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--hair); border-top-color: var(--coral);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: -2px; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Gen badge on cards that were generatively edited (distinguishes from filter grades). */
+  .card .badge.gen { background: rgba(83, 60, 156, 0.9); }
+
   .toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
     background: var(--ink); color: var(--cream);
@@ -503,6 +583,48 @@
 </div>
 
 <div id="toast" class="toast"></div>
+
+<div class="gen-modal" id="genModal" hidden>
+  <div class="panel">
+    <div>
+      <h3>Generative edit</h3>
+      <p class="sub" id="genSub">Repaints pixels in the image. Counts against the chosen provider's API (not your Claude Max plan).</p>
+    </div>
+
+    <div>
+      <div class="field-label">Provider</div>
+      <div class="providers" id="genProviders"></div>
+    </div>
+
+    <div>
+      <div class="field-label">What to change</div>
+      <textarea id="genPrompt" placeholder="e.g. remove the reflections on the car hood; replace the sky with a sunset; clean up the windscreen"></textarea>
+    </div>
+
+    <label class="mask-toggle">
+      <input type="checkbox" id="genMaskToggle">
+      <span>Add a mask — paint over the area you want changed (more precise)</span>
+    </label>
+
+    <div class="mask-painter" id="genMaskPainter" hidden>
+      <img id="genMaskImg" alt="">
+      <canvas id="genMaskCanvas"></canvas>
+    </div>
+    <div class="mask-controls" id="genMaskControls" hidden>
+      <label>Brush <input type="range" id="genBrushSize" min="6" max="120" value="40"></label>
+      <button class="btn ghost" id="genMaskClear">Clear mask</button>
+    </div>
+
+    <div class="est-cost" id="genCostRow">
+      Estimated cost: <b id="genCost">$0.04</b> per edit. The provider bills you directly via their API key.
+    </div>
+
+    <div class="actions-row">
+      <button class="btn ghost" id="genCancel">Cancel</button>
+      <button class="btn coral" id="genConfirm">Generate</button>
+    </div>
+  </div>
+</div>
 
 <script type="module">
 import { FilesetResolver, ImageSegmenter } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
@@ -1212,6 +1334,9 @@ async function persistPhoto(photo) {
       look: photo.look || null,
       prompt: photo._prompt || '',
       timestamp: photo._timestamp || Date.now(),
+      genBlob: photo.genBlob || null,
+      genProvider: photo.genProvider || null,
+      genPrompt: photo.genPrompt || null,
     });
   } catch (err) { console.warn('photo persist failed:', err); }
 }
@@ -1247,6 +1372,250 @@ function setView(view) {
   });
 })();
 
+// ── /ai/status global cache + gen-provider availability ─────────────────────
+let aiStatus = null;
+function anyGenProviderReady() {
+  return aiStatus && aiStatus.gen && Object.values(aiStatus.gen).some((g) => g.ready);
+}
+
+// ── Generative edit modal (Gemini / Replicate / OpenAI) ─────────────────────
+const genModal = {
+  el: $('genModal'),
+  photo: null,
+  provider: null,
+  hasMask: false,
+  busy: false,
+};
+
+function openGenModal(photo) {
+  if (!anyGenProviderReady()) {
+    toast('no generative provider configured — set GEMINI_API_KEY, OPENAI_API_KEY, or REPLICATE_API_TOKEN');
+    return;
+  }
+  genModal.photo = photo;
+  genModal.hasMask = false;
+  genModal.busy = false;
+  $('genPrompt').value = '';
+  $('genMaskToggle').checked = false;
+  $('genMaskPainter').hidden = true;
+  $('genMaskControls').hidden = true;
+  renderGenProviders();
+  $('genConfirm').disabled = false;
+  $('genConfirm').innerHTML = 'Generate';
+  genModal.el.hidden = false;
+  setTimeout(() => $('genPrompt').focus(), 50);
+}
+function closeGenModal() {
+  if (genModal.busy) return;
+  genModal.el.hidden = true;
+  genModal.photo = null;
+}
+
+function renderGenProviders() {
+  const wrap = $('genProviders');
+  wrap.innerHTML = '';
+  const providers = aiStatus?.gen || {};
+  // Pre-select the first ready provider.
+  if (!genModal.provider || !providers[genModal.provider]?.ready) {
+    genModal.provider = Object.entries(providers).find(([, p]) => p.ready)?.[0] || null;
+  }
+  for (const [id, p] of Object.entries(providers)) {
+    const btn = document.createElement('button');
+    btn.className = 'provider-chip' + (id === genModal.provider ? ' on' : '');
+    btn.disabled = !p.ready;
+    btn.dataset.provider = id;
+    btn.innerHTML = `
+      <span>${p.label}</span>
+      <span class="cost">${p.ready ? '~$' + p.estCostUsd.toFixed(2) + ' / edit' : 'API key not set'}</span>
+    `;
+    btn.addEventListener('click', () => {
+      genModal.provider = id;
+      renderGenProviders();
+      updateGenCost();
+    });
+    wrap.appendChild(btn);
+  }
+  updateGenCost();
+}
+function updateGenCost() {
+  const p = aiStatus?.gen?.[genModal.provider];
+  $('genCost').textContent = p ? '$' + p.estCostUsd.toFixed(2) : '—';
+}
+
+// Mask painter — draws onto a 2nd canvas overlaying the photo. White strokes
+// = "change this area". The black background = "keep as-is".
+const maskPainter = {
+  canvas: $('genMaskCanvas'),
+  ctx: null,
+  drawing: false,
+  brush: 40,
+  last: null,
+};
+function initMaskPainter() {
+  maskPainter.ctx = maskPainter.canvas.getContext('2d');
+  $('genBrushSize').addEventListener('input', (e) => { maskPainter.brush = +e.target.value; });
+  $('genMaskClear').addEventListener('click', clearMask);
+  const c = maskPainter.canvas;
+  const pos = (e) => {
+    const r = c.getBoundingClientRect();
+    const ev = e.touches ? e.touches[0] : e;
+    return {
+      x: (ev.clientX - r.left) * (c.width / r.width),
+      y: (ev.clientY - r.top) * (c.height / r.height),
+    };
+  };
+  const start = (e) => { e.preventDefault(); maskPainter.drawing = true; maskPainter.last = pos(e); paintAt(maskPainter.last); };
+  const move = (e) => {
+    if (!maskPainter.drawing) return;
+    e.preventDefault();
+    const p = pos(e);
+    paintLine(maskPainter.last, p);
+    maskPainter.last = p;
+  };
+  const end = () => { maskPainter.drawing = false; maskPainter.last = null; };
+  c.addEventListener('mousedown', start); c.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  c.addEventListener('touchstart', start); c.addEventListener('touchmove', move);
+  window.addEventListener('touchend', end);
+}
+function setMaskFor(img) {
+  // Match the mask canvas to the image's intrinsic size (scaled down if huge,
+  // so painting stays cheap). Always smaller of 1024 or natural width.
+  const maxDim = 1024;
+  const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+  maskPainter.canvas.width = Math.round(img.naturalWidth * scale);
+  maskPainter.canvas.height = Math.round(img.naturalHeight * scale);
+  clearMask();
+}
+function clearMask() {
+  if (!maskPainter.ctx) return;
+  maskPainter.ctx.fillStyle = '#000';
+  maskPainter.ctx.fillRect(0, 0, maskPainter.canvas.width, maskPainter.canvas.height);
+}
+function paintAt(p) {
+  const ctx = maskPainter.ctx;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(p.x, p.y, maskPainter.brush / 2, 0, Math.PI * 2); ctx.fill();
+}
+function paintLine(a, b) {
+  const ctx = maskPainter.ctx;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = maskPainter.brush;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+}
+function maskHasContent() {
+  const ctx = maskPainter.ctx;
+  if (!ctx) return false;
+  const data = ctx.getImageData(0, 0, maskPainter.canvas.width, maskPainter.canvas.height).data;
+  // Sample every 200th pixel for speed.
+  for (let i = 0; i < data.length; i += 800) if (data[i] > 30) return true;
+  return false;
+}
+initMaskPainter();
+
+$('genMaskToggle').addEventListener('change', (e) => {
+  const on = e.target.checked;
+  $('genMaskPainter').hidden = !on;
+  $('genMaskControls').hidden = !on;
+  if (on && genModal.photo) {
+    $('genMaskImg').src = genModal.photo.originalUrl;
+    setMaskFor(genModal.photo.img);
+  }
+});
+
+$('genCancel').addEventListener('click', closeGenModal);
+genModal.el.addEventListener('click', (e) => { if (e.target === genModal.el) closeGenModal(); });
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !genModal.el.hidden && !genModal.busy) closeGenModal();
+});
+
+$('genConfirm').addEventListener('click', async () => {
+  if (genModal.busy) return;
+  const photo = genModal.photo;
+  if (!photo) return;
+  const prompt = $('genPrompt').value.trim();
+  if (!prompt) { toast('describe what to change first'); return; }
+  if (!genModal.provider) { toast('pick a provider'); return; }
+  const useMask = $('genMaskToggle').checked && maskHasContent();
+  const p = aiStatus.gen[genModal.provider];
+  // Inline confirm step — switch button to a confirm-cost state on first click,
+  // commit on second. Keeps the modal from spawning a separate confirm modal.
+  const confirmBtn = $('genConfirm');
+  if (!confirmBtn.dataset.armed) {
+    confirmBtn.dataset.armed = '1';
+    confirmBtn.textContent = `Confirm — bill $${p.estCostUsd.toFixed(2)} to ${p.label}`;
+    setTimeout(() => {
+      // Disarm after 5s if not clicked, so we don't trap the user in confirm mode.
+      if (confirmBtn.dataset.armed === '1' && !genModal.busy) {
+        delete confirmBtn.dataset.armed;
+        confirmBtn.textContent = 'Generate';
+      }
+    }, 5000);
+    return;
+  }
+  delete confirmBtn.dataset.armed;
+  genModal.busy = true;
+  confirmBtn.disabled = true;
+  confirmBtn.innerHTML = '<span class="spinner"></span>Generating…';
+  setBadge(photo, 'busy', 'Generating…');
+
+  try {
+    const dataUrl = await blobToDataUrl(photo.file);
+    const body = { image: dataUrl, prompt, provider: genModal.provider };
+    if (useMask) body.mask = maskPainter.canvas.toDataURL('image/png');
+    const res = await fetch('/ai/photo-generate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'request failed');
+    await applyGeneratedImage(photo, data.image, genModal.provider, prompt);
+    closeGenModalForce();
+  } catch (err) {
+    setBadge(photo, 'err', 'Failed');
+    photo.card.querySelector('.cap').textContent = (err.message || 'failed').slice(0, 80);
+    genModal.busy = false;
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = 'Generate';
+    toast(err.message || 'generation failed');
+  }
+});
+function closeGenModalForce() {
+  genModal.busy = false;
+  $('genConfirm').disabled = false;
+  $('genConfirm').textContent = 'Generate';
+  genModal.el.hidden = true;
+  genModal.photo = null;
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function applyGeneratedImage(photo, dataUrl, provider, prompt) {
+  const blob = await (await fetch(dataUrl)).blob();
+  const img = await loadImage(URL.createObjectURL(blob));
+  // Paint onto the card's canvas at the generated image's natural size.
+  photo.canvas.width = img.naturalWidth;
+  photo.canvas.height = img.naturalHeight;
+  photo.canvas.getContext('2d').drawImage(img, 0, 0);
+  photo.genBlob = blob;
+  photo.genProvider = provider;
+  photo.genPrompt = prompt;
+  // Clear filter look so download/canvas state matches what's shown.
+  photo.look = null;
+  photo.card.querySelector('.cap').textContent = `edited by ${provider} — ${prompt.slice(0, 60)}`;
+  setBadge(photo, 'gen', `${provider}`);
+  persistPhoto(photo);
+}
+
 function downscaleDataUrl(img, maxW = 768) {
   const scale = Math.min(1, maxW / img.naturalWidth);
   const w = Math.round(img.naturalWidth * scale);
@@ -1281,6 +1650,7 @@ function makeCard(photo) {
       <div class="actions">
         <button class="btn ghost" data-action="toggle">Show original</button>
         <button class="btn coral" data-action="download">Download</button>
+        <button class="btn ghost" data-action="gen" hidden>Gen edit</button>
         <button class="btn ghost" data-action="remove">Remove</button>
       </div>
       <div class="reprompt">
@@ -1292,11 +1662,14 @@ function makeCard(photo) {
   card.querySelector('.filename').textContent = photo.file.name;
   card.querySelector('.orig').src = photo.originalUrl;
   photo.canvas = card.querySelector('canvas.edited');
+  // The Gen edit button stays hidden until /ai/status confirms at least one
+  // provider has its API key configured.
+  if (anyGenProviderReady()) card.querySelector('[data-action="gen"]').hidden = false;
 
   card.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (action === 'view') {
-      if (photo.status === 'done') openViewer(photo);
+      if (photo.status === 'done' || photo.status === 'gen') openViewer(photo);
     } else if (action === 'toggle') {
       card.classList.toggle('show-orig');
       e.target.textContent = card.classList.contains('show-orig') ? 'Show edited' : 'Show original';
@@ -1307,6 +1680,8 @@ function makeCard(photo) {
     } else if (action === 'redo') {
       const input = card.querySelector('.reprompt input');
       enqueue(photo, input.value.trim());
+    } else if (action === 'gen') {
+      openGenModal(photo);
     }
   });
 
@@ -1319,8 +1694,9 @@ function setBadge(photo, status, label) {
   const b = photo.card.querySelector('.badge');
   b.className = 'badge ' + status;
   b.textContent = label;
-  // Show original/Download only make sense once there's an edited image.
-  const hasEdit = status === 'done';
+  // Show original/Download only make sense once there's an edited image
+  // (either a filter grade with status 'done', or a generative edit, 'gen').
+  const hasEdit = status === 'done' || status === 'gen';
   photo.card.querySelector('[data-action="toggle"]').hidden = !hasEdit;
   photo.card.querySelector('[data-action="download"]').hidden = !hasEdit;
 }
@@ -1423,7 +1799,7 @@ function refreshBatchControls() {
 }
 
 function downloadPhoto(photo) {
-  if (photo.status !== 'done' || !photo.canvas) { toast('not edited yet'); return; }
+  if (!photo.canvas || (photo.status !== 'done' && photo.status !== 'gen')) { toast('not edited yet'); return; }
   const link = document.createElement('a');
   const base = photo.file.name.replace(/\.[^.]+$/, '');
   link.download = `${base}-edited.png`;
@@ -1458,7 +1834,22 @@ async function restorePhotos() {
     };
     photos.push(photo);
     makeCard(photo);
-    if (rec.look) {
+    if (rec.genBlob) {
+      // Generative result wins over filter look on restore.
+      photo.genBlob = rec.genBlob;
+      photo.genProvider = rec.genProvider || 'unknown';
+      photo.genPrompt = rec.genPrompt || '';
+      try {
+        const genImg = await loadImage(URL.createObjectURL(rec.genBlob));
+        photo.canvas.width = genImg.naturalWidth;
+        photo.canvas.height = genImg.naturalHeight;
+        photo.canvas.getContext('2d').drawImage(genImg, 0, 0);
+        photo.card.querySelector('.cap').textContent = `edited by ${photo.genProvider} — ${(photo.genPrompt || '').slice(0, 60)}`;
+        setBadge(photo, 'gen', photo.genProvider);
+      } catch {
+        setBadge(photo, 'err', 'Failed');
+      }
+    } else if (rec.look) {
       photo.look = { ...NEUTRAL, ...rec.look };
       renderStill(photo.img, photo.look, photo.canvas);
       photo.card.querySelector('.cap').textContent = photo.look.caption || 'edited';
@@ -1565,6 +1956,7 @@ viewerOrigBtn.addEventListener('touchend', () => setShowOrig(false));
 fetch('/ai/status')
   .then((r) => r.json())
   .then((s) => {
+    aiStatus = s;
     const tag = $('backendTag');
     if (s.backend === 'claude-code') tag.textContent = s.ready ? 'via Claude Max plan' : 'claude-code CLI not found';
     else tag.textContent = s.ready ? 'via Anthropic SDK' : 'set ANTHROPIC_API_KEY';
@@ -1577,6 +1969,11 @@ fetch('/ai/status')
       $('batchPrompt').disabled = false;
     } else {
       lockForSetup();
+    }
+    // Reveal "Gen edit" on any cards that were rendered before /ai/status
+    // resolved (e.g. restored from IDB).
+    if (anyGenProviderReady()) {
+      document.querySelectorAll('.card [data-action="gen"]').forEach((b) => { b.hidden = false; });
     }
   })
   .catch(() => { lockForSetup(); });
