@@ -294,9 +294,13 @@
   .card .reprompt button { padding: 4px 8px; font-size: 10px; }
   .card.needs-setup .reprompt { display: none; }
 
-  /* List view — horizontal cards. */
+  /* List view — horizontal cards. flex-shrink: 0 stops the column-flex
+     parent from squashing tall cards (wrapped action buttons + reprompt)
+     when the gallery's overflow-y: auto would otherwise let them grow
+     and scroll. align-items: flex-start so the thumbnail stays at 64×64
+     and meta drives the card's natural height. */
   .batch-grid.view-list .card {
-    flex-direction: row; align-items: stretch;
+    flex-direction: row; align-items: flex-start; flex-shrink: 0;
   }
   .batch-grid.view-list .card .compare {
     width: 64px; height: 64px; flex: 0 0 64px; border-radius: 0;
