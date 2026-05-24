@@ -331,7 +331,22 @@
     cursor: pointer;
     flex-shrink: 0;
   }
-  .drop-prompt-row { flex-shrink: 0; }
+  .drop-prompt-row {
+    width: 100%; max-width: 920px; display: flex; gap: 8px;
+    flex-wrap: wrap; align-items: center;
+  }
+  .drop-prompt-row input {
+    /* width: auto overrides the base 'input[type=text] { width: 100% }'
+       which otherwise made the input take the whole row and push the
+       Auto-denoise / view-toggle / Re-edit / Clear off the right edge. */
+    flex: 1 1 220px; width: auto; min-width: 180px;
+    min-height: 0; padding: 8px 12px;
+  }
+  /* Group the action chips together so when the row wraps they stay
+     adjacent instead of scattering one per line. */
+  .drop-prompt-row .controls {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
 
   /* Claude's read of the photo — sits under the filename */
   .card .analysis {
@@ -377,20 +392,10 @@
   @keyframes variantShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
   /* In list view the strip sits inline with the rest of the meta. */
   .batch-grid.view-list .card .variants { margin-top: 4px; }
-  .drop-prompt-row input {
-    flex: 1; min-width: 180px;
-    /* Override the base textarea/input min-height: 60px so this single-line
-       prompt input stays a normal text-field height instead of rendering as
-       a tall pill when the row gets squeezed. */
-    min-height: 0; padding: 8px 12px;
-  }
   .drop-zone.dragover { border-color: var(--coral); background: var(--paper); }
   .drop-zone h2 { font-family: 'Fraunces',serif; font-weight: 500; font-size: 22px; }
   .drop-zone p { color: var(--muted); font-size: 13px; }
   .drop-zone .or { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; }
-  .drop-prompt-row {
-    width: 100%; max-width: 720px; display: flex; gap: 8px;
-  }
 
   .batch-grid {
     width: 100%; gap: 12px;
@@ -736,20 +741,22 @@
     <div class="mode-pane" id="dropMode" hidden>
       <div class="drop-prompt-row">
         <input type="text" id="batchPrompt" placeholder="(optional) describe a look to apply to every photo — leave blank to let Claude auto-style each one" disabled>
-        <label class="auto-toggle" title="When off, dropped photos sit untouched until you click Redo or Re-edit all.">
-          <input type="checkbox" id="autoEditToggle" checked>
-          <span>Auto-grade on drop</span>
-        </label>
-        <label class="auto-toggle" title="Bakes a subtle blur into the render to soften sensor noise. Light touch — safe to leave on.">
-          <input type="checkbox" id="denoiseToggle" checked>
-          <span>Auto-denoise</span>
-        </label>
-        <div class="view-toggle" role="tablist" aria-label="View mode">
-          <button class="view-btn on" data-view="grid" title="Grid view" aria-label="Grid view">▦</button>
-          <button class="view-btn" data-view="list" title="List view" aria-label="List view">☰</button>
+        <div class="controls">
+          <label class="auto-toggle" title="When off, dropped photos sit untouched until you click Redo or Re-edit all.">
+            <input type="checkbox" id="autoEditToggle" checked>
+            <span>Auto-grade on drop</span>
+          </label>
+          <label class="auto-toggle" title="Bakes a subtle blur into the render to soften sensor noise. Light touch — safe to leave on.">
+            <input type="checkbox" id="denoiseToggle" checked>
+            <span>Auto-denoise</span>
+          </label>
+          <div class="view-toggle" role="tablist" aria-label="View mode">
+            <button class="view-btn on" data-view="grid" title="Grid view" aria-label="Grid view">▦</button>
+            <button class="view-btn" data-view="list" title="List view" aria-label="List view">☰</button>
+          </div>
+          <button id="reeditAll" class="btn ghost" disabled>Re-edit all</button>
+          <button id="clearAll" class="btn ghost" disabled title="Remove all saved photos">Clear</button>
         </div>
-        <button id="reeditAll" class="btn ghost" disabled>Re-edit all</button>
-        <button id="clearAll" class="btn ghost" disabled title="Remove all saved photos">Clear</button>
       </div>
       <div class="drop-zone" id="dropZone">
         <h2 class="serif">Drop photos here</h2>
