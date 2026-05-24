@@ -1500,6 +1500,8 @@ function softenDarkLook(look, hasUserPrompt) {
 }
 
 app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', 'photo-ai.html')));
+app.get('/lumen', (req, res) => res.sendFile(path.join(__dirname, 'public', 'lumen.html')));
+app.get('/aperture', (req, res) => res.sendFile(path.join(__dirname, 'public', 'aperture.html')));
 
 // ── Compose (auto-group photos into Instagram-ready sets) ────────────────────
 // Sends a batch of thumbnails to Claude with vision and asks for:

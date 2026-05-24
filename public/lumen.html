@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>photo·ai — Lumen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #f4f0e8;
+    --paper: #faf7f1;
+    --ink:   #1c1a16;
+    --ink2:  #3a3630;
+    --mute:  #7a7268;
+    --rule:  rgba(28,26,22,0.12);
+    --sage:  #2f4a3c;
+    --sage2: #4a6a5a;
+    --warm:  #c4622e;
+    --serif: 'Instrument Serif', 'Times New Roman', serif;
+    --sans:  'Inter Tight', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  body { min-height: 100vh; }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; cursor: pointer; }
+
+  /* ── LANDING ───────────────────────────────────────────────────────────── */
+  .landing { min-height: 100vh; display: flex; flex-direction: column; }
+  .top-rule {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 56px; border-bottom: 1px solid var(--rule);
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute);
+  }
+  nav.lumen-nav {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 22px 56px;
+  }
+  .logo { display: flex; align-items: baseline; gap: 10px; }
+  .logo .word { font-family: var(--serif); font-size: 30px; line-height: 1; }
+  .logo .word.it { font-style: italic; }
+  .logo .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--warm); display: inline-block; transform: translateY(-4px); }
+  .nav-links { display: flex; gap: 36px; font-size: 14px; color: var(--ink2); }
+  .nav-actions { display: flex; gap: 12px; align-items: center; }
+  .nav-actions .sign { font-size: 14px; color: var(--ink2); }
+
+  .btn-pill {
+    background: var(--ink); color: var(--cream); border: 0;
+    padding: 10px 18px; border-radius: 999px; font-size: 13px; letter-spacing: 0.02em;
+  }
+  .btn-pill.lg { padding: 16px 28px; font-size: 15px; display: inline-flex; align-items: center; gap: 10px; }
+  .btn-ghost {
+    background: transparent; color: var(--ink); border: 1px solid var(--rule);
+    padding: 16px 22px; border-radius: 999px; font-size: 15px;
+  }
+
+  .hero {
+    flex: 1; display: grid; grid-template-columns: 1.05fr 1fr;
+    padding: 40px 56px 32px; gap: 56px; position: relative;
+  }
+  .hero-left { display: flex; flex-direction: column; justify-content: space-between; gap: 40px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--sage);
+    margin-bottom: 32px; display: flex; align-items: center; gap: 12px;
+  }
+  .eyebrow::before { content: ''; width: 24px; height: 1px; background: var(--sage); display: inline-block; }
+  h1.headline {
+    font-family: var(--serif); font-size: 116px; line-height: 0.92; font-weight: 400;
+    letter-spacing: -0.02em; margin: 0; color: var(--ink); text-wrap: pretty;
+  }
+  h1.headline .finished { font-style: italic; color: var(--sage); }
+  h1.headline .dot { color: var(--warm); }
+  .lede { font-size: 17px; line-height: 1.5; color: var(--ink2); max-width: 460px; margin-top: 32px; }
+  .cta-row { display: flex; gap: 12px; margin-bottom: 28px; }
+  .legalese { display: flex; gap: 32px; font-size: 12px; color: var(--mute); letter-spacing: 0.04em; }
+
+  /* Hero plate */
+  .plate { position: relative; display: flex; flex-direction: column; gap: 16px; min-height: 480px; }
+  .plate-frame { position: relative; flex: 1; border-radius: 4px; overflow: hidden; background: #222; min-height: 420px; }
+  .plate-frame img { width: 100%; height: 100%; object-fit: cover; display: block; filter: contrast(1.04) saturate(1.05); }
+  .plate-divider { position: absolute; top: 0; left: 52%; bottom: 0; width: 1px; background: rgba(255,255,255,0.85); }
+  .plate-handle {
+    position: absolute; top: 50%; left: 52%; transform: translate(-50%,-50%);
+    width: 36px; height: 36px; border-radius: 50%; background: var(--cream);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  }
+  .plate-label { position: absolute; color: #fff; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.9; }
+  .plate-label.before { left: 16px; bottom: 14px; opacity: 0.85; }
+  .plate-label.after  { right: 16px; bottom: 14px; }
+
+  .plate-meta { display: grid; grid-template-columns: 1fr auto auto auto; gap: 18px; align-items: end; padding-top: 4px; }
+  .plate-meta .label { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mute); margin-bottom: 6px; }
+  .plate-meta .title { font-family: var(--serif); font-style: italic; font-size: 22px; line-height: 1.1; }
+  .meta-cell { text-align: right; font-size: 11px; color: var(--mute); letter-spacing: 0.1em; }
+  .meta-cell .v { color: var(--ink); font-size: 13px; letter-spacing: 0; font-weight: 500; }
+
+  .feature-strip {
+    border-top: 1px solid var(--rule);
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    padding: 22px 56px; gap: 24px;
+  }
+  .feature { display: flex; gap: 14px; align-items: flex-start; }
+  .feature .num { font-family: var(--serif); font-style: italic; font-size: 22px; color: var(--warm); line-height: 1; }
+  .feature .t { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+  .feature .d { font-size: 12px; color: var(--mute); line-height: 1.5; }
+
+  /* Drop overlay when dragging files anywhere on landing */
+  .drop-overlay {
+    position: fixed; inset: 0; background: rgba(28,26,22,0.85); color: var(--cream);
+    display: none; align-items: center; justify-content: center; z-index: 200;
+    font-family: var(--serif); font-style: italic; font-size: 64px;
+  }
+  body.dragging .drop-overlay { display: flex; }
+
+  /* ── WORKSPACE ─────────────────────────────────────────────────────────── */
+  .workspace {
+    display: none; width: 100%; height: 100vh;
+    background: var(--cream); color: var(--ink);
+    grid-template-columns: 230px 1fr 320px;
+    grid-template-rows: 52px 1fr 36px;
+    overflow: hidden;
+  }
+  body.in-workspace .workspace { display: grid; }
+  body.in-workspace .landing { display: none; }
+
+  .ws-header {
+    grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; border-bottom: 1px solid var(--rule); background: var(--paper);
+  }
+  .ws-header-left { display: flex; align-items: center; gap: 18px; }
+  .ws-logo { display: flex; align-items: baseline; gap: 6px; }
+  .ws-logo .word { font-family: var(--serif); font-size: 22px; line-height: 1; }
+  .ws-logo .word.it { font-style: italic; }
+  .ws-logo .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--warm); display: inline-block; transform: translateY(-3px); }
+  .ws-divider { width: 1px; height: 18px; background: var(--rule); }
+  .ws-filename { font-size: 13px; color: var(--ink2); display: flex; align-items: center; gap: 8px; }
+  .ws-filename .label { color: var(--mute); }
+  .ws-filename .name { font-family: var(--serif); font-style: italic; font-size: 17px; }
+  .ws-filename .badge {
+    font-size: 10px; color: var(--warm); border: 1px solid var(--warm);
+    padding: 2px 6px; border-radius: 999px; letter-spacing: 0.1em;
+  }
+  .ws-header-right { display: flex; align-items: center; gap: 8px; }
+  .icon-btn {
+    width: 30px; height: 30px; border: 0; background: transparent;
+    border-radius: 6px; color: var(--ink2);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pill-btn {
+    background: var(--ink); color: var(--cream); border: 0;
+    padding: 8px 14px; border-radius: 999px; font-size: 13px;
+  }
+  .pill-btn.ghost { background: transparent; color: var(--ink); }
+
+  .ws-side-left {
+    border-right: 1px solid var(--rule); padding: 18px 14px;
+    display: flex; flex-direction: column; gap: 14px;
+    background: var(--cream); overflow: hidden;
+  }
+  .ws-side-label {
+    font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--mute); padding: 0 4px; display: flex; justify-content: space-between;
+  }
+  .roll-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; overflow-y: auto; }
+  .roll-tile {
+    aspect-ratio: 1; border-radius: 3px; overflow: hidden; position: relative;
+    box-shadow: 0 0 0 1px var(--rule); cursor: pointer;
+  }
+  .roll-tile.active { box-shadow: 0 0 0 1.5px var(--ink); }
+  .roll-tile img, .roll-tile canvas { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .roll-tile .now {
+    position: absolute; top: 4px; left: 4px;
+    background: var(--ink); color: var(--cream); font-size: 8px;
+    padding: 2px 5px; border-radius: 2px; letter-spacing: 0.1em;
+  }
+  .credits {
+    margin-top: auto; padding: 12px 4px; border-top: 1px solid var(--rule);
+    font-size: 11px; color: var(--mute); line-height: 1.5;
+  }
+  .credits-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .credits-row .v { color: var(--ink); font-weight: 500; }
+  .credits-bar { height: 2px; background: var(--rule); border-radius: 1px; overflow: hidden; }
+  .credits-bar .fill { width: 84%; height: 100%; background: var(--sage); }
+
+  .ws-canvas {
+    background: #1c1a16; display: flex; align-items: center; justify-content: center;
+    position: relative; padding: 40px;
+  }
+  .canvas-frame {
+    position: relative; max-width: 100%; max-height: 100%;
+    background: #000; box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .canvas-frame img, .canvas-frame canvas {
+    display: block; max-width: 100%; max-height: calc(100vh - 240px);
+    width: auto; height: auto;
+  }
+  .canvas-guides { position: absolute; inset: 0; pointer-events: none; }
+  .canvas-guides .h { position: absolute; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.18); }
+  .canvas-guides .v { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.18); }
+  .corner {
+    position: absolute; width: 10px; height: 10px;
+    border: 0 solid var(--warm);
+  }
+  .corner.tl { top: -1px; left: -1px; border-top-width: 2px; border-left-width: 2px; }
+  .corner.tr { top: -1px; right: -1px; border-top-width: 2px; border-right-width: 2px; }
+  .corner.bl { bottom: -1px; left: -1px; border-bottom-width: 2px; border-left-width: 2px; }
+  .corner.br { bottom: -1px; right: -1px; border-bottom-width: 2px; border-right-width: 2px; }
+
+  .tool-dock {
+    position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 4px; background: var(--paper); padding: 6px; border-radius: 999px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.06);
+  }
+  .tool-dock button {
+    width: 36px; height: 36px; border-radius: 50%; background: transparent;
+    color: var(--ink2); border: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .tool-dock button.on { background: var(--ink); color: var(--cream); }
+
+  .ws-side-right {
+    border-left: 1px solid var(--rule); padding: 22px;
+    display: flex; flex-direction: column; gap: 22px;
+    background: var(--cream); overflow: auto;
+  }
+  .active-tool .lbl { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--mute); margin-bottom: 10px; }
+  .active-tool .title { font-family: var(--serif); font-size: 36px; line-height: 1; }
+  .active-tool .title .accent { font-style: italic; color: var(--sage); }
+  .active-tool .meta { font-size: 13px; color: var(--ink2); margin-top: 8px; line-height: 1.5; }
+
+  .knob-label { font-size: 11px; color: var(--ink2); margin-bottom: 8px; display: flex; justify-content: space-between; }
+  .knob-label .v { font-variant-numeric: tabular-nums; }
+  .knob-label .on { color: var(--sage); font-weight: 500; }
+  .factor-row { display: flex; gap: 6px; }
+  .factor-row .f {
+    flex: 1; text-align: center; padding: 8px 0; background: transparent;
+    color: var(--ink2); border: 1px solid var(--rule); border-radius: 4px;
+    font-size: 13px;
+  }
+  .factor-row .f.on { background: var(--ink); color: var(--cream); border-color: var(--ink); font-weight: 600; }
+
+  .slider { height: 4px; background: var(--rule); border-radius: 2px; position: relative; }
+  .slider .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; }
+  .slider .knob {
+    position: absolute; top: 50%; transform: translate(-50%,-50%);
+    width: 14px; height: 14px; border-radius: 50%; background: var(--paper);
+  }
+
+  .history { border-top: 1px solid var(--rule); padding-top: 18px; }
+  .history-label { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--mute); margin-bottom: 12px; }
+  .history-row {
+    display: flex; justify-content: space-between; padding: 8px 0;
+    border-bottom: 1px solid var(--rule); font-size: 13px;
+  }
+  .history-row .nm { display: flex; align-items: center; gap: 8px; }
+  .history-row .nm .d { width: 6px; height: 6px; border-radius: 50%; background: var(--rule); }
+  .history-row.active .nm .d { background: var(--warm); }
+  .history-row .t { color: var(--mute); font-variant-numeric: tabular-nums; }
+
+  .apply-btn {
+    margin-top: auto;
+    background: var(--ink); color: var(--cream); border: 0;
+    padding: 14px 18px; border-radius: 999px; font-size: 14px;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .apply-btn:disabled { opacity: 0.5; }
+
+  .ws-status {
+    grid-column: 1 / -1; border-top: 1px solid var(--rule);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; font-size: 11px; color: var(--mute);
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .ws-status .group { display: flex; gap: 24px; }
+  .ws-status .ok { color: var(--sage); }
+
+  /* Gen-edit modal — Lumen-styled */
+  .modal {
+    position: fixed; inset: 0; z-index: 220;
+    background: rgba(28,26,22,0.65); backdrop-filter: blur(6px);
+    display: none; align-items: center; justify-content: center; padding: 24px;
+  }
+  .modal.open { display: flex; }
+  .modal .panel {
+    background: var(--paper); border-radius: 8px; padding: 28px;
+    width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 16px;
+  }
+  .modal h3 { font-family: var(--serif); font-size: 32px; margin: 0; }
+  .modal .sub { font-size: 13px; color: var(--mute); margin-top: -8px; }
+  .modal .field-label { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--mute); margin-bottom: 8px; }
+  .modal textarea {
+    width: 100%; min-height: 80px; padding: 12px;
+    border: 1px solid var(--rule); background: var(--cream); border-radius: 4px;
+    font-family: inherit; font-size: 14px; resize: vertical; color: var(--ink);
+  }
+  .modal .providers { display: flex; flex-wrap: wrap; gap: 6px; }
+  .modal .chip {
+    background: var(--cream); border: 1px solid var(--rule); color: var(--ink);
+    border-radius: 999px; padding: 8px 14px; font-size: 12px;
+  }
+  .modal .chip.on { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+  .modal .chip:disabled { opacity: 0.4; }
+  .modal .actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .modal .actions .cancel { background: transparent; color: var(--ink); border: 1px solid var(--rule); padding: 10px 18px; border-radius: 999px; font-size: 13px; }
+  .modal .actions .go { background: var(--ink); color: var(--cream); border: 0; padding: 10px 18px; border-radius: 999px; font-size: 13px; }
+  .modal .actions .go:disabled { opacity: 0.5; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: var(--cream); padding: 10px 18px;
+    border-radius: 999px; font-size: 13px; z-index: 300;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  /* Mini spinner */
+  .spinner {
+    display: inline-block; width: 12px; height: 12px;
+    border: 1.5px solid currentColor; border-top-color: transparent;
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ LANDING ════════════════════ -->
+<div class="landing">
+  <div class="top-rule">
+    <span>Issue №07 · The Photo Edit</span>
+    <span>Studio · Brooklyn / Berlin</span>
+    <span>v2026.05</span>
+  </div>
+
+  <nav class="lumen-nav">
+    <div class="logo">
+      <span class="word it">photo</span>
+      <span class="dot"></span>
+      <span class="word">ai</span>
+    </div>
+    <div class="nav-links">
+      <a href="#">Editor</a>
+      <a href="#">Tools</a>
+      <a href="#">Studies</a>
+      <a href="#">Pricing</a>
+    </div>
+    <div class="nav-actions">
+      <span class="sign">Sign in</span>
+      <button class="btn-pill" id="openEditorBtn">Open editor →</button>
+    </div>
+  </nav>
+
+  <div class="hero">
+    <div class="hero-left">
+      <div>
+        <div class="eyebrow">A finishing room for every photograph</div>
+        <h1 class="headline">Photos,<br>
+          <span class="finished">finished</span><span class="dot">.</span>
+        </h1>
+        <p class="lede">
+          The quiet AI darkroom. Upscale a thumbnail to a print, lift a subject
+          from its background, retouch skin without the plastic — all in one
+          undoable canvas.
+        </p>
+      </div>
+
+      <div>
+        <div class="cta-row">
+          <button class="btn-pill lg" id="dropStartBtn">
+            Drop a photo to start
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14 M12 5l7 7-7 7"/></svg>
+          </button>
+          <input type="file" id="filePicker" accept="image/*" hidden>
+          <button class="btn-ghost">Watch the 90-sec tour</button>
+        </div>
+        <div class="legalese">
+          <span>FREE · 5 EXPORTS / MONTH</span>
+          <span>·</span>
+          <span>NO CARD REQUIRED</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plate">
+      <div class="plate-frame">
+        <img id="heroImg" src="https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=1200&q=80&auto=format&fit=crop" alt="">
+        <div class="plate-divider"></div>
+        <div class="plate-handle">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1c1a16" stroke-width="2"><path d="M9 18l-6-6 6-6 M15 6l6 6-6 6"/></svg>
+        </div>
+        <div class="plate-label before">Before · 480 × 640</div>
+        <div class="plate-label after">After · 3840 × 5120</div>
+      </div>
+
+      <div class="plate-meta">
+        <div>
+          <div class="label">Plate 01 · Upscale 8×</div>
+          <div class="title">A salvaged portrait, returned to print.</div>
+        </div>
+        <div class="meta-cell"><div>MODEL</div><div class="v">v3 Portrait</div></div>
+        <div class="meta-cell"><div>TIME</div><div class="v">4.2s</div></div>
+        <div class="meta-cell"><div>CREDIT</div><div class="v">−1</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="feature-strip">
+    <div class="feature"><div class="num">I.</div><div><div class="t">Upscale</div><div class="d">Up to 16× with grain preserved</div></div></div>
+    <div class="feature"><div class="num">II.</div><div><div class="t">Remove background</div><div class="d">Edge-aware to single hair strands</div></div></div>
+    <div class="feature"><div class="num">III.</div><div><div class="t">Retouch</div><div class="d">Skin, not plastic.</div></div></div>
+    <div class="feature"><div class="num">IV.</div><div><div class="t">Restore</div><div class="d">For scans, screenshots, &amp; memory.</div></div></div>
+  </div>
+</div>
+
+<div class="drop-overlay">drop to begin.</div>
+
+<!-- ════════════════════ WORKSPACE ════════════════════ -->
+<div class="workspace">
+  <header class="ws-header">
+    <div class="ws-header-left">
+      <div class="ws-logo">
+        <span class="word it">photo</span>
+        <span class="dot"></span>
+        <span class="word">ai</span>
+      </div>
+      <div class="ws-divider"></div>
+      <div class="ws-filename">
+        <span class="label">Roll №14 /</span>
+        <span class="name" id="wsFilename">untitled.jpg</span>
+        <span class="badge" id="wsBadge">EDITED</span>
+      </div>
+    </div>
+    <div class="ws-header-right">
+      <button class="icon-btn" id="backToLanding" title="Back to landing">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+      <button class="icon-btn" id="toggleOriginal" title="Show original">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/></svg>
+      </button>
+      <div class="ws-divider"></div>
+      <button class="pill-btn ghost" id="shareBtn">Share</button>
+      <button class="pill-btn" id="exportBtn">Export → JPG</button>
+    </div>
+  </header>
+
+  <aside class="ws-side-left">
+    <div class="ws-side-label">
+      <span>Today's roll</span><span id="rollCount">0</span>
+    </div>
+    <div class="roll-grid" id="rollGrid"></div>
+    <div class="credits">
+      <div class="credits-row"><span>Credits</span><span class="v">84 / 100</span></div>
+      <div class="credits-bar"><div class="fill"></div></div>
+    </div>
+  </aside>
+
+  <main class="ws-canvas">
+    <div class="canvas-frame" id="canvasFrame">
+      <canvas id="canvas"></canvas>
+      <img id="originalImg" alt="" style="display:none">
+      <div class="canvas-guides">
+        <div class="h" style="top:33%"></div>
+        <div class="h" style="top:66%"></div>
+        <div class="v" style="left:33%"></div>
+        <div class="v" style="left:66%"></div>
+      </div>
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+    </div>
+    <div class="tool-dock" id="toolDock">
+      <button data-tool="upscale" class="on" title="Upscale"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9V3h6 M15 3h6v6 M21 15v6h-6 M9 21H3v-6"/></svg></button>
+      <button data-tool="bg" title="Remove background"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16l4.5-4.5 3 3 5.5-5.5L21 13"/><path d="M4 20h16"/><path d="M4 4h16v16H4z"/></svg></button>
+      <button data-tool="retouch" title="Retouch"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4 M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></button>
+      <button data-tool="color" title="Color"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 110-20 10 10 0 016 18 4 4 0 11-6-6 4 4 0 01-6-6"/></svg></button>
+      <button data-tool="gen" title="Generative edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2 M15 16v-2 M8 9h2 M20 9h2 M17.8 11.8l1.4 1.4 M15 9l-3 6-6 3 3-6 6-3z"/></svg></button>
+      <button data-tool="sharpen" title="Sharpen"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6"/><path d="M12 16v6"/><path d="M2 12h6"/><path d="M16 12h6"/></svg></button>
+    </div>
+  </main>
+
+  <aside class="ws-side-right">
+    <div class="active-tool">
+      <div class="lbl">Active tool</div>
+      <div class="title" id="activeTitle">Auto grade <span class="accent" id="activeAccent">v1</span></div>
+      <div class="meta" id="activeMeta">Looking at your photo…</div>
+    </div>
+
+    <div>
+      <div class="knob-label">
+        <span>Brightness</span><span class="v" id="kBright">1.00</span>
+      </div>
+      <div class="slider"><div class="fill" id="fBright" style="background:var(--sage); width:50%"></div><div class="knob" id="hBright" style="left:50%; box-shadow:0 0 0 1.5px var(--sage)"></div></div>
+    </div>
+    <div>
+      <div class="knob-label">
+        <span>Contrast</span><span class="v" id="kContrast">1.00</span>
+      </div>
+      <div class="slider"><div class="fill" id="fContrast" style="background:var(--ink); width:50%"></div><div class="knob" id="hContrast" style="left:50%; box-shadow:0 0 0 1.5px var(--ink)"></div></div>
+    </div>
+    <div>
+      <div class="knob-label">
+        <span>Saturation</span><span class="v" id="kSat">1.00</span>
+      </div>
+      <div class="slider"><div class="fill" id="fSat" style="background:var(--sage); width:50%"></div><div class="knob" id="hSat" style="left:50%; box-shadow:0 0 0 1.5px var(--sage)"></div></div>
+    </div>
+
+    <div class="history">
+      <div class="history-label">History</div>
+      <div id="historyList">
+        <div class="history-row active"><span class="nm"><span class="d"></span>Drop a photo to start</span><span class="t">now</span></div>
+      </div>
+    </div>
+
+    <button class="apply-btn" id="applyBtn" disabled>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      Apply · 1 credit
+    </button>
+  </aside>
+
+  <footer class="ws-status">
+    <div class="group">
+      <span id="statusState">Ready</span>
+      <span id="statusDims">—</span>
+      <span>sRGB</span>
+    </div>
+    <div class="group">
+      <span>GPU · A100</span>
+      <span class="ok" id="savedAt">● Saved 2s ago</span>
+    </div>
+  </footer>
+</div>
+
+<!-- Gen-edit modal -->
+<div class="modal" id="genModal">
+  <div class="panel">
+    <h3>Generative edit</h3>
+    <p class="sub">Repaints pixels in the image via your configured provider.</p>
+    <div>
+      <div class="field-label">Provider</div>
+      <div class="providers" id="genProviders"></div>
+    </div>
+    <div>
+      <div class="field-label">What to change</div>
+      <textarea id="genPrompt" placeholder="e.g. remove the reflection on the car hood; change the sky to sunset"></textarea>
+    </div>
+    <div class="actions">
+      <button class="cancel" id="genCancel">Cancel</button>
+      <button class="go" id="genConfirm" disabled>Generate</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2400); }
+
+const state = {
+  current: null,           // { id, file, originalUrl, img, look }
+  roll: [],                // [{ id, file, originalUrl, img, look, thumbDataUrl }]
+  aiStatus: null,
+  showingOriginal: false,
+};
+
+// ── /ai/status — detect available providers ────────────────────────────────
+fetch('/ai/status').then((r) => r.json()).then((s) => {
+  state.aiStatus = s;
+  renderGenProviders();
+}).catch(() => toast('AI status unreachable'));
+
+// ── Drop / file pick ──────────────────────────────────────────────────────
+$('openEditorBtn').addEventListener('click', () => $('filePicker').click());
+$('dropStartBtn').addEventListener('click', () => $('filePicker').click());
+$('filePicker').addEventListener('change', (e) => { handleFile(e.target.files[0]); e.target.value = ''; });
+
+window.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('dragging'); });
+window.addEventListener('dragleave', (e) => { if (e.clientX === 0 && e.clientY === 0) document.body.classList.remove('dragging'); });
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  document.body.classList.remove('dragging');
+  const f = e.dataTransfer.files?.[0];
+  if (f && f.type.startsWith('image/')) handleFile(f);
+});
+
+async function handleFile(file) {
+  if (!file) return;
+  const id = 'p' + Date.now();
+  const originalUrl = URL.createObjectURL(file);
+  const img = await loadImage(originalUrl);
+  const photo = { id, file, originalUrl, img, look: null, thumbDataUrl: null };
+  state.roll.push(photo);
+  state.current = photo;
+  document.body.classList.add('in-workspace');
+  $('wsFilename').textContent = file.name;
+  $('statusDims').textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+  await renderCurrent();
+  await autoGrade(photo);
+  renderRoll();
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+// ── Render the photo onto the canvas with the look applied ─────────────────
+function renderCurrent() {
+  const p = state.current;
+  if (!p) return;
+  const c = $('canvas');
+  c.width = p.img.naturalWidth;
+  c.height = p.img.naturalHeight;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.filter = state.showingOriginal ? 'none' : lookToFilter(p.look);
+  ctx.drawImage(p.img, 0, 0);
+  ctx.filter = 'none';
+  // tint + vignette overlays
+  if (!state.showingOriginal && p.look) {
+    if (p.look.tintAlpha > 0.005) {
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = p.look.tintAlpha;
+      ctx.fillStyle = p.look.tintColor;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    }
+    if (p.look.vignette > 0.01) {
+      const grad = ctx.createRadialGradient(c.width/2, c.height/2, Math.min(c.width, c.height) * 0.35, c.width/2, c.height/2, Math.max(c.width, c.height) * 0.72);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, `rgba(0,0,0,${0.85 * p.look.vignette})`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, c.width, c.height);
+    }
+  }
+  p.thumbDataUrl = c.toDataURL('image/jpeg', 0.7);
+  renderRoll();
+}
+
+function lookToFilter(look) {
+  if (!look) return 'none';
+  const f = (k, d = 1) => (typeof look[k] === 'number' ? look[k] : d);
+  return `brightness(${f('brightness')}) contrast(${f('contrast')}) saturate(${f('saturate')}) hue-rotate(${f('hueRotate', 0)}deg) sepia(${f('sepia', 0)}) grayscale(${f('grayscale', 0)}) blur(${f('blur', 0)}px) invert(${f('invert', 0)})`;
+}
+
+// ── Auto-grade via /ai/photo-edit ──────────────────────────────────────────
+async function autoGrade(photo) {
+  $('activeTitle').innerHTML = 'Auto grade <span class="accent">v1</span>';
+  $('activeMeta').innerHTML = '<span class="spinner"></span> Looking at your photo…';
+  $('statusState').textContent = 'Grading…';
+  try {
+    const c = document.createElement('canvas');
+    const maxDim = 1024;
+    const scale = Math.min(1, maxDim / Math.max(photo.img.naturalWidth, photo.img.naturalHeight));
+    c.width = Math.round(photo.img.naturalWidth * scale);
+    c.height = Math.round(photo.img.naturalHeight * scale);
+    c.getContext('2d').drawImage(photo.img, 0, 0, c.width, c.height);
+    const dataUrl = c.toDataURL('image/jpeg', 0.85);
+    const res = await fetch('/ai/photo-edit', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'grade failed');
+    photo.look = data.look;
+    photo._timestamp = Date.now();
+    updateActiveFromLook(photo.look);
+    pushHistory(photo.look.caption || 'Auto grade');
+    $('statusState').textContent = 'Ready';
+    $('savedAt').innerHTML = '● Saved just now';
+    await renderCurrent();
+  } catch (err) {
+    $('activeMeta').textContent = err.message || 'grade failed';
+    $('statusState').textContent = 'Error';
+    toast(err.message || 'grade failed');
+  }
+}
+
+function updateActiveFromLook(look) {
+  $('activeTitle').innerHTML = `${escapeHtml(look.caption || 'Look')} <span class="accent">v1</span>`;
+  $('activeMeta').textContent = `brightness ${look.brightness.toFixed(2)} · contrast ${look.contrast.toFixed(2)} · vignette ${look.vignette.toFixed(2)}`;
+  setKnob('Bright', look.brightness, 0.4, 1.8);
+  setKnob('Contrast', look.contrast, 0.4, 1.8);
+  setKnob('Sat', look.saturate, 0, 2.5);
+}
+function setKnob(name, val, min, max) {
+  const pct = Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
+  $('f' + name).style.width = pct + '%';
+  $('h' + name).style.left = pct + '%';
+  $('k' + name).textContent = val.toFixed(2);
+}
+
+const historyEvents = [];
+function pushHistory(label) {
+  historyEvents.unshift({ label, t: Date.now() });
+  const list = $('historyList');
+  list.innerHTML = historyEvents.slice(0, 6).map((h, i) => `
+    <div class="history-row ${i === 0 ? 'active' : ''}"><span class="nm"><span class="d"></span>${escapeHtml(h.label)}</span><span class="t">${i === 0 ? 'now' : timeAgo(h.t)}</span></div>
+  `).join('');
+}
+function timeAgo(t) { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'now' : `${m}m`; }
+
+// ── Roll thumbnails ────────────────────────────────────────────────────────
+function renderRoll() {
+  $('rollCount').textContent = state.roll.length;
+  $('rollGrid').innerHTML = state.roll.map((p) => `
+    <div class="roll-tile ${p === state.current ? 'active' : ''}" data-id="${p.id}">
+      ${p.thumbDataUrl ? `<img src="${p.thumbDataUrl}">` : `<img src="${p.originalUrl}">`}
+      ${p === state.current ? '<div class="now">NOW</div>' : ''}
+    </div>`).join('');
+}
+$('rollGrid').addEventListener('click', (e) => {
+  const tile = e.target.closest('.roll-tile');
+  if (!tile) return;
+  const p = state.roll.find((x) => x.id === tile.dataset.id);
+  if (p) { state.current = p; $('wsFilename').textContent = p.file.name; renderCurrent(); if (p.look) updateActiveFromLook(p.look); }
+});
+
+// ── Header actions ─────────────────────────────────────────────────────────
+$('backToLanding').addEventListener('click', () => document.body.classList.remove('in-workspace'));
+$('toggleOriginal').addEventListener('click', () => { state.showingOriginal = !state.showingOriginal; renderCurrent(); });
+$('exportBtn').addEventListener('click', () => {
+  if (!state.current) return;
+  const a = document.createElement('a');
+  a.href = $('canvas').toDataURL('image/jpeg', 0.92);
+  a.download = (state.current.file.name.replace(/\.[^.]+$/, '') || 'export') + '-edited.jpg';
+  a.click();
+});
+$('shareBtn').addEventListener('click', () => toast('Share coming soon — use Export to save the file'));
+
+// ── Tool dock ─────────────────────────────────────────────────────────────
+$('toolDock').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#toolDock button').forEach((b) => b.classList.toggle('on', b === btn));
+  if (btn.dataset.tool === 'gen') openGenModal();
+  else toast(`${btn.title} — wired to the canvas on a future pass`);
+});
+
+// ── Gen-edit modal ─────────────────────────────────────────────────────────
+let genProvider = null;
+function renderGenProviders() {
+  const wrap = $('genProviders');
+  wrap.innerHTML = '';
+  const list = Object.entries(state.aiStatus?.gen || {});
+  for (const [id, info] of list) {
+    const chip = document.createElement('button');
+    chip.className = 'chip' + (id === genProvider ? ' on' : '');
+    chip.disabled = !info.ready;
+    chip.textContent = `${info.label} · $${info.estCostUsd.toFixed(2)}`;
+    chip.addEventListener('click', () => { if (info.ready) { genProvider = id; renderGenProviders(); refreshGenConfirm(); } });
+    wrap.appendChild(chip);
+  }
+  // Auto-pick first ready provider on first render
+  if (!genProvider) {
+    const ready = list.find(([, i]) => i.ready);
+    if (ready) { genProvider = ready[0]; renderGenProviders(); }
+  }
+}
+function refreshGenConfirm() {
+  const has = !!state.current && !!genProvider && $('genPrompt').value.trim().length > 0;
+  $('genConfirm').disabled = !has;
+}
+$('genPrompt').addEventListener('input', refreshGenConfirm);
+function openGenModal() {
+  if (!state.current) { toast('drop a photo first'); return; }
+  $('genModal').classList.add('open');
+  refreshGenConfirm();
+}
+$('genCancel').addEventListener('click', () => $('genModal').classList.remove('open'));
+$('genConfirm').addEventListener('click', async () => {
+  const prompt = $('genPrompt').value.trim();
+  if (!prompt || !state.current || !genProvider) return;
+  const btn = $('genConfirm');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Generating…';
+  try {
+    const dataUrl = $('canvas').toDataURL('image/png');
+    const res = await fetch('/ai/photo-generate', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, prompt, provider: genProvider }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'generate failed');
+    // Replace the current image with the generated one + clear the look (already baked in).
+    const img = await loadImage(data.image);
+    state.current.img = img;
+    state.current.look = null;
+    await renderCurrent();
+    pushHistory(`Gen edit · ${prompt.slice(0, 32)}`);
+    $('genModal').classList.remove('open');
+  } catch (err) {
+    toast(err.message || 'generate failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate';
+  }
+});
+
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+</script>
+</body>
+</html>
