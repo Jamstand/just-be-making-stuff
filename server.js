@@ -1147,7 +1147,7 @@ async function magnificPolish({ image }) {
     },
     body: JSON.stringify({
       image,
-      scale_factor: 2,
+      scale_factor: '2x',
       sharpen: 50,
       smart_grain: 7,
       ultra_detail: 30,
