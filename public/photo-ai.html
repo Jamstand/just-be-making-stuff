@@ -214,17 +214,22 @@
   .drop-prompt-row input { flex: 1; }
 
   .batch-grid {
-    width: 100%; display: grid; gap: 16px;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    width: 100%; gap: 12px;
     max-height: calc(100vh - 230px); overflow-y: auto;
     padding: 4px;
   }
+  .batch-grid.view-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+  .batch-grid.view-list { display: flex; flex-direction: column; gap: 6px; }
+
   .card {
     background: var(--cream); border: 1px solid var(--hair); border-radius: 12px;
     overflow: hidden; display: flex; flex-direction: column;
   }
   .card .compare {
-    position: relative; aspect-ratio: 4 / 3; background: var(--ink); cursor: zoom-in;
+    position: relative; aspect-ratio: 1 / 1; background: var(--ink); cursor: zoom-in;
     overflow: hidden;
   }
   .card .compare canvas, .card .compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -240,18 +245,54 @@
   .card .badge.busy { background: rgba(204,120,92,0.9); }
   .card .badge.done { background: rgba(74,107,58,0.85); }
   .card .badge.err { background: rgba(181,82,59,0.9); }
-  .card .meta { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .card .meta { padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .card .cap {
-    font-family: 'Fraunces',serif; font-size: 14px; line-height: 1.2; min-height: 18px;
+    font-family: 'Fraunces',serif; font-size: 13px; line-height: 1.2; min-height: 16px;
     color: var(--ink);
   }
-  .card .filename { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
-  .card .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
-  .card .actions button { font-size: 11px; padding: 5px 10px; }
-  .card .reprompt { display: flex; gap: 6px; margin-top: 4px; }
-  .card .reprompt input { font-size: 12px; padding: 6px 8px; min-height: 0; }
-  .card .reprompt button { padding: 5px 10px; font-size: 11px; }
+  .card .filename { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+  .card .actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+  .card .actions button { font-size: 10px; padding: 4px 8px; }
+  .card .reprompt { display: flex; gap: 4px; margin-top: 4px; }
+  .card .reprompt input { font-size: 11px; padding: 5px 7px; min-height: 0; }
+  .card .reprompt button { padding: 4px 8px; font-size: 10px; }
   .card.needs-setup .reprompt { display: none; }
+
+  /* List view — horizontal cards, redo hidden until hover/focus. */
+  .batch-grid.view-list .card {
+    flex-direction: row; align-items: stretch;
+  }
+  .batch-grid.view-list .card .compare {
+    aspect-ratio: 1 / 1; width: 64px; flex: 0 0 64px; border-radius: 0;
+  }
+  .batch-grid.view-list .card .meta {
+    flex: 1; padding: 6px 10px; gap: 2px;
+  }
+  .batch-grid.view-list .card .actions { margin-top: 0; }
+  .batch-grid.view-list .card .reprompt {
+    display: none; margin-top: 4px;
+  }
+  .batch-grid.view-list .card:hover .reprompt,
+  .batch-grid.view-list .card:focus-within .reprompt {
+    display: flex;
+  }
+  .batch-grid.view-list .card .badge {
+    top: 4px; left: 4px; font-size: 8px; padding: 2px 5px;
+  }
+
+  /* View toggle (segmented pill in the drop toolbar). */
+  .view-toggle {
+    display: inline-flex; align-items: center; gap: 2px;
+    border: 1px solid var(--hair); border-radius: 999px; padding: 2px;
+    background: var(--cream);
+  }
+  .view-btn {
+    border: none; background: transparent; color: var(--muted);
+    padding: 5px 10px; font-size: 14px; line-height: 1; cursor: pointer;
+    border-radius: 999px; font-family: inherit;
+  }
+  .view-btn:hover { color: var(--ink); }
+  .view-btn.on { background: var(--ink); color: var(--cream); }
 
   /* ── Fullscreen viewer for the edited preview ── */
   .viewer {
@@ -385,7 +426,12 @@
     <div class="mode-pane" id="dropMode" hidden>
       <div class="drop-prompt-row">
         <input type="text" id="batchPrompt" placeholder="(optional) describe a look to apply to every photo — leave blank to let Claude auto-style each one" disabled>
+        <div class="view-toggle" role="tablist" aria-label="View mode">
+          <button class="view-btn on" data-view="grid" title="Grid view" aria-label="Grid view">▦</button>
+          <button class="view-btn" data-view="list" title="List view" aria-label="List view">☰</button>
+        </div>
         <button id="reeditAll" class="btn ghost" disabled>Re-edit all</button>
+        <button id="clearAll" class="btn ghost" disabled title="Remove all saved photos">Clear</button>
       </div>
       <div class="drop-zone" id="dropZone">
         <h2 class="serif">Drop photos here</h2>
@@ -394,7 +440,7 @@
         <button id="pickBtn" class="btn primary" disabled>Choose files</button>
         <input type="file" id="filePicker" accept="image/*" multiple hidden disabled>
       </div>
-      <div class="batch-grid" id="batchGrid"></div>
+      <div class="batch-grid view-grid" id="batchGrid"></div>
     </div>
   </main>
 </div>
@@ -1077,6 +1123,77 @@ let photoSeq = 0;
 let inflight = 0;
 const MAX_CONCURRENT = 2;
 
+// ── IndexedDB persistence ────────────────────────────────────────────────────
+// Photos + their look JSON live in IndexedDB so the gallery survives page
+// reloads and server restarts. We store the original Blob (not just a URL,
+// which would die on reload) plus the look parameters; the edited canvas is
+// regenerated on load by re-running renderStill.
+const DB_NAME = 'photo-ai';
+const DB_VERSION = 1;
+const STORE = 'photos';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+function dbRun(mode, fn) {
+  return openDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, mode);
+    const store = tx.objectStore(STORE);
+    let result;
+    Promise.resolve(fn(store)).then((r) => { result = r; });
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = (e) => reject(e.target.error);
+  }));
+}
+const dbSavePhoto = (record) => dbRun('readwrite', (s) => s.put(record));
+const dbDeletePhoto = (id) => dbRun('readwrite', (s) => s.delete(id));
+const dbClearPhotos = () => dbRun('readwrite', (s) => s.clear());
+const dbLoadAllPhotos = () => dbRun('readonly', (s) => new Promise((res) => {
+  const req = s.getAll();
+  req.onsuccess = () => res((req.result || []).sort((a, b) => a.timestamp - b.timestamp));
+}));
+
+async function persistPhoto(photo) {
+  try {
+    await dbSavePhoto({
+      id: photo.id,
+      filename: photo.file.name,
+      mimeType: photo.file.type || 'image/jpeg',
+      originalBlob: photo.file,
+      look: photo.look || null,
+      prompt: photo._prompt || '',
+      timestamp: photo._timestamp || Date.now(),
+    });
+  } catch (err) { console.warn('photo persist failed:', err); }
+}
+
+// ── View toggle (grid vs list) ───────────────────────────────────────────────
+const VIEW_KEY = 'photo-ai-view';
+function setView(view) {
+  if (view !== 'grid' && view !== 'list') view = 'grid';
+  const grid = $('batchGrid');
+  grid.classList.remove('view-grid', 'view-list');
+  grid.classList.add('view-' + view);
+  document.querySelectorAll('.view-btn').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
+  try { localStorage.setItem(VIEW_KEY, view); } catch {}
+}
+(function initView() {
+  let saved = 'grid';
+  try { saved = localStorage.getItem(VIEW_KEY) || 'grid'; } catch {}
+  setView(saved);
+  document.querySelectorAll('.view-btn').forEach((b) => {
+    b.addEventListener('click', () => setView(b.dataset.view));
+  });
+})();
+
 function downscaleDataUrl(img, maxW = 768) {
   const scale = Math.min(1, maxW / img.naturalWidth);
   const w = Math.round(img.naturalWidth * scale);
@@ -1165,7 +1282,7 @@ async function pump() {
   if (inflight >= MAX_CONCURRENT) return;
   const next = photos.find((p) => p.status === 'queued');
   if (!next) {
-    $('reeditAll').disabled = photos.length === 0;
+    refreshBatchControls();
     return;
   }
   inflight++;
@@ -1187,6 +1304,7 @@ async function pump() {
     renderStill(next.img, next.look, next.canvas);
     next.card.querySelector('.cap').textContent = next.look.caption || 'edited';
     setBadge(next, 'done', 'Done');
+    persistPhoto(next);
   } catch (err) {
     setBadge(next, 'err', 'Failed');
     if (err.code === 'ai_not_configured') {
@@ -1230,11 +1348,19 @@ async function handleFiles(fileList) {
     let img;
     try { img = await loadImage(originalUrl); }
     catch { toast('couldn’t read ' + file.name); continue; }
-    const photo = { id, file, originalUrl, img, status: 'queued' };
+    const photo = { id, file, originalUrl, img, status: 'queued', _timestamp: Date.now() };
     photos.push(photo);
     makeCard(photo);
+    persistPhoto(photo);
     enqueue(photo);
   }
+  refreshBatchControls();
+}
+
+function refreshBatchControls() {
+  const has = photos.length > 0;
+  $('reeditAll').disabled = !has;
+  $('clearAll').disabled = !has;
 }
 
 function downloadPhoto(photo) {
@@ -1251,8 +1377,51 @@ function removePhoto(photo) {
   if (i >= 0) photos.splice(i, 1);
   URL.revokeObjectURL(photo.originalUrl);
   photo.card.remove();
-  $('reeditAll').disabled = photos.length === 0;
+  dbDeletePhoto(photo.id).catch((err) => console.warn('photo delete failed:', err));
+  refreshBatchControls();
 }
+
+async function restorePhotos() {
+  let records;
+  try { records = await dbLoadAllPhotos(); }
+  catch (err) { console.warn('restore failed:', err); return; }
+  for (const rec of records) {
+    const file = new File([rec.originalBlob], rec.filename, { type: rec.mimeType });
+    const originalUrl = URL.createObjectURL(file);
+    let img;
+    try { img = await loadImage(originalUrl); }
+    catch { URL.revokeObjectURL(originalUrl); continue; }
+    const photo = {
+      id: rec.id, file, originalUrl, img,
+      _prompt: rec.prompt || '',
+      _timestamp: rec.timestamp,
+      status: 'queued',
+    };
+    photos.push(photo);
+    makeCard(photo);
+    if (rec.look) {
+      photo.look = { ...NEUTRAL, ...rec.look };
+      renderStill(photo.img, photo.look, photo.canvas);
+      photo.card.querySelector('.cap').textContent = photo.look.caption || 'edited';
+      setBadge(photo, 'done', 'Done');
+    } else {
+      photo.card.querySelector('.cap').textContent = 'waiting…';
+      setBadge(photo, 'queued', 'Queued');
+    }
+    if (photo.id > photoSeq) photoSeq = photo.id;
+  }
+  refreshBatchControls();
+}
+restorePhotos();
+
+$('clearAll').addEventListener('click', async () => {
+  if (!photos.length) return;
+  if (!confirm(`Remove all ${photos.length} saved photo${photos.length === 1 ? '' : 's'}? This can't be undone.`)) return;
+  try { await dbClearPhotos(); } catch (err) { console.warn('clear failed:', err); }
+  for (const p of photos) { URL.revokeObjectURL(p.originalUrl); p.card.remove(); }
+  photos.length = 0;
+  refreshBatchControls();
+});
 
 // Drag & drop wiring.
 const dz = $('dropZone');
