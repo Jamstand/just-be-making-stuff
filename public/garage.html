@@ -1289,8 +1289,11 @@ const LAYOUT_KEY = 'garage-layout';
     document.querySelectorAll('#layouts .opt').forEach((o) => {
       o.classList.toggle('on', o.dataset.layout === saved);
     });
-    // Re-apply any user-saved per-slot tweaks after the layout dims.
-    document.querySelectorAll('.slot[data-slot]').forEach(applySlotDims);
+    // Per-slot user dims (savedDims) get re-applied later in the edit-mode
+    // block's step 4. Don't call applySlotDims here — it's not defined yet
+    // in script order, and calling it would throw a ReferenceError that
+    // aborts the rest of the script (which is why drag stopped working
+    // for users in non-standard layouts).
   }
 })();
 document.querySelectorAll('#layouts .opt').forEach(b=>{
