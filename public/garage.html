@@ -112,7 +112,16 @@
     transform:translate3d(calc(var(--slideX) * var(--speed,1)), 0, 0);
     transition:transform .65s cubic-bezier(.22,.7,.18,1);
     will-change:transform;
+    /* CRITICAL: each layer is a full-width-and-height absolute-positioned
+       container. Without this, the empty container area hit-tests
+       positive and intercepts every click meant for the slots beneath
+       (especially .layer.deco, which is the topmost in DOM order). The
+       actual interactive children (slots, .t with data-edit-id in edit
+       mode, etc.) re-enable pointer-events themselves. */
+    pointer-events: none;
   }
+  /* Slots and their chrome ALWAYS receive events — re-enable. */
+  .slot[data-slot] { pointer-events: auto; }
   .layer.bg     { --speed:0.30; }
   .layer.leak   { --speed:0.55; }
   .layer.ribbon { --speed:1.45; }
@@ -1119,7 +1128,7 @@
 <button id="tweaksToggle" class="tweaks-toggle">Tweaks</button>
 <a href="/photo-ai" style="position:fixed;left:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none;font-family:inherit">← back to /photo-ai</a>
 <div class="edit-mode-banner"><span class="dot"></span>Edit mode — click text to edit · drag slot edge/corner to move · corner handle = resize · top circle = rotate · <kbd>Shift</kbd>+drag inside slot = re-crop · <kbd>wheel</kbd> over slot = zoom · <kbd>Esc</kbd> to exit</div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v10 · window-trace</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v11 · LAYER-PE-NONE</div>
 
 <div id="tweaks" class="tweaks" style="display:none">
   <button class="close" id="tweaksClose">×</button>
@@ -2069,7 +2078,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v10-window-trace loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v11-layer-pe-none loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — wires up full customisation: editable text, slot tools
@@ -2513,7 +2522,7 @@ document.getElementById('resetAll').addEventListener('click', () => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v10-window-trace · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v11-layer-pe-none · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
