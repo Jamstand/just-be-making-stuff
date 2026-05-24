@@ -1096,14 +1096,21 @@ app.post('/ai/photo-generate', async (req, res) => {
   }
 });
 
-// ── Polish / upscale (Magnific via Freepik API) ──────────────────────────────
+// ── Polish / upscale (Magnific via Freepik API, Clarity via Replicate) ──────
 // Different from gen-edit: no prompt, no mask — pure detail enhancement.
-// Async API: POST returns a task_id, then poll until COMPLETED to get the URL.
+// Magnific: async POST → poll task_id → fetch URL.
+// Clarity: same Replicate /predictions pattern as flux-kontext.
 const POLISH_PROVIDERS = {
   magnific: {
     envKey: 'FREEPIK_API_KEY',
     estCostUsd: 0.10,
-    label: 'Magnific (Freepik)',
+    label: 'Magnific',
+  },
+  clarity: {
+    envKey: 'REPLICATE_API_TOKEN',
+    defaultModel: 'philz1337x/clarity-upscaler',
+    estCostUsd: 0.03,
+    label: 'Clarity (Replicate)',
   },
 };
 
@@ -1157,6 +1164,47 @@ async function magnificPolish({ image }) {
   return { mediaType: imgRes.headers.get('content-type') || 'image/jpeg', data: buf.toString('base64') };
 }
 
+async function clarityPolish({ image, mediaType }) {
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) throw new Error('REPLICATE_API_TOKEN not set');
+  const model = process.env.CLARITY_MODEL || POLISH_PROVIDERS.clarity.defaultModel;
+  const createRes = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+    method: 'POST',
+    headers: {
+      'authorization': `Bearer ${token}`,
+      'content-type': 'application/json',
+      'prefer': 'wait=60',
+    },
+    body: JSON.stringify({
+      input: {
+        image: `data:${mediaType};base64,${image}`,
+        scale_factor: 2,
+        creativity: 0.35,
+        resemblance: 0.6,
+        dynamic: 6,
+        output_format: 'png',
+      },
+    }),
+  });
+  if (!createRes.ok) throw new Error(`Clarity ${createRes.status}: ${(await createRes.text()).slice(0, 400)}`);
+  let pred = await createRes.json();
+  const deadline = Date.now() + 240_000;
+  while ((pred.status === 'starting' || pred.status === 'processing') && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${pred.id}`, {
+      headers: { 'authorization': `Bearer ${token}` },
+    });
+    pred = await pollRes.json();
+  }
+  if (pred.status !== 'succeeded') throw new Error(`Clarity ${pred.status}: ${pred.error || 'timeout'}`);
+  const outUrl = Array.isArray(pred.output) ? pred.output[0] : pred.output;
+  if (typeof outUrl !== 'string') throw new Error('Clarity returned no image URL');
+  const imgRes = await fetch(outUrl);
+  if (!imgRes.ok) throw new Error(`Clarity output fetch ${imgRes.status}`);
+  const buf = Buffer.from(await imgRes.arrayBuffer());
+  return { mediaType: imgRes.headers.get('content-type') || 'image/png', data: buf.toString('base64') };
+}
+
 app.post('/ai/photo-polish', async (req, res) => {
   const { image, provider } = req.body || {};
   const p = provider || 'magnific';
@@ -1164,11 +1212,12 @@ app.post('/ai/photo-polish', async (req, res) => {
     return res.status(400).json({ error: 'image must be a data URL' });
   }
   if (!POLISH_PROVIDERS[p]) return res.status(400).json({ error: `unknown polish provider: ${p}` });
-  const m = image.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
+  const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!m) return res.status(400).json({ error: 'invalid image data URL' });
   try {
     let result;
-    if (p === 'magnific') result = await magnificPolish({ image: m[1] });
+    if (p === 'magnific') result = await magnificPolish({ image: m[2] });
+    else if (p === 'clarity') result = await clarityPolish({ image: m[2], mediaType: m[1] });
     res.json({ image: `data:${result.mediaType};base64,${result.data}`, provider: p });
   } catch (err) {
     console.error('photo-polish error:', err.message);

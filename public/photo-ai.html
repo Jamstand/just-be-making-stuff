@@ -1381,23 +1381,24 @@ function anyPolishProviderReady() {
   return aiStatus && aiStatus.polish && Object.values(aiStatus.polish).some((p) => p.ready);
 }
 
-// ── ✨ Polish (Magnific upscaler) ────────────────────────────────────────────
-// One-click enhancement: no prompt, no provider chips. Two-step confirm on
-// the card button itself so the per-image cost is shown before billing.
-async function polishPhoto(photo, btn) {
-  if (!anyPolishProviderReady()) {
-    toast('no polish provider configured — set FREEPIK_API_KEY');
+// ── ✨ Polish (Magnific upscaler / Replicate Clarity) ───────────────────────
+// One-click enhancement per provider. Two-step confirm on the card button
+// itself so the per-image cost is shown before billing.
+async function polishPhoto(photo, btn, provider) {
+  const p = aiStatus?.polish?.[provider];
+  if (!p?.ready) {
+    toast(`${provider} not configured`);
     return;
   }
-  const p = aiStatus.polish.magnific;
+  const origLabel = btn.dataset.label || btn.textContent;
+  btn.dataset.label = origLabel;
   if (!btn.dataset.armed) {
     btn.dataset.armed = '1';
-    const orig = btn.textContent;
     btn.textContent = `Confirm — ~$${p.estCostUsd.toFixed(2)}`;
     setTimeout(() => {
       if (btn.dataset.armed === '1') {
         delete btn.dataset.armed;
-        btn.textContent = orig;
+        btn.textContent = origLabel;
       }
     }, 5000);
     return;
@@ -1405,24 +1406,24 @@ async function polishPhoto(photo, btn) {
   delete btn.dataset.armed;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Polishing…';
-  setBadge(photo, 'busy', 'Polishing…');
+  setBadge(photo, 'busy', `${p.label}…`);
   try {
     const dataUrl = await normalizePhotoForUpload(photo.file);
     const res = await fetch('/ai/photo-polish', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl, provider: 'magnific' }),
+      body: JSON.stringify({ image: dataUrl, provider }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || data.error || 'request failed');
-    await applyGeneratedImage(photo, data.image, 'magnific', 'polished');
+    await applyGeneratedImage(photo, data.image, provider, 'polished');
   } catch (err) {
     setBadge(photo, 'err', 'Failed');
     photo.card.querySelector('.cap').textContent = (err.message || 'failed').slice(0, 80);
     toast(err.message || 'polish failed');
   } finally {
     btn.disabled = false;
-    btn.textContent = '✨ Polish';
+    btn.textContent = origLabel;
   }
 }
 
@@ -1720,7 +1721,8 @@ function makeCard(photo) {
         <button class="btn ghost" data-action="toggle">Show original</button>
         <button class="btn coral" data-action="download">Download</button>
         <button class="btn ghost" data-action="gen" hidden>Gen edit</button>
-        <button class="btn ghost" data-action="polish" hidden>✨ Polish</button>
+        <button class="btn ghost" data-action="polish" data-provider="magnific" hidden>✨ Magnific</button>
+        <button class="btn ghost" data-action="polish" data-provider="clarity" hidden>✨ Clarity</button>
         <button class="btn ghost" data-action="remove">Remove</button>
       </div>
       <div class="reprompt">
@@ -1735,7 +1737,9 @@ function makeCard(photo) {
   // The Gen edit button stays hidden until /ai/status confirms at least one
   // provider has its API key configured.
   if (anyGenProviderReady()) card.querySelector('[data-action="gen"]').hidden = false;
-  if (anyPolishProviderReady()) card.querySelector('[data-action="polish"]').hidden = false;
+  card.querySelectorAll('[data-action="polish"]').forEach((b) => {
+    if (aiStatus?.polish?.[b.dataset.provider]?.ready) b.hidden = false;
+  });
 
   card.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
@@ -1754,7 +1758,7 @@ function makeCard(photo) {
     } else if (action === 'gen') {
       openGenModal(photo);
     } else if (action === 'polish') {
-      polishPhoto(photo, e.target);
+      polishPhoto(photo, e.target, e.target.dataset.provider);
     }
   });
 
@@ -2048,9 +2052,9 @@ fetch('/ai/status')
     if (anyGenProviderReady()) {
       document.querySelectorAll('.card [data-action="gen"]').forEach((b) => { b.hidden = false; });
     }
-    if (anyPolishProviderReady()) {
-      document.querySelectorAll('.card [data-action="polish"]').forEach((b) => { b.hidden = false; });
-    }
+    document.querySelectorAll('.card [data-action="polish"]').forEach((b) => {
+      if (aiStatus?.polish?.[b.dataset.provider]?.ready) b.hidden = false;
+    });
   })
   .catch(() => { lockForSetup(); });
 </script>
