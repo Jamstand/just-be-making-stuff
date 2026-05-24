@@ -251,6 +251,7 @@
   .card .reprompt { display: flex; gap: 6px; margin-top: 4px; }
   .card .reprompt input { font-size: 12px; padding: 6px 8px; min-height: 0; }
   .card .reprompt button { padding: 5px 10px; font-size: 11px; }
+  .card.needs-setup .reprompt { display: none; }
 
   /* ── Fullscreen viewer for the edited preview ── */
   .viewer {
@@ -366,7 +367,7 @@
       <div id="startCard" class="start-card">
         <h2 class="serif">Edit photos live</h2>
         <p>This app connects to your camera and re-grades every frame in real time, using Claude to interpret your prompt as filter parameters.</p>
-        <button id="startBtn" class="btn primary">Connect camera</button>
+        <button id="startBtn" class="btn primary" disabled>Connect camera</button>
       </div>
 
       <div class="frame" id="frame" hidden>
@@ -383,15 +384,15 @@
     <!-- Drop photos mode -->
     <div class="mode-pane" id="dropMode" hidden>
       <div class="drop-prompt-row">
-        <input type="text" id="batchPrompt" placeholder="(optional) describe a look to apply to every photo — leave blank to let Claude auto-style each one">
+        <input type="text" id="batchPrompt" placeholder="(optional) describe a look to apply to every photo — leave blank to let Claude auto-style each one" disabled>
         <button id="reeditAll" class="btn ghost" disabled>Re-edit all</button>
       </div>
       <div class="drop-zone" id="dropZone">
         <h2 class="serif">Drop photos here</h2>
         <p>Each photo gets sent to Claude. It picks a look, the canvas applies it, you get a preview.</p>
         <p class="or">or</p>
-        <button id="pickBtn" class="btn primary">Choose files</button>
-        <input type="file" id="filePicker" accept="image/*" multiple hidden>
+        <button id="pickBtn" class="btn primary" disabled>Choose files</button>
+        <input type="file" id="filePicker" accept="image/*" multiple hidden disabled>
       </div>
       <div class="batch-grid" id="batchGrid"></div>
     </div>
@@ -1177,23 +1178,49 @@ async function pump() {
       body: JSON.stringify({ image: dataUrl, prompt: next._prompt || '' }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || data.error || 'request failed');
+    if (!res.ok) {
+      const e = new Error(data.detail || data.error || 'request failed');
+      e.code = data.error;
+      throw e;
+    }
     next.look = { ...NEUTRAL, ...data.look };
     renderStill(next.img, next.look, next.canvas);
     next.card.querySelector('.cap').textContent = next.look.caption || 'edited';
     setBadge(next, 'done', 'Done');
   } catch (err) {
     setBadge(next, 'err', 'Failed');
-    next.card.querySelector('.cap').textContent = (err.message || 'failed').slice(0, 80);
+    if (err.code === 'ai_not_configured') {
+      // The setup banner already says what to do — don't repeat env-var
+      // instructions on every failed card. Lock the UI so further drops
+      // don't queue up more failures.
+      lockForSetup();
+      next.card.classList.add('needs-setup');
+      next.card.querySelector('.cap').textContent = 'Claude isn’t wired up — see banner above';
+    } else {
+      next.card.querySelector('.cap').textContent = (err.message || 'failed').slice(0, 80);
+    }
   } finally {
     inflight--;
     pump();
   }
 }
 
-let aiReady = true;
+// `null` until /ai/status resolves, then true/false. Treating "unknown" as
+// not-ready closes a race where a drop/paste before the status check would
+// sail through and fail at the server.
+let aiReady = null;
+
+function lockForSetup() {
+  aiReady = false;
+  $('setupBanner').hidden = false;
+  $('pickBtn').disabled = true;
+  $('startBtn').disabled = true;
+  $('filePicker').disabled = true;
+  $('batchPrompt').disabled = true;
+}
 
 async function handleFiles(fileList) {
+  if (aiReady === null) { toast('checking backend…'); return; }
   if (!aiReady) { toast('set ANTHROPIC_API_KEY or AI_BACKEND=claude-code first'); return; }
   const files = [...fileList].filter((f) => f.type.startsWith('image/'));
   if (!files.length) { toast('no image files'); return; }
@@ -1309,16 +1336,17 @@ fetch('/ai/status')
     if (s.backend === 'claude-code') tag.textContent = s.ready ? 'via Claude Max plan' : 'claude-code CLI not found';
     else tag.textContent = s.ready ? 'via Anthropic SDK' : 'set ANTHROPIC_API_KEY';
 
-    aiReady = !!s.ready;
-    if (!s.ready) {
-      $('setupBanner').hidden = false;
-      $('pickBtn').disabled = true;
-      $('startBtn').disabled = true;
-      $('filePicker').disabled = true;
-      $('batchPrompt').disabled = true;
+    if (s.ready) {
+      aiReady = true;
+      $('pickBtn').disabled = false;
+      $('startBtn').disabled = false;
+      $('filePicker').disabled = false;
+      $('batchPrompt').disabled = false;
+    } else {
+      lockForSetup();
     }
   })
-  .catch(() => {});
+  .catch(() => { lockForSetup(); });
 </script>
 </body>
 </html>
