@@ -532,6 +532,11 @@
        land on them so contentEditable can take focus. */
     pointer-events: auto !important;
   }
+  /* The .tap zones (left + right 33% of the viewport, z-index 34) sit
+     ABOVE every text element (z-index 7) and silently absorb clicks
+     before they reach the contentEditable text. Disable them in edit
+     mode — navigation is still available via arrows, dots, and keys. */
+  body.edit-mode .tap { pointer-events: none !important; }
   body.edit-mode [data-edit-id]:hover {
     outline: 1px dashed rgba(76,210,255,0.95);
   }
