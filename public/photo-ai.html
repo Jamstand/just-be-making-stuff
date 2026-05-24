@@ -302,6 +302,20 @@
     top: 4px; left: 4px; font-size: 8px; padding: 2px 5px;
   }
 
+  /* Auto-grade-on-drop toggle (sits next to the batch prompt). */
+  .auto-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--char); white-space: nowrap; cursor: pointer;
+    user-select: none;
+  }
+  .auto-toggle input { margin: 0; accent-color: var(--coral); cursor: pointer; }
+
+  /* "Filter grading only" disclaimer inside the drop zone. */
+  .drop-zone .capability-note {
+    font-size: 11px; color: var(--muted); font-style: italic;
+    line-height: 1.4; max-width: 500px; margin-top: -4px;
+  }
+
   /* View toggle (segmented pill in the drop toolbar). */
   .view-toggle {
     display: inline-flex; align-items: center; gap: 2px;
@@ -448,6 +462,10 @@
     <div class="mode-pane" id="dropMode" hidden>
       <div class="drop-prompt-row">
         <input type="text" id="batchPrompt" placeholder="(optional) describe a look to apply to every photo — leave blank to let Claude auto-style each one" disabled>
+        <label class="auto-toggle" title="When off, dropped photos sit untouched until you click Redo or Re-edit all.">
+          <input type="checkbox" id="autoEditToggle" checked>
+          <span>Auto-grade on drop</span>
+        </label>
         <div class="view-toggle" role="tablist" aria-label="View mode">
           <button class="view-btn on" data-view="grid" title="Grid view" aria-label="Grid view">▦</button>
           <button class="view-btn" data-view="list" title="List view" aria-label="List view">☰</button>
@@ -457,7 +475,8 @@
       </div>
       <div class="drop-zone" id="dropZone">
         <h2 class="serif">Drop photos here</h2>
-        <p>Each photo gets sent to Claude. It picks a look, the canvas applies it, you get a preview.</p>
+        <p>Each photo gets sent to Claude, which picks <strong>colour-grading filters</strong> — brightness, contrast, hue, tint, grain, glow, vignette. The canvas applies them and you get a preview.</p>
+        <p class="capability-note">Filter grading only. It can't remove objects (reflections, people, signage), repaint pixels, or change the colour of just one thing in the frame — that needs a generative tool like Photoshop Generative Fill.</p>
         <p class="or">or</p>
         <button id="pickBtn" class="btn primary" disabled>Choose files</button>
         <input type="file" id="filePicker" accept="image/*" multiple hidden disabled>
@@ -1197,6 +1216,18 @@ async function persistPhoto(photo) {
   } catch (err) { console.warn('photo persist failed:', err); }
 }
 
+// ── Auto-grade-on-drop toggle ────────────────────────────────────────────────
+const AUTO_KEY = 'photo-ai-auto-edit';
+const autoToggle = $('autoEditToggle');
+(function initAutoToggle() {
+  let saved = '1';
+  try { saved = localStorage.getItem(AUTO_KEY); if (saved === null) saved = '1'; } catch {}
+  autoToggle.checked = saved !== '0';
+  autoToggle.addEventListener('change', () => {
+    try { localStorage.setItem(AUTO_KEY, autoToggle.checked ? '1' : '0'); } catch {}
+  });
+})();
+
 // ── View toggle (grid vs list) ───────────────────────────────────────────────
 const VIEW_KEY = 'photo-ai-view';
 function setView(view) {
@@ -1374,7 +1405,13 @@ async function handleFiles(fileList) {
     photos.push(photo);
     makeCard(photo);
     persistPhoto(photo);
-    enqueue(photo);
+    if (autoToggle.checked) {
+      enqueue(photo);
+    } else {
+      // Toggle is off — leave the photo waiting for a manual Redo / Re-edit all.
+      setBadge(photo, 'queued', 'Ready');
+      photo.card.querySelector('.cap').textContent = 'click Redo (or Re-edit all) to grade';
+    }
   }
   refreshBatchControls();
 }
