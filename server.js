@@ -1502,7 +1502,13 @@ function softenDarkLook(look, hasUserPrompt) {
 app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', 'photo-ai.html')));
 app.get('/lumen', (req, res) => res.sendFile(path.join(__dirname, 'public', 'lumen.html')));
 app.get('/aperture', (req, res) => res.sendFile(path.join(__dirname, 'public', 'aperture.html')));
-app.get('/garage', (req, res) => res.sendFile(path.join(__dirname, 'public', 'garage.html')));
+app.get('/garage', (req, res) => {
+  // Force the browser to revalidate /garage every load — without this,
+  // Chrome aggressively caches the HTML and users running through
+  // multiple iterations of edit-mode fixes were stuck on stale JS.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.sendFile(path.join(__dirname, 'public', 'garage.html'));
+});
 
 // ── Smarter auto-grade: analyze + propose 4 tailored looks in one call ───────
 // Replaces the fan-out of 4 separate /ai/photo-edit calls with a single
