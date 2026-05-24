@@ -1408,11 +1408,7 @@ async function polishPhoto(photo, btn, provider) {
   btn.innerHTML = '<span class="spinner"></span>Polishing…';
   setBadge(photo, 'busy', `${p.label}…`);
   try {
-    // Magnific bills by output area: 2x of ~1024 = ~2K (~$0.08).
-    // Anything larger pushes into the 4K tier (~$0.16) — bad value for a
-    // one-click polish. Clarity is flat-rate so we keep its full 2048 source.
-    const maxDim = provider === 'magnific' ? 1024 : 2048;
-    const dataUrl = await normalizePhotoForUpload(photo.file, maxDim);
+    const dataUrl = await normalizePhotoForUpload(photo.file);
     const res = await fetch('/ai/photo-polish', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

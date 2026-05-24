@@ -1103,8 +1103,8 @@ app.post('/ai/photo-generate', async (req, res) => {
 const POLISH_PROVIDERS = {
   magnific: {
     envKey: 'FREEPIK_API_KEY',
-    estCostUsd: 0.08,
-    label: 'Magnific 2K',
+    estCostUsd: 0.16,
+    label: 'Magnific 4K',
   },
   clarity: {
     envKey: 'REPLICATE_API_TOKEN',
