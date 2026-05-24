@@ -421,6 +421,11 @@
   .stage[data-theme="spec"] .num{color:rgba(132,200,255,.10) !important;font-family:'JetBrains Mono',monospace;font-weight:700}
   .stage[data-theme="spec"] .home-ind,
   .stage[data-theme="spec"] .grain{opacity:.5}
+  /* Spec theme: panel-title (.t) sits in the same spot as the spec card
+     and both render at full opacity → unreadable overlap. Shrink + dim
+     the titles so spec cards read cleanly. */
+  .stage[data-theme="spec"] .t{font-size:24px !important;opacity:0.6}
+  .stage[data-theme="spec"] .t .kicker{display:none}
 
   /* ─────────────────────────────────────────────
      THEME: MIXTAPE  (chaotic tape + stickers)
@@ -521,6 +526,11 @@
     outline: 1px dotted rgba(76,210,255,0.55);
     outline-offset: 2px;
     cursor: text;
+    /* Most editable elements (.t, .num, .sig, .tickLabel, .topline, .anno,
+       .sticker, .spec) have pointer-events: none in the base design so
+       they don't intercept swipe gestures. In edit mode we need clicks to
+       land on them so contentEditable can take focus. */
+    pointer-events: auto !important;
   }
   body.edit-mode [data-edit-id]:hover {
     outline: 1px dashed rgba(76,210,255,0.95);
@@ -1227,15 +1237,31 @@ document.querySelectorAll('#themes .opt').forEach(b=>{
 // Changing layout reshapes slots — re-fit photos so they match the new
 // aspects (a portrait photo gets shuffled to the new tall slot instead
 // of staying stretched across a wide one).
+const LAYOUT_KEY = 'garage-layout';
+(function restoreLayout(){
+  let saved = 'standard';
+  try { saved = localStorage.getItem(LAYOUT_KEY) || 'standard'; } catch(e){}
+  if (saved !== 'standard') {
+    stage.dataset.layout = saved;
+    document.querySelectorAll('#layouts .opt').forEach((o) => {
+      o.classList.toggle('on', o.dataset.layout === saved);
+    });
+  }
+})();
 document.querySelectorAll('#layouts .opt').forEach(b=>{
   b.addEventListener('click', ()=>{
     document.querySelectorAll('#layouts .opt').forEach(o=>o.classList.remove('on'));
     b.classList.add('on');
     stage.dataset.layout = b.dataset.layout;
-    // Drop any persisted swaps so the matcher can re-assign from scratch
-    // for the new layout. The previous swap data is per-slot, so old
-    // photos would stay stuck in slots that just changed shape.
-    try { localStorage.removeItem('garage3-slots'); } catch(e){}
+    try {
+      localStorage.setItem(LAYOUT_KEY, b.dataset.layout);
+      // Drop swaps + saved slot dims so the matcher can re-assign from
+      // scratch for the new layout. Old swap data is per-slot, so old
+      // photos would stay stuck in slots that just changed shape; old
+      // dims would fight the new layout's CSS overrides.
+      localStorage.removeItem('garage3-slots');
+      localStorage.removeItem('garage-slot-dims');
+    } catch(e){}
     location.reload();
   });
 });
@@ -1560,6 +1586,8 @@ document.getElementById('resetAll').addEventListener('click', () => {
     localStorage.removeItem('garage-text');
     localStorage.removeItem('garage-slot-dims');
     localStorage.removeItem('garage3-slots');
+    localStorage.removeItem('garage-layout');
+    localStorage.removeItem('garage-slot-defaults');
   } catch(e){}
   location.reload();
 });
