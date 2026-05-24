@@ -570,6 +570,10 @@
     display: none; align-items: center; gap: 12px;
     box-shadow: 0 8px 30px rgba(0,0,0,0.5);
   }
+  /* Obvious cyan glow around the page when edit mode is on. */
+  body.edit-mode {
+    box-shadow: inset 0 0 0 3px rgba(76,210,255,0.5);
+  }
   body.edit-mode .edit-mode-banner { display: flex; }
   .edit-mode-banner .dot { width: 6px; height: 6px; border-radius: 50%; background: #4cd2ff; box-shadow: 0 0 8px #4cd2ff; }
   .edit-mode-banner kbd {
@@ -1298,19 +1302,19 @@ const LAYOUT_KEY = 'garage-layout';
 })();
 document.querySelectorAll('#layouts .opt').forEach(b=>{
   b.addEventListener('click', ()=>{
+    const name = b.dataset.layout;
+    console.log('[garage] layout switch ->', name);
     document.querySelectorAll('#layouts .opt').forEach(o=>o.classList.remove('on'));
     b.classList.add('on');
-    applyLayout(b.dataset.layout);
     try {
-      localStorage.setItem(LAYOUT_KEY, b.dataset.layout);
+      localStorage.setItem(LAYOUT_KEY, name);
       // New layout = different slot shapes. Drop saved dims (they were
       // for the old layout's slots) and any photo swaps so the matcher
-      // re-runs. No reload needed — applyLayout did the visual change.
+      // re-runs on next page load. Wait until AFTER the writes complete
+      // before reloading.
       localStorage.removeItem('garage-slot-dims');
       localStorage.removeItem('garage3-slots');
-      for (const k of Object.keys(savedDims)) delete savedDims[k];
     } catch(e){}
-    // Re-fit photos to the new slot shapes.
     location.reload();
   });
 });
@@ -1504,11 +1508,27 @@ function setEditMode(on){
   });
   document.getElementById('tEdit').classList.toggle('on', editMode);
   try { localStorage.setItem(EDIT_KEY, editMode ? '1' : '0'); } catch(e){}
+  console.log('[garage] edit mode:', editMode, '· editable elements:', document.querySelectorAll('[data-edit-id]').length, '· slots:', document.querySelectorAll('.slot[data-slot]').length);
 }
 // Restore edit-mode preference.
 try { setEditMode(localStorage.getItem(EDIT_KEY) === '1'); } catch(e){ setEditMode(false); }
 
-document.getElementById('tEdit').addEventListener('click', () => setEditMode(!editMode));
+// Wire click on the WHOLE toggle row (label + switch), not just the switch
+// knob — easy to click the label text and wonder why nothing happens.
+function findToggleRow(){
+  const sw = document.getElementById('tEdit');
+  return sw ? sw.closest('.toggle') : null;
+}
+const editToggleRow = findToggleRow();
+if (editToggleRow) {
+  editToggleRow.style.cursor = 'pointer';
+  editToggleRow.addEventListener('click', (e) => {
+    // Don't double-toggle when the click already lands on the switch.
+    setEditMode(!editMode);
+  });
+} else {
+  document.getElementById('tEdit').addEventListener('click', () => setEditMode(!editMode));
+}
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && editMode) setEditMode(false);
   if (e.key === 'Shift' && editMode) document.body.classList.add('shift-held');
@@ -1612,13 +1632,20 @@ function getStageScale(){
   return m ? parseFloat(m[1]) : 1;
 }
 document.addEventListener('mousedown', (e) => {
-  if (!editMode) return;
+  if (!editMode) {
+    if (e.target.closest('.slot[data-slot]')) console.log('[garage] mousedown on slot — but edit mode is OFF');
+    return;
+  }
   if (e.target.closest('.slot-tools')) return; // tools button handles its own click
   const slot = e.target.closest('.slot[data-slot]');
-  if (!slot) return;
+  if (!slot) {
+    console.log('[garage] mousedown — not on a slot, target:', e.target.tagName, e.target.className);
+    return;
+  }
   const onResize = !!e.target.closest('.resize-handle');
   const onRotate = !!e.target.closest('.rotate-handle');
   const cropping = e.shiftKey && !onResize && !onRotate;
+  console.log('[garage] slot drag start', slot.dataset.slot, { onResize, onRotate, cropping });
 
   e.preventDefault();
   e.stopPropagation();
