@@ -215,8 +215,17 @@ function normalizeCandidate(c) {
 
 function runClaudeCode(prompt, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
+    // Windows cmd.exe truncates command-line args at embedded newlines, so
+    // passing a long multi-line prompt via -p drops everything after the
+    // first \n — including the trailing flags (--output-format json,
+    // --permission-mode), which makes claude return conversational text
+    // instead of the JSON wrapper we parse. Collapse newlines to spaces on
+    // Windows; the model still reads the prompt fine without them.
+    const flatPrompt = process.platform === 'win32'
+      ? prompt.replace(/\r\n|\n|\r/g, ' ')
+      : prompt;
     const args = [
-      '-p', prompt,
+      '-p', flatPrompt,
       '--output-format', 'json',
       '--permission-mode', 'bypassPermissions',
     ];
