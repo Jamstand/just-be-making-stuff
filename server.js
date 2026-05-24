@@ -1456,19 +1456,20 @@ app.post('/ai/photo-edit', async (req, res) => {
 // so the user always gets a readable result.
 function softenDarkLook(look) {
   if (!look) return look;
+  const before = { ...look };
   // Vignette + brightness interaction.
   if (typeof look.brightness === 'number' && typeof look.vignette === 'number') {
-    // If vignette is meaningful, brightness MUST stay bright.
-    if (look.vignette > 0.3 && look.brightness < 1.1) {
+    if (look.vignette > 0.3 && look.brightness < 1.1) look.brightness = 1.1;
+    if (look.brightness < 1.0 && look.vignette > 0.25) look.vignette = 0.25;
+    if (look.vignette > 0.5) look.vignette = 0.5;
+  }
+  // High contrast crushes shadows on dim sources. Cap it on auto-grade and
+  // require a brightness lift if Claude wants real contrast.
+  if (typeof look.contrast === 'number') {
+    if (look.contrast > 1.4) look.contrast = 1.4;
+    if (look.contrast > 1.25 && typeof look.brightness === 'number' && look.brightness < 1.1) {
       look.brightness = 1.1;
     }
-    // If brightness is low at all, vignette must be tiny.
-    if (look.brightness < 1.0 && look.vignette > 0.25) {
-      look.vignette = 0.25;
-    }
-    // Hard cap: vignette never above 0.5 on auto-grade — anything more is
-    // theatrical and the user can dial it manually if they want.
-    if (look.vignette > 0.5) look.vignette = 0.5;
   }
   // Dark tintColor + high tintAlpha = soft-light overlay that darkens.
   if (typeof look.tintColor === 'string' && typeof look.tintAlpha === 'number') {
@@ -1478,11 +1479,17 @@ function softenDarkLook(look) {
       const g = parseInt(m[1].slice(2, 4), 16);
       const b = parseInt(m[1].slice(4, 6), 16);
       const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-      // Dark tints cap at low alpha; mid tints cap at moderate.
       if (luma < 0.3 && look.tintAlpha > 0.15) look.tintAlpha = 0.15;
       else if (luma < 0.5 && look.tintAlpha > 0.3) look.tintAlpha = 0.3;
     }
   }
+  // Log what changed so we can debug user reports.
+  const diffs = [];
+  for (const k of ['brightness', 'contrast', 'vignette', 'tintAlpha']) {
+    if (before[k] !== look[k]) diffs.push(`${k}: ${before[k]} → ${look[k]}`);
+  }
+  if (diffs.length) console.log(`[guardrail] softened look "${look.caption}":`, diffs.join(', '));
+  else console.log(`[grade] "${look.caption}": brightness=${look.brightness} contrast=${look.contrast} vignette=${look.vignette} tint=${look.tintColor}@${look.tintAlpha}`);
   return look;
 }
 
