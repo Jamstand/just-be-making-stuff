@@ -1561,7 +1561,7 @@ $('genConfirm').addEventListener('click', async () => {
   setBadge(photo, 'busy', 'Generating…');
 
   try {
-    const dataUrl = await blobToDataUrl(photo.file);
+    const dataUrl = await normalizePhotoForUpload(photo.file);
     const body = { image: dataUrl, prompt, provider: genModal.provider };
     if (useMask) body.mask = maskPainter.canvas.toDataURL('image/png');
     const res = await fetch('/ai/photo-generate', {
@@ -1597,6 +1597,27 @@ function blobToDataUrl(blob) {
     r.onerror = reject;
     r.readAsDataURL(blob);
   });
+}
+
+// Draw the photo through a canvas so EXIF orientation, CMYK profiles, and
+// other camera-JPEG quirks are baked into a clean RGB PNG that all the
+// image-edit APIs accept. Caps the longest edge at maxDim to keep the
+// upload reasonable.
+async function normalizePhotoForUpload(file, maxDim = 2048) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(url);
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const scale = Math.min(1, maxDim / Math.max(w, h));
+    const cw = Math.round(w * scale), ch = Math.round(h * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, cw, ch);
+    return canvas.toDataURL('image/png');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 async function applyGeneratedImage(photo, dataUrl, provider, prompt) {
