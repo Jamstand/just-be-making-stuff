@@ -333,6 +333,22 @@
   }
   .drop-prompt-row { flex-shrink: 0; }
 
+  /* Claude's read of the photo — sits under the filename */
+  .card .analysis {
+    font-size: 10px; color: var(--muted); line-height: 1.4;
+    font-family: 'Inter Tight', monospace; margin-top: 2px;
+    display: none;
+  }
+  .card .analysis.has { display: block; }
+  .card .analysis .chip {
+    display: inline-block; padding: 1px 6px; margin-right: 4px;
+    background: var(--paper); border-radius: 8px; font-size: 9px;
+    color: var(--ink); letter-spacing: 0.04em;
+  }
+  .card .analysis .notes { display: block; margin-top: 3px; font-style: italic; color: var(--ink2); }
+  .batch-grid.view-list .card .analysis { font-size: 9px; }
+  .batch-grid.view-list .card .analysis .notes { display: none; }
+
   /* Per-card variant preview strip (4 auto-grade options) */
   .card .variants {
     display: flex; gap: 4px; margin-top: 2px; flex-wrap: wrap;
@@ -1593,8 +1609,9 @@ async function persistPhoto(photo) {
       genPrompt: photo.genPrompt || null,
       // Persist only the look JSON for each variant — thumbs re-render
       // locally from the source on display.
-      variants: (photo.variants || []).map((v) => ({ id: v.id, name: v.name, look: v.look, status: v.status })),
+      variants: (photo.variants || []).map((v) => ({ id: v.id, name: v.name, rationale: v.rationale || '', look: v.look, status: v.status })),
       variantIndex: photo.variantIndex ?? 0,
+      analysis: photo.analysis || null,
     });
   } catch (err) { console.warn('photo persist failed:', err); }
 }
@@ -2569,6 +2586,7 @@ function makeCard(photo) {
     <div class="meta">
       <div class="cap">…</div>
       <div class="filename"></div>
+      <div class="analysis"></div>
       <div class="variants" hidden></div>
       <div class="actions">
         <button class="btn ghost" data-action="toggle">Show original</button>
@@ -2589,6 +2607,7 @@ function makeCard(photo) {
   card.querySelector('.orig').src = photo.originalUrl;
   photo.canvas = card.querySelector('canvas.edited');
   photo.variantsEl = card.querySelector('.variants');
+  photo.analysisEl = card.querySelector('.analysis');
   // The Gen edit button stays hidden until /ai/status confirms at least one
   // provider has its API key configured.
   if (anyGenProviderReady()) card.querySelector('[data-action="gen"]').hidden = false;
@@ -2641,15 +2660,12 @@ function enqueue(photo, customPrompt) {
   pump();
 }
 
-// Variant presets — first runs with the user's prompt (or no prompt for
-// blind auto-grade), the others nudge toward distinct aesthetics so the
-// user has 4 looks to pick from instead of accepting one blind guess.
-const VARIANT_PRESETS = [
-  { id: 'natural',   name: 'Natural',   suffix: '' },
-  { id: 'cinematic', name: 'Cinematic', suffix: 'moody cinematic teal-orange grade, modest contrast and vignette' },
-  { id: 'film',      name: 'Film',      suffix: 'warm vintage film, faded shadows, subtle warm tint and grain' },
-  { id: 'vivid',     name: 'Vivid',     suffix: 'vivid editorial pop, boosted saturation, crisp clean contrast' },
-];
+// Auto-grade now uses ONE rich Claude call (/ai/photo-grade-pack) that
+// returns an analysis of the photo plus 4 variants tailored to it —
+// instead of 4 separate /ai/photo-edit calls with hardcoded prompt
+// suffixes. The variant names come from Claude per-photo (e.g.
+// "Showroom Polish" for a car shot) and each carries a one-line
+// rationale that shows up as the chip's tooltip.
 
 async function pump() {
   if (inflight >= MAX_CONCURRENT) return;
@@ -2659,60 +2675,41 @@ async function pump() {
     return;
   }
   inflight++;
-  setBadge(next, 'busy', 'Grading…');
+  setBadge(next, 'busy', 'Reading…');
   try {
     const dataUrl = downscaleDataUrl(next.img, 768);
-    const userPrompt = next._prompt || '';
 
-    // Initialize 4 empty variant slots and show the strip in loading state.
-    next.variants = VARIANT_PRESETS.map((p) => ({ ...p, look: null, status: 'loading', err: null }));
+    // Loading placeholder strip — 4 generic slots until Claude's pack lands.
+    next.variants = [0,1,2,3].map((i) => ({ id: 'v' + i, name: '…', look: null, status: 'loading' }));
     next.variantIndex = 0;
     renderVariants(next);
 
-    // Fire all 4 in parallel. As each lands, render its thumb; the first
-    // successful one becomes the active look right away so the user isn't
-    // staring at an unedited canvas.
-    const tasks = VARIANT_PRESETS.map(async (preset, i) => {
-      const fullPrompt = userPrompt && preset.suffix
-        ? `${userPrompt} — ${preset.suffix}`
-        : (userPrompt || preset.suffix || '');
-      try {
-        const res = await fetch('/ai/photo-edit', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ image: dataUrl, prompt: fullPrompt }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          const e = new Error(data.detail || data.error || 'request failed');
-          e.code = data.error;
-          throw e;
-        }
-        next.variants[i].look = { ...NEUTRAL, ...data.look };
-        next.variants[i].status = 'ready';
-        // First successful variant becomes the active look automatically.
-        if (!next.look) {
-          next.look = next.variants[i].look;
-          next.variantIndex = i;
-          renderStill(next.img, next.look, next.canvas);
-          next.card.querySelector('.cap').textContent = next.look.caption || 'edited';
-          setBadge(next, 'done', 'Done');
-        }
-      } catch (err) {
-        next.variants[i].status = 'error';
-        next.variants[i].err = err.message;
-        next.variants[i]._code = err.code;
-      }
-      renderVariants(next);
+    const res = await fetch('/ai/photo-grade-pack', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl }),
     });
-    await Promise.all(tasks);
-
-    // If every variant failed, surface the first error like the old flow did.
-    if (!next.look) {
-      const firstErr = next.variants.find((v) => v.status === 'error');
-      const e = new Error(firstErr?.err || 'all variants failed');
-      e.code = firstErr?._code;
+    const data = await res.json();
+    if (!res.ok) {
+      const e = new Error(data.detail || data.error || 'grade pack failed');
+      e.code = data.error;
       throw e;
     }
+    next.analysis = data.analysis || null;
+    renderAnalysis(next);
+    next.variants = (data.variants || []).map((v) => ({
+      id: v.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'variant',
+      name: v.name || 'Variant',
+      rationale: v.rationale || '',
+      look: { ...NEUTRAL, ...v.look },
+      status: 'ready',
+    }));
+    if (!next.variants.length) throw new Error('no variants returned');
+    next.variantIndex = 0;
+    next.look = next.variants[0].look;
+    renderStill(next.img, next.look, next.canvas);
+    next.card.querySelector('.cap').textContent = next.look.caption || next.variants[0].name;
+    setBadge(next, 'done', 'Done');
+    renderVariants(next);
     persistPhoto(next);
   } catch (err) {
     setBadge(next, 'err', 'Failed');
@@ -2729,6 +2726,20 @@ async function pump() {
   }
 }
 
+function renderAnalysis(photo) {
+  const el = photo.analysisEl;
+  if (!el) return;
+  const a = photo.analysis;
+  if (!a) { el.classList.remove('has'); el.innerHTML = ''; return; }
+  el.classList.add('has');
+  el.innerHTML = `
+    ${a.subject  ? `<span class="chip">${escapeAttr(a.subject)}</span>`  : ''}
+    ${a.lighting ? `<span class="chip">${escapeAttr(a.lighting)}</span>` : ''}
+    ${a.mood     ? `<span class="chip">${escapeAttr(a.mood)}</span>`     : ''}
+    ${a.notes    ? `<span class="notes">${escapeAttr(a.notes)}</span>`   : ''}
+  `;
+}
+
 // Render the 4-variant thumbnail strip for a card. Thumbs are rendered
 // locally by re-applying each variant's look to the source image — no
 // extra AI calls.
@@ -2741,7 +2752,7 @@ function renderVariants(photo) {
     <button class="variant ${i === photo.variantIndex ? 'on' : ''} ${v.status === 'loading' ? 'loading' : ''} ${v.status === 'error' ? 'error' : ''}"
             data-action="variant" data-index="${i}"
             ${v.status !== 'ready' ? 'disabled' : ''}
-            title="${v.look?.caption ? escapeAttr(v.look.caption) : v.name}">
+            title="${escapeAttr(v.rationale || v.look?.caption || v.name)}">
       <span class="skel"></span>
       <span class="v-name">${v.name}</span>
     </button>
@@ -2908,6 +2919,10 @@ async function restorePhotos() {
       photo.variants = rec.variants;
       photo.variantIndex = rec.variantIndex ?? 0;
       renderVariants(photo);
+    }
+    if (rec.analysis) {
+      photo.analysis = rec.analysis;
+      renderAnalysis(photo);
     }
     if (photo.id > photoSeq) photoSeq = photo.id;
   }

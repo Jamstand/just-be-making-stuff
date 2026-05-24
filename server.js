@@ -1504,6 +1504,126 @@ app.get('/lumen', (req, res) => res.sendFile(path.join(__dirname, 'public', 'lum
 app.get('/aperture', (req, res) => res.sendFile(path.join(__dirname, 'public', 'aperture.html')));
 app.get('/garage', (req, res) => res.sendFile(path.join(__dirname, 'public', 'garage.html')));
 
+// ── Smarter auto-grade: analyze + propose 4 tailored looks in one call ───────
+// Replaces the fan-out of 4 separate /ai/photo-edit calls with a single
+// richer call. Claude reads the photo, identifies subject / lighting /
+// mood, then proposes 4 distinct looks NAMED for what suits THIS photo
+// (e.g. "Showroom Polish" / "Track Day" / "Magazine Editorial" / "Noir
+// Concept" instead of generic "Natural / Cinematic / Film / Vivid").
+//
+// Each variant comes with a one-sentence rationale so the user
+// understands why Claude is suggesting it. Cheaper than 4 separate
+// calls (1 image transfer instead of 4) and noticeably smarter.
+
+const LOOK_PROPS = LOOK_SCHEMA.properties;
+const GRADE_PACK_SCHEMA = {
+  type: 'object',
+  required: ['analysis', 'variants'],
+  additionalProperties: false,
+  properties: {
+    analysis: {
+      type: 'object',
+      required: ['subject', 'lighting', 'mood'],
+      additionalProperties: false,
+      properties: {
+        subject:  { type: 'string', description: '1–4 words for what the photo is of (e.g. "car detail", "portrait", "landscape").' },
+        lighting: { type: 'string', description: '1–6 words on lighting condition + quality (e.g. "indoor showroom · warm", "golden hour outdoor").' },
+        mood:     { type: 'string', description: '1–4 words for the overall vibe (e.g. "polished, premium", "moody, dark").' },
+        notes:    { type: 'string', description: 'Optional: 1 sentence on what could be improved or preserved.' },
+      },
+    },
+    variants: {
+      type: 'array', minItems: 4, maxItems: 4,
+      items: {
+        type: 'object',
+        required: ['name', 'rationale', 'look'],
+        additionalProperties: false,
+        properties: {
+          name:      { type: 'string', description: '2–4 word name tailored to this specific photo. Avoid generic words like "Natural" or "Cinematic" unless they\'re truly the best fit.' },
+          rationale: { type: 'string', description: 'One sentence explaining why this look suits the shot.' },
+          look:      { type: 'object', required: LOOK_SCHEMA.required, additionalProperties: false, properties: LOOK_PROPS },
+        },
+      },
+    },
+  },
+};
+
+const GRADE_PACK_SYSTEM = `${EDIT_SYSTEM}
+
+You are now in PACK mode — instead of returning ONE look, return an ANALYSIS of the photo plus FOUR distinct looks that suit it.
+
+The 4 variants should be:
+- VISUALLY DIFFERENT from each other (don't return 4 similar warm grades)
+- NAMED for what makes them right for THIS photo (a car shot variant could be "Showroom Polish"; a portrait could be "Window Light Soft"; a landscape could be "Golden Hour Lift"). Avoid the generic words "Natural", "Cinematic", "Film", "Vivid" unless one of those is genuinely the perfect description.
+- Each accompanied by a one-sentence rationale explaining the choice.
+
+The analysis fields (subject, lighting, mood) should be specific and concise — a single line each. Notes is optional, only include if there's something useful to flag.
+
+All look-parameter rules from the regular EDIT_SYSTEM apply to every variant — especially the dim-photo brightness/vignette/contrast rules.
+
+Output ONLY the JSON object matching the pack schema. No prose, no markdown.`;
+
+async function claudeCodeGradePack(mediaType, b64) {
+  const ext = mediaType.split('/')[1] || 'jpg';
+  const tmpFile = path.join(os.tmpdir(), `gradepack-${crypto.randomUUID()}.${ext}`);
+  fs.writeFileSync(tmpFile, Buffer.from(b64, 'base64'));
+  try {
+    const prompt = `${GRADE_PACK_SYSTEM}
+
+Use the Read tool to view the photo at ${tmpFile}, then return the JSON.
+
+Schema you must follow:
+${JSON.stringify(GRADE_PACK_SCHEMA, null, 2)}
+
+Output ONLY the JSON object — no prose, no markdown fences.`;
+    const text = await runClaudeCode(prompt, 180000);
+    return extractJsonObject(text);
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch {}
+  }
+}
+
+app.post('/ai/photo-grade-pack', async (req, res) => {
+  const { image } = req.body || {};
+  if (typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'image must be a data URL' });
+  }
+  const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!m) return res.status(400).json({ error: 'invalid image data URL' });
+  try {
+    let pack;
+    if (AI_BACKEND === 'claude-code') {
+      pack = await claudeCodeGradePack(m[1], m[2]);
+    } else {
+      if (!anthropicReady()) {
+        return res.status(400).json({ error: 'ai_not_configured', detail: 'Set ANTHROPIC_API_KEY or AI_BACKEND=claude-code.' });
+      }
+      const response = await getAnthropicClient().messages.create({
+        model: process.env.AI_GRADE_MODEL || 'claude-opus-4-7',
+        max_tokens: 2048,
+        system: [{ type: 'text', text: GRADE_PACK_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        output_config: { format: { type: 'json_schema', schema: GRADE_PACK_SCHEMA } },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
+            { type: 'text', text: 'Analyze this photo and return 4 tailored grade variants per the schema.' },
+          ],
+        }],
+      });
+      const text = response.content.find((b) => b.type === 'text')?.text;
+      pack = text ? JSON.parse(text) : null;
+    }
+    if (!pack?.variants?.length) return res.status(502).json({ error: 'ai_empty' });
+    // Run each variant through the dim-photo guardrail (auto mode).
+    pack.variants = pack.variants.map((v) => ({ ...v, look: softenDarkLook(v.look, false) }));
+    res.json(pack);
+  } catch (err) {
+    console.error('photo-grade-pack error:', err.message);
+    res.status(500).json({ error: 'gradepack_failed', detail: err.message });
+  }
+});
+
 // ── Compose (auto-group photos into Instagram-ready sets) ────────────────────
 // Sends a batch of thumbnails to Claude with vision and asks for:
 //   - themed groups (subject/style clusters)
