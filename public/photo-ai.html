@@ -1823,6 +1823,7 @@ function renderCompose() {
       <div class="actions">
         <button class="btn ghost" data-action="download-set" data-set-index="${i}">Download all (numbered)</button>
         ${!isGrid ? `<button class="btn coral" data-action="edit-slideshow" data-set-index="${i}">✨ Edit as slideshow</button>` : ''}
+        ${!isGrid ? `<button class="btn ghost" data-action="open-garage" data-set-index="${i}">📱 Open in Garage</button>` : ''}
       </div>`;
     const photosEl = setEl.querySelector('.photos');
     s.photo_ids.forEach((pid, idx) => {
@@ -1878,6 +1879,14 @@ $('composeResults').addEventListener('click', (e) => {
   if (a) downloadComposeSet(parseInt(a.dataset.setIndex, 10));
   const s = e.target.closest('[data-action="edit-slideshow"]');
   if (s) openSlideshowEditor(parseInt(s.dataset.setIndex, 10));
+  const g = e.target.closest('[data-action="open-garage"]');
+  if (g) {
+    const sets = composeView === 'grids' ? composeData.profile_grids : composeData.carousels;
+    const set = sets[parseInt(g.dataset.setIndex, 10)];
+    if (set?.photo_ids?.length) {
+      window.open(`/garage?ids=${set.photo_ids.join(',')}`, '_blank');
+    }
+  }
 });
 document.querySelectorAll('[data-compose-view]').forEach((btn) => {
   btn.addEventListener('click', () => {

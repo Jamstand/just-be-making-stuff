@@ -1,0 +1,1133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Garage — Late Night Pull-Up</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Caveat:wght@600;700&family=Bricolage+Grotesque:wght@600;700;800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* register custom props so calc() can multiply length × number reliably */
+  @property --slideX {
+    syntax: '<length>';
+    inherits: true;
+    initial-value: 0px;
+  }
+  @property --speed {
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 1;
+  }
+
+  /* ─────────────────────────────────────────────
+     GLOBAL TOKENS (overridden per theme below)
+     ───────────────────────────────────────────── */
+  :root{
+    /* enhancement filter on all photos */
+    --sat:1.30; --con:1.10; --bri:1.04; --warm:-2deg; --sep:0;
+    --grain:0.10;
+    --shadow:1;
+
+    /* canvas geometry */
+    --panel:412px;
+    --panel-h:515px;
+    --panels:6;
+
+    /* theme tokens (set by .stage[data-theme]) */
+    --font-display:'Bricolage Grotesque', sans-serif;
+    --font-body:'Inter', sans-serif;
+    --font-script:'Caveat', cursive;
+    --font-mono:'JetBrains Mono', monospace;
+    --accent:#ffb24c;
+    --accent-2:#84c8ff;
+    --paper:#f4f1ea;
+    --ink:#1a1b1f;
+    --bg-1:#0c0d11;
+    --bg-2:#15161a;
+    --bg-3:#0a0a0c;
+    --leak-a:rgba(255,138,40,.16);
+    --leak-b:rgba(132,200,255,.14);
+    --ribbon-op:.055;
+    --rail-color:rgba(255,255,255,.35);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:#0a0a0c;font-family:var(--font-body);color:#fff;overflow:hidden}
+  body{display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(1200px 700px at 50% 30%, #15161a 0%, #0a0a0c 60%, #060608 100%);}
+
+  /* ───── stage / phone ───── */
+  .stage{position:relative;transform-origin:center center}
+  .phone{
+    width:412px;height:892px;background:#000;border-radius:54px;position:relative;
+    box-shadow:0 0 0 2px #1d1d20,0 0 0 12px #0a0a0c,0 30px 80px rgba(0,0,0,.6),0 80px 200px rgba(0,0,0,.7);
+    overflow:hidden;color:#fff;
+  }
+  .phone::before{content:"";position:absolute;left:50%;top:11px;transform:translateX(-50%);
+    width:120px;height:34px;background:#000;border-radius:18px;z-index:50}
+  .home-ind{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
+    width:134px;height:5px;background:#fff;border-radius:3px;opacity:.95;z-index:50}
+
+  /* status bar */
+  .status{height:54px;display:flex;align-items:flex-end;justify-content:space-between;
+    padding:0 30px 8px;font-weight:600;font-size:16px;letter-spacing:.2px;position:relative;z-index:10;color:#fff}
+  .status .right{display:flex;align-items:center;gap:6px}
+  .status svg{display:block}
+
+  /* ig nav */
+  .ig-nav{height:48px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 14px;border-bottom:.5px solid #1f1f22;background:#000}
+  .ig-nav .back{font-size:24px;line-height:1;color:#fff;width:28px}
+  .ig-nav .title{text-align:center;flex:1}
+  .ig-nav .title .t1{font-weight:700;font-size:16px}
+  .ig-nav .title .t2{font-size:11px;color:#a8a8ad;margin-top:1px}
+  .ig-nav .spacer{width:28px}
+
+  /* post header */
+  .post-head{display:flex;align-items:center;gap:10px;padding:10px 12px 8px;background:#000}
+  .avatar{width:34px;height:34px;border-radius:50%;
+    background:radial-gradient(120% 120% at 30% 30%, #9ec9e8 0%, #6aa5cf 35%, #1a3447 80%);
+    border:1.5px solid #1f1f22;flex-shrink:0;position:relative;overflow:hidden}
+  .avatar::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 60% at 70% 25%, rgba(255,255,255,.5), transparent 60%)}
+  .post-head .who{flex:1;line-height:1.25}
+  .post-head .who .u{font-weight:700;font-size:14px;display:flex;align-items:center;gap:4px}
+  .post-head .who .loc{font-size:12px;color:#dcdcde;font-weight:500}
+  .post-head .dots{font-size:18px;color:#fff;padding:0 6px}
+
+  /* ─────────────────────────────────────────────
+     VIEWPORT — windowed onto a wide canvas
+     Each layer slides independently → parallax
+     ───────────────────────────────────────────── */
+  .viewport{
+    position:relative;width:var(--panel);height:var(--panel-h);
+    background:#000;overflow:hidden;isolation:isolate;
+    /* slideX = -idx * panel  (set by JS) */
+    --slideX:0px;
+  }
+  .layer{
+    position:absolute;left:0;top:0;
+    width:calc(var(--panel) * var(--panels) + 200px);
+    height:var(--panel-h);
+    transform:translate3d(calc(var(--slideX) * var(--speed,1)), 0, 0);
+    transition:transform .65s cubic-bezier(.22,.7,.18,1);
+    will-change:transform;
+  }
+  .layer.bg     { --speed:0.30; }
+  .layer.leak   { --speed:0.55; }
+  .layer.ribbon { --speed:1.45; }
+  .layer.topline{ --speed:1.20; }
+  .layer.photos { --speed:1.00; }
+  .layer.deco   { --speed:1.00; }
+  .layer.type   { --speed:1.00; }
+  .layer.specs  { --speed:1.00; }
+  .layer.numbers{ --speed:0.75; }
+
+  /* base atmosphere — overridden per theme */
+  .layer.bg{
+    background:
+      radial-gradient(46% 90% at 9% 50%,  var(--leak-a), transparent 70%),
+      radial-gradient(34% 80% at 31% 28%, var(--leak-b), transparent 70%),
+      radial-gradient(40% 90% at 56% 70%, var(--leak-a), transparent 70%),
+      radial-gradient(34% 80% at 74% 28%, var(--leak-b), transparent 70%),
+      radial-gradient(50% 90% at 96% 60%, var(--leak-a), transparent 70%),
+      linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 50%, var(--bg-3) 100%);
+  }
+
+  /* mega ribbon (huge ghosted display type) */
+  .ribbon{
+    position:absolute;top:60px;left:-40px;
+    font-family:var(--font-display);font-weight:800;
+    font-size:260px;line-height:1;letter-spacing:-12px;
+    color:#fff;opacity:var(--ribbon-op);white-space:nowrap;
+    mix-blend-mode:screen;text-transform:uppercase;
+    pointer-events:none;user-select:none;
+  }
+
+  /* topline meta */
+  .topline{position:absolute;top:18px;left:0;height:14px;
+    display:flex;align-items:center;gap:24px;padding:0 18px;
+    font-family:var(--font-body);font-size:10px;font-weight:600;letter-spacing:3px;
+    text-transform:uppercase;color:rgba(255,255,255,.5);
+    pointer-events:none;width:max-content;}
+  .topline span{flex-shrink:0}
+  .topline em{flex-shrink:0;width:24px;height:1px;background:rgba(255,255,255,.25);font-style:normal}
+  .topline b{color:rgba(255,255,255,.95);font-weight:700;margin-right:0}
+
+  /* light leaks */
+  .leak{position:absolute;top:-40px;height:calc(100% + 80px);
+    pointer-events:none;mix-blend-mode:screen;}
+  .leak.a{left:340px;width:560px;
+    background:linear-gradient(95deg, transparent 30%, rgba(255,138,40,.42) 50%, rgba(255,80,40,.18) 60%, transparent 75%);
+    transform:skewX(-14deg);filter:blur(28px);opacity:.85}
+  .leak.b{left:1500px;width:600px;
+    background:linear-gradient(95deg, transparent 30%, rgba(120,200,255,.38) 50%, transparent 75%);
+    transform:skewX(-14deg);filter:blur(28px);opacity:.85}
+  .leak.c{left:2200px;width:300px;
+    background:linear-gradient(95deg, transparent 30%, rgba(255,168,80,.30) 50%, transparent 75%);
+    transform:skewX(-14deg);filter:blur(24px);opacity:.7}
+
+  /* the rail and ticks live inside deco layer (1.0 speed) */
+  .rail{position:absolute;left:0;bottom:42px;height:1px;
+    width:calc(var(--panel) * var(--panels));
+    background:linear-gradient(90deg, transparent 0%, var(--rail-color) 6%, var(--rail-color) 94%, transparent 100%);
+    pointer-events:none}
+  .rail::before{content:"";position:absolute;left:6%;right:6%;top:-1px;height:1px;
+    background:repeating-linear-gradient(90deg,var(--accent) 0 6px, transparent 6px 16px);opacity:.5}
+  .tick{position:absolute;bottom:36px;width:1px;height:12px;background:var(--rail-color);pointer-events:none}
+  .tickLabel{position:absolute;bottom:16px;font-family:var(--font-body);
+    font-size:9px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;
+    color:rgba(255,255,255,.55);pointer-events:none;white-space:nowrap}
+  .tickLabel b{color:#fff;font-weight:700;margin-right:6px;font-family:var(--font-display)}
+
+  /* registration marks */
+  .mark{position:absolute;width:14px;height:14px;pointer-events:none;opacity:.5}
+  .mark::before,.mark::after{content:"";position:absolute;background:rgba(255,255,255,.5)}
+  .mark::before{left:0;right:0;top:50%;height:1px}
+  .mark::after{top:0;bottom:0;left:50%;width:1px}
+
+  /* ─────────────────────────────────────────────
+     SLOT  (photo holder w/ enhancement filter)
+     ───────────────────────────────────────────── */
+  .slot{
+    position:absolute;overflow:hidden;background:#15161a;
+    background-size:cover;background-position:center;background-clip:content-box;
+    transition:transform .45s cubic-bezier(.2,.7,.2,1), box-shadow .35s;
+  }
+  .slot::before{
+    content:"";position:absolute;inset:0;
+    background-image:inherit;background-size:inherit;background-position:inherit;
+    filter:saturate(var(--sat)) contrast(var(--con)) brightness(var(--bri)) hue-rotate(var(--warm)) sepia(var(--sep));
+  }
+  .slot::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,.10) 0%, rgba(255,255,255,0) 30%),
+      radial-gradient(120% 80% at 50% 110%, rgba(0,0,0,.35), transparent 60%);
+    mix-blend-mode:overlay;
+  }
+  .slot.poly{
+    background-color:var(--paper);padding:8px 8px 28px;
+    box-shadow:0 12px 26px rgba(0,0,0,.55),0 2px 5px rgba(0,0,0,.4);
+  }
+  .slot.poly::before{inset:8px 8px 28px}
+  .slot.poly::after{inset:8px 8px 28px}
+  .slot.poly .cap{
+    position:absolute;left:0;right:0;bottom:4px;text-align:center;
+    font-family:var(--font-script);font-size:14px;color:#222;font-weight:700;z-index:3;
+  }
+  .slot:not(.poly){
+    box-shadow:0 18px 40px rgba(0,0,0,calc(.5 * var(--shadow))),
+               0 4px 10px rgba(0,0,0,calc(.4 * var(--shadow)));
+  }
+  .slot.circle{border-radius:50%}
+  .slot.circle::before,.slot.circle::after{border-radius:50%}
+  .slot.dragover{outline:2px dashed #4cd2ff;outline-offset:-4px}
+  .slot.empty{background:#15161a;display:flex;align-items:center;justify-content:center;
+    color:#5b5b62;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase}
+  .slot.empty::before,.slot.empty::after{display:none}
+
+  /* ─────────────────────────────────────────────
+     TYPOGRAPHY pieces — per-panel
+     ───────────────────────────────────────────── */
+  .t{position:absolute;font-family:var(--font-display);
+    color:#fff;line-height:.9;letter-spacing:-2px;text-transform:uppercase;
+    text-shadow:0 2px 22px rgba(0,0,0,.45);pointer-events:none}
+  .t .kicker{font-family:var(--font-body);font-weight:600;font-size:10px;
+    letter-spacing:3.5px;color:rgba(255,255,255,.75);
+    margin-bottom:10px;text-shadow:none;display:block}
+  .t .accent{color:var(--accent)}
+  .num{font-family:var(--font-display);font-weight:800;line-height:.85;color:#fff;
+    pointer-events:none;text-shadow:0 2px 20px rgba(0,0,0,.5)}
+
+  /* signature panel 6 */
+  .sig{position:absolute;text-align:right;color:#fff;pointer-events:none}
+  .sig .small{font-family:var(--font-body);font-weight:600;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,.7);margin-bottom:10px}
+  .sig .name{font-family:var(--font-script);font-weight:700;font-size:54px;line-height:.9;text-shadow:0 2px 18px rgba(0,0,0,.5)}
+  .sig .x{font-family:'Instrument Serif',serif;font-style:italic;font-size:24px;margin:6px 28px;color:var(--accent);font-weight:400}
+  .sig .name2{font-family:var(--font-script);font-weight:700;font-size:48px;line-height:.9;text-shadow:0 2px 18px rgba(0,0,0,.5)}
+  .sig .date{margin-top:18px;color:rgba(255,255,255,.55);font-size:9px;letter-spacing:2.5px}
+  .sig .barcode{margin-top:14px;display:flex;justify-content:flex-end;gap:1px;align-items:center;height:18px}
+  .sig .barcode i{display:block;width:2px;height:100%;background:rgba(255,255,255,.85)}
+  .sig .barcode i:nth-child(3n){width:1px;opacity:.5}
+  .sig .barcode i:nth-child(5n){height:60%}
+
+  /* ─────────────────────────────────────────────
+     SPEC CALLOUT CARDS  (visible in Spec Sheet theme)
+     ───────────────────────────────────────────── */
+  .spec{position:absolute;font-family:var(--font-mono);font-size:9px;color:#cfd2da;
+    line-height:1.4;pointer-events:none;display:none}
+  .spec .id{color:var(--accent-2);font-weight:700;letter-spacing:1.5px;margin-bottom:2px}
+  .spec .h{color:#fff;font-weight:700;font-size:10px;letter-spacing:.5px}
+  .spec .d{opacity:.75;margin-top:1px}
+  /* dotted leader line — drawn via svg */
+  .spec svg{position:absolute}
+
+  /* ─────────────────────────────────────────────
+     STICKERS / TAPE  (mixtape theme)
+     ───────────────────────────────────────────── */
+  .tape{position:absolute;width:60px;height:18px;background:rgba(255,250,210,.55);
+    z-index:5;box-shadow:0 1px 3px rgba(0,0,0,.2);display:none}
+  .stage[data-theme="editorial"] .tape,
+  .stage[data-theme="mixtape"]   .tape { display:block }
+
+  .sticker{position:absolute;font-family:var(--font-script);font-weight:700;
+    font-size:18px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.4);
+    pointer-events:none;display:none;transform-origin:center;}
+  .stage[data-theme="mixtape"] .sticker{display:block}
+  .sticker.box{padding:3px 8px;border-radius:4px;font-family:var(--font-body);
+    font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+    background:var(--accent);color:#1a1b1f;text-shadow:none;}
+
+  /* ─────────────────────────────────────────────
+     ARROW ANNOTATIONS
+     ───────────────────────────────────────────── */
+  .anno{position:absolute;font-family:var(--font-script);font-weight:700;
+    font-size:16px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.6);
+    pointer-events:none;display:none;line-height:1.05}
+  .stage[data-theme="mixtape"] .anno{display:block}
+  .anno svg{display:block;margin-top:2px}
+
+  /* ─────────────────────────────────────────────
+     GUIDES + GRAIN
+     ───────────────────────────────────────────── */
+  .grain{position:absolute;inset:0;pointer-events:none;z-index:30;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.6 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.7'/></svg>");
+    mix-blend-mode:overlay;opacity:var(--grain)}
+  .guides{position:absolute;inset:0;pointer-events:none;z-index:31;
+    background-image:linear-gradient(90deg,
+      transparent calc(100%/var(--panels) - 1px),
+      rgba(255,255,255,.04) calc(100%/var(--panels) - 1px),
+      rgba(255,255,255,.04) calc(100%/var(--panels)),
+      transparent calc(100%/var(--panels)));
+    background-size:calc(var(--panel)) 100%}
+  .stage[data-theme="spec"] .guides{
+    background-image:
+      linear-gradient(90deg, transparent calc(100%/var(--panels) - 1px), rgba(132,200,255,.18) calc(100%/var(--panels) - 1px), rgba(132,200,255,.18) calc(100%/var(--panels)), transparent calc(100%/var(--panels))),
+      repeating-linear-gradient(90deg, transparent 0 51.5px, rgba(132,200,255,.04) 51.5px 52px),
+      repeating-linear-gradient(0deg,  transparent 0 51px,   rgba(132,200,255,.04) 51px 51.5px);
+    background-size:calc(var(--panel)) 100%, auto, auto;
+  }
+
+  /* ─────────────────────────────────────────────
+     CHROME
+     ───────────────────────────────────────────── */
+  .counter{position:absolute;top:10px;right:10px;z-index:35;
+    background:rgba(20,20,22,.7);backdrop-filter:blur(6px);
+    color:#fff;font-size:11px;font-weight:600;
+    padding:5px 9px;border-radius:999px;letter-spacing:.3px}
+  .tap{position:absolute;top:0;bottom:0;width:33%;z-index:34;cursor:pointer}
+  .tap.l{left:0}.tap.r{right:0}
+  .arrow{position:absolute;top:50%;transform:translateY(-50%);width:32px;height:32px;
+    border-radius:50%;background:rgba(20,20,22,.55);backdrop-filter:blur(6px);
+    display:flex;align-items:center;justify-content:center;z-index:35;
+    color:#fff;font-size:18px;line-height:1;cursor:pointer;opacity:0;
+    transition:opacity .2s;border:1px solid rgba(255,255,255,.1)}
+  .viewport:hover .arrow{opacity:.85}
+  .arrow.l{left:8px}.arrow.r{right:8px}
+
+  /* actions */
+  .actions{display:flex;align-items:center;gap:18px;padding:10px 14px 4px;background:#000}
+  .actions .count{font-size:13px;font-weight:600;color:#fff;margin-left:-10px}
+  .actions .spacer{flex:1}
+  .dots-row{display:flex;justify-content:center;gap:5px;padding:6px 0 2px;background:#000}
+  .dot{width:5px;height:5px;border-radius:50%;background:#3a3a3e;transition:all .25s;cursor:pointer}
+  .dot.active{background:#1c7ed6;transform:scale(1.15)}
+  .dot.near{background:#7a7a80}
+  .pbar{position:relative;height:2px;background:#1a1a1d;margin:8px 14px 4px;border-radius:2px;overflow:hidden}
+  .pbar i{position:absolute;left:0;top:0;height:100%;background:#1c7ed6;width:16.66%;transition:width .55s,left .55s}
+  .liked{display:flex;align-items:center;gap:8px;padding:4px 14px 0;font-size:12px;color:#dcdcde;background:#000}
+  .liked .pile{display:flex}
+  .liked .pile span{width:18px;height:18px;border-radius:50%;border:1.5px solid #000;margin-left:-6px;background:#888}
+  .liked .pile span:first-child{margin-left:0;background:linear-gradient(135deg,#c8a979,#7a5a3b)}
+  .liked .pile span:nth-child(2){background:linear-gradient(135deg,#5aa5c5,#234c66)}
+  .liked .pile span:nth-child(3){background:linear-gradient(135deg,#d76b6b,#7a2828)}
+  .caption{padding:6px 14px 4px;font-size:13px;line-height:1.4;color:#fff;background:#000}
+  .caption .u{font-weight:700;margin-right:6px}
+  .caption .more{color:#a8a8ad;cursor:pointer}
+  .date{padding:6px 14px 14px;font-size:11px;color:#7a7a80;background:#000;text-transform:uppercase;letter-spacing:.4px}
+
+  /* ─────────────────────────────────────────────
+     TWEAKS PANEL
+     ───────────────────────────────────────────── */
+  .tweaks{position:fixed;right:24px;top:24px;z-index:200;
+    width:260px;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);
+    border:1px solid #2a2a30;border-radius:14px;padding:14px;color:#fff;font-size:12px;
+    box-shadow:0 20px 60px rgba(0,0,0,.5);max-height:92vh;overflow:auto}
+  .tweaks::-webkit-scrollbar{width:4px}
+  .tweaks::-webkit-scrollbar-thumb{background:#3a3a40;border-radius:2px}
+  .tweaks h4{margin:0 0 8px;font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#a8a8ad;font-weight:600}
+  .tweaks h4:not(:first-child){margin-top:14px}
+  .tweaks .row{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+  .tweaks button.opt{flex:1;min-width:0;padding:8px 6px;background:#1c1d22;color:#dcdcde;border:1px solid #2a2a30;border-radius:8px;font-size:10.5px;font-weight:600;cursor:pointer;font-family:inherit}
+  .tweaks button.opt.on{background:#1c7ed6;border-color:#1c7ed6;color:#fff}
+  .tweaks button.opt:hover{border-color:#3a3a40}
+  .tweaks .toggle{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-top:1px solid #232328}
+  .tweaks .switch{width:34px;height:20px;background:#2a2a30;border-radius:999px;position:relative;cursor:pointer;transition:background .2s}
+  .tweaks .switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s}
+  .tweaks .switch.on{background:#1c7ed6}
+  .tweaks .switch.on::after{left:16px}
+  .tweaks .hint{font-size:10px;color:#7a7a80;line-height:1.4;margin-top:6px}
+  .tweaks .drop{margin-top:8px;border:1.5px dashed #3a3a40;border-radius:8px;padding:14px;text-align:center;color:#a8a8ad;font-size:11px;font-weight:500;cursor:pointer;transition:all .2s}
+  .tweaks .drop.over{border-color:#4cd2ff;color:#4cd2ff;background:rgba(76,210,255,.06)}
+  .tweaks .input{display:flex;gap:6px;margin-bottom:6px}
+  .tweaks .input input{flex:1;background:#1c1d22;border:1px solid #2a2a30;border-radius:6px;color:#fff;font-family:inherit;font-size:11px;padding:6px 8px;outline:none}
+  .tweaks .input input:focus{border-color:#1c7ed6}
+  .tweaks-toggle{position:fixed;right:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+  .tweaks-toggle.hidden{display:none}
+  .tweaks .close{position:absolute;top:8px;right:10px;background:none;border:0;color:#a8a8ad;font-size:18px;cursor:pointer;line-height:1}
+
+  /* ─────────────────────────────────────────────
+     THEME: EDITORIAL  (default — refined magazine)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="editorial"]{
+    --font-display:'Bricolage Grotesque', sans-serif;
+    --accent:#ffb24c;--accent-2:#84c8ff;
+    --leak-a:rgba(255,138,40,.18);
+    --leak-b:rgba(132,200,255,.14);
+    --bg-1:#0c0d11;--bg-2:#15161a;--bg-3:#0a0a0c;
+  }
+
+  /* ─────────────────────────────────────────────
+     THEME: SPEC SHEET (blueprint / mono / technical)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="spec"]{
+    --font-display:'Space Grotesk', sans-serif;
+    --font-body:'JetBrains Mono', monospace;
+    --accent:#4cd2ff;--accent-2:#ffb24c;
+    --ribbon-op:.04;
+    --rail-color:rgba(132,200,255,.45);
+    --leak-a:rgba(76,210,255,.10);
+    --leak-b:rgba(76,210,255,.06);
+    --bg-1:#070a12;--bg-2:#0d1220;--bg-3:#070a12;
+  }
+  .stage[data-theme="spec"] .slot.poly{ padding:0;background:#111;border-radius:2px}
+  .stage[data-theme="spec"] .slot.poly::before{inset:0}
+  .stage[data-theme="spec"] .slot.poly::after{inset:0}
+  .stage[data-theme="spec"] .slot.poly .cap{display:none}
+  .stage[data-theme="spec"] .slot{border-radius:2px !important}
+  .stage[data-theme="spec"] .slot.circle{border-radius:50%!important}
+  .stage[data-theme="spec"] .slot{transform:none !important}
+  .stage[data-theme="spec"] .spec{display:block}
+  .stage[data-theme="spec"] .leak{opacity:.4}
+  .stage[data-theme="spec"] .ribbon{font-family:'Space Grotesk',sans-serif;font-weight:700;
+    letter-spacing:-4px;opacity:.05;color:#84c8ff}
+  .stage[data-theme="spec"] .t{letter-spacing:-1px}
+  .stage[data-theme="spec"] .t .kicker{font-family:'JetBrains Mono',monospace;letter-spacing:1.5px}
+  .stage[data-theme="spec"] .sig .name,.stage[data-theme="spec"] .sig .name2{
+    font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:34px;letter-spacing:-1px;
+    text-transform:uppercase}
+  .stage[data-theme="spec"] .sig .x{font-family:'JetBrains Mono',monospace;font-style:normal;font-size:14px}
+  .stage[data-theme="spec"] .num{color:rgba(132,200,255,.10) !important;font-family:'JetBrains Mono',monospace;font-weight:700}
+  .stage[data-theme="spec"] .home-ind,
+  .stage[data-theme="spec"] .grain{opacity:.5}
+
+  /* ─────────────────────────────────────────────
+     THEME: MIXTAPE  (chaotic tape + stickers)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="mixtape"]{
+    --font-display:'Caveat', cursive;
+    --accent:#ff6a6a;--accent-2:#ffe66a;
+    --paper:#fffaf0;
+    --ribbon-op:.04;
+    --leak-a:rgba(255,80,120,.18);
+    --leak-b:rgba(255,200,80,.14);
+    --bg-1:#1a0f14;--bg-2:#221319;--bg-3:#100a0d;
+  }
+  .stage[data-theme="mixtape"] .slot{transform:rotate(var(--rot, 0deg)) !important}
+  .stage[data-theme="mixtape"] .ribbon{font-family:'Bricolage Grotesque',sans-serif;letter-spacing:-8px}
+  .stage[data-theme="mixtape"] .t{font-family:'Bricolage Grotesque',sans-serif;font-weight:800}
+  .stage[data-theme="mixtape"] .t .kicker{font-family:'Caveat',cursive;font-weight:700;font-size:18px;letter-spacing:0;color:var(--accent-2);text-transform:none}
+  .stage[data-theme="mixtape"] .sig .x{color:var(--accent-2)}
+
+  /* ─────────────────────────────────────────────
+     KEN BURNS — subtle zoom on slots in active panel
+     ───────────────────────────────────────────── */
+  @keyframes kb { from{transform:scale(1)} to{transform:scale(1.05)} }
+  .slot.active-photo::before{animation:kb 8s ease-in-out infinite alternate}
+
+  /* type entrance per panel */
+  @keyframes typeIn{
+    from{opacity:0;transform:translateY(12px)}
+    to  {opacity:1;transform:translateY(0)}
+  }
+  .t.active-type, .sig.active-type, .num.active-num, .spec.active-spec, .anno.active-anno{
+    animation:typeIn .9s cubic-bezier(.18,.7,.18,1) both;
+  }
+
+  /* small media qol */
+</style>
+</head>
+<body>
+
+<button id="tweaksToggle" class="tweaks-toggle">Tweaks</button>
+<a href="/photo-ai" style="position:fixed;left:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none;font-family:inherit">← back to /photo-ai</a>
+
+<div id="tweaks" class="tweaks" style="display:none">
+  <button class="close" id="tweaksClose">×</button>
+
+  <h4>Theme</h4>
+  <div class="row" id="themes">
+    <button class="opt on" data-t="editorial">Editorial</button>
+    <button class="opt" data-t="spec">Spec Sheet</button>
+    <button class="opt" data-t="mixtape">Mixtape</button>
+  </div>
+
+  <h4>Enhance preset</h4>
+  <div class="row" id="presets">
+    <button class="opt on" data-p="showroom">Showroom</button>
+    <button class="opt" data-p="vivid">Vivid</button>
+    <button class="opt" data-p="filmic">Filmic</button>
+    <button class="opt" data-p="raw">Raw</button>
+  </div>
+
+  <h4>Personalize</h4>
+  <div class="input"><input type="text" id="iTitle" value="Late Night Pull-Up"/></div>
+  <div class="input"><input type="text" id="iLoc" value="Garage 25 · Miami"/></div>
+  <div class="input"><input type="text" id="iCar" value="Gulf Blue 992 GT3"/></div>
+
+  <h4>Layout</h4>
+  <div class="toggle"><span>Polaroid borders</span><div class="switch on" id="tBorders"></div></div>
+  <div class="toggle"><span>Drop shadows</span><div class="switch on" id="tShadow"></div></div>
+  <div class="toggle"><span>Film grain</span><div class="switch on" id="tGrain"></div></div>
+  <div class="toggle"><span>Light leaks</span><div class="switch on" id="tLeaks"></div></div>
+  <div class="toggle"><span>Parallax depth</span><div class="switch on" id="tParallax"></div></div>
+  <div class="toggle"><span>Ken Burns zoom</span><div class="switch on" id="tKenBurns"></div></div>
+  <div class="toggle"><span>Auto-play</span><div class="switch" id="tAuto"></div></div>
+
+  <h4>Drop images</h4>
+  <div class="drop" id="globalDrop">
+    Drop here<br><span style="opacity:.6">auto-placed & enhanced</span>
+  </div>
+  <div class="hint">Drag any photo onto a slot to swap, or drop here to auto-fill slots left-to-right starting at the current slide. Settings + image swaps persist between reloads.</div>
+</div>
+
+<div class="stage" id="stage" data-theme="editorial">
+  <div class="phone">
+
+    <!-- iOS status -->
+    <div class="status">
+      <div>2:35</div>
+      <div class="right">
+        <svg width="17" height="11" viewBox="0 0 17 11"><circle cx="2" cy="9" r="1.4" fill="#fff"/><circle cx="6" cy="9" r="1.4" fill="#fff"/><circle cx="10" cy="9" r="1.4" fill="#fff" opacity=".4"/></svg>
+        <svg width="16" height="11" viewBox="0 0 16 11"><path d="M8 2.5C10.2 2.5 12.2 3.4 13.7 4.8L14.8 3.7C13 1.9 10.6 .8 8 .8C5.4 .8 3 1.9 1.2 3.7L2.3 4.8C3.8 3.4 5.8 2.5 8 2.5Z" fill="#fff"/><path d="M8 5.5C9.4 5.5 10.6 6 11.5 6.9L12.6 5.8C11.4 4.6 9.8 3.8 8 3.8C6.2 3.8 4.6 4.6 3.4 5.8L4.5 6.9C5.4 6 6.6 5.5 8 5.5Z" fill="#fff"/><circle cx="8" cy="9" r="1.4" fill="#fff"/></svg>
+        <div style="display:flex;align-items:center;gap:3px">
+          <span style="font-size:9px;color:#fff;font-weight:700">49</span>
+          <svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3" fill="none" stroke="#fff" stroke-opacity=".55"/><rect x="2" y="2" width="11.5" height="8" rx="1.5" fill="#fff"/><rect x="24" y="4" width="1.5" height="4" rx=".7" fill="#fff" fill-opacity=".55"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="ig-nav">
+      <div class="back">‹</div>
+      <div class="title"><div class="t1">Posts</div><div class="t2">cartheme_</div></div>
+      <div class="spacer"></div>
+    </div>
+
+    <div class="post-head">
+      <div class="avatar"></div>
+      <div class="who">
+        <div class="u">cartheme_
+          <svg width="12" height="12" viewBox="0 0 24 24"><path fill="#1c7ed6" d="M22.5 12.5 20.2 10l1.2-3.2-3.4-.7L17.3 3l-3.2.7L12 2 9.9 3.7 6.7 3 6 6.1l-3.4.7L3.8 10 1.5 12.5 3.8 15l-1.2 3.2 3.4.7L6.7 22l3.2-.7L12 23l2.1-1.7 3.2.7.7-3.1 3.4-.7L20.2 15l2.3-2.5zM10.5 17 6 12.5l1.6-1.6 2.9 2.9 6-6L18 9.4 10.5 17z"/></svg>
+        </div>
+        <div class="loc" id="locText">Late Night Pull-Up · Garage 25</div>
+      </div>
+      <div class="dots">⋯</div>
+    </div>
+
+    <div class="viewport" id="viewport">
+      <div class="counter"><span id="counter">1/6</span></div>
+      <div class="arrow l" id="arrowL">‹</div>
+      <div class="arrow r" id="arrowR">›</div>
+      <div class="tap l" id="tapL"></div>
+      <div class="tap r" id="tapR"></div>
+
+      <!-- bg + atmospheric leaks (slow parallax) -->
+      <div class="layer bg"></div>
+
+      <div class="layer leak">
+        <div class="leak a" id="leakA"></div>
+        <div class="leak b" id="leakB"></div>
+        <div class="leak c" id="leakC"></div>
+      </div>
+
+      <!-- background mega ribbon -->
+      <div class="layer ribbon">
+        <div class="ribbon" id="ribbonText">CARTHEME · GARAGE25 · GULFBLUE · LATENIGHT · PULLUP · CARTHEME · GARAGE25 · GULFBLUE · LATENIGHT · PULLUP ·</div>
+      </div>
+
+      <!-- ghosted huge numbers (parallax 0.75 so they drift) -->
+      <div class="layer numbers">
+        <div class="num" style="position:absolute;left:870px;top:50px;font-size:200px;color:rgba(255,255,255,.10);mix-blend-mode:screen">03</div>
+        <div class="num" style="position:absolute;left:1680px;top:30px;font-size:160px;color:rgba(255,255,255,.08);mix-blend-mode:screen">05</div>
+      </div>
+
+      <!-- topline strip -->
+      <div class="layer topline">
+        <div class="topline" id="topline">
+          <span><b>CARTHEME</b></span><em></em>
+          <span>VOL · I</span><em></em>
+          <span id="topGarage">GARAGE 25</span><em></em>
+          <span id="topCar">SKY BLUE 911s</span><em></em>
+          <span>NOCTURNE</span><em></em>
+          <span>FILM ROLL · 06</span><em></em>
+          <span>02 : 35 AM</span><em></em>
+          <span id="topDate">MAY · 2026</span>
+        </div>
+      </div>
+
+      <!-- photos (anchor speed) -->
+      <div class="layer photos">
+        <!-- A: hero 911 — spans P1 → P2 -->
+        <div class="slot" data-slot="A"
+             style="--rot:-2deg;left:24px;top:120px;width:540px;height:340px;border-radius:6px"></div>
+
+        <!-- B: rear polaroid — spans P1 → P2 -->
+        <div class="slot poly" data-slot="B"
+             style="--rot:-5deg;left:340px;top:230px;width:300px;height:230px;transform:rotate(-5deg);z-index:4">
+          <div class="cap">rear three-quarter</div>
+        </div>
+
+        <!-- C: wheel circle — spans P2 → P3 -->
+        <div class="slot circle" data-slot="C"
+             style="left:680px;top:90px;width:340px;height:340px;border:5px solid var(--paper);z-index:3"></div>
+
+        <!-- D: stripe polaroid — spans P3 → P4 -->
+        <div class="slot poly" data-slot="D"
+             style="--rot:5deg;left:1080px;top:200px;width:300px;height:230px;transform:rotate(5deg);z-index:5">
+          <div class="cap">heritage stripe</div>
+        </div>
+
+        <!-- E: garage doorway — spans P4 → P5 -->
+        <div class="slot" data-slot="E"
+             style="--rot:2deg;left:1320px;top:60px;width:520px;height:320px;border-radius:6px;z-index:2"></div>
+
+        <!-- F: wheel detail polaroid — P5 -->
+        <div class="slot poly" data-slot="F"
+             style="--rot:-6deg;left:1720px;top:240px;width:280px;height:210px;transform:rotate(-6deg);z-index:5">
+          <div class="cap">centerlocks · orange bite</div>
+        </div>
+
+        <!-- G: lineup hero — spans P5 → P6 -->
+        <div class="slot" data-slot="G"
+             style="--rot:-1deg;left:1980px;top:90px;width:580px;height:340px;border-radius:6px;z-index:3"></div>
+
+        <!-- H: sculpture polaroid — P5 → P6 -->
+        <div class="slot poly" data-slot="H"
+             style="--rot:-4deg;left:2060px;top:240px;width:240px;height:170px;transform:rotate(-4deg);z-index:6">
+          <div class="cap">the gang.</div>
+        </div>
+
+        <!-- tape -->
+        <div class="tape" style="left:380px;top:215px;transform:rotate(40deg);z-index:5"></div>
+        <div class="tape" style="left:1120px;top:190px;transform:rotate(-30deg);z-index:6"></div>
+        <div class="tape" style="left:1740px;top:228px;transform:rotate(40deg);z-index:6"></div>
+
+        <!-- stickers (mixtape only) -->
+        <div class="sticker" data-panel="0" style="left:40px;top:54px;transform:rotate(-6deg);color:var(--accent)">★</div>
+        <div class="sticker box" data-panel="1" style="left:560px;top:55px;transform:rotate(-4deg)">912 hp gang</div>
+        <div class="sticker" data-panel="2" style="left:880px;top:430px;font-size:22px;transform:rotate(8deg);color:var(--accent-2)">!!</div>
+        <div class="sticker box" data-panel="3" style="left:1300px;top:40px;transform:rotate(3deg);background:var(--accent-2)">gulf · &apos;25</div>
+        <div class="sticker" data-panel="4" style="left:1880px;top:60px;transform:rotate(-10deg);color:var(--accent-2);font-size:22px">✦</div>
+        <div class="sticker box" data-panel="5" style="left:2120px;top:50px;transform:rotate(-4deg)">end · side A</div>
+
+        <!-- hand-drawn annotations (mixtape only) -->
+        <div class="anno" data-panel="2" style="left:760px;top:60px">
+          centerlocks!<br>
+          <svg width="40" height="40" viewBox="0 0 40 40" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round">
+            <path d="M5 5 C 15 25, 22 30, 35 35"/>
+            <path d="M28 32 L35 35 L32 28"/>
+          </svg>
+        </div>
+        <div class="anno" data-panel="3" style="left:1100px;top:430px;transform:rotate(-4deg)">heritage&nbsp;⟶</div>
+      </div>
+
+      <!-- big titles per panel -->
+      <div class="layer type">
+        <!-- P1 cover -->
+        <div class="t" data-panel="0" style="left:30px;top:60px;font-size:80px;font-weight:800;color:#fff;z-index:7">
+          <span class="kicker">— vol. I · <span id="kickCar">gulf blue</span></span>
+          LATE<br>NIGHT.
+        </div>
+        <!-- P2 -->
+        <div class="t" data-panel="1" style="left:570px;top:80px;font-size:74px;font-weight:800;z-index:7;color:#fff">
+          <span class="kicker">— the hero shot</span>
+          PULL—<br>UP.
+        </div>
+        <!-- P3 caption -->
+        <div class="t" data-panel="2" style="left:870px;top:330px;font-size:24px;font-weight:700;letter-spacing:-.5px;z-index:7;color:#fff">
+          <span class="kicker">DETAIL · 03</span>
+          SIX SPOKES,<br><span class="accent">ORANGE BITE.</span>
+        </div>
+        <!-- P4 -->
+        <div class="t" data-panel="3" style="left:1280px;top:380px;font-size:36px;font-weight:800;line-height:.9;z-index:7;color:#fff">
+          <span class="kicker">04 — heritage stripe</span>
+          GULF BLUE,<br>FACTORY GLOW.
+        </div>
+        <!-- P5 -->
+        <div class="t" data-panel="4" style="left:1680px;top:50px;font-size:34px;font-weight:800;z-index:7;color:#fff">
+          <span class="kicker">05 — the pair</span>
+          TWIN<br>TURBO<br><span class="accent" style="color:var(--accent-2)">DREAMS.</span>
+        </div>
+      </div>
+
+      <!-- specs (visible in Spec Sheet theme only) -->
+      <div class="layer specs">
+
+        <!-- spec A -->
+        <div class="spec" data-panel="0" style="left:30px;top:60px;width:200px">
+          <div class="id">— 01 / HERO</div>
+          <div class="h">992.1 GT3 TOURING</div>
+          <div class="d">PTS · GULF BLUE 5359<br>3,996 cc · 502 hp<br>0–100 : 3.4 s</div>
+          <svg width="200" height="2" style="top:50px;left:0"><line x1="0" y1="1" x2="200" y2="1" stroke="#4cd2ff" stroke-width="1" stroke-dasharray="2,2"/></svg>
+        </div>
+        <!-- spec B -->
+        <div class="spec" data-panel="1" style="left:580px;top:60px;width:200px">
+          <div class="id">— 02 / REAR</div>
+          <div class="h">AERO · TOURING SPEC</div>
+          <div class="d">spoiler delete<br>twin-tail pipe<br>PCCB ceramics</div>
+        </div>
+        <!-- spec C -->
+        <div class="spec" data-panel="2" style="left:870px;top:50px;width:200px">
+          <div class="id">— 03 / WHEEL</div>
+          <div class="h">BBS RS-GT CENTERLOCK</div>
+          <div class="d">FRONT · 20×9.5 j<br>REAR · 21×12.5 j<br>silver-forged · ⌀ 410</div>
+        </div>
+        <!-- spec D -->
+        <div class="spec" data-panel="3" style="left:1280px;top:60px;width:200px">
+          <div class="id">— 04 / LIVERY</div>
+          <div class="h">HERITAGE STRIPE</div>
+          <div class="d">Lava Orange OEM<br>3M PPF wrap<br>side decal · custom</div>
+        </div>
+        <!-- spec E -->
+        <div class="spec" data-panel="4" style="left:1680px;top:50px;width:200px">
+          <div class="id">— 05 / THE PAIR</div>
+          <div class="h">TWIN BUILDS</div>
+          <div class="d">PTS Gulf Blue · ×2<br>matched delivery<br>VIN 0241 / 0273</div>
+        </div>
+        <!-- spec G -->
+        <div class="spec" data-panel="5" style="left:2090px;top:50px;width:200px">
+          <div class="id">— 06 / LINEUP</div>
+          <div class="h">FOUR FLAVORS</div>
+          <div class="d">Gulf Blue · 992 GT3<br>Crayon · 992.2 GT3<br>Chalk · 992.1 GT3<br>Onyx · 992.2 GT3RS</div>
+        </div>
+      </div>
+
+      <!-- rail + ticks + signature (anchor speed) -->
+      <div class="layer deco">
+        <div class="rail"></div>
+
+        <div class="tick" style="left:30px"></div>
+        <div class="tickLabel" style="left:30px"><b>01</b>LATE NIGHT</div>
+        <div class="mark" style="left:6px;top:6px"></div>
+
+        <div class="tick" style="left:442px"></div>
+        <div class="tickLabel" style="left:442px"><b>02</b>HERO · 992</div>
+
+        <div class="tick" style="left:854px"></div>
+        <div class="tickLabel" style="left:854px"><b>03</b>CENTERLOCK</div>
+
+        <div class="tick" style="left:1266px"></div>
+        <div class="tickLabel" style="left:1266px"><b>04</b>HERITAGE</div>
+
+        <div class="tick" style="left:1678px"></div>
+        <div class="tickLabel" style="left:1678px"><b>05</b>THE PAIR</div>
+
+        <div class="tick" style="left:2090px"></div>
+        <div class="tickLabel" style="left:2090px"><b>06</b>FOUR FLAVORS</div>
+
+        <!-- signature panel 6 -->
+        <div class="sig" data-panel="5" style="left:2092px;top:60px;width:340px">
+          <div class="small">cartheme · garage 25</div>
+          <div class="name">Late Night</div>
+          <div class="x">×</div>
+          <div class="name2">Pull-Up</div>
+          <div class="date">06 · MAY 24 · 2:35 AM · 2026</div>
+          <div class="barcode">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+      </div>
+
+      <div class="guides"></div>
+      <div class="grain"></div>
+    </div>
+
+    <!-- progress -->
+    <div class="pbar"><i id="pbar"></i></div>
+
+    <!-- actions -->
+    <div class="actions">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"/></svg>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M21 12a8 8 0 1 1-3.5-6.6L21 4l-1 4 .5 .5"/></svg>
+      <span class="count">1,942</span>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M17 2l4 4-4 4M21 6H8a5 5 0 0 0-5 5v1M7 22l-4-4 4-4M3 18h13a5 5 0 0 0 5-5v-1"/></svg>
+      <span class="count">38</span>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M3 12l18-9-6 18-2-7-10-2z"/></svg>
+      <div class="spacer"></div>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M19 21l-7-5-7 5V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+    </div>
+
+    <div class="dots-row" id="dotsRow"></div>
+
+    <div class="liked">
+      <div class="pile"><span></span><span></span><span></span></div>
+      Liked by <b style="color:#fff;font-weight:600;margin:0 4px">limitedspec</b> and others
+    </div>
+    <div class="caption">
+      <span class="u">cartheme_</span><span id="captionText">late night pull-up at garage 25 · gulf blue 911s, slime-drip plane, lil money man 💸</span> <span class="more">… more</span>
+    </div>
+    <div class="date">May 24, 2026</div>
+
+    <div class="home-ind"></div>
+  </div>
+</div>
+
+<script>
+/* ─── fit phone ─── */
+(function fit(){
+  const stage = document.getElementById('stage');
+  function set(){
+    const vh = window.innerHeight - 40;
+    const vw = window.innerWidth - 340;
+    const s = Math.min(vh/892, vw/412, 1);
+    stage.style.transform = `scale(${s})`;
+  }
+  set(); window.addEventListener('resize', set);
+})();
+
+/* ─── carousel ─── */
+const N = 6, PANEL = 412;
+let idx = 0;
+const viewport = document.getElementById('viewport');
+const counterEl = document.getElementById('counter');
+const pbar = document.getElementById('pbar');
+const dotsRow = document.getElementById('dotsRow');
+
+for(let i=0;i<N;i++){
+  const d = document.createElement('div');
+  d.className='dot'; d.addEventListener('click', ()=>go(i));
+  dotsRow.appendChild(d);
+}
+const dotEls = [...dotsRow.children];
+
+function activatePanel(i){
+  // mark photos that belong to panel i as active (for Ken Burns)
+  document.querySelectorAll('.slot').forEach(s=>{
+    const l = parseInt(s.style.left)||0, w = parseInt(s.style.width)||0;
+    const center = l + w/2;
+    const inPanel = center >= i*PANEL && center < (i+1)*PANEL;
+    s.classList.toggle('active-photo', inPanel);
+  });
+  // restart entrance animations for type pieces tagged with this panel
+  document.querySelectorAll('[data-panel]').forEach(el=>{
+    const p = +el.dataset.panel;
+    el.classList.remove('active-type','active-num','active-spec','active-anno');
+    if(p===i){
+      void el.offsetWidth; // reflow to restart anim
+      if(el.classList.contains('t')) el.classList.add('active-type');
+      else if(el.classList.contains('sig')) el.classList.add('active-type');
+      else if(el.classList.contains('num')) el.classList.add('active-num');
+      else if(el.classList.contains('spec')) el.classList.add('active-spec');
+      else if(el.classList.contains('anno')) el.classList.add('active-anno');
+    }
+  });
+}
+
+function go(i){
+  idx = (i + N) % N;
+  viewport.style.setProperty('--slideX', `${-idx * PANEL}px`);
+  // belt-and-suspenders: also set transforms in JS in case @property/calc fails
+  const sx = -idx * PANEL;
+  document.querySelectorAll('.layer').forEach(l=>{
+    const sp = parseFloat(getComputedStyle(l).getPropertyValue('--speed')) || 1;
+    l.style.transform = `translate3d(${sx*sp}px, 0, 0)`;
+  });
+  counterEl.textContent = `${idx+1}/${N}`;
+  pbar.style.width = `${(idx+1)*100/N}%`;
+  dotEls.forEach((d,j)=>{
+    d.classList.toggle('active', j===idx);
+    d.classList.toggle('near', Math.abs(j-idx)===1);
+  });
+  activatePanel(idx);
+}
+go(0);
+
+document.getElementById('tapL').addEventListener('click', ()=>go(idx-1));
+document.getElementById('tapR').addEventListener('click', ()=>go(idx+1));
+document.getElementById('arrowL').addEventListener('click', ()=>go(idx-1));
+document.getElementById('arrowR').addEventListener('click', ()=>go(idx+1));
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowLeft') go(idx-1);
+  if(e.key==='ArrowRight') go(idx+1);
+});
+
+/* swipe */
+let sx=0, sy=0;
+viewport.addEventListener('touchstart', e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;}, {passive:true});
+viewport.addEventListener('touchend', e=>{
+  const dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy;
+  if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)) go(idx + (dx<0?1:-1));
+}, {passive:true});
+
+/* ─── slot images ─── */
+const slots = [...document.querySelectorAll('.slot[data-slot]')];
+const stored = (()=>{try{return JSON.parse(localStorage.getItem('garage3-slots')||'{}')}catch(e){return{}}})();
+
+function applySlot(slot){
+  const id = slot.dataset.slot;
+  const src = stored[id] || slot.dataset.src;
+  if(src){slot.style.backgroundImage = `url("${src}")`; slot.classList.remove('empty');}
+  else {slot.classList.add('empty'); slot.textContent='drop image';}
+}
+slots.forEach(applySlot);
+
+/* Load photos from the photo-ai IDB store and fill empty slots. URL ?ids=p1,p2…
+   picks those photos in order; otherwise uses the most recent N. Renders each
+   through canvas with its look applied so the AI grade carries over. */
+(async function fillFromRoll(){
+  const slotIds = ['A','B','C','D','E','F','G','H'];
+  const wanted = new URLSearchParams(location.search).get('ids');
+  let records;
+  try {
+    records = await new Promise((resolve) => {
+      const req = indexedDB.open('photo-ai', 1);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('photos')) return resolve([]);
+        const tx = db.transaction('photos', 'readonly');
+        const all = tx.objectStore('photos').getAll();
+        all.onsuccess = () => resolve(all.result || []);
+        all.onerror = () => resolve([]);
+      };
+      req.onerror = () => resolve([]);
+    });
+  } catch { records = []; }
+  if (!records.length) return;
+
+  if (wanted) {
+    const ids = wanted.split(',');
+    records = ids.map((id) => records.find((r) => String(r.id) === id)).filter(Boolean);
+  } else {
+    records = records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  }
+
+  function blobToDataUrl(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); }); }
+  function loadImage(src)      { return new Promise((res, rej) => { const i = new Image();      i.onload = () => res(i);      i.onerror = rej; i.src = src; }); }
+
+  async function photoToDataUrl(rec) {
+    if (rec.genBlob) return await blobToDataUrl(rec.genBlob);
+    if (!rec.originalBlob) return null;
+    const img = await loadImage(URL.createObjectURL(rec.originalBlob));
+    const maxDim = 1400;
+    const sc = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * sc);
+    c.height = Math.round(img.naturalHeight * sc);
+    const ctx = c.getContext('2d');
+    if (rec.look) {
+      const f = (k, d = 1) => (typeof rec.look[k] === 'number' ? rec.look[k] : d);
+      ctx.filter = `brightness(${f('brightness')}) contrast(${f('contrast')}) saturate(${f('saturate')}) hue-rotate(${f('hueRotate', 0)}deg) sepia(${f('sepia', 0)}) grayscale(${f('grayscale', 0)}) blur(${f('blur', 0)}px) invert(${f('invert', 0)})`;
+    }
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    ctx.filter = 'none';
+    if (rec.look?.tintAlpha > 0.005) {
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = rec.look.tintAlpha; ctx.fillStyle = rec.look.tintColor;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    }
+    if (rec.look?.vignette > 0.01) {
+      const grad = ctx.createRadialGradient(c.width/2, c.height/2, Math.min(c.width, c.height) * 0.35, c.width/2, c.height/2, Math.max(c.width, c.height) * 0.72);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, `rgba(0,0,0,${0.85 * rec.look.vignette})`);
+      ctx.fillStyle = grad; ctx.fillRect(0, 0, c.width, c.height);
+    }
+    return c.toDataURL('image/jpeg', 0.88);
+  }
+
+  for (let i = 0; i < slotIds.length && i < records.length; i++) {
+    const slot = slots.find((s) => s.dataset.slot === slotIds[i]);
+    if (!slot) continue;
+    if (stored[slotIds[i]]) continue; // don't overwrite a swap the user already made
+    try {
+      const url = await photoToDataUrl(records[i]);
+      if (url) setSlot(slot, url);
+    } catch (err) { console.warn('garage slot fill failed:', err); }
+  }
+})();
+
+function setSlot(slot, src){
+  stored[slot.dataset.slot] = src;
+  try{localStorage.setItem('garage3-slots', JSON.stringify(stored));}catch(e){}
+  applySlot(slot);
+}
+function handleFile(file, slot){
+  if(!file || !file.type.startsWith('image/')) return;
+  const fr = new FileReader();
+  fr.onload = e => setSlot(slot, e.target.result);
+  fr.readAsDataURL(file);
+}
+
+slots.forEach(slot=>{
+  slot.addEventListener('dragover', e=>{e.preventDefault();slot.classList.add('dragover');});
+  slot.addEventListener('dragleave', ()=>slot.classList.remove('dragover'));
+  slot.addEventListener('drop', e=>{
+    e.preventDefault(); slot.classList.remove('dragover');
+    const f = [...(e.dataTransfer.files||[])][0];
+    if(f) handleFile(f, slot);
+  });
+  slot.addEventListener('dblclick', ()=>{
+    const inp = document.createElement('input');
+    inp.type='file';inp.accept='image/*';
+    inp.onchange=()=>{if(inp.files[0]) handleFile(inp.files[0], slot);};
+    inp.click();
+  });
+});
+
+const orderedSlots = [...slots].sort((a,b)=> (parseInt(a.style.left)||0) - (parseInt(b.style.left)||0));
+
+function autoFill(files){
+  const start = idx * PANEL;
+  let startI = orderedSlots.findIndex(s => (parseInt(s.style.left)||0) >= start);
+  if(startI<0) startI = 0;
+  const order = [...orderedSlots.slice(startI), ...orderedSlots.slice(0,startI)];
+  let fi=0;
+  for(const slot of order){
+    if(fi>=files.length) break;
+    handleFile(files[fi++], slot);
+  }
+}
+
+const globalDrop = document.getElementById('globalDrop');
+[globalDrop, viewport].forEach(zone=>{
+  zone.addEventListener('dragover', e=>{
+    if(e.target.closest('.slot[data-slot]')) return;
+    e.preventDefault();zone.classList.add('over');
+  });
+  zone.addEventListener('dragleave', ()=>zone.classList.remove('over'));
+  zone.addEventListener('drop', e=>{
+    if(e.target.closest('.slot[data-slot]')) return;
+    e.preventDefault();zone.classList.remove('over');
+    const fs = [...(e.dataTransfer.files||[])].filter(f=>f.type.startsWith('image/'));
+    if(fs.length) autoFill(fs);
+  });
+});
+globalDrop.addEventListener('click', ()=>{
+  const inp = document.createElement('input');
+  inp.type='file';inp.accept='image/*';inp.multiple=true;
+  inp.onchange=()=>autoFill([...inp.files]);
+  inp.click();
+});
+
+/* ─── presets ─── */
+const presets = {
+  showroom:{sat:1.28,con:1.10,bri:1.04,warm:'-2deg',sep:0},
+  vivid:   {sat:1.55,con:1.20,bri:1.05,warm:'-4deg',sep:0},
+  filmic:  {sat:1.12,con:1.18,bri:0.98,warm:'-6deg',sep:0.06},
+  raw:     {sat:1.00,con:1.00,bri:1.00,warm:'0deg', sep:0}
+};
+function applyPreset(name){
+  const p = presets[name]||presets.showroom;
+  const r = document.documentElement;
+  r.style.setProperty('--sat',p.sat); r.style.setProperty('--con',p.con);
+  r.style.setProperty('--bri',p.bri); r.style.setProperty('--warm',p.warm);
+  r.style.setProperty('--sep',p.sep);
+}
+document.querySelectorAll('#presets .opt').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#presets .opt').forEach(o=>o.classList.remove('on'));
+    b.classList.add('on');
+    applyPreset(b.dataset.p);
+  });
+});
+
+/* ─── theme switch ─── */
+const stage = document.getElementById('stage');
+document.querySelectorAll('#themes .opt').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#themes .opt').forEach(o=>o.classList.remove('on'));
+    b.classList.add('on');
+    stage.dataset.theme = b.dataset.t;
+  });
+});
+
+/* ─── personalize inputs ─── */
+const captionText = document.getElementById('captionText');
+const locText = document.getElementById('locText');
+const topGarage = document.getElementById('topGarage');
+const topCar = document.getElementById('topCar');
+const kickCar = document.getElementById('kickCar');
+
+function bindInput(id, fn){
+  const el = document.getElementById(id);
+  el.addEventListener('input', ()=>fn(el.value));
+}
+bindInput('iTitle', v=>{
+  captionText.textContent = `${v.toLowerCase()} at garage 25 · gulf blue 911s, slime-drip plane, lil money man 💸`;
+  locText.textContent = `${v} · Garage 25`;
+});
+bindInput('iLoc', v=>{
+  topGarage.textContent = v.toUpperCase();
+});
+bindInput('iCar', v=>{
+  topCar.textContent = v.toUpperCase();
+  kickCar.textContent = v.toLowerCase();
+});
+
+/* ─── toggles ─── */
+function bindSwitch(id, fn, initial){
+  const el = document.getElementById(id);
+  if(initial!==undefined) el.classList.toggle('on', !!initial);
+  el.addEventListener('click', ()=>{el.classList.toggle('on'); fn(el.classList.contains('on'));});
+}
+bindSwitch('tBorders', on=>{
+  document.querySelectorAll('.slot.poly').forEach(s=>{
+    s.style.padding = on ? '' : '0';
+    s.style.background = on ? '' : '#111';
+  });
+}, true);
+bindSwitch('tShadow', on=> document.documentElement.style.setProperty('--shadow', on?1:0), true);
+bindSwitch('tGrain', on=> document.querySelector('.grain').style.opacity = on ? 'var(--grain)' : '0', true);
+bindSwitch('tLeaks', on=>{
+  ['leakA','leakB','leakC'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.style.display = on?'':'none';
+  });
+}, true);
+bindSwitch('tParallax', on=>{
+  document.querySelectorAll('.layer').forEach(l=>{
+    if(!l.dataset.origSpeed){
+      const s = getComputedStyle(l).getPropertyValue('--speed').trim() || '1';
+      l.dataset.origSpeed = s;
+    }
+    l.style.setProperty('--speed', on ? l.dataset.origSpeed : 1);
+  });
+  go(idx); // re-apply transforms with new speeds
+}, true);
+bindSwitch('tKenBurns', on=>{
+  document.querySelectorAll('.slot').forEach(s=>{
+    if(on){ /* class added by activatePanel */ }
+    else  { s.classList.remove('active-photo'); }
+  });
+  if(on) activatePanel(idx);
+}, true);
+
+let autoTimer=null;
+bindSwitch('tAuto', on=>{
+  if(autoTimer){clearInterval(autoTimer);autoTimer=null;}
+  if(on) autoTimer = setInterval(()=>go(idx+1), 3500);
+}, false);
+
+/* ─── tweaks panel show/hide ─── */
+const tweaksEl=document.getElementById('tweaks');
+const tweaksToggle=document.getElementById('tweaksToggle');
+function showTweaks(v){
+  tweaksEl.style.display = v?'':'none';
+  tweaksToggle.classList.toggle('hidden', v);
+}
+tweaksToggle.addEventListener('click', ()=>showTweaks(true));
+document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
+</script>
+</body>
+</html>
