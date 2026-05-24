@@ -1565,21 +1565,26 @@ Output ONLY the JSON object matching the pack schema. No prose, no markdown.`;
 
 async function claudeCodeGradePack(mediaType, b64) {
   const ext = mediaType.split('/')[1] || 'jpg';
-  const tmpFile = path.join(os.tmpdir(), `gradepack-${crypto.randomUUID()}.${ext}`);
-  fs.writeFileSync(tmpFile, Buffer.from(b64, 'base64'));
-  try {
-    const prompt = `${GRADE_PACK_SYSTEM}
-
-Use the Read tool to view the photo at ${tmpFile}, then return the JSON.
+  const id = crypto.randomUUID();
+  const imgFile = path.join(os.tmpdir(), `gradepack-${id}.${ext}`);
+  const instFile = path.join(os.tmpdir(), `gradepack-${id}.txt`);
+  fs.writeFileSync(imgFile, Buffer.from(b64, 'base64'));
+  // The pack system prompt + schema together exceed Windows cmd.exe's 8K
+  // command-line limit. Write the long instructions to a tmp file and have
+  // Claude Read both files — keeps the spawn args tiny.
+  fs.writeFileSync(instFile, `${GRADE_PACK_SYSTEM}
 
 Schema you must follow:
 ${JSON.stringify(GRADE_PACK_SCHEMA, null, 2)}
 
-Output ONLY the JSON object — no prose, no markdown fences.`;
-    const text = await runClaudeCode(prompt, 180000);
+Output ONLY the JSON object — no prose, no markdown fences.`);
+  try {
+    const prompt = `Read the instructions at ${instFile} and the photo at ${imgFile}, then return the JSON pack per the schema.`;
+    const text = await runClaudeCode(prompt, 240000);
     return extractJsonObject(text);
   } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
+    try { fs.unlinkSync(imgFile); } catch {}
+    try { fs.unlinkSync(instFile); } catch {}
   }
 }
 
