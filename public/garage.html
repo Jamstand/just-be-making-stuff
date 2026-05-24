@@ -533,17 +533,15 @@
     opacity: 0; pointer-events: none; transition: opacity 0.12s;
   }
   .rotate-handle {
-    position: absolute; width: 16px; height: 16px;
+    position: absolute; width: 18px; height: 18px;
     background: var(--accent-2); border: 1.5px solid #fff;
-    border-radius: 50%; top: -28px; left: 50%; transform: translateX(-50%);
+    border-radius: 50%; top: 6px; left: 50%; transform: translateX(-50%);
     z-index: 40; cursor: grab;
     opacity: 0; pointer-events: none; transition: opacity 0.12s;
+    /* Inside the slot (top:6 not -28) so .slot's overflow:hidden doesn't
+       clip it and break clicks. */
   }
-  .rotate-handle::before {
-    content: ''; position: absolute; left: 50%; top: 100%;
-    width: 1px; height: 14px; background: var(--accent-2);
-    transform: translateX(-50%);
-  }
+  .rotate-handle::before { display: none; }
   body.edit-mode .slot[data-slot]:hover .rotate-handle {
     opacity: 1; pointer-events: auto;
   }
@@ -1631,17 +1629,13 @@ function getStageScale(){
   const m = (document.getElementById('stage').style.transform || '').match(/scale\(([0-9.]+)\)/);
   return m ? parseFloat(m[1]) : 1;
 }
-document.addEventListener('mousedown', (e) => {
-  if (!editMode) {
-    if (e.target.closest('.slot[data-slot]')) console.log('[garage] mousedown on slot — but edit mode is OFF');
-    return;
-  }
-  if (e.target.closest('.slot-tools')) return; // tools button handles its own click
-  const slot = e.target.closest('.slot[data-slot]');
-  if (!slot) {
-    console.log('[garage] mousedown — not on a slot, target:', e.target.tagName, e.target.className);
-    return;
-  }
+function slotMouseDown(e){
+  if (!editMode) return;
+  // contentEditable text elements inside slots (.cap on polaroids) need
+  // to take focus normally — skip drag if the click landed on editable text.
+  if (e.target.closest('[data-edit-id]')) return;
+  if (e.target.closest('.slot-tools')) return;
+  const slot = e.currentTarget;
   const onResize = !!e.target.closest('.resize-handle');
   const onRotate = !!e.target.closest('.rotate-handle');
   const cropping = e.shiftKey && !onResize && !onRotate;
@@ -1655,7 +1649,8 @@ document.addEventListener('mousedown', (e) => {
   const startW = slot.offsetWidth, startH = slot.offsetHeight;
   const startL = parseInt(slot.style.left) || 0;
   const startT = parseInt(slot.style.top) || 0;
-  const startRot = (savedDims[slot.dataset.slot]?.rotation ?? parseFloat((slot.style.transform.match(/rotate\(([-0-9.]+)deg\)/) || [])[1]) ?? 0);
+  const inlineRot = (slot.style.transform.match(/rotate\(([-0-9.]+)deg\)/) || [])[1];
+  const startRot = (savedDims[slot.dataset.slot]?.rotation ?? (inlineRot !== undefined ? parseFloat(inlineRot) : 0));
   const startBgX = savedDims[slot.dataset.slot]?.bgX ?? 50;
   const startBgY = savedDims[slot.dataset.slot]?.bgY ?? 50;
   const rect = slot.getBoundingClientRect();
@@ -1680,22 +1675,17 @@ document.addEventListener('mousedown', (e) => {
     } else if (onRotate) {
       const a = Math.atan2(ev.clientY - centerY, ev.clientX - centerX) * 180 / Math.PI;
       let deg = startRot + (a - startAngle);
-      // Snap to 15° when Shift held during rotate.
       if (ev.shiftKey) deg = Math.round(deg / 15) * 15;
       slot.style.transform = `rotate(${deg.toFixed(1)}deg)`;
       slot.style.setProperty('--rot', deg.toFixed(1) + 'deg');
       slot.dataset._pendingRot = deg;
     } else if (cropping) {
-      // bg-position is in % relative to slot. Convert px delta to % by
-      // comparing against slot dimensions. Drag direction: drag image
-      // RIGHT → reveal more of image's LEFT → bg-position increases.
       const newBgX = Math.max(0, Math.min(100, startBgX - (dx / startW) * 100));
       const newBgY = Math.max(0, Math.min(100, startBgY - (dy / startH) * 100));
       slot.style.backgroundPosition = `${newBgX.toFixed(1)}% ${newBgY.toFixed(1)}%`;
       slot.dataset._pendingBgX = newBgX;
       slot.dataset._pendingBgY = newBgY;
     } else {
-      // Plain drag = move
       const newL = Math.round(startL + dx);
       const newT = Math.round(startT + dy);
       slot.style.left = newL + 'px';
@@ -1709,14 +1699,12 @@ document.addEventListener('mousedown', (e) => {
     slot.classList.remove('dragging-this');
 
     if (!moved) {
-      // Click (no drag) — complete a swap if armed, else do nothing.
       if (swapSource && swapSource !== slot) {
         doSwap(swapSource, slot);
         clearSwap();
       }
       return;
     }
-    // Persist whatever changed.
     const partial = {};
     if (onResize) {
       partial.width  = parseInt(slot.style.width)  || 0;
@@ -1737,6 +1725,11 @@ document.addEventListener('mousedown', (e) => {
   }
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
+}
+// Bind directly to each slot so we don't rely on document-level delegation
+// (which was being intercepted by something we couldn't reproduce here).
+document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
+  slot.addEventListener('mousedown', slotMouseDown);
 });
 
 // 10. Reset-all button — wipes every customisation.
