@@ -497,11 +497,44 @@
     outline: 2px solid rgba(76,210,255,1);
     background: rgba(76,210,255,0.08);
   }
-  body.edit-mode .slot[data-slot]:hover .slot-tools,
-  body.edit-mode .slot[data-slot]:hover .resize-handle {
-    opacity: 1; pointer-events: auto;
+  /* Every slot's chrome is ALWAYS visible in edit mode (not hover-gated)
+     so it's obvious which slot is which + where each handle lives. */
+  body.edit-mode .slot[data-slot] .slot-tools,
+  body.edit-mode .slot[data-slot] .resize-handle,
+  body.edit-mode .slot[data-slot] .rotate-handle,
+  body.edit-mode .slot[data-slot] .slot-id {
+    opacity: 1 !important; pointer-events: auto !important;
   }
-  body.edit-mode .slot[data-slot] { cursor: move; }
+  body.edit-mode .slot[data-slot] {
+    cursor: move;
+    outline: 1px dashed rgba(76,210,255,0.4);
+    outline-offset: 0;
+  }
+  body.edit-mode .slot[data-slot]:hover {
+    outline: 2px solid rgba(76,210,255,0.7);
+  }
+  .slot-id {
+    position: absolute; top: 6px; left: 6px; z-index: 41;
+    background: rgba(20,20,24,0.85); color: var(--accent-2);
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    padding: 2px 6px; border-radius: 3px; letter-spacing: 1px;
+    opacity: 0; pointer-events: none; transition: opacity 0.12s;
+  }
+  /* Empty slots in edit mode get a louder 'drop image here' affordance */
+  body.edit-mode .slot.empty {
+    background: rgba(76,210,255,0.06) !important;
+    outline: 2px dashed rgba(76,210,255,0.55);
+    color: var(--accent-2);
+  }
+  body.edit-mode .slot.empty::after {
+    content: 'drop or click ↻ to add image';
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.5px;
+    text-transform: uppercase; color: var(--accent-2);
+    background: none; mix-blend-mode: normal; pointer-events: none;
+    text-align: center; max-width: 90%;
+    display: block !important; inset: auto;
+  }
   body.edit-mode .slot[data-slot].swap-source {
     outline: 2px solid var(--accent); outline-offset: -2px;
   }
@@ -1020,8 +1053,30 @@ const stored = (()=>{try{return JSON.parse(localStorage.getItem('garage3-slots')
 function applySlot(slot){
   const id = slot.dataset.slot;
   const src = stored[id] || slot.dataset.src;
-  if(src){slot.style.backgroundImage = `url("${src}")`; slot.classList.remove('empty');}
-  else {slot.classList.add('empty'); slot.textContent='drop image';}
+  if(src){
+    // Probe the image first — if it doesn't load (corrupt / unsupported /
+    // dropped non-image), fall through to the empty state with a hint so
+    // the slot doesn't silently render as a grey polaroid backing.
+    const probe = new Image();
+    probe.onload = () => {
+      slot.style.backgroundImage = `url("${src}")`;
+      slot.classList.remove('empty');
+      // applySlot might have been called when the slot had its textContent
+      // wiped; chrome (slot-tools etc.) is added after by buildSlotChrome.
+    };
+    probe.onerror = () => {
+      console.warn('[garage] image failed to load for slot', id);
+      delete stored[id];
+      try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch(e){}
+      slot.style.backgroundImage = '';
+      slot.classList.add('empty');
+      slot.textContent = 'image failed — drop again';
+    };
+    probe.src = src;
+  } else {
+    slot.classList.add('empty');
+    slot.textContent = 'drop image';
+  }
 }
 slots.forEach(applySlot);
 
@@ -1136,9 +1191,15 @@ slots.forEach(applySlot);
 })();
 
 function setSlot(slot, src){
+  console.log('[garage] setSlot', slot.dataset.slot, src ? src.slice(0, 50) + '…' : '(empty)');
   stored[slot.dataset.slot] = src;
-  try{localStorage.setItem('garage3-slots', JSON.stringify(stored));}catch(e){}
+  try{localStorage.setItem('garage3-slots', JSON.stringify(stored));}catch(e){
+    console.warn('[garage] localStorage save failed (probably quota exceeded):', e.message);
+  }
   applySlot(slot);
+  // applySlot may textContent-wipe the slot when going empty — rebuild
+  // chrome (tools, handles, id label) so the edit-mode affordances stay.
+  if (typeof buildSlotChrome === 'function') buildSlotChrome(slot);
 }
 function handleFile(file, slot){
   if(!file || !file.type.startsWith('image/')) return;
@@ -1475,7 +1536,11 @@ document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
   buildSlotChrome(slot);
 });
 function buildSlotChrome(slot){
-  slot.querySelectorAll('.slot-tools, .resize-handle, .rotate-handle').forEach((n) => n.remove());
+  slot.querySelectorAll('.slot-tools, .resize-handle, .rotate-handle, .slot-id').forEach((n) => n.remove());
+  const id = document.createElement('div');
+  id.className = 'slot-id';
+  id.textContent = slot.dataset.slot;
+  slot.appendChild(id);
   const tools = document.createElement('div');
   tools.className = 'slot-tools';
   tools.innerHTML = `
