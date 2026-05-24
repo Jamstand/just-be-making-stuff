@@ -1377,6 +1377,54 @@ let aiStatus = null;
 function anyGenProviderReady() {
   return aiStatus && aiStatus.gen && Object.values(aiStatus.gen).some((g) => g.ready);
 }
+function anyPolishProviderReady() {
+  return aiStatus && aiStatus.polish && Object.values(aiStatus.polish).some((p) => p.ready);
+}
+
+// ── ✨ Polish (Magnific upscaler) ────────────────────────────────────────────
+// One-click enhancement: no prompt, no provider chips. Two-step confirm on
+// the card button itself so the per-image cost is shown before billing.
+async function polishPhoto(photo, btn) {
+  if (!anyPolishProviderReady()) {
+    toast('no polish provider configured — set FREEPIK_API_KEY');
+    return;
+  }
+  const p = aiStatus.polish.magnific;
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = '1';
+    const orig = btn.textContent;
+    btn.textContent = `Confirm — ~$${p.estCostUsd.toFixed(2)}`;
+    setTimeout(() => {
+      if (btn.dataset.armed === '1') {
+        delete btn.dataset.armed;
+        btn.textContent = orig;
+      }
+    }, 5000);
+    return;
+  }
+  delete btn.dataset.armed;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Polishing…';
+  setBadge(photo, 'busy', 'Polishing…');
+  try {
+    const dataUrl = await normalizePhotoForUpload(photo.file);
+    const res = await fetch('/ai/photo-polish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, provider: 'magnific' }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'request failed');
+    await applyGeneratedImage(photo, data.image, 'magnific', 'polished');
+  } catch (err) {
+    setBadge(photo, 'err', 'Failed');
+    photo.card.querySelector('.cap').textContent = (err.message || 'failed').slice(0, 80);
+    toast(err.message || 'polish failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✨ Polish';
+  }
+}
 
 // ── Generative edit modal (Gemini / Replicate / OpenAI) ─────────────────────
 const genModal = {
@@ -1672,6 +1720,7 @@ function makeCard(photo) {
         <button class="btn ghost" data-action="toggle">Show original</button>
         <button class="btn coral" data-action="download">Download</button>
         <button class="btn ghost" data-action="gen" hidden>Gen edit</button>
+        <button class="btn ghost" data-action="polish" hidden>✨ Polish</button>
         <button class="btn ghost" data-action="remove">Remove</button>
       </div>
       <div class="reprompt">
@@ -1686,6 +1735,7 @@ function makeCard(photo) {
   // The Gen edit button stays hidden until /ai/status confirms at least one
   // provider has its API key configured.
   if (anyGenProviderReady()) card.querySelector('[data-action="gen"]').hidden = false;
+  if (anyPolishProviderReady()) card.querySelector('[data-action="polish"]').hidden = false;
 
   card.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
@@ -1703,6 +1753,8 @@ function makeCard(photo) {
       enqueue(photo, input.value.trim());
     } else if (action === 'gen') {
       openGenModal(photo);
+    } else if (action === 'polish') {
+      polishPhoto(photo, e.target);
     }
   });
 
@@ -1995,6 +2047,9 @@ fetch('/ai/status')
     // resolved (e.g. restored from IDB).
     if (anyGenProviderReady()) {
       document.querySelectorAll('.card [data-action="gen"]').forEach((b) => { b.hidden = false; });
+    }
+    if (anyPolishProviderReady()) {
+      document.querySelectorAll('.card [data-action="polish"]').forEach((b) => { b.hidden = false; });
     }
   })
   .catch(() => { lockForSetup(); });

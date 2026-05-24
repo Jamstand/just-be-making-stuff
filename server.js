@@ -1096,13 +1096,94 @@ app.post('/ai/photo-generate', async (req, res) => {
   }
 });
 
+// ── Polish / upscale (Magnific via Freepik API) ──────────────────────────────
+// Different from gen-edit: no prompt, no mask — pure detail enhancement.
+// Async API: POST returns a task_id, then poll until COMPLETED to get the URL.
+const POLISH_PROVIDERS = {
+  magnific: {
+    envKey: 'FREEPIK_API_KEY',
+    estCostUsd: 0.10,
+    label: 'Magnific (Freepik)',
+  },
+};
+
+function polishProviderStatus() {
+  const out = {};
+  for (const [id, p] of Object.entries(POLISH_PROVIDERS)) {
+    out[id] = { ready: !!process.env[p.envKey], estCostUsd: p.estCostUsd, label: p.label };
+  }
+  return out;
+}
+
+async function magnificPolish({ image }) {
+  const key = process.env.FREEPIK_API_KEY;
+  if (!key) throw new Error('FREEPIK_API_KEY not set');
+  const createRes = await fetch('https://api.freepik.com/v1/ai/image-upscaler', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'accept': 'application/json',
+      'x-freepik-api-key': key,
+    },
+    body: JSON.stringify({
+      image,
+      sharpen: 50,
+      smart_grain: 7,
+      ultra_detail: 30,
+    }),
+  });
+  if (!createRes.ok) throw new Error(`Magnific ${createRes.status}: ${(await createRes.text()).slice(0, 400)}`);
+  const created = await createRes.json();
+  const taskId = created?.data?.task_id;
+  if (!taskId) throw new Error('Magnific returned no task_id');
+
+  const deadline = Date.now() + 240_000; // 4 min cap — Magnific edits typically finish in 30–90s
+  let task = created.data;
+  while (task.status !== 'COMPLETED' && task.status !== 'FAILED' && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2500));
+    const pollRes = await fetch(`https://api.freepik.com/v1/ai/image-upscaler/${taskId}`, {
+      headers: { 'x-freepik-api-key': key, 'accept': 'application/json' },
+    });
+    if (!pollRes.ok) throw new Error(`Magnific poll ${pollRes.status}`);
+    task = (await pollRes.json())?.data;
+    if (!task) throw new Error('Magnific poll returned no data');
+  }
+  if (task.status !== 'COMPLETED') throw new Error(`Magnific ${task.status || 'timeout'}`);
+  const outUrl = Array.isArray(task.generated) ? task.generated[0] : null;
+  if (!outUrl) throw new Error('Magnific returned no image URL');
+  const imgRes = await fetch(outUrl);
+  if (!imgRes.ok) throw new Error(`Magnific output fetch ${imgRes.status}`);
+  const buf = Buffer.from(await imgRes.arrayBuffer());
+  return { mediaType: imgRes.headers.get('content-type') || 'image/jpeg', data: buf.toString('base64') };
+}
+
+app.post('/ai/photo-polish', async (req, res) => {
+  const { image, provider } = req.body || {};
+  const p = provider || 'magnific';
+  if (typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'image must be a data URL' });
+  }
+  if (!POLISH_PROVIDERS[p]) return res.status(400).json({ error: `unknown polish provider: ${p}` });
+  const m = image.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
+  if (!m) return res.status(400).json({ error: 'invalid image data URL' });
+  try {
+    let result;
+    if (p === 'magnific') result = await magnificPolish({ image: m[1] });
+    res.json({ image: `data:${result.mediaType};base64,${result.data}`, provider: p });
+  } catch (err) {
+    console.error('photo-polish error:', err.message);
+    res.status(500).json({ error: 'polish_failed', detail: err.message });
+  }
+});
+
 app.get('/ai/status', async (req, res) => {
   const gen = genProviderStatus();
+  const polish = polishProviderStatus();
   if (AI_BACKEND === 'claude-code') {
     const ok = await checkClaudeCodeAvailable();
-    return res.json({ ready: ok, model: 'claude-code', backend: 'claude-code', gen });
+    return res.json({ ready: ok, model: 'claude-code', backend: 'claude-code', gen, polish });
   }
-  res.json({ ready: anthropicReady(), model: AI_MODEL, backend: 'sdk', gen });
+  res.json({ ready: anthropicReady(), model: AI_MODEL, backend: 'sdk', gen, polish });
 });
 
 app.post('/ai/detect', async (req, res) => {
