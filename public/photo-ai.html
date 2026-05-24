@@ -215,7 +215,11 @@
 
   .batch-grid {
     width: 100%; gap: 12px;
-    max-height: calc(100vh - 230px); overflow-y: auto;
+    /* Fill remaining vertical space in the flex column parent (.mode-pane)
+       and scroll within that. Previously a hardcoded max-height meant the
+       bottom card could clip past the viewport when the header/drop-zone
+       above grew taller than the calc estimate. */
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
     padding: 4px 12px 4px 4px;
     /* Always-visible themed scrollbar so users can see the gallery scrolls. */
     scrollbar-width: thin;
