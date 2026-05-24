@@ -512,12 +512,81 @@
   }
 
   /* small media qol */
+
+  /* ─────────────────────────────────────────────
+     EDIT MODE — toggle in Tweaks panel turns on
+     customisation affordances. Off = pristine view.
+     ───────────────────────────────────────────── */
+  body.edit-mode [data-edit-id] {
+    outline: 1px dotted rgba(76,210,255,0.55);
+    outline-offset: 2px;
+    cursor: text;
+  }
+  body.edit-mode [data-edit-id]:hover {
+    outline: 1px dashed rgba(76,210,255,0.95);
+  }
+  body.edit-mode [data-edit-id]:focus {
+    outline: 2px solid rgba(76,210,255,1);
+    background: rgba(76,210,255,0.08);
+  }
+  body.edit-mode .slot[data-slot]:hover .slot-tools,
+  body.edit-mode .slot[data-slot]:hover .resize-handle {
+    opacity: 1; pointer-events: auto;
+  }
+  body.edit-mode .slot[data-slot] { cursor: move; }
+  body.edit-mode .slot[data-slot].swap-source {
+    outline: 2px solid var(--accent); outline-offset: -2px;
+  }
+  body.edit-mode .slot[data-slot].swap-target-hover {
+    outline: 2px dashed var(--accent-2); outline-offset: -2px;
+  }
+
+  .slot-tools {
+    position: absolute; top: 4px; right: 4px; z-index: 40;
+    display: flex; gap: 3px; padding: 3px;
+    background: rgba(20,20,24,0.85); backdrop-filter: blur(8px);
+    border-radius: 6px; opacity: 0; pointer-events: none;
+    transition: opacity 0.12s;
+  }
+  .slot-tools button {
+    width: 22px; height: 22px; border: 0; background: transparent;
+    color: #fff; font-size: 12px; cursor: pointer; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: inherit; line-height: 1;
+  }
+  .slot-tools button:hover { background: rgba(255,255,255,0.15); }
+  .slot-tools button.danger:hover { background: var(--accent); color: #1a1b1f; }
+
+  .resize-handle {
+    position: absolute; width: 14px; height: 14px;
+    background: var(--accent); border: 1.5px solid #fff;
+    bottom: -7px; right: -7px; z-index: 40;
+    cursor: nwse-resize; border-radius: 2px;
+    opacity: 0; pointer-events: none; transition: opacity 0.12s;
+  }
+
+  .edit-mode-banner {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    z-index: 250; background: rgba(28,30,40,0.92); backdrop-filter: blur(10px);
+    color: #fff; padding: 10px 18px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.3px;
+    border: 1px solid rgba(76,210,255,0.4);
+    display: none; align-items: center; gap: 12px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+  }
+  body.edit-mode .edit-mode-banner { display: flex; }
+  .edit-mode-banner .dot { width: 6px; height: 6px; border-radius: 50%; background: #4cd2ff; box-shadow: 0 0 8px #4cd2ff; }
+  .edit-mode-banner kbd {
+    font-family: var(--font-mono); font-size: 10px; background: rgba(0,0,0,0.4);
+    padding: 1px 5px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.15);
+  }
 </style>
 </head>
 <body>
 
 <button id="tweaksToggle" class="tweaks-toggle">Tweaks</button>
 <a href="/photo-ai" style="position:fixed;left:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none;font-family:inherit">← back to /photo-ai</a>
+<div class="edit-mode-banner"><span class="dot"></span>Edit mode — click any text · hover a slot for tools · drag the cyan corner to resize · <kbd>Esc</kbd> to exit</div>
 
 <div id="tweaks" class="tweaks" style="display:none">
   <button class="close" id="tweaksClose">×</button>
@@ -535,6 +604,10 @@
     <button class="opt" data-layout="portrait">Portrait</button>
     <button class="opt" data-layout="square">Square grid</button>
   </div>
+
+  <h4>Edit mode</h4>
+  <div class="toggle"><span>Customise everything</span><div class="switch" id="tEdit"></div></div>
+  <div class="hint">When on, click any text to edit, hover a slot for clear / swap / reset tools, drag the cyan corner to resize. <button class="opt" id="resetAll" style="margin-top:8px;width:100%">Reset all customisations</button></div>
 
   <h4>Enhance preset</h4>
   <div class="row" id="presets">
@@ -1243,6 +1316,253 @@ function showTweaks(v){
 }
 tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
+
+/* ─────────────────────────────────────────────────────────────────────
+   EDIT MODE — wires up full customisation: editable text, slot tools
+   (clear / swap / reset), corner-drag resize, persistence.
+
+   Persistence keys in localStorage:
+     garage-text        { editId : innerHTML }
+     garage-slot-dims   { slotId : { left, top, width, height } }
+     garage-slot-defaults  baked-in defaults captured on first load
+     garage3-slots      (existing) per-slot photo data-URLs
+   ───────────────────────────────────────────────────────────────────── */
+
+// 1. Assign stable data-edit-id to every editable text element so we can
+//    persist changes by id. Walk in document order so ids are stable as
+//    long as the DOM structure doesn't change.
+const EDITABLE_SELECTOR = '.t, .t .kicker, .t .accent, .sig .small, .sig .name, .sig .x, .sig .name2, .sig .date, .tickLabel, .num, .anno, .sticker, .topline span, .topline b, .slot .cap';
+(function assignEditIds(){
+  let i = 0;
+  document.querySelectorAll(EDITABLE_SELECTOR).forEach((el) => {
+    if (!el.dataset.editId) el.dataset.editId = 'e-' + (i++);
+  });
+})();
+
+// 2. Restore saved text edits.
+const savedText = (()=>{try{return JSON.parse(localStorage.getItem('garage-text')||'{}');}catch(e){return {};}})();
+function restoreText(){
+  Object.keys(savedText).forEach((id) => {
+    const el = document.querySelector(`[data-edit-id="${CSS.escape(id)}"]`);
+    if (el) el.innerHTML = savedText[id];
+  });
+}
+restoreText();
+
+// 3. Capture each slot's original position/size as the "default" so the
+//    Reset button can return to it. Only captured the first time.
+const SLOT_DEFAULTS_KEY = 'garage-slot-defaults';
+const slotDefaults = (()=>{
+  try { const v = JSON.parse(localStorage.getItem(SLOT_DEFAULTS_KEY) || 'null'); if (v) return v; } catch(e){}
+  const d = {};
+  document.querySelectorAll('.slot[data-slot]').forEach((s) => {
+    d[s.dataset.slot] = {
+      left: parseInt(s.style.left) || 0,
+      top: parseInt(s.style.top) || 0,
+      width: parseInt(s.style.width) || 0,
+      height: parseInt(s.style.height) || 0,
+    };
+  });
+  try { localStorage.setItem(SLOT_DEFAULTS_KEY, JSON.stringify(d)); } catch(e){}
+  return d;
+})();
+
+// 4. Restore saved slot dims.
+const savedDims = (()=>{try{return JSON.parse(localStorage.getItem('garage-slot-dims')||'{}');}catch(e){return {};}})();
+function applySlotDims(slot){
+  const d = savedDims[slot.dataset.slot];
+  if (!d) return;
+  slot.style.left   = d.left   + 'px';
+  slot.style.top    = d.top    + 'px';
+  slot.style.width  = d.width  + 'px';
+  slot.style.height = d.height + 'px';
+}
+document.querySelectorAll('.slot[data-slot]').forEach(applySlotDims);
+
+// 5. Build per-slot tools (toolbar + resize handle) — always in the DOM,
+//    only visible via CSS in edit mode.
+document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
+  const tools = document.createElement('div');
+  tools.className = 'slot-tools';
+  tools.innerHTML = `
+    <button data-tool="replace" title="Replace photo">↻</button>
+    <button data-tool="swap" title="Swap with another slot">⇄</button>
+    <button data-tool="reset" title="Reset position + size">↺</button>
+    <button data-tool="clear" class="danger" title="Clear photo">×</button>
+  `;
+  slot.appendChild(tools);
+
+  const handle = document.createElement('div');
+  handle.className = 'resize-handle';
+  handle.title = 'Drag to resize';
+  slot.appendChild(handle);
+});
+
+// 6. Edit-mode toggle + persistence.
+const EDIT_KEY = 'garage-edit-mode';
+let editMode = false;
+function setEditMode(on){
+  editMode = !!on;
+  document.body.classList.toggle('edit-mode', editMode);
+  document.querySelectorAll('[data-edit-id]').forEach((el) => {
+    el.contentEditable = editMode ? 'true' : 'false';
+  });
+  document.getElementById('tEdit').classList.toggle('on', editMode);
+  try { localStorage.setItem(EDIT_KEY, editMode ? '1' : '0'); } catch(e){}
+}
+// Restore edit-mode preference.
+try { setEditMode(localStorage.getItem(EDIT_KEY) === '1'); } catch(e){ setEditMode(false); }
+
+document.getElementById('tEdit').addEventListener('click', () => setEditMode(!editMode));
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && editMode) setEditMode(false);
+});
+
+// 7. Save text edits on blur (or input, debounced).
+let textSaveTimer = null;
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('[data-edit-id]');
+  if (!el || !editMode) return;
+  savedText[el.dataset.editId] = el.innerHTML;
+  clearTimeout(textSaveTimer);
+  textSaveTimer = setTimeout(() => {
+    try { localStorage.setItem('garage-text', JSON.stringify(savedText)); } catch(e){}
+  }, 400);
+}, true);
+
+// 8. Slot tools click handler (delegated).
+let swapSource = null;
+function clearSwap(){
+  document.querySelectorAll('.slot.swap-source, .slot.swap-target-hover').forEach((s) => {
+    s.classList.remove('swap-source', 'swap-target-hover');
+  });
+  swapSource = null;
+}
+document.addEventListener('click', (e) => {
+  if (!editMode) return;
+  const toolBtn = e.target.closest('.slot-tools [data-tool]');
+  if (!toolBtn) return;
+  e.stopPropagation();
+  const slot = toolBtn.closest('.slot[data-slot]');
+  const tool = toolBtn.dataset.tool;
+  if (tool === 'replace') {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*';
+    inp.onchange = () => { if (inp.files[0]) handleFile(inp.files[0], slot); };
+    inp.click();
+  } else if (tool === 'clear') {
+    delete stored[slot.dataset.slot];
+    try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch(e){}
+    slot.style.backgroundImage = '';
+    slot.classList.add('empty'); slot.textContent = 'drop image';
+    // The tools/handle got wiped by textContent — rebuild.
+    rebuildSlotChrome(slot);
+  } else if (tool === 'reset') {
+    const d = slotDefaults[slot.dataset.slot];
+    if (d) {
+      slot.style.left = d.left + 'px'; slot.style.top = d.top + 'px';
+      slot.style.width = d.width + 'px'; slot.style.height = d.height + 'px';
+      delete savedDims[slot.dataset.slot];
+      try { localStorage.setItem('garage-slot-dims', JSON.stringify(savedDims)); } catch(e){}
+    }
+  } else if (tool === 'swap') {
+    if (swapSource && swapSource !== slot) {
+      doSwap(swapSource, slot);
+      clearSwap();
+    } else if (swapSource === slot) {
+      clearSwap();
+    } else {
+      swapSource = slot;
+      slot.classList.add('swap-source');
+    }
+  }
+});
+
+// Clicking another slot (anywhere, not just toolbar) completes a swap.
+document.addEventListener('click', (e) => {
+  if (!editMode || !swapSource) return;
+  const slot = e.target.closest('.slot[data-slot]');
+  if (slot && slot !== swapSource && !e.target.closest('.slot-tools') && !e.target.closest('.resize-handle')) {
+    doSwap(swapSource, slot);
+    clearSwap();
+  }
+});
+function doSwap(a, b){
+  const aId = a.dataset.slot, bId = b.dataset.slot;
+  const aSrc = stored[aId], bSrc = stored[bId];
+  if (aSrc) stored[bId] = aSrc; else delete stored[bId];
+  if (bSrc) stored[aId] = bSrc; else delete stored[aId];
+  try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch(e){}
+  applySlot(a); applySlot(b);
+  rebuildSlotChrome(a); rebuildSlotChrome(b);
+}
+
+// Empty slots have their inner text wiped by applySlot — re-add tools.
+function rebuildSlotChrome(slot){
+  // Drop existing chrome to avoid duplicates.
+  slot.querySelectorAll('.slot-tools, .resize-handle').forEach((n) => n.remove());
+  const tools = document.createElement('div');
+  tools.className = 'slot-tools';
+  tools.innerHTML = `
+    <button data-tool="replace" title="Replace photo">↻</button>
+    <button data-tool="swap" title="Swap with another slot">⇄</button>
+    <button data-tool="reset" title="Reset position + size">↺</button>
+    <button data-tool="clear" class="danger" title="Clear photo">×</button>
+  `;
+  slot.appendChild(tools);
+  const handle = document.createElement('div');
+  handle.className = 'resize-handle';
+  slot.appendChild(handle);
+}
+
+// 9. Resize handle drag.
+document.addEventListener('mousedown', (e) => {
+  if (!editMode) return;
+  const handle = e.target.closest('.resize-handle');
+  if (!handle) return;
+  e.preventDefault(); e.stopPropagation();
+  const slot = handle.parentElement;
+  const startX = e.clientX, startY = e.clientY;
+  const startW = slot.offsetWidth, startH = slot.offsetHeight;
+
+  // Account for the viewport's CSS transform scale (phone fits the viewport).
+  const stage = document.getElementById('stage');
+  const m = (stage.style.transform || '').match(/scale\(([0-9.]+)\)/);
+  const scale = m ? parseFloat(m[1]) : 1;
+
+  function onMove(ev){
+    const dx = (ev.clientX - startX) / scale;
+    const dy = (ev.clientY - startY) / scale;
+    const w = Math.max(60, Math.round(startW + dx));
+    const h = Math.max(60, Math.round(startH + dy));
+    slot.style.width = w + 'px';
+    slot.style.height = h + 'px';
+  }
+  function onUp(){
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    savedDims[slot.dataset.slot] = {
+      left: parseInt(slot.style.left) || 0,
+      top: parseInt(slot.style.top) || 0,
+      width: parseInt(slot.style.width) || 0,
+      height: parseInt(slot.style.height) || 0,
+    };
+    try { localStorage.setItem('garage-slot-dims', JSON.stringify(savedDims)); } catch(e){}
+  }
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+});
+
+// 10. Reset-all button — wipes every customisation.
+document.getElementById('resetAll').addEventListener('click', () => {
+  if (!confirm('Reset every text edit, slot position, slot size, and photo swap to the design defaults?')) return;
+  try {
+    localStorage.removeItem('garage-text');
+    localStorage.removeItem('garage-slot-dims');
+    localStorage.removeItem('garage3-slots');
+  } catch(e){}
+  location.reload();
+});
 </script>
 </body>
 </html>
