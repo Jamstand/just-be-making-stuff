@@ -1491,8 +1491,11 @@ function softenDarkLook(look, hasUserPrompt) {
     if (before[k] !== look[k]) diffs.push(`${k}: ${before[k]} → ${look[k]}`);
   }
   const mode = hasUserPrompt ? 'prompt' : 'auto';
-  if (diffs.length) console.log(`[guardrail/${mode}] softened "${look.caption}":`, diffs.join(', '));
-  else console.log(`[grade/${mode}] "${look.caption}": brightness=${look.brightness} contrast=${look.contrast} vignette=${look.vignette} tint=${look.tintColor}@${look.tintAlpha}`);
+  // Log every field so we can spot any extreme value (invert, glow, blur,
+  // grayscale, sepia, hueRotate, saturate) that could be darkening.
+  const full = `bright=${look.brightness} contrast=${look.contrast} sat=${look.saturate} hue=${look.hueRotate} sepia=${look.sepia} gray=${look.grayscale} blur=${look.blur} invert=${look.invert} vign=${look.vignette} grain=${look.grain} glow=${look.glow} tint=${look.tintColor}@${look.tintAlpha}`;
+  if (diffs.length) console.log(`[guardrail/${mode}] softened "${look.caption}":`, diffs.join(', '), '|', full);
+  else console.log(`[grade/${mode}] "${look.caption}":`, full);
   return look;
 }
 
