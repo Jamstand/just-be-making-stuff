@@ -3259,7 +3259,14 @@ tpPanel.addEventListener('click', (e) => {
     saveSize(slot, { shape: 'rect' });
   } else if (action === 'shape-circle') {
     slot.classList.add('circle'); slot.classList.remove('poly');
-    saveSize(slot, { shape: 'circle' });
+    // Auto-square the slot so border-radius:50% renders as a real
+    // circle instead of an oval. Use the larger of width/height so
+    // the circle stays visually prominent (matches the v40 wheel
+    // slot which was 340×340).
+    const s = getCurSize(slot);
+    const d = Math.max(s.w, s.h);
+    slot.style.width = d + 'px'; slot.style.height = d + 'px';
+    saveSize(slot, { shape: 'circle', width: d, height: d });
   } else if (action === 'shape-poly') {
     slot.classList.add('poly'); slot.classList.remove('circle');
     saveSize(slot, { shape: 'poly' });
