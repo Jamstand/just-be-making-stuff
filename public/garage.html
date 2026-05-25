@@ -1103,23 +1103,33 @@
   }
 
   .edit-mode-banner {
-    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
-    z-index: 250; background: rgba(28,30,40,0.92); backdrop-filter: blur(10px);
-    color: #fff; padding: 10px 18px; border-radius: 999px;
-    font-size: 12px; font-weight: 600; letter-spacing: 0.3px;
-    border: 1px solid rgba(76,210,255,0.4);
-    display: none; align-items: center; gap: 12px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+    z-index: 250; background: rgba(28,30,40,0.85); backdrop-filter: blur(10px);
+    color: #fff; padding: 5px 12px; border-radius: 999px;
+    font-size: 10px; font-weight: 500; letter-spacing: 0.2px;
+    border: 1px solid rgba(76,210,255,0.3);
+    display: none; align-items: center; gap: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    max-width: 360px; cursor: help;
+    transition: max-width 0.25s, padding 0.25s;
+    white-space: nowrap; overflow: hidden;
   }
+  .edit-mode-banner .hint-full { display: none; }
+  .edit-mode-banner:hover {
+    max-width: 90vw; padding: 8px 14px;
+    white-space: normal;
+  }
+  .edit-mode-banner:hover .hint-short { display: none; }
+  .edit-mode-banner:hover .hint-full { display: inline; }
   /* Obvious cyan glow around the page when edit mode is on. */
   body.edit-mode {
     box-shadow: inset 0 0 0 3px rgba(76,210,255,0.5);
   }
   body.edit-mode .edit-mode-banner { display: flex; }
-  .edit-mode-banner .dot { width: 6px; height: 6px; border-radius: 50%; background: #4cd2ff; box-shadow: 0 0 8px #4cd2ff; }
+  .edit-mode-banner .dot { width: 5px; height: 5px; border-radius: 50%; background: #4cd2ff; box-shadow: 0 0 6px #4cd2ff; flex-shrink: 0; }
   .edit-mode-banner kbd {
-    font-family: var(--font-mono); font-size: 10px; background: rgba(0,0,0,0.4);
-    padding: 1px 5px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.15);
+    font-family: var(--font-mono); font-size: 9px; background: rgba(0,0,0,0.4);
+    padding: 0 4px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.15);
   }
 </style>
 </head>
@@ -1127,8 +1137,12 @@
 
 <button id="tweaksToggle" class="tweaks-toggle">Tweaks</button>
 <a href="/photo-ai" style="position:fixed;left:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none;font-family:inherit">← back to /photo-ai</a>
-<div class="edit-mode-banner"><span class="dot"></span>Edit mode — click text = edit · <kbd>Shift</kbd>+drag text = move it · drag slot = move · corner = resize · circle = rotate · <kbd>wheel</kbd> on slot = pan photo · <kbd>Esc</kbd> exit</div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v15 · walk-up-fix</div>
+<div class="edit-mode-banner" title="Hover for full shortcut list">
+  <span class="dot"></span>
+  <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
+  <span class="hint-full">click text = edit · <kbd>Shift</kbd>+drag text = move it · drag slot = move · corner = resize · circle = rotate · <kbd>wheel</kbd> on slot = pan photo · <kbd>Esc</kbd> exit</span>
+</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v16 · minimal-banner</div>
 
 <div id="tweaks" class="tweaks" style="display:none">
   <button class="close" id="tweaksClose">×</button>
@@ -2078,7 +2092,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v15-walk-up-fix loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v16-minimal-banner loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — wires up full customisation: editable text, slot tools
@@ -2590,7 +2604,7 @@ document.getElementById('resetAll').addEventListener('click', () => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v15-walk-up-fix · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v16-minimal-banner · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
