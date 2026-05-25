@@ -1176,6 +1176,7 @@
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-screenshot@4.6.0/dist/index.umd.js"></script>
 <script src="/hot-reload.js"></script>
 </head>
 <body>
@@ -1192,7 +1193,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v36 · solid bg + gradient fallback</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v37 · modern-screenshot</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2241,7 +2242,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v35-createpattern-shim loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v37-modern-screenshot loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
@@ -2830,39 +2831,53 @@ async function captureSlide(slideIdx, scale) {
     catch (err) { console.warn('[garage] createPattern failed, skipping fill:', err); return null; }
   };
   try {
-    // Resolve the theme's primary background color. html2canvas v1.4.1
-    // silently skips stacked CSS gradients, leaving the export's
-    // background mostly transparent → looks pitch black against any
-    // dark image viewer. Use the theme's --bg-2 variable (every theme
-    // defines this) and the viewport bg as fallbacks, finally white.
+    // Resolve the theme's primary background color so transparent
+    // areas land on a sane backdrop.
     const stage = document.querySelector('.stage') || document.documentElement;
     let bgColor = getComputedStyle(stage).getPropertyValue('--bg-2').trim();
     if (!bgColor) bgColor = getComputedStyle(viewport).backgroundColor;
     if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') bgColor = '#ffffff';
-    canvas = await window.html2canvas(viewport, {
-      backgroundColor: bgColor,
-      scale,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      imageTimeout: 8000,
-      letterRendering: true,
-      removeContainer: true,
-      // Strip elements html2canvas can't handle (SVG feTurbulence in
-      // .grain crashes the export, the .guides overlay is dev-only)
-      // and collapse the layer.bg multi-gradient to a flat color the
-      // library can actually paint.
-      onclone: (doc) => {
-        doc.querySelectorAll('.grain, .guides').forEach((el) => {
-          el.style.backgroundImage = 'none';
-          el.style.display = 'none';
-        });
-        doc.querySelectorAll('.layer.bg').forEach((el) => {
-          el.style.backgroundImage = 'none';
-          el.style.background = bgColor;
-        });
-      },
-    });
+
+    // Use modern-screenshot — handles stacked gradients, transforms,
+    // SVG, max-content widths, and pseudo-elements correctly, all of
+    // which html2canvas v1.4.1 drops or mangles. Fall back to
+    // html2canvas only if modern-screenshot isn't loaded.
+    if (window.modernScreenshot?.domToCanvas) {
+      console.log('[garage] using modern-screenshot for export');
+      canvas = await window.modernScreenshot.domToCanvas(viewport, {
+        scale,
+        backgroundColor: bgColor,
+        filter: (node) => {
+          // .grain uses SVG feTurbulence (no library renders it
+          // reliably); .guides is a dev-only overlay.
+          if (node?.classList?.contains?.('grain')) return false;
+          if (node?.classList?.contains?.('guides')) return false;
+          return true;
+        },
+      });
+    } else {
+      console.warn('[garage] modern-screenshot missing, falling back to html2canvas');
+      canvas = await window.html2canvas(viewport, {
+        backgroundColor: bgColor,
+        scale,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        imageTimeout: 8000,
+        letterRendering: true,
+        removeContainer: true,
+        onclone: (doc) => {
+          doc.querySelectorAll('.grain, .guides').forEach((el) => {
+            el.style.backgroundImage = 'none';
+            el.style.display = 'none';
+          });
+          doc.querySelectorAll('.layer.bg').forEach((el) => {
+            el.style.backgroundImage = 'none';
+            el.style.background = bgColor;
+          });
+        },
+      });
+    }
     const ctx = canvas.getContext('2d');
     if (ctx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
     if (dlPolish) try { polishCanvas(canvas); } catch (err) { console.warn('[garage] polish skipped:', err); }
@@ -3133,7 +3148,7 @@ tpPanel.addEventListener('click', (e) => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v35-createpattern-shim · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v37-modern-screenshot · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
