@@ -1192,7 +1192,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v34 · grain filter fix</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v35 · createPattern shim</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2241,7 +2241,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v34-grain-filter-fix loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v35-createpattern-shim loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
@@ -2813,14 +2813,19 @@ async function captureSlide(slideIdx, scale) {
   const viewport = document.getElementById('viewport');
   let canvas;
   // Defensive shim for createPattern: html2canvas occasionally constructs a
-  // 0×0 source canvas (SVG filters it can't rasterize, photo blob URLs that
-  // decode to 0 dimensions, gradient backgrounds on zero-sized boxes) and
+  // 0×0 source (SVG filters it can't rasterize, photo blob URLs that decode
+  // to 0 dimensions, gradient backgrounds on zero-sized boxes) and
   // CanvasRenderingContext2D.createPattern throws InvalidStateError for that,
   // aborting the entire export. Returning null instead lets the library
   // proceed — that fill is skipped and the rest of the slide renders.
   const origCreatePattern = CanvasRenderingContext2D.prototype.createPattern;
   CanvasRenderingContext2D.prototype.createPattern = function (image, repetition) {
-    if (image && (image.width === 0 || image.height === 0)) return null;
+    const w = image ? (image.width ?? image.naturalWidth ?? image.videoWidth) : 0;
+    const h = image ? (image.height ?? image.naturalHeight ?? image.videoHeight) : 0;
+    if (!w || !h) {
+      console.warn('[garage] createPattern skipped — 0×0 source:', image);
+      return null;
+    }
     try { return origCreatePattern.call(this, image, repetition); }
     catch (err) { console.warn('[garage] createPattern failed, skipping fill:', err); return null; }
   };
@@ -3116,7 +3121,7 @@ tpPanel.addEventListener('click', (e) => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v34-grain-filter-fix · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v35-createpattern-shim · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
