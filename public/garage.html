@@ -1127,8 +1127,8 @@
 
 <button id="tweaksToggle" class="tweaks-toggle">Tweaks</button>
 <a href="/photo-ai" style="position:fixed;left:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none;font-family:inherit">← back to /photo-ai</a>
-<div class="edit-mode-banner"><span class="dot"></span>Edit mode — click text to edit · drag slot to move · corner = resize · circle = rotate · <kbd>wheel</kbd> over slot = pan photo · <kbd>Esc</kbd> to exit</div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v13 · wheel-pans-no-shift</div>
+<div class="edit-mode-banner"><span class="dot"></span>Edit mode — click text = edit · <kbd>Shift</kbd>+drag text = move it · drag slot = move · corner = resize · circle = rotate · <kbd>wheel</kbd> on slot = pan photo · <kbd>Esc</kbd> exit</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v14 · shift-drag-text</div>
 
 <div id="tweaks" class="tweaks" style="display:none">
   <button class="close" id="tweaksClose">×</button>
@@ -2078,7 +2078,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v13-wheel-pans-no-shift loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v14-shift-drag-text loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — wires up full customisation: editable text, slot tools
@@ -2104,6 +2104,17 @@ const EDITABLE_SELECTOR = '.t, .t .kicker, .t .accent, .sig .small, .sig .name, 
 
 // 2. Restore saved text edits.
 const savedText = (()=>{try{return JSON.parse(localStorage.getItem('garage-text')||'{}');}catch(e){return {};}})();
+// Per-text-element positions ({ editId: { left, top } }) so users can
+// drag panel titles, kickers, ticks, sigs, etc. anywhere on the canvas.
+const savedTextPos = (()=>{try{return JSON.parse(localStorage.getItem('garage-text-pos')||'{}');}catch(e){return {};}})();
+function restoreTextPositions(){
+  for (const [id, pos] of Object.entries(savedTextPos)) {
+    const el = document.querySelector(`[data-edit-id="${CSS.escape(id)}"]`);
+    if (!el) continue;
+    if (typeof pos.left === 'number') el.style.left = pos.left + 'px';
+    if (typeof pos.top  === 'number') el.style.top  = pos.top + 'px';
+  }
+}
 function restoreText(){
   Object.keys(savedText).forEach((id) => {
     const el = document.querySelector(`[data-edit-id="${CSS.escape(id)}"]`);
@@ -2111,6 +2122,7 @@ function restoreText(){
   });
 }
 restoreText();
+restoreTextPositions();
 
 // 3. Capture each slot's original position/size as the "default" so the
 //    Reset button can return to it. Only captured the first time.
@@ -2463,12 +2475,55 @@ document.addEventListener('click', (e) => {
 document.addEventListener('mousedown', (e) => {
   if (!editMode) return;
   if (e.target.closest('.slot-tools')) return;
-  if (e.target.closest('[data-edit-id]')) return; // text → focus normally
+
+  // SHIFT + click on text → drag the text element to a new position.
+  // Without shift, the click focuses the element for contentEditable.
+  const textEl = e.target.closest('[data-edit-id]');
+  if (textEl && (e.shiftKey || e.button === 1)) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Find the positioned element to actually move — for .t .kicker, etc.,
+    // the parent .t is the one with left/top inline styles.
+    let target = textEl;
+    while (target && !(target.style.left && target.style.top) && target !== document.body) {
+      target = target.parentElement;
+    }
+    if (!target || target === document.body) target = textEl;
+    const scale = getStageScale();
+    const startX = e.clientX, startY = e.clientY;
+    const startL = parseInt(target.style.left) || 0;
+    const startT = parseInt(target.style.top)  || 0;
+    target.style.cursor = 'grabbing';
+    console.log('[garage] text drag start on', target.dataset.editId || target.className);
+    function onMove(ev){
+      const dx = (ev.clientX - startX) / scale;
+      const dy = (ev.clientY - startY) / scale;
+      target.style.left = Math.round(startL + dx) + 'px';
+      target.style.top  = Math.round(startT + dy) + 'px';
+    }
+    function onUp(){
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      target.style.cursor = '';
+      const id = target.dataset.editId;
+      if (id) {
+        savedTextPos[id] = {
+          left: parseInt(target.style.left) || 0,
+          top:  parseInt(target.style.top)  || 0,
+        };
+        try { localStorage.setItem('garage-text-pos', JSON.stringify(savedTextPos)); } catch(e){}
+      }
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return;
+  }
+  if (textEl) return; // plain click on text — let contentEditable focus
+
   const slot = e.target.closest('.slot[data-slot]');
   if (!slot) return;
   console.log('[garage] CAPTURE mousedown on slot', slot.dataset.slot);
-  e.stopPropagation(); // prevent per-slot bubble handler from also firing
-  // slotMouseDown reads from e.currentTarget — patch it onto the cloned event
+  e.stopPropagation();
   Object.defineProperty(e, 'currentTarget', { value: slot, configurable: true });
   slotMouseDown(e);
 }, true);
@@ -2516,6 +2571,7 @@ document.getElementById('resetAll').addEventListener('click', () => {
   if (!confirm('Reset every text edit, slot position, slot size, and photo swap to the design defaults?')) return;
   try {
     localStorage.removeItem('garage-text');
+    localStorage.removeItem('garage-text-pos');
     localStorage.removeItem('garage-slot-dims');
     localStorage.removeItem('garage3-slots');
     localStorage.removeItem('garage-layout');
@@ -2528,7 +2584,7 @@ document.getElementById('resetAll').addEventListener('click', () => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v13-wheel-pans-no-shift · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v14-shift-drag-text · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
