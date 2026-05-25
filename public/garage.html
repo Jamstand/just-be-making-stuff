@@ -1186,7 +1186,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v24 · hi-q export</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v25 · 2800px source</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1254,15 +1254,16 @@
 
   <h4>Export · high-res</h4>
   <div class="row" id="dlQuality" style="margin-bottom:4px">
-    <button class="opt" data-q="3" style="flex:1">3× · standard</button>
-    <button class="opt on" data-q="5" style="flex:1">5× · high</button>
-    <button class="opt" data-q="8" style="flex:1">8× · ultra</button>
+    <button class="opt" data-q="6" style="flex:1">6×</button>
+    <button class="opt" data-q="10" style="flex:1">10×</button>
+    <button class="opt on" data-q="14" style="flex:1">14×</button>
+    <button class="opt" data-q="20" style="flex:1">20×</button>
   </div>
   <div class="row">
     <button class="opt" id="dlCurrent" style="flex:1">↓ Current slide</button>
     <button class="opt" id="dlAll" style="flex:1">↓ All 6 slides</button>
   </div>
-  <div class="hint" id="dlHint" style="margin-top:4px">PNG at 5× (~2060 × 2575px). High beats Instagram's 1080×1350 by 2×.</div>
+  <div class="hint" id="dlHint" style="margin-top:4px">PNG at 14× (~5768 × 7210px). Hugely oversized → IG re-compression stays crisp.</div>
 
   <h4>Enhance preset</h4>
   <div class="row" id="presets">
@@ -1734,6 +1735,31 @@ viewport.addEventListener('touchend', e=>{
 const slots = [...document.querySelectorAll('.slot[data-slot]')];
 const stored = (()=>{try{return JSON.parse(localStorage.getItem('garage3-slots')||'{}')}catch(e){return{}}})();
 
+/* One-time upgrade: older versions of garage stored slot photos at
+   maxDim=1400 / quality 0.88, which capped export sharpness. On page
+   load, decode each stored data URL and drop any that's smaller than
+   2000px on its long edge — fillFromRoll() (below) will then re-render
+   those slots from IDB at the new 2800px / 0.95 quality. */
+async function upgradeStoredPhotos(){
+  let removed = 0;
+  await Promise.all(Object.entries(stored).map(([id, src]) => new Promise((resolve) => {
+    if (!src || typeof src !== 'string') return resolve();
+    const img = new Image();
+    img.onload = () => {
+      const long = Math.max(img.naturalWidth, img.naturalHeight);
+      if (long < 2000) { delete stored[id]; removed++; }
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = src;
+  })));
+  if (removed) {
+    try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch {}
+    console.log('[garage] upgraded', removed, 'low-res slot photo(s) — will refill from IDB at 2800px');
+  }
+  return removed;
+}
+
 function applySlot(slot){
   const id = slot.dataset.slot;
   const src = stored[id] || slot.dataset.src;
@@ -1762,12 +1788,18 @@ function applySlot(slot){
     slot.textContent = 'drop image';
   }
 }
-slots.forEach(applySlot);
+// Run the low-res upgrade first; fillFromRoll runs after so any cleared
+// slots get refilled from IDB at the higher resolution.
+(async function bootSlots(){
+  await upgradeStoredPhotos();
+  slots.forEach(applySlot);
+  await fillFromRoll();
+})();
 
 /* Load photos from the photo-ai IDB store and fill empty slots. URL ?ids=p1,p2…
    picks those photos in order; otherwise uses the most recent N. Renders each
    through canvas with its look applied so the AI grade carries over. */
-(async function fillFromRoll(){
+async function fillFromRoll(){
   const slotIds = ['A','B','C','D','E','F','G','H'];
   const wanted = new URLSearchParams(location.search).get('ids');
   let records;
@@ -1815,7 +1847,11 @@ slots.forEach(applySlot);
     if (rec.genBlob) return await blobToDataUrl(rec.genBlob);
     if (!rec.originalBlob) return null;
     const img = await loadImage(URL.createObjectURL(rec.originalBlob));
-    const maxDim = 1400;
+    // 2800px gives slots a much higher source res for high-scale exports
+    // (was 1400 — that hard-capped the export sharpness no matter what
+    // html2canvas scale we used). 2800 keeps a reasonable localStorage
+    // budget while letting 14× export tap a near-native source.
+    const maxDim = 2800;
     const sc = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
     const c = document.createElement('canvas');
     c.width = Math.round(img.naturalWidth * sc);
@@ -1839,7 +1875,7 @@ slots.forEach(applySlot);
       grad.addColorStop(1, `rgba(0,0,0,${0.85 * rec.look.vignette})`);
       ctx.fillStyle = grad; ctx.fillRect(0, 0, c.width, c.height);
     }
-    return c.toDataURL('image/jpeg', 0.88);
+    return c.toDataURL('image/jpeg', 0.95);
   }
 
   // Read each slot's aspect ratio from its current computed size so the
@@ -1872,7 +1908,7 @@ slots.forEach(applySlot);
       if (url) setSlot(slot, url);
     } catch (err) { console.warn('garage slot fill failed:', err); }
   }
-})();
+}
 
 function setSlot(slot, src){
   console.log('[garage] setSlot', slot.dataset.slot, src ? src.slice(0, 50) + '…' : '(empty)');
@@ -2176,7 +2212,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v24-hi-q-export loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v25-2800px-source loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
@@ -2521,16 +2557,16 @@ tpHead.addEventListener('mousedown', (e) => {
 });
 
 /* ─── DOWNLOAD SLIDES (high-res PNG via html2canvas) ─────────────────── */
-let dlScale = 5; // selected quality multiplier (3 = std, 5 = high, 8 = ultra)
+let dlScale = 14; // selected quality multiplier — see #dlQuality buttons
 
 // Wait until every <img> and CSS background-image inside the viewport has
 // finished loading, so html2canvas doesn't snapshot a half-decoded photo.
+// Returns a map of src → natural pixel dimensions, which we use later to
+// re-render slot backgrounds at full source resolution instead of CSS size.
 async function waitForViewportImages() {
   const viewport = document.getElementById('viewport');
   const urls = new Set();
-  // Real <img> tags
   viewport.querySelectorAll('img').forEach((img) => { if (img.src) urls.add(img.src); });
-  // CSS background-image on slots / decorative layers
   viewport.querySelectorAll('*').forEach((el) => {
     const bg = getComputedStyle(el).backgroundImage;
     if (!bg || bg === 'none') return;
@@ -2541,13 +2577,16 @@ async function waitForViewportImages() {
       if (inner && inner[1]) urls.add(inner[1]);
     });
   });
+  const dims = new Map();
   await Promise.all([...urls].map((src) => new Promise((resolve) => {
     const img = new Image();
-    img.onload = img.onerror = () => resolve();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { dims.set(src, { w: img.naturalWidth, h: img.naturalHeight, img }); resolve(); };
+    img.onerror = () => resolve();
     img.src = src;
   })));
-  // Also wait one animation frame so layout settles.
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return dims;
 }
 
 async function captureSlide(slideIdx, scale = dlScale) {
@@ -2556,7 +2595,7 @@ async function captureSlide(slideIdx, scale = dlScale) {
   const wasIdx = idx;
   go(slideIdx);
   await new Promise((r) => setTimeout(r, 750));
-  await waitForViewportImages();
+  const imgDims = await waitForViewportImages();
   // Hide chrome that shouldn't appear in the exported image.
   const hides = [
     document.getElementById('toolsPanel'),
@@ -2719,7 +2758,7 @@ tpPanel.addEventListener('click', (e) => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v24-hi-q-export · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v25-2800px-source · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
