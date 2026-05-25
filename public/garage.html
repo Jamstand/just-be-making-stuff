@@ -1186,7 +1186,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v23 · per-text-move</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v24 · hi-q export</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1253,11 +1253,16 @@
   </div>
 
   <h4>Export · high-res</h4>
+  <div class="row" id="dlQuality" style="margin-bottom:4px">
+    <button class="opt" data-q="3" style="flex:1">3× · standard</button>
+    <button class="opt on" data-q="5" style="flex:1">5× · high</button>
+    <button class="opt" data-q="8" style="flex:1">8× · ultra</button>
+  </div>
   <div class="row">
     <button class="opt" id="dlCurrent" style="flex:1">↓ Current slide</button>
     <button class="opt" id="dlAll" style="flex:1">↓ All 6 slides</button>
   </div>
-  <div class="hint" id="dlHint" style="margin-top:4px">PNG at 3× scale (~1236 × 1545px), Instagram-ready.</div>
+  <div class="hint" id="dlHint" style="margin-top:4px">PNG at 5× (~2060 × 2575px). High beats Instagram's 1080×1350 by 2×.</div>
 
   <h4>Enhance preset</h4>
   <div class="row" id="presets">
@@ -2171,7 +2176,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v23-per-text-move loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v24-hi-q-export loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
@@ -2516,12 +2521,42 @@ tpHead.addEventListener('mousedown', (e) => {
 });
 
 /* ─── DOWNLOAD SLIDES (high-res PNG via html2canvas) ─────────────────── */
-async function captureSlide(slideIdx, scale = 3) {
+let dlScale = 5; // selected quality multiplier (3 = std, 5 = high, 8 = ultra)
+
+// Wait until every <img> and CSS background-image inside the viewport has
+// finished loading, so html2canvas doesn't snapshot a half-decoded photo.
+async function waitForViewportImages() {
+  const viewport = document.getElementById('viewport');
+  const urls = new Set();
+  // Real <img> tags
+  viewport.querySelectorAll('img').forEach((img) => { if (img.src) urls.add(img.src); });
+  // CSS background-image on slots / decorative layers
+  viewport.querySelectorAll('*').forEach((el) => {
+    const bg = getComputedStyle(el).backgroundImage;
+    if (!bg || bg === 'none') return;
+    const m = bg.match(/url\(["']?([^"')]+)["']?\)/g);
+    if (!m) return;
+    m.forEach((u) => {
+      const inner = u.match(/url\(["']?([^"')]+)["']?\)/);
+      if (inner && inner[1]) urls.add(inner[1]);
+    });
+  });
+  await Promise.all([...urls].map((src) => new Promise((resolve) => {
+    const img = new Image();
+    img.onload = img.onerror = () => resolve();
+    img.src = src;
+  })));
+  // Also wait one animation frame so layout settles.
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+}
+
+async function captureSlide(slideIdx, scale = dlScale) {
   // Navigate to the target slide and wait for the parallax transitions
   // to settle. .layer transition is 650ms (cubic-bezier .22 .7 .18 1).
   const wasIdx = idx;
   go(slideIdx);
   await new Promise((r) => setTimeout(r, 750));
+  await waitForViewportImages();
   // Hide chrome that shouldn't appear in the exported image.
   const hides = [
     document.getElementById('toolsPanel'),
@@ -2546,7 +2581,13 @@ async function captureSlide(slideIdx, scale = 3) {
       useCORS: true,
       allowTaint: true,
       logging: false,
+      imageTimeout: 0,         // no early cutoff on slow images
+      letterRendering: true,   // sharper text
+      removeContainer: true,
     });
+    // Force high-quality smoothing on the resulting bitmap.
+    const ctx = canvas.getContext('2d');
+    if (ctx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
   } finally {
     hides.forEach((el, i) => { el.style.display = prev[i]; });
     if (wasEditMode) document.body.classList.add('edit-mode');
@@ -2567,14 +2608,20 @@ function canvasToDownload(canvas, filename) {
   });
 }
 
+function dlHintBaseline() {
+  const w = Math.round(412 * dlScale);
+  const h = Math.round(515 * dlScale);
+  return `PNG at ${dlScale}× (~${w} × ${h}px).`;
+}
+
 async function downloadSlide(slideIdx) {
   const hint = document.getElementById('dlHint');
-  hint.textContent = `Rendering slide ${slideIdx + 1}…`;
+  hint.textContent = `Rendering slide ${slideIdx + 1} at ${dlScale}×…`;
   try {
-    const canvas = await captureSlide(slideIdx, 3);
-    await canvasToDownload(canvas, `garage-slide-${String(slideIdx + 1).padStart(2, '0')}.png`);
-    hint.textContent = `Saved slide ${slideIdx + 1}.`;
-    setTimeout(() => { hint.textContent = 'PNG at 3× scale (~1236 × 1545px), Instagram-ready.'; }, 2500);
+    const canvas = await captureSlide(slideIdx, dlScale);
+    await canvasToDownload(canvas, `garage-slide-${String(slideIdx + 1).padStart(2, '0')}-${dlScale}x.png`);
+    hint.textContent = `Saved slide ${slideIdx + 1} at ${dlScale}×.`;
+    setTimeout(() => { hint.textContent = dlHintBaseline(); }, 2500);
   } catch (err) {
     console.error('[garage] download failed:', err);
     hint.textContent = 'Download failed — see console.';
@@ -2584,19 +2631,28 @@ async function downloadSlide(slideIdx) {
 async function downloadAllSlides() {
   const hint = document.getElementById('dlHint');
   for (let i = 0; i < N; i++) {
-    hint.textContent = `Rendering slide ${i + 1} of ${N}…`;
+    hint.textContent = `Rendering slide ${i + 1} of ${N} at ${dlScale}×…`;
     try {
-      const canvas = await captureSlide(i, 3);
-      await canvasToDownload(canvas, `garage-slide-${String(i + 1).padStart(2, '0')}.png`);
+      const canvas = await captureSlide(i, dlScale);
+      await canvasToDownload(canvas, `garage-slide-${String(i + 1).padStart(2, '0')}-${dlScale}x.png`);
     } catch (err) {
       console.error('[garage] slide', i + 1, 'failed:', err);
       hint.textContent = `Slide ${i + 1} failed — see console.`;
       return;
     }
   }
-  hint.textContent = `All ${N} slides saved.`;
-  setTimeout(() => { hint.textContent = 'PNG at 3× scale (~1236 × 1545px), Instagram-ready.'; }, 3000);
+  hint.textContent = `All ${N} slides saved at ${dlScale}×.`;
+  setTimeout(() => { hint.textContent = dlHintBaseline(); }, 3000);
 }
+
+// Quality selector — 3× / 5× / 8×
+document.querySelectorAll('#dlQuality button[data-q]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    dlScale = parseInt(btn.dataset.q, 10) || 5;
+    document.querySelectorAll('#dlQuality button[data-q]').forEach((b) => b.classList.toggle('on', b === btn));
+    document.getElementById('dlHint').textContent = dlHintBaseline();
+  });
+});
 
 document.getElementById('dlCurrent')?.addEventListener('click', () => downloadSlide(idx));
 document.getElementById('dlAll')?.addEventListener('click', () => downloadAllSlides());
@@ -2663,7 +2719,7 @@ tpPanel.addEventListener('click', (e) => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v23-per-text-move · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v24-hi-q-export · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
