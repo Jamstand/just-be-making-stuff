@@ -1229,7 +1229,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v41 · slots per panel</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v42 · diptych per panel</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1416,49 +1416,31 @@
 
       <!-- photos (anchor speed) -->
       <div class="layer photos">
-        <!-- Each slot is now contained within a single panel (412px wide)
-             so it only shows up on one slide. Hero slots had to shrink
-             from 520-580 → 380 to fit. Panel bounds: P1 0-412, P2 412-824,
-             P3 824-1236, P4 1236-1648, P5 1648-2060, P6 2060-2472. -->
-        <!-- A: hero 911 — P1 -->
-        <div class="slot" data-slot="A"
-             style="--rot:-2deg;left:30px;top:120px;width:380px;height:340px;border-radius:6px"></div>
+        <!-- Diptych layout: every panel gets two clean rectangle slots
+             placed flush side-by-side, so the photos read as one
+             continuous frame (like the cinevisuals Instagram spread).
+             No polaroid styling, no rotations, no circle border, no
+             captions — slots are pure rectangles. Each panel is
+             412px wide; each slot is 196×260 with a 4px center gap
+             and 8px outer margin. Photo area lives at top:220 so the
+             title + topline have clean room above. -->
+        <div class="slot" data-slot="A" style="left:8px;top:220px;width:196px;height:260px;border-radius:4px"></div>
+        <div class="slot" data-slot="I" style="left:208px;top:220px;width:196px;height:260px;border-radius:4px"></div>
 
-        <!-- B: rear polaroid — P2 -->
-        <div class="slot poly" data-slot="B"
-             style="--rot:-5deg;left:466px;top:230px;width:300px;height:230px;transform:rotate(-5deg);z-index:4">
-          <div class="cap">rear three-quarter</div>
-        </div>
+        <div class="slot" data-slot="B" style="left:420px;top:220px;width:196px;height:260px;border-radius:4px"></div>
+        <div class="slot" data-slot="J" style="left:620px;top:220px;width:196px;height:260px;border-radius:4px"></div>
 
-        <!-- C: wheel circle — P3 -->
-        <div class="slot circle" data-slot="C"
-             style="left:860px;top:90px;width:340px;height:340px;border:5px solid var(--paper);z-index:3"></div>
+        <div class="slot" data-slot="C" style="left:832px;top:220px;width:196px;height:260px;border-radius:4px"></div>
+        <div class="slot" data-slot="K" style="left:1032px;top:220px;width:196px;height:260px;border-radius:4px"></div>
 
-        <!-- D: stripe polaroid — P4 -->
-        <div class="slot poly" data-slot="D"
-             style="--rot:5deg;left:1292px;top:200px;width:300px;height:230px;transform:rotate(5deg);z-index:5">
-          <div class="cap">heritage stripe</div>
-        </div>
+        <div class="slot" data-slot="D" style="left:1244px;top:220px;width:196px;height:260px;border-radius:4px"></div>
+        <div class="slot" data-slot="L" style="left:1444px;top:220px;width:196px;height:260px;border-radius:4px"></div>
 
-        <!-- E: garage doorway — P5 -->
-        <div class="slot" data-slot="E"
-             style="--rot:2deg;left:1664px;top:60px;width:380px;height:320px;border-radius:6px;z-index:2"></div>
+        <div class="slot" data-slot="E" style="left:1656px;top:220px;width:196px;height:260px;border-radius:4px"></div>
+        <div class="slot" data-slot="F" style="left:1856px;top:220px;width:196px;height:260px;border-radius:4px"></div>
 
-        <!-- F: wheel detail polaroid — P5 (sits below E) -->
-        <div class="slot poly" data-slot="F"
-             style="--rot:-6deg;left:1740px;top:300px;width:280px;height:210px;transform:rotate(-6deg);z-index:5">
-          <div class="cap">centerlocks · orange bite</div>
-        </div>
-
-        <!-- G: lineup hero — P6 -->
-        <div class="slot" data-slot="G"
-             style="--rot:-1deg;left:2076px;top:90px;width:380px;height:320px;border-radius:6px;z-index:3"></div>
-
-        <!-- H: sculpture polaroid — P6 (sits below G) -->
-        <div class="slot poly" data-slot="H"
-             style="--rot:-4deg;left:2140px;top:340px;width:240px;height:170px;transform:rotate(-4deg);z-index:6">
-          <div class="cap">the gang.</div>
-        </div>
+        <div class="slot" data-slot="G" style="left:2068px;top:220px;width:196px;height:260px;border-radius:4px"></div>
+        <div class="slot" data-slot="H" style="left:2268px;top:220px;width:196px;height:260px;border-radius:4px"></div>
 
         <!-- tape -->
         <div class="tape" style="left:380px;top:215px;transform:rotate(40deg);z-index:5"></div>
@@ -1857,7 +1839,7 @@ function applySlot(slot){
    picks those photos in order; otherwise uses the most recent N. Renders each
    through canvas with its look applied so the AI grade carries over. */
 async function fillFromRoll(){
-  const slotIds = ['A','B','C','D','E','F','G','H'];
+  const slotIds = ['A','I','B','J','C','K','D','L','E','F','G','H'];
   const wanted = new URLSearchParams(location.search).get('ids');
   let records;
   try {
