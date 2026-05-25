@@ -1193,7 +1193,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v37 · modern-screenshot</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v37.1 · diagnostic strip</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2841,22 +2841,30 @@ async function captureSlide(slideIdx, scale) {
     // Use modern-screenshot — handles stacked gradients, transforms,
     // SVG, max-content widths, and pseudo-elements correctly, all of
     // which html2canvas v1.4.1 drops or mangles. Fall back to
-    // html2canvas only if modern-screenshot isn't loaded.
+    // html2canvas if modern-screenshot is missing or throws.
+    let libUsed = 'unknown';
+    let captureErr = null;
     if (window.modernScreenshot?.domToCanvas) {
-      console.log('[garage] using modern-screenshot for export');
-      canvas = await window.modernScreenshot.domToCanvas(viewport, {
-        scale,
-        backgroundColor: bgColor,
-        filter: (node) => {
-          // .grain uses SVG feTurbulence (no library renders it
-          // reliably); .guides is a dev-only overlay.
-          if (node?.classList?.contains?.('grain')) return false;
-          if (node?.classList?.contains?.('guides')) return false;
-          return true;
-        },
-      });
-    } else {
-      console.warn('[garage] modern-screenshot missing, falling back to html2canvas');
+      try {
+        console.log('[garage] using modern-screenshot for export');
+        canvas = await window.modernScreenshot.domToCanvas(viewport, {
+          scale,
+          backgroundColor: bgColor,
+          filter: (node) => {
+            if (node?.nodeType !== 1) return true;
+            if (node.classList?.contains('grain')) return false;
+            if (node.classList?.contains('guides')) return false;
+            return true;
+          },
+        });
+        libUsed = 'modern-screenshot';
+      } catch (e) {
+        captureErr = e;
+        console.error('[garage] modern-screenshot threw, retrying with html2canvas:', e);
+      }
+    }
+    if (!canvas) {
+      console.warn('[garage] using html2canvas (fallback)');
       canvas = await window.html2canvas(viewport, {
         backgroundColor: bgColor,
         scale,
@@ -2877,7 +2885,23 @@ async function captureSlide(slideIdx, scale) {
           });
         },
       });
+      libUsed = 'html2canvas';
     }
+    // Stamp a small diagnostic strip onto the bottom of the canvas so
+    // we can see — directly in the saved PNG — which library actually
+    // ran, what dimensions came out, and whether the capture threw.
+    // Removed once the export pipeline is stable.
+    try {
+      const ctx2 = canvas.getContext('2d');
+      const strip = Math.max(28, Math.round(canvas.height * 0.022));
+      ctx2.fillStyle = 'rgba(232,67,0,0.9)';
+      ctx2.fillRect(0, canvas.height - strip, canvas.width, strip);
+      ctx2.fillStyle = '#fff';
+      ctx2.font = `${Math.round(strip * 0.55)}px monospace`;
+      ctx2.textBaseline = 'middle';
+      const label = `v37.1 · ${libUsed} · ${canvas.width}×${canvas.height}${captureErr ? ' · ERR:'+captureErr.message.slice(0,40) : ''}`;
+      ctx2.fillText(label, 12, canvas.height - strip / 2);
+    } catch {}
     const ctx = canvas.getContext('2d');
     if (ctx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
     if (dlPolish) try { polishCanvas(canvas); } catch (err) { console.warn('[garage] polish skipped:', err); }
