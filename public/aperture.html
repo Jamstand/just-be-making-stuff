@@ -1,0 +1,919 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>aperture — the photo pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:    #0a0a0b;
+    --bg2:   #111113;
+    --surf:  #161618;
+    --surf2: #1d1d20;
+    --rule:  rgba(255,255,255,0.06);
+    --rule2: rgba(255,255,255,0.10);
+    --fg:    #ededee;
+    --fg2:   #a1a1a6;
+    --fg3:   #6b6b72;
+    --lime:  #c7f93a;
+    --limeD: #9bcc2a;
+    --red:   #ff5a4e;
+    --amber: #ffb84d;
+    --sans:  'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono:  'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; cursor: pointer; }
+
+  /* ── LANDING ───────────────────────────────────────────────────────────── */
+  .landing { position: relative; min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  .grid-bg {
+    position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(var(--rule) 1px, transparent 1px),
+      linear-gradient(90deg, var(--rule) 1px, transparent 1px);
+    background-size: 56px 56px;
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 70% 40%, black, transparent);
+            mask-image: radial-gradient(ellipse 80% 60% at 70% 40%, black, transparent);
+  }
+  .glow {
+    position: absolute; top: -20%; right: -10%; width: 800px; height: 800px;
+    background: radial-gradient(circle, rgba(199,249,58,0.15), transparent 60%);
+    pointer-events: none; filter: blur(60px);
+  }
+
+  header.apr-top {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 40px; border-bottom: 1px solid var(--rule);
+    position: relative; z-index: 2;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    background: rgba(10,10,11,0.6);
+  }
+  .apr-top-left { display: flex; align-items: center; gap: 28px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 14px; font-weight: 600; }
+  .brand .dot { color: var(--lime); }
+  .top-nav { display: flex; gap: 22px; font-size: 13px; color: var(--fg2); }
+  .top-right { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+  .pill-version {
+    font-family: var(--mono); font-size: 11px; color: var(--lime);
+    padding: 4px 8px; border: 1px solid rgba(199,249,58,0.25); border-radius: 4px;
+    background: rgba(199,249,58,0.06);
+  }
+  .btn-ghost {
+    background: transparent; color: var(--fg); border: 1px solid var(--rule2);
+    padding: 9px 14px; border-radius: 6px; font-size: 13px;
+  }
+  .btn-primary {
+    background: var(--lime); color: var(--bg); border: 0;
+    padding: 9px 16px; border-radius: 6px; font-size: 13px; font-weight: 600;
+    display: inline-flex; align-items: center;
+  }
+  .kbd {
+    font-family: var(--mono); font-size: 11px; padding: 2px 6px;
+    background: var(--surf); border: 1px solid var(--rule2); border-radius: 3px;
+    color: var(--fg2);
+  }
+
+  .hero {
+    flex: 1; display: grid; grid-template-columns: 1.1fr 1fr;
+    gap: 60px; padding: 64px 40px 40px; position: relative; z-index: 1;
+  }
+  .hero-left { display: flex; flex-direction: column; justify-content: space-between; gap: 32px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--fg2);
+    padding: 5px 10px; border: 1px solid var(--rule2);
+    border-radius: 999px; margin-bottom: 32px;
+  }
+  .eyebrow .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 8px var(--lime); }
+  h1.headline {
+    font-size: 86px; line-height: 0.95; font-weight: 500; letter-spacing: -0.04em;
+    margin: 0; color: var(--fg); text-wrap: pretty;
+  }
+  .lede { font-size: 17px; line-height: 1.55; color: var(--fg2); max-width: 480px; margin-top: 28px; }
+  .lede .kbd { background: var(--surf); }
+  .cta-row { display: flex; gap: 10px; margin-top: 36px; }
+  .btn-primary .kbd { margin-left: 10px; background: rgba(0,0,0,0.25); color: var(--bg); border-color: rgba(0,0,0,0.2); }
+
+  .metrics {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+    background: var(--rule); border: 1px solid var(--rule);
+    border-radius: 6px; overflow: hidden;
+  }
+  .metric { background: var(--bg2); padding: 14px 16px; }
+  .metric .v { font-family: var(--mono); font-size: 22px; color: var(--lime); font-weight: 500; }
+  .metric .l { font-size: 12px; color: var(--fg); margin-top: 4px; }
+  .metric .s { font-family: var(--mono); font-size: 10px; color: var(--fg3); margin-top: 2px; }
+
+  /* Mini preview window on the right */
+  .mini-window {
+    background: var(--bg2); border-radius: 10px; border: 1px solid var(--rule2);
+    overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+    min-height: 480px;
+  }
+  .mw-chrome {
+    display: flex; align-items: center; gap: 14px; padding: 10px 14px;
+    border-bottom: 1px solid var(--rule); background: var(--surf);
+  }
+  .traffic { display: flex; gap: 6px; }
+  .traffic span { width: 11px; height: 11px; border-radius: 50%; opacity: 0.9; }
+  .traffic span:nth-child(1) { background: #ff5f57; }
+  .traffic span:nth-child(2) { background: #febc2e; }
+  .traffic span:nth-child(3) { background: #28c840; }
+  .mw-title { flex: 1; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--fg3); }
+  .mw-body { flex: 1; display: grid; grid-template-columns: 160px 1fr 200px; }
+  .mw-side { border-right: 1px solid var(--rule); padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .mw-fn { font-family: var(--mono); font-size: 11px; padding: 5px 8px; border-radius: 4px; color: var(--fg2); border: 1px solid transparent; }
+  .mw-fn.active { color: var(--lime); background: rgba(199,249,58,0.07); border-color: rgba(199,249,58,0.18); }
+  .mw-canvas { background: #000; position: relative; display: flex; align-items: center; justify-content: center; min-height: 240px; }
+  .mw-canvas img { max-width: 85%; max-height: 85%; display: block; box-shadow: 0 0 0 1px var(--rule2); }
+  .mw-hud-top { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--fg2); }
+  .mw-hud-top .ok { color: var(--lime); }
+  .mw-progress { position: absolute; bottom: 10px; left: 10px; right: 10px; height: 4px; background: var(--rule2); border-radius: 2px; }
+  .mw-progress > div { width: 78%; height: 100%; background: var(--lime); border-radius: 2px; }
+  .mw-params { border-left: 1px solid var(--rule); padding: 12px; font-family: var(--mono); font-size: 11px; }
+  .mw-params .comment { color: var(--fg3); margin-bottom: 8px; }
+  .mw-params .row { display: flex; justify-content: space-between; padding: 3px 0; }
+  .mw-params .row .k { color: var(--fg2); }
+  .mw-params .row .vstr { color: var(--amber); }
+  .mw-params .row .vbool { color: var(--lime); }
+  .mw-params .row .vnum { color: var(--fg); }
+  .mw-params .term { margin-top: 14px; padding: 6px 8px; background: var(--surf2); border-radius: 3px; color: var(--fg3); font-size: 10px; }
+
+  .pipeline-strip {
+    border-top: 1px solid var(--rule);
+    padding: 20px 40px; display: flex; align-items: center;
+    gap: 14px; background: var(--bg2); position: relative; z-index: 2;
+    font-family: var(--mono); font-size: 12px; flex-wrap: wrap;
+  }
+  .pipeline-strip .lead { color: var(--fg3); }
+  .pipeline-strip .op {
+    padding: 5px 10px; background: var(--surf); border: 1px solid var(--rule2);
+    border-radius: 4px; color: var(--fg);
+  }
+  .pipeline-strip .op.done { color: var(--lime); }
+  .pipeline-strip .arrow { color: var(--fg3); }
+  .pipeline-strip .total { margin-left: auto; color: var(--fg2); }
+
+  /* ── WORKSPACE ─────────────────────────────────────────────────────────── */
+  .workspace {
+    display: none; width: 100%; height: 100vh;
+    grid-template-columns: 48px 220px 1fr 300px;
+    grid-template-rows: 40px 1fr 28px;
+    overflow: hidden;
+  }
+  body.in-workspace .workspace { display: grid; }
+  body.in-workspace .landing { display: none; }
+
+  .ws-top {
+    grid-column: 1 / -1; display: flex; align-items: center;
+    padding: 0 12px 0 14px; border-bottom: 1px solid var(--rule);
+    background: var(--bg2); gap: 12px;
+  }
+  .ws-top .crumb { font-family: var(--mono); font-size: 12px; color: var(--fg2); }
+  .ws-top .crumb .file { color: var(--fg); }
+  .ws-top .modbadge { font-family: var(--mono); font-size: 10px; color: var(--lime); padding: 2px 6px; background: rgba(199,249,58,0.09); border-radius: 3px; }
+  .icon-btn-apr {
+    width: 28px; height: 28px; border: 0; border-radius: 5px;
+    background: transparent; color: var(--fg2);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ws-top-actions { display: flex; align-items: center; gap: 4px; }
+  .ws-top .div { width: 1px; height: 16px; background: var(--rule2); margin: 0 6px; }
+
+  .ws-rail {
+    border-right: 1px solid var(--rule); background: var(--bg2);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 10px 0; gap: 2px;
+  }
+  .ws-rail button {
+    width: 34px; height: 34px; border: 0; border-radius: 6px;
+    background: transparent; color: var(--fg2);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .ws-rail button.on { background: var(--surf2); color: var(--lime); }
+  .ws-rail button.on::before {
+    content: ''; position: absolute; left: 0; top: 7px; bottom: 7px;
+    width: 2px; background: var(--lime); border-radius: 1px;
+  }
+
+  .ws-panel-left {
+    border-right: 1px solid var(--rule); padding: 12px; background: var(--bg);
+    display: flex; flex-direction: column; gap: 14px; overflow: auto;
+  }
+  .panel-label { font-family: var(--mono); font-size: 10px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .layer-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px; margin-bottom: 2px; border-radius: 5px;
+    border: 1px solid transparent;
+  }
+  .layer-row.active { background: var(--surf2); border-color: var(--rule2); }
+  .layer-row .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .layer-row .nm { font-size: 12px; color: var(--fg2); }
+  .layer-row.active .nm { color: var(--fg); }
+  .layer-row .sub { font-family: var(--mono); font-size: 10px; color: var(--fg3); }
+  .layer-row .meta { flex: 1; }
+
+  .roll-list { display: flex; flex-direction: column; gap: 4px; }
+  .roll-item {
+    display: flex; gap: 8px; padding: 6px; border-radius: 5px;
+    background: var(--surf); border: 1px solid var(--rule); cursor: pointer;
+  }
+  .roll-item.active { border-color: rgba(199,249,58,0.4); }
+  .roll-item img { width: 32px; height: 32px; object-fit: cover; border-radius: 3px; }
+  .roll-item .meta { flex: 1; font-family: var(--mono); font-size: 10px; color: var(--fg2); display: flex; flex-direction: column; justify-content: center; }
+  .roll-item .meta .id { color: var(--fg); }
+
+  .credits-card { margin-top: auto; padding: 10px; background: var(--surf); border-radius: 5px; border: 1px solid var(--rule); }
+  .credits-card .l { font-family: var(--mono); font-size: 10px; color: var(--fg3); margin-bottom: 4px; }
+  .credits-card .v { font-family: var(--mono); font-size: 20px; color: var(--fg); }
+  .credits-card .s { font-size: 10px; color: var(--fg3); margin-top: 4px; }
+
+  .ws-canvas {
+    background: #050505; position: relative;
+    background-image:
+      linear-gradient(45deg, var(--surf) 25%, transparent 25%),
+      linear-gradient(-45deg, var(--surf) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, var(--surf) 75%),
+      linear-gradient(-45deg, transparent 75%, var(--surf) 75%);
+    background-size: 14px 14px;
+    background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .canvas-wrap {
+    position: relative; max-width: 85%; max-height: 85%;
+    box-shadow: 0 0 0 1px var(--lime), 0 20px 80px rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .canvas-wrap canvas, .canvas-wrap img {
+    display: block; max-width: 100%; max-height: 70vh;
+    width: auto; height: auto;
+  }
+  .handle {
+    position: absolute; width: 8px; height: 8px; background: var(--lime); border-radius: 1px;
+  }
+  .handle.tl { top: -4px; left: -4px; }
+  .handle.tr { top: -4px; right: -4px; }
+  .handle.bl { bottom: -4px; left: -4px; }
+  .handle.br { bottom: -4px; right: -4px; }
+
+  .canvas-hud-top {
+    position: absolute; top: 12px; left: 14px; right: 14px;
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 11px; color: var(--fg2);
+  }
+  .canvas-hud-top .group { display: flex; gap: 16px; align-items: center; }
+  .canvas-hud-top .dot { color: var(--fg3); }
+  .canvas-hud-top .live { color: var(--lime); }
+
+  .canvas-zoom {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 4px; background: rgba(15,15,17,0.85); border-radius: 6px;
+    padding: 3px; border: 1px solid var(--rule2); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  .canvas-zoom button {
+    padding: 4px 10px; font-family: var(--mono); font-size: 11px;
+    background: transparent; color: var(--fg2); border: 0; border-radius: 4px;
+  }
+  .canvas-zoom button.on { background: var(--surf2); color: var(--lime); }
+
+  .ws-params {
+    border-left: 1px solid var(--rule); background: var(--bg2);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .ws-tabs { display: flex; border-bottom: 1px solid var(--rule); }
+  .ws-tabs .tab {
+    flex: 1; padding: 10px 0; text-align: center; font-size: 12px;
+    color: var(--fg3); border-bottom: 1.5px solid transparent;
+  }
+  .ws-tabs .tab.on { color: var(--fg); border-bottom-color: var(--lime); }
+
+  .ws-params-body { padding: 14px; overflow: auto; flex: 1; }
+  .active-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 4px 10px; background: rgba(199,249,58,0.07);
+    border: 1px solid rgba(199,249,58,0.2); border-radius: 999px;
+    font-family: var(--mono); font-size: 11px; color: var(--lime);
+    margin-bottom: 14px;
+  }
+
+  .param { margin-bottom: 12px; }
+  .param-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+  .param-row .k { font-family: var(--mono); font-size: 11px; color: var(--fg2); }
+  .param-row .v { font-family: var(--mono); font-size: 11px; color: var(--fg); }
+  .param-row .v.bool { color: var(--lime); }
+  .param-row .v.str { color: var(--amber); }
+  .param-row .v.muted { color: var(--fg3); }
+  .param-slider { height: 3px; background: var(--rule2); border-radius: 2px; position: relative; }
+  .param-slider .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--lime); border-radius: 2px; }
+  .param-slider .knob {
+    position: absolute; top: 50%; transform: translate(-50%,-50%);
+    width: 10px; height: 10px; background: var(--bg2); border: 1.5px solid var(--lime); border-radius: 50%;
+  }
+
+  .est-card {
+    margin-top: 16px; padding: 12px; background: var(--bg);
+    border: 1px solid var(--rule); border-radius: 5px;
+    font-family: var(--mono); font-size: 11px; color: var(--fg2);
+    line-height: 1.55;
+  }
+  .est-card .c { color: var(--fg3); }
+  .est-card .a { color: var(--amber); }
+  .est-card .g { color: var(--lime); }
+  .est-card .f { color: var(--fg); }
+
+  .ws-params-footer { padding: 12px; border-top: 1px solid var(--rule); }
+  .run-btn {
+    width: 100%; background: var(--lime); color: var(--bg);
+    border: 0; padding: 10px 14px; border-radius: 6px;
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .run-btn:disabled { opacity: 0.4; }
+  .run-btn .kbd { background: rgba(0,0,0,0.25); color: var(--bg); border-color: rgba(0,0,0,0.2); margin-left: auto; }
+
+  .ws-status {
+    grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px; border-top: 1px solid var(--rule); background: var(--bg2);
+    font-family: var(--mono); font-size: 11px; color: var(--fg3);
+  }
+  .ws-status .group { display: flex; gap: 16px; }
+  .ws-status .ok { color: var(--lime); }
+
+  /* Drop overlay */
+  .drop-overlay {
+    position: fixed; inset: 0; background: rgba(10,10,11,0.9);
+    display: none; align-items: center; justify-content: center; z-index: 200;
+    font-family: var(--mono); font-size: 32px; color: var(--lime);
+    border: 2px dashed rgba(199,249,58,0.4);
+  }
+  body.dragging .drop-overlay { display: flex; }
+
+  /* Modal (Aperture-styled) */
+  .modal {
+    position: fixed; inset: 0; z-index: 220;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center; padding: 24px;
+  }
+  .modal.open { display: flex; }
+  .modal .panel {
+    background: var(--bg2); border: 1px solid var(--rule2); border-radius: 8px;
+    padding: 20px; width: 100%; max-width: 560px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .modal h3 { font-family: var(--mono); font-size: 18px; margin: 0; }
+  .modal .sub { font-size: 12px; color: var(--fg3); margin-top: -8px; font-family: var(--mono); }
+  .modal .field-label { font-family: var(--mono); font-size: 11px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .modal textarea {
+    width: 100%; min-height: 80px; padding: 10px;
+    background: var(--bg); color: var(--fg); border: 1px solid var(--rule2); border-radius: 4px;
+    font-family: var(--mono); font-size: 12px; resize: vertical;
+  }
+  .modal .providers { display: flex; flex-wrap: wrap; gap: 6px; }
+  .modal .chip {
+    background: var(--surf); border: 1px solid var(--rule2); color: var(--fg);
+    border-radius: 4px; padding: 6px 12px; font-family: var(--mono); font-size: 11px;
+  }
+  .modal .chip.on { background: var(--lime); color: var(--bg); border-color: var(--lime); }
+  .modal .chip:disabled { opacity: 0.3; }
+  .modal .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .modal .actions .cancel { background: transparent; color: var(--fg); border: 1px solid var(--rule2); padding: 8px 14px; border-radius: 6px; font-size: 12px; }
+  .modal .actions .go { background: var(--lime); color: var(--bg); border: 0; padding: 8px 14px; border-radius: 6px; font-size: 12px; font-family: var(--mono); font-weight: 600; }
+  .modal .actions .go:disabled { opacity: 0.4; }
+
+  .toast {
+    position: fixed; bottom: 50px; left: 50%; transform: translateX(-50%);
+    background: var(--surf2); color: var(--fg); padding: 8px 16px;
+    border: 1px solid var(--rule2); border-radius: 4px;
+    font-family: var(--mono); font-size: 12px;
+    z-index: 300; opacity: 0; transition: opacity 0.2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .spinner {
+    display: inline-block; width: 11px; height: 11px;
+    border: 1.5px solid currentColor; border-top-color: transparent;
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ LANDING ════════════════════ -->
+<div class="landing">
+  <div class="grid-bg"></div>
+  <div class="glow"></div>
+
+  <header class="apr-top">
+    <div class="apr-top-left">
+      <div class="brand">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10" stroke="var(--lime)" stroke-width="1.5"/>
+          <path d="M12 2 L20 7 L20 17 L12 22 L4 17 L4 7 Z" stroke="var(--fg2)" stroke-width="1.2"/>
+          <circle cx="12" cy="12" r="3" fill="var(--lime)"/>
+        </svg>
+        aperture<span class="dot">.</span>
+      </div>
+      <div class="top-nav">
+        <span>Editor</span><span>Pipeline</span><span>API</span><span>Models</span><span>Changelog</span>
+      </div>
+    </div>
+    <div class="top-right">
+      <span class="pill-version">v4.2 · live</span>
+      <span style="color: var(--fg2)">Sign in</span>
+      <button class="btn-ghost" id="openEditorBtn">Open editor →</button>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="hero-left">
+      <div>
+        <div class="eyebrow">
+          <span class="pulse"></span>
+          R2 · Restoration model now in production
+        </div>
+        <h1 class="headline">The photo pipeline,<br>in a single keystroke.</h1>
+        <p class="lede">
+          Upscale, restore, retouch, remove. Chain operations as a pipeline,
+          run them on a batch of 10,000, or paste a single image and hit
+          <kbd class="kbd">⌘ ↵</kbd>.
+        </p>
+        <div class="cta-row">
+          <button class="btn-primary" id="dropStartBtn">
+            Open editor
+            <span class="kbd">⌘ E</span>
+          </button>
+          <input type="file" id="filePicker" accept="image/*" hidden>
+          <button class="btn-ghost">Read the docs →</button>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><div class="v">1.4s</div><div class="l">avg upscale</div><div class="s">p50</div></div>
+        <div class="metric"><div class="v">16×</div><div class="l">max factor</div><div class="s">per axis</div></div>
+        <div class="metric"><div class="v">98.4%</div><div class="l">edge accuracy</div><div class="s">segm-v3</div></div>
+        <div class="metric"><div class="v">$0.004</div><div class="l">per megapixel</div><div class="s">pay as you go</div></div>
+      </div>
+    </div>
+
+    <div class="mini-window">
+      <div class="mw-chrome">
+        <div class="traffic"><span></span><span></span><span></span></div>
+        <div class="mw-title">aperture://editor/run_4f2a</div>
+        <div style="width:44px"></div>
+      </div>
+      <div class="mw-body">
+        <div class="mw-side">
+          <div class="mw-fn active">upscale()</div>
+          <div class="mw-fn">restore()</div>
+          <div class="mw-fn">bg_remove()</div>
+          <div class="mw-fn">retouch()</div>
+          <div class="mw-fn">color_grade()</div>
+          <div class="mw-fn">sharpen()</div>
+          <div style="border-top: 1px solid var(--rule); margin-top: 8px; padding-top: 8px;">
+            <div style="font-family: var(--mono); font-size: 10px; color: var(--fg3)">queue · 3</div>
+          </div>
+        </div>
+        <div class="mw-canvas">
+          <img src="https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?w=1200&q=80&auto=format&fit=crop" alt="">
+          <div class="mw-hud-top">
+            <span>3840 × 5760 · sRGB</span>
+            <span class="ok">● rendering 78%</span>
+          </div>
+          <div class="mw-progress"><div></div></div>
+        </div>
+        <div class="mw-params">
+          <div class="comment">// params</div>
+          <div class="row"><span class="k">factor:</span><span class="vnum">8</span></div>
+          <div class="row"><span class="k">model:</span><span class="vstr">"v3"</span></div>
+          <div class="row"><span class="k">face_fix:</span><span class="vbool">true</span></div>
+          <div class="row"><span class="k">grain:</span><span class="vnum">0.42</span></div>
+          <div class="row"><span class="k">hdr:</span><span class="vbool">false</span></div>
+          <div class="row"><span class="k">seed:</span><span class="vnum">4720</span></div>
+          <div class="term">$ aperture run --batch ./roll/*.jpg</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pipeline-strip">
+    <span class="lead">pipeline →</span>
+    <span class="op done">✓ upscale(8×)</span><span class="arrow">→</span>
+    <span class="op done">✓ restore(face)</span><span class="arrow">→</span>
+    <span class="op">bg_remove</span><span class="arrow">→</span>
+    <span class="op">retouch(skin)</span><span class="arrow">→</span>
+    <span class="op">export(jpg, q=92)</span>
+    <span class="total">5 ops · ~6.4s total</span>
+  </div>
+</div>
+
+<div class="drop-overlay">drop to ingest</div>
+
+<!-- ════════════════════ WORKSPACE ════════════════════ -->
+<div class="workspace">
+  <header class="ws-top">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" stroke="var(--lime)" stroke-width="1.5"/>
+      <path d="M12 2 L20 7 L20 17 L12 22 L4 17 L4 7 Z" stroke="var(--fg2)" stroke-width="1.2"/>
+      <circle cx="12" cy="12" r="3" fill="var(--lime)"/>
+    </svg>
+    <span class="crumb">~ / rolls / 2026-05 / <span class="file" id="wsFilename">—</span></span>
+    <span class="modbadge" id="wsBadge">● modified</span>
+    <span style="flex:1"></span>
+    <div class="ws-top-actions">
+      <button class="icon-btn-apr" id="backToLanding" title="Back"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+      <button class="icon-btn-apr" id="toggleOriginal" title="Toggle original"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <div class="ws-top div"></div>
+      <button class="btn-ghost" style="padding:5px 12px; font-size:12px;" id="shareBtn">Share</button>
+      <button class="btn-primary" style="padding:5px 12px; font-size:12px;" id="exportBtn">
+        Export <span class="kbd" style="margin-left:8px; background:rgba(0,0,0,0.25); color:var(--bg); border-color:rgba(0,0,0,0.2)">⌘ ↵</span>
+      </button>
+    </div>
+  </header>
+
+  <nav class="ws-rail" id="toolRail">
+    <button data-tool="upscale" class="on" title="upscale"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9V3h6 M15 3h6v6 M21 15v6h-6 M9 21H3v-6"/></svg></button>
+    <button data-tool="bg" title="bg_remove"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16l4.5-4.5 3 3 5.5-5.5L21 13"/><path d="M4 20h16"/><path d="M4 4h16v16H4z"/></svg></button>
+    <button data-tool="retouch" title="retouch"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4 M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></button>
+    <button data-tool="color" title="color"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 110-20 10 10 0 016 18 4 4 0 11-6-6 4 4 0 01-6-6"/></svg></button>
+    <button data-tool="gen" title="gen_edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2 M15 16v-2 M8 9h2 M20 9h2 M17.8 11.8l1.4 1.4 M15 9l-3 6-6 3 3-6 6-3z"/></svg></button>
+    <button data-tool="sharpen" title="sharpen"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6"/><path d="M12 16v6"/><path d="M2 12h6"/><path d="M16 12h6"/></svg></button>
+  </nav>
+
+  <aside class="ws-panel-left">
+    <div>
+      <div class="panel-label" id="layerLbl">Layers · 1</div>
+      <div id="layerList">
+        <div class="layer-row active">
+          <span class="dot" style="background: var(--lime)"></span>
+          <div class="meta">
+            <div class="nm">Output</div>
+            <div class="sub" id="layerSub">drop a photo to start</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel-label">Roll · <span id="rollCount">0</span></div>
+      <div class="roll-list" id="rollList"></div>
+    </div>
+
+    <div class="credits-card">
+      <div class="l">credits</div>
+      <div class="v">2,408</div>
+      <div class="s">≈ 600 upscales · auto-refill on</div>
+    </div>
+  </aside>
+
+  <main class="ws-canvas">
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="canvas"></canvas>
+      <div class="handle tl"></div>
+      <div class="handle tr"></div>
+      <div class="handle bl"></div>
+      <div class="handle br"></div>
+    </div>
+    <div class="canvas-hud-top">
+      <div class="group">
+        <span id="hudDims">— × —</span>
+        <span class="dot">·</span>
+        <span>sRGB</span>
+      </div>
+      <div class="group">
+        <span class="live" id="hudState">● ready</span>
+        <span style="color: var(--fg3)">seed 4720</span>
+      </div>
+    </div>
+    <div class="canvas-zoom">
+      <button>fit</button>
+      <button class="on">100%</button>
+      <button>200%</button>
+      <button>400%</button>
+    </div>
+  </main>
+
+  <aside class="ws-params">
+    <div class="ws-tabs">
+      <div class="tab on">Params</div>
+      <div class="tab">Pipeline</div>
+      <div class="tab">Inspect</div>
+    </div>
+    <div class="ws-params-body">
+      <div class="active-pill">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9V3h6 M15 3h6v6 M21 15v6h-6 M9 21H3v-6"/></svg>
+        auto_grade.v1
+      </div>
+
+      <div class="param">
+        <div class="param-row"><span class="k">brightness</span><span class="v" id="pBright">1.00</span></div>
+        <div class="param-slider"><div class="fill" id="pBrightF" style="width:50%"></div><div class="knob" id="pBrightK" style="left:50%"></div></div>
+      </div>
+      <div class="param">
+        <div class="param-row"><span class="k">contrast</span><span class="v" id="pContrast">1.00</span></div>
+        <div class="param-slider"><div class="fill" id="pContrastF" style="width:50%"></div><div class="knob" id="pContrastK" style="left:50%"></div></div>
+      </div>
+      <div class="param">
+        <div class="param-row"><span class="k">saturate</span><span class="v" id="pSat">1.00</span></div>
+        <div class="param-slider"><div class="fill" id="pSatF" style="width:40%"></div><div class="knob" id="pSatK" style="left:40%"></div></div>
+      </div>
+      <div class="param">
+        <div class="param-row"><span class="k">vignette</span><span class="v" id="pVign">0.00</span></div>
+        <div class="param-slider"><div class="fill" id="pVignF" style="width:0%"></div><div class="knob" id="pVignK" style="left:0%"></div></div>
+      </div>
+      <div class="param">
+        <div class="param-row"><span class="k">tint_color</span><span class="v str" id="pTintC">"#ffffff"</span></div>
+      </div>
+      <div class="param">
+        <div class="param-row"><span class="k">tint_alpha</span><span class="v" id="pTintA">0.00</span></div>
+        <div class="param-slider"><div class="fill" id="pTintAF" style="width:0%"></div><div class="knob" id="pTintAK" style="left:0%"></div></div>
+      </div>
+
+      <div class="est-card">
+        <div class="c"># estimated</div>
+        <div>time:   <span class="a" id="estTime">—</span></div>
+        <div>cost:   <span class="g">1 credit</span></div>
+        <div>output: <span class="f" id="estDims">— × —</span></div>
+      </div>
+    </div>
+    <div class="ws-params-footer">
+      <button class="run-btn" id="runBtn" disabled>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        re-grade
+        <span class="kbd">⌘ ↵</span>
+      </button>
+    </div>
+  </aside>
+
+  <footer class="ws-status">
+    <div class="group">
+      <span class="ok">● connected</span>
+      <span>gpu: a100-80g</span>
+      <span>region: sfo-3</span>
+      <span>latency: 28ms</span>
+    </div>
+    <div class="group">
+      <span>queue: 0</span>
+      <span id="memUsage">memory: 0 / 80 GB</span>
+      <span>build 4.2.118</span>
+    </div>
+  </footer>
+</div>
+
+<!-- Gen-edit modal -->
+<div class="modal" id="genModal">
+  <div class="panel">
+    <h3>gen_edit()</h3>
+    <p class="sub">// repaints pixels via the selected provider</p>
+    <div>
+      <div class="field-label">provider</div>
+      <div class="providers" id="genProviders"></div>
+    </div>
+    <div>
+      <div class="field-label">prompt</div>
+      <textarea id="genPrompt" placeholder="// describe the change"></textarea>
+    </div>
+    <div class="actions">
+      <button class="cancel" id="genCancel">cancel</button>
+      <button class="go" id="genConfirm" disabled>run</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2400); }
+
+const state = {
+  current: null,
+  roll: [],
+  aiStatus: null,
+  showingOriginal: false,
+};
+
+fetch('/ai/status').then((r) => r.json()).then((s) => { state.aiStatus = s; renderGenProviders(); }).catch(() => toast('// ai status unreachable'));
+
+$('openEditorBtn').addEventListener('click', () => $('filePicker').click());
+$('dropStartBtn').addEventListener('click', () => $('filePicker').click());
+$('filePicker').addEventListener('change', (e) => { handleFile(e.target.files[0]); e.target.value = ''; });
+
+window.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('dragging'); });
+window.addEventListener('dragleave', (e) => { if (e.clientX === 0 && e.clientY === 0) document.body.classList.remove('dragging'); });
+window.addEventListener('drop', (e) => { e.preventDefault(); document.body.classList.remove('dragging'); const f = e.dataTransfer.files?.[0]; if (f && f.type.startsWith('image/')) handleFile(f); });
+
+async function handleFile(file) {
+  if (!file) return;
+  const id = 'p' + Date.now();
+  const originalUrl = URL.createObjectURL(file);
+  const img = await loadImage(originalUrl);
+  const photo = { id, file, originalUrl, img, look: null, thumbDataUrl: null };
+  state.roll.push(photo);
+  state.current = photo;
+  document.body.classList.add('in-workspace');
+  $('wsFilename').textContent = file.name;
+  $('hudDims').textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+  $('estDims').textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+  await renderCurrent();
+  await autoGrade(photo);
+  renderRoll();
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = src; });
+}
+
+function renderCurrent() {
+  const p = state.current;
+  if (!p) return;
+  const c = $('canvas');
+  c.width = p.img.naturalWidth; c.height = p.img.naturalHeight;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.filter = state.showingOriginal ? 'none' : lookToFilter(p.look);
+  ctx.drawImage(p.img, 0, 0);
+  ctx.filter = 'none';
+  if (!state.showingOriginal && p.look) {
+    if (p.look.tintAlpha > 0.005) {
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = p.look.tintAlpha;
+      ctx.fillStyle = p.look.tintColor;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    }
+    if (p.look.vignette > 0.01) {
+      const grad = ctx.createRadialGradient(c.width/2, c.height/2, Math.min(c.width, c.height) * 0.35, c.width/2, c.height/2, Math.max(c.width, c.height) * 0.72);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, `rgba(0,0,0,${0.85 * p.look.vignette})`);
+      ctx.fillStyle = grad; ctx.fillRect(0, 0, c.width, c.height);
+    }
+  }
+  p.thumbDataUrl = c.toDataURL('image/jpeg', 0.7);
+  renderRoll();
+}
+
+function lookToFilter(look) {
+  if (!look) return 'none';
+  const f = (k, d = 1) => (typeof look[k] === 'number' ? look[k] : d);
+  return `brightness(${f('brightness')}) contrast(${f('contrast')}) saturate(${f('saturate')}) hue-rotate(${f('hueRotate', 0)}deg) sepia(${f('sepia', 0)}) grayscale(${f('grayscale', 0)}) blur(${f('blur', 0)}px) invert(${f('invert', 0)})`;
+}
+
+async function autoGrade(photo) {
+  $('hudState').innerHTML = '<span class="spinner"></span> grading…';
+  $('estTime').textContent = '…';
+  try {
+    const c = document.createElement('canvas');
+    const maxDim = 1024;
+    const scale = Math.min(1, maxDim / Math.max(photo.img.naturalWidth, photo.img.naturalHeight));
+    c.width = Math.round(photo.img.naturalWidth * scale);
+    c.height = Math.round(photo.img.naturalHeight * scale);
+    c.getContext('2d').drawImage(photo.img, 0, 0, c.width, c.height);
+    const dataUrl = c.toDataURL('image/jpeg', 0.85);
+    const t0 = performance.now();
+    const res = await fetch('/ai/photo-edit', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'grade failed');
+    photo.look = data.look;
+    updateParamsFromLook(photo.look);
+    $('estTime').textContent = ((performance.now() - t0) / 1000).toFixed(1) + 's';
+    $('layerLbl').textContent = `Layers · 2`;
+    $('layerSub').textContent = `auto_grade · ${photo.look.caption || 'look'}`;
+    $('hudState').innerHTML = '● ready';
+    $('runBtn').disabled = false;
+    await renderCurrent();
+  } catch (err) {
+    $('hudState').innerHTML = '<span style="color: var(--red)">● error</span>';
+    toast(err.message || 'grade failed');
+  }
+}
+
+function updateParamsFromLook(look) {
+  const set = (key, val, min, max, isAlpha) => {
+    const pct = Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
+    $('p' + key).textContent = val.toFixed(2);
+    $('p' + key + 'F').style.width = pct + '%';
+    $('p' + key + 'K').style.left = pct + '%';
+  };
+  set('Bright', look.brightness, 0.4, 1.8);
+  set('Contrast', look.contrast, 0.4, 1.8);
+  set('Sat', look.saturate, 0, 2.5);
+  set('Vign', look.vignette, 0, 1);
+  set('TintA', look.tintAlpha, 0, 0.6);
+  $('pTintC').textContent = `"${look.tintColor || '#ffffff'}"`;
+}
+
+function renderRoll() {
+  $('rollCount').textContent = state.roll.length;
+  $('rollList').innerHTML = state.roll.map((p) => `
+    <div class="roll-item ${p === state.current ? 'active' : ''}" data-id="${p.id}">
+      <img src="${p.thumbDataUrl || p.originalUrl}">
+      <div class="meta">
+        <div class="id">${p.id}</div>
+        <div>${p.look ? '✓ graded' : 'pending'}</div>
+      </div>
+    </div>`).join('');
+}
+$('rollList').addEventListener('click', (e) => {
+  const item = e.target.closest('.roll-item');
+  if (!item) return;
+  const p = state.roll.find((x) => x.id === item.dataset.id);
+  if (p) { state.current = p; $('wsFilename').textContent = p.file.name; $('hudDims').textContent = `${p.img.naturalWidth} × ${p.img.naturalHeight}`; renderCurrent(); if (p.look) updateParamsFromLook(p.look); }
+});
+
+$('backToLanding').addEventListener('click', () => document.body.classList.remove('in-workspace'));
+$('toggleOriginal').addEventListener('click', () => { state.showingOriginal = !state.showingOriginal; renderCurrent(); });
+$('exportBtn').addEventListener('click', () => {
+  if (!state.current) return;
+  const a = document.createElement('a');
+  a.href = $('canvas').toDataURL('image/jpeg', 0.92);
+  a.download = (state.current.file.name.replace(/\.[^.]+$/, '') || 'export') + '-edited.jpg';
+  a.click();
+});
+$('shareBtn').addEventListener('click', () => toast('// share: TODO'));
+
+$('toolRail').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  document.querySelectorAll('#toolRail button').forEach((b) => b.classList.toggle('on', b === btn));
+  if (btn.dataset.tool === 'gen') openGenModal();
+  else if (btn.dataset.tool !== 'upscale') toast(`// ${btn.title}: not yet wired`);
+});
+
+$('runBtn').addEventListener('click', () => { if (state.current) autoGrade(state.current); });
+
+let genProvider = null;
+function renderGenProviders() {
+  const wrap = $('genProviders');
+  wrap.innerHTML = '';
+  const list = Object.entries(state.aiStatus?.gen || {});
+  for (const [id, info] of list) {
+    const chip = document.createElement('button');
+    chip.className = 'chip' + (id === genProvider ? ' on' : '');
+    chip.disabled = !info.ready;
+    chip.textContent = `${id} · $${info.estCostUsd.toFixed(2)}`;
+    chip.addEventListener('click', () => { if (info.ready) { genProvider = id; renderGenProviders(); refreshGenConfirm(); } });
+    wrap.appendChild(chip);
+  }
+  if (!genProvider) { const ready = list.find(([, i]) => i.ready); if (ready) { genProvider = ready[0]; renderGenProviders(); } }
+}
+function refreshGenConfirm() {
+  const has = !!state.current && !!genProvider && $('genPrompt').value.trim().length > 0;
+  $('genConfirm').disabled = !has;
+}
+$('genPrompt').addEventListener('input', refreshGenConfirm);
+function openGenModal() {
+  if (!state.current) { toast('// drop a photo first'); return; }
+  $('genModal').classList.add('open');
+  refreshGenConfirm();
+}
+$('genCancel').addEventListener('click', () => $('genModal').classList.remove('open'));
+$('genConfirm').addEventListener('click', async () => {
+  const prompt = $('genPrompt').value.trim();
+  if (!prompt || !state.current || !genProvider) return;
+  const btn = $('genConfirm');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> running…';
+  try {
+    const dataUrl = $('canvas').toDataURL('image/png');
+    const res = await fetch('/ai/photo-generate', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, prompt, provider: genProvider }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'generate failed');
+    const img = await loadImage(data.image);
+    state.current.img = img;
+    state.current.look = null;
+    await renderCurrent();
+    $('layerLbl').textContent = 'Layers · 3';
+    $('layerSub').textContent = `gen_edit · ${prompt.slice(0, 28)}`;
+    $('genModal').classList.remove('open');
+  } catch (err) {
+    toast(err.message || 'generate failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'run';
+  }
+});
+
+// keyboard shortcut: ⌘↵ to re-grade
+window.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if (state.current && !$('runBtn').disabled) { e.preventDefault(); autoGrade(state.current); }
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') { e.preventDefault(); $('filePicker').click(); }
+});
+</script>
+</body>
+</html>

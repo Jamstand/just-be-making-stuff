@@ -1,0 +1,3112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Garage — Late Night Pull-Up</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Caveat:wght@600;700&family=Bricolage+Grotesque:wght@600;700;800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* register custom props so calc() can multiply length × number reliably */
+  @property --slideX {
+    syntax: '<length>';
+    inherits: true;
+    initial-value: 0px;
+  }
+  @property --speed {
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 1;
+  }
+
+  /* ─────────────────────────────────────────────
+     GLOBAL TOKENS (overridden per theme below)
+     ───────────────────────────────────────────── */
+  :root{
+    /* enhancement filter on all photos */
+    --sat:1.30; --con:1.10; --bri:1.04; --warm:-2deg; --sep:0;
+    --grain:0.10;
+    --shadow:1;
+
+    /* canvas geometry */
+    --panel:412px;
+    --panel-h:515px;
+    --panels:6;
+
+    /* theme tokens (set by .stage[data-theme]) */
+    --font-display:'Bricolage Grotesque', sans-serif;
+    --font-body:'Inter', sans-serif;
+    --font-script:'Caveat', cursive;
+    --font-mono:'JetBrains Mono', monospace;
+    --accent:#ffb24c;
+    --accent-2:#84c8ff;
+    --paper:#f4f1ea;
+    --ink:#1a1b1f;
+    --bg-1:#0c0d11;
+    --bg-2:#15161a;
+    --bg-3:#0a0a0c;
+    --leak-a:rgba(255,138,40,.16);
+    --leak-b:rgba(132,200,255,.14);
+    --ribbon-op:.055;
+    --rail-color:rgba(255,255,255,.35);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:#0a0a0c;font-family:var(--font-body);color:#fff;overflow:hidden}
+  body{display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(1200px 700px at 50% 30%, #15161a 0%, #0a0a0c 60%, #060608 100%);}
+
+  /* ───── stage / phone ───── */
+  .stage{position:relative;transform-origin:center center}
+  .phone{
+    width:412px;height:892px;background:#000;border-radius:54px;position:relative;
+    box-shadow:0 0 0 2px #1d1d20,0 0 0 12px #0a0a0c,0 30px 80px rgba(0,0,0,.6),0 80px 200px rgba(0,0,0,.7);
+    overflow:hidden;color:#fff;
+  }
+  .phone::before{content:"";position:absolute;left:50%;top:11px;transform:translateX(-50%);
+    width:120px;height:34px;background:#000;border-radius:18px;z-index:50}
+  .home-ind{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
+    width:134px;height:5px;background:#fff;border-radius:3px;opacity:.95;z-index:50}
+
+  /* status bar */
+  .status{height:54px;display:flex;align-items:flex-end;justify-content:space-between;
+    padding:0 30px 8px;font-weight:600;font-size:16px;letter-spacing:.2px;position:relative;z-index:10;color:#fff}
+  .status .right{display:flex;align-items:center;gap:6px}
+  .status svg{display:block}
+
+  /* ig nav */
+  .ig-nav{height:48px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 14px;border-bottom:.5px solid #1f1f22;background:#000}
+  .ig-nav .back{font-size:24px;line-height:1;color:#fff;width:28px}
+  .ig-nav .title{text-align:center;flex:1}
+  .ig-nav .title .t1{font-weight:700;font-size:16px}
+  .ig-nav .title .t2{font-size:11px;color:#a8a8ad;margin-top:1px}
+  .ig-nav .spacer{width:28px}
+
+  /* post header */
+  .post-head{display:flex;align-items:center;gap:10px;padding:10px 12px 8px;background:#000}
+  .avatar{width:34px;height:34px;border-radius:50%;
+    background:radial-gradient(120% 120% at 30% 30%, #9ec9e8 0%, #6aa5cf 35%, #1a3447 80%);
+    border:1.5px solid #1f1f22;flex-shrink:0;position:relative;overflow:hidden}
+  .avatar::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 60% at 70% 25%, rgba(255,255,255,.5), transparent 60%)}
+  .post-head .who{flex:1;line-height:1.25}
+  .post-head .who .u{font-weight:700;font-size:14px;display:flex;align-items:center;gap:4px}
+  .post-head .who .loc{font-size:12px;color:#dcdcde;font-weight:500}
+  .post-head .dots{font-size:18px;color:#fff;padding:0 6px}
+
+  /* ─────────────────────────────────────────────
+     VIEWPORT — windowed onto a wide canvas
+     Each layer slides independently → parallax
+     ───────────────────────────────────────────── */
+  .viewport{
+    position:relative;width:var(--panel);height:var(--panel-h);
+    background:#000;overflow:hidden;isolation:isolate;
+    /* slideX = -idx * panel  (set by JS) */
+    --slideX:0px;
+  }
+  .layer{
+    position:absolute;left:0;top:0;
+    width:calc(var(--panel) * var(--panels) + 200px);
+    height:var(--panel-h);
+    transform:translate3d(calc(var(--slideX) * var(--speed,1)), 0, 0);
+    transition:transform .65s cubic-bezier(.22,.7,.18,1);
+    will-change:transform;
+    /* CRITICAL: each layer is a full-width-and-height absolute-positioned
+       container. Without this, the empty container area hit-tests
+       positive and intercepts every click meant for the slots beneath
+       (especially .layer.deco, which is the topmost in DOM order). The
+       actual interactive children (slots, .t with data-edit-id in edit
+       mode, etc.) re-enable pointer-events themselves. */
+    pointer-events: none;
+  }
+  /* Slots and their chrome ALWAYS receive events — re-enable. */
+  .slot[data-slot] { pointer-events: auto; }
+  .layer.bg     { --speed:0.30; }
+  .layer.leak   { --speed:0.55; }
+  .layer.ribbon { --speed:1.45; }
+  .layer.topline{ --speed:1.20; }
+  .layer.photos { --speed:1.00; }
+  .layer.deco   { --speed:1.00; }
+  .layer.type   { --speed:1.00; }
+  .layer.specs  { --speed:1.00; }
+  .layer.numbers{ --speed:0.75; }
+
+  /* base atmosphere — overridden per theme */
+  .layer.bg{
+    background:
+      radial-gradient(46% 90% at 9% 50%,  var(--leak-a), transparent 70%),
+      radial-gradient(34% 80% at 31% 28%, var(--leak-b), transparent 70%),
+      radial-gradient(40% 90% at 56% 70%, var(--leak-a), transparent 70%),
+      radial-gradient(34% 80% at 74% 28%, var(--leak-b), transparent 70%),
+      radial-gradient(50% 90% at 96% 60%, var(--leak-a), transparent 70%),
+      linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 50%, var(--bg-3) 100%);
+  }
+
+  /* mega ribbon (huge ghosted display type) */
+  .ribbon{
+    position:absolute;top:60px;left:-40px;
+    font-family:var(--font-display);font-weight:800;
+    font-size:260px;line-height:1;letter-spacing:-12px;
+    color:#fff;opacity:var(--ribbon-op);white-space:nowrap;
+    mix-blend-mode:screen;text-transform:uppercase;
+    pointer-events:none;user-select:none;
+  }
+
+  /* topline meta */
+  .topline{position:absolute;top:18px;left:0;height:14px;
+    display:flex;align-items:center;gap:24px;padding:0 18px;
+    font-family:var(--font-body);font-size:10px;font-weight:600;letter-spacing:3px;
+    text-transform:uppercase;color:rgba(255,255,255,.5);
+    pointer-events:none;width:max-content;}
+  .topline span{flex-shrink:0}
+  .topline em{flex-shrink:0;width:24px;height:1px;background:rgba(255,255,255,.25);font-style:normal}
+  .topline b{color:rgba(255,255,255,.95);font-weight:700;margin-right:0}
+
+  /* light leaks */
+  .leak{position:absolute;top:-40px;height:calc(100% + 80px);
+    pointer-events:none;mix-blend-mode:screen;}
+  .leak.a{left:340px;width:560px;
+    background:linear-gradient(95deg, transparent 30%, rgba(255,138,40,.42) 50%, rgba(255,80,40,.18) 60%, transparent 75%);
+    transform:skewX(-14deg);filter:blur(28px);opacity:.85}
+  .leak.b{left:1500px;width:600px;
+    background:linear-gradient(95deg, transparent 30%, rgba(120,200,255,.38) 50%, transparent 75%);
+    transform:skewX(-14deg);filter:blur(28px);opacity:.85}
+  .leak.c{left:2200px;width:300px;
+    background:linear-gradient(95deg, transparent 30%, rgba(255,168,80,.30) 50%, transparent 75%);
+    transform:skewX(-14deg);filter:blur(24px);opacity:.7}
+
+  /* the rail and ticks live inside deco layer (1.0 speed) */
+  .rail{position:absolute;left:0;bottom:42px;height:1px;
+    width:calc(var(--panel) * var(--panels));
+    background:linear-gradient(90deg, transparent 0%, var(--rail-color) 6%, var(--rail-color) 94%, transparent 100%);
+    pointer-events:none}
+  .rail::before{content:"";position:absolute;left:6%;right:6%;top:-1px;height:1px;
+    background:repeating-linear-gradient(90deg,var(--accent) 0 6px, transparent 6px 16px);opacity:.5}
+  .tick{position:absolute;bottom:36px;width:1px;height:12px;background:var(--rail-color);pointer-events:none}
+  .tickLabel{position:absolute;bottom:16px;font-family:var(--font-body);
+    font-size:9px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;
+    color:rgba(255,255,255,.55);pointer-events:none;white-space:nowrap}
+  .tickLabel b{color:#fff;font-weight:700;margin-right:6px;font-family:var(--font-display)}
+
+  /* registration marks */
+  .mark{position:absolute;width:14px;height:14px;pointer-events:none;opacity:.5}
+  .mark::before,.mark::after{content:"";position:absolute;background:rgba(255,255,255,.5)}
+  .mark::before{left:0;right:0;top:50%;height:1px}
+  .mark::after{top:0;bottom:0;left:50%;width:1px}
+
+  /* ─────────────────────────────────────────────
+     SLOT  (photo holder w/ enhancement filter)
+     ───────────────────────────────────────────── */
+  .slot{
+    position:absolute;overflow:hidden;background:#15161a;
+    background-size:cover;background-position:center;background-clip:content-box;
+    transition:transform .45s cubic-bezier(.2,.7,.2,1), box-shadow .35s;
+  }
+  .slot::before{
+    content:"";position:absolute;inset:0;
+    background-image:inherit;background-size:inherit;background-position:inherit;
+    filter:saturate(var(--sat)) contrast(var(--con)) brightness(var(--bri)) hue-rotate(var(--warm)) sepia(var(--sep));
+    /* User-controlled zoom (wheel inside slot in edit mode). Default 1
+       behaves like the original 'cover' fit; > 1 zooms into the photo,
+       < 1 pulls back to show more of the image inside the frame. */
+    transform: scale(var(--zoom, 1));
+    transform-origin: center center;
+  }
+  /* In edit mode, kill the inline transform:rotate(...) on slots (it
+     creates a stacking context that traps the chrome's z-index inside
+     the slot, so clicks on toolbar buttons get eaten by other layers).
+     Apply the rotation to the ::before pseudo instead so the photo
+     still rotates within the slot frame visually. */
+  body.edit-mode .slot[data-slot] {
+    transform: none !important;
+  }
+  body.edit-mode .slot[data-slot]::before {
+    transform: scale(var(--zoom, 1)) rotate(var(--rot, 0deg));
+  }
+  .slot::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,.10) 0%, rgba(255,255,255,0) 30%),
+      radial-gradient(120% 80% at 50% 110%, rgba(0,0,0,.35), transparent 60%);
+    mix-blend-mode:overlay;
+  }
+  .slot.poly{
+    background-color:var(--paper);padding:8px 8px 28px;
+    box-shadow:0 12px 26px rgba(0,0,0,.55),0 2px 5px rgba(0,0,0,.4);
+  }
+  .slot.poly::before{inset:8px 8px 28px}
+  .slot.poly::after{inset:8px 8px 28px}
+  .slot.poly .cap{
+    position:absolute;left:0;right:0;bottom:4px;text-align:center;
+    font-family:var(--font-script);font-size:14px;color:#222;font-weight:700;z-index:3;
+  }
+  .slot:not(.poly){
+    box-shadow:0 18px 40px rgba(0,0,0,calc(.5 * var(--shadow))),
+               0 4px 10px rgba(0,0,0,calc(.4 * var(--shadow)));
+  }
+  .slot.circle{border-radius:50%}
+  .slot.circle::before,.slot.circle::after{border-radius:50%}
+  .slot.dragover{outline:2px dashed #4cd2ff;outline-offset:-4px}
+  .slot.empty{background:#15161a;display:flex;align-items:center;justify-content:center;
+    color:#5b5b62;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase}
+  .slot.empty::before,.slot.empty::after{display:none}
+
+  /* ─────────────────────────────────────────────
+     TYPOGRAPHY pieces — per-panel
+     ───────────────────────────────────────────── */
+  .t{position:absolute;font-family:var(--font-display);
+    color:#fff;line-height:.9;letter-spacing:-2px;text-transform:uppercase;
+    text-shadow:0 2px 22px rgba(0,0,0,.45);pointer-events:none}
+  .t .kicker{font-family:var(--font-body);font-weight:600;font-size:10px;
+    letter-spacing:3.5px;color:rgba(255,255,255,.75);
+    margin-bottom:10px;text-shadow:none;display:block}
+  .t .accent{color:var(--accent)}
+  .num{font-family:var(--font-display);font-weight:800;line-height:.85;color:#fff;
+    pointer-events:none;text-shadow:0 2px 20px rgba(0,0,0,.5)}
+
+  /* signature panel 6 */
+  .sig{position:absolute;text-align:right;color:#fff;pointer-events:none}
+  .sig .small{font-family:var(--font-body);font-weight:600;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,.7);margin-bottom:10px}
+  .sig .name{font-family:var(--font-script);font-weight:700;font-size:54px;line-height:.9;text-shadow:0 2px 18px rgba(0,0,0,.5)}
+  .sig .x{font-family:'Instrument Serif',serif;font-style:italic;font-size:24px;margin:6px 28px;color:var(--accent);font-weight:400}
+  .sig .name2{font-family:var(--font-script);font-weight:700;font-size:48px;line-height:.9;text-shadow:0 2px 18px rgba(0,0,0,.5)}
+  .sig .date{margin-top:18px;color:rgba(255,255,255,.55);font-size:9px;letter-spacing:2.5px}
+  .sig .barcode{margin-top:14px;display:flex;justify-content:flex-end;gap:1px;align-items:center;height:18px}
+  .sig .barcode i{display:block;width:2px;height:100%;background:rgba(255,255,255,.85)}
+  .sig .barcode i:nth-child(3n){width:1px;opacity:.5}
+  .sig .barcode i:nth-child(5n){height:60%}
+
+  /* ─────────────────────────────────────────────
+     SPEC CALLOUT CARDS  (visible in Spec Sheet theme)
+     ───────────────────────────────────────────── */
+  .spec{position:absolute;font-family:var(--font-mono);font-size:9px;color:#cfd2da;
+    line-height:1.4;pointer-events:none;display:none}
+  .spec .id{color:var(--accent-2);font-weight:700;letter-spacing:1.5px;margin-bottom:2px}
+  .spec .h{color:#fff;font-weight:700;font-size:10px;letter-spacing:.5px}
+  .spec .d{opacity:.75;margin-top:1px}
+  /* dotted leader line — drawn via svg */
+  .spec svg{position:absolute}
+
+  /* ─────────────────────────────────────────────
+     STICKERS / TAPE  (mixtape theme)
+     ───────────────────────────────────────────── */
+  .tape{position:absolute;width:60px;height:18px;background:rgba(255,250,210,.55);
+    z-index:5;box-shadow:0 1px 3px rgba(0,0,0,.2);display:none}
+  .stage[data-theme="editorial"] .tape,
+  .stage[data-theme="mixtape"]   .tape { display:block }
+
+  .sticker{position:absolute;font-family:var(--font-script);font-weight:700;
+    font-size:18px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.4);
+    pointer-events:none;display:none;transform-origin:center;}
+  .stage[data-theme="mixtape"] .sticker{display:block}
+  .sticker.box{padding:3px 8px;border-radius:4px;font-family:var(--font-body);
+    font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+    background:var(--accent);color:#1a1b1f;text-shadow:none;}
+
+  /* ─────────────────────────────────────────────
+     ARROW ANNOTATIONS
+     ───────────────────────────────────────────── */
+  .anno{position:absolute;font-family:var(--font-script);font-weight:700;
+    font-size:16px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.6);
+    pointer-events:none;display:none;line-height:1.05}
+  .stage[data-theme="mixtape"] .anno{display:block}
+  .anno svg{display:block;margin-top:2px}
+
+  /* ─────────────────────────────────────────────
+     GUIDES + GRAIN
+     ───────────────────────────────────────────── */
+  .grain{position:absolute;inset:0;pointer-events:none;z-index:30;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.6 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.7'/></svg>");
+    mix-blend-mode:overlay;opacity:var(--grain)}
+  .guides{position:absolute;inset:0;pointer-events:none;z-index:31;
+    background-image:linear-gradient(90deg,
+      transparent calc(100%/var(--panels) - 1px),
+      rgba(255,255,255,.04) calc(100%/var(--panels) - 1px),
+      rgba(255,255,255,.04) calc(100%/var(--panels)),
+      transparent calc(100%/var(--panels)));
+    background-size:calc(var(--panel)) 100%}
+  .stage[data-theme="spec"] .guides{
+    background-image:
+      linear-gradient(90deg, transparent calc(100%/var(--panels) - 1px), rgba(132,200,255,.18) calc(100%/var(--panels) - 1px), rgba(132,200,255,.18) calc(100%/var(--panels)), transparent calc(100%/var(--panels))),
+      repeating-linear-gradient(90deg, transparent 0 51.5px, rgba(132,200,255,.04) 51.5px 52px),
+      repeating-linear-gradient(0deg,  transparent 0 51px,   rgba(132,200,255,.04) 51px 51.5px);
+    background-size:calc(var(--panel)) 100%, auto, auto;
+  }
+
+  /* ─────────────────────────────────────────────
+     CHROME
+     ───────────────────────────────────────────── */
+  .counter{position:absolute;top:10px;right:10px;z-index:35;
+    background:rgba(20,20,22,.7);backdrop-filter:blur(6px);
+    color:#fff;font-size:11px;font-weight:600;
+    padding:5px 9px;border-radius:999px;letter-spacing:.3px}
+  .tap{position:absolute;top:0;bottom:0;width:33%;z-index:34;cursor:pointer}
+  .tap.l{left:0}.tap.r{right:0}
+  .arrow{position:absolute;top:50%;transform:translateY(-50%);width:32px;height:32px;
+    border-radius:50%;background:rgba(20,20,22,.55);backdrop-filter:blur(6px);
+    display:flex;align-items:center;justify-content:center;z-index:35;
+    color:#fff;font-size:18px;line-height:1;cursor:pointer;opacity:0;
+    transition:opacity .2s;border:1px solid rgba(255,255,255,.1)}
+  .viewport:hover .arrow{opacity:.85}
+  .arrow.l{left:8px}.arrow.r{right:8px}
+
+  /* actions */
+  .actions{display:flex;align-items:center;gap:18px;padding:10px 14px 4px;background:#000}
+  .actions .count{font-size:13px;font-weight:600;color:#fff;margin-left:-10px}
+  .actions .spacer{flex:1}
+  .dots-row{display:flex;justify-content:center;gap:5px;padding:6px 0 2px;background:#000}
+  .dot{width:5px;height:5px;border-radius:50%;background:#3a3a3e;transition:all .25s;cursor:pointer}
+  .dot.active{background:#1c7ed6;transform:scale(1.15)}
+  .dot.near{background:#7a7a80}
+  .pbar{position:relative;height:2px;background:#1a1a1d;margin:8px 14px 4px;border-radius:2px;overflow:hidden}
+  .pbar i{position:absolute;left:0;top:0;height:100%;background:#1c7ed6;width:16.66%;transition:width .55s,left .55s}
+  .liked{display:flex;align-items:center;gap:8px;padding:4px 14px 0;font-size:12px;color:#dcdcde;background:#000}
+  .liked .pile{display:flex}
+  .liked .pile span{width:18px;height:18px;border-radius:50%;border:1.5px solid #000;margin-left:-6px;background:#888}
+  .liked .pile span:first-child{margin-left:0;background:linear-gradient(135deg,#c8a979,#7a5a3b)}
+  .liked .pile span:nth-child(2){background:linear-gradient(135deg,#5aa5c5,#234c66)}
+  .liked .pile span:nth-child(3){background:linear-gradient(135deg,#d76b6b,#7a2828)}
+  .caption{padding:6px 14px 4px;font-size:13px;line-height:1.4;color:#fff;background:#000}
+  .caption .u{font-weight:700;margin-right:6px}
+  .caption .more{color:#a8a8ad;cursor:pointer}
+  .date{padding:6px 14px 14px;font-size:11px;color:#7a7a80;background:#000;text-transform:uppercase;letter-spacing:.4px}
+
+  /* ─────────────────────────────────────────────
+     TWEAKS PANEL
+     ───────────────────────────────────────────── */
+  .tweaks{position:fixed;right:24px;top:24px;z-index:200;
+    width:260px;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);
+    border:1px solid #2a2a30;border-radius:14px;padding:14px;color:#fff;font-size:12px;
+    box-shadow:0 20px 60px rgba(0,0,0,.5);max-height:92vh;overflow:auto}
+  .tweaks::-webkit-scrollbar{width:4px}
+  .tweaks::-webkit-scrollbar-thumb{background:#3a3a40;border-radius:2px}
+  .tweaks h4{margin:0 0 8px;font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#a8a8ad;font-weight:600}
+  .tweaks h4:not(:first-child){margin-top:14px}
+  .tweaks .row{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+  .tweaks button.opt{flex:1;min-width:0;padding:8px 6px;background:#1c1d22;color:#dcdcde;border:1px solid #2a2a30;border-radius:8px;font-size:10.5px;font-weight:600;cursor:pointer;font-family:inherit}
+  .tweaks button.opt.on{background:#1c7ed6;border-color:#1c7ed6;color:#fff}
+  .tweaks button.opt:hover{border-color:#3a3a40}
+  .tweaks .toggle{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-top:1px solid #232328}
+  .tweaks .switch{width:34px;height:20px;background:#2a2a30;border-radius:999px;position:relative;cursor:pointer;transition:background .2s}
+  .tweaks .switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s}
+  .tweaks .switch.on{background:#1c7ed6}
+  .tweaks .switch.on::after{left:16px}
+  .tweaks .hint{font-size:10px;color:#7a7a80;line-height:1.4;margin-top:6px}
+  .tweaks .drop{margin-top:8px;border:1.5px dashed #3a3a40;border-radius:8px;padding:14px;text-align:center;color:#a8a8ad;font-size:11px;font-weight:500;cursor:pointer;transition:all .2s}
+  .tweaks .drop.over{border-color:#4cd2ff;color:#4cd2ff;background:rgba(76,210,255,.06)}
+  .tweaks .input{display:flex;gap:6px;margin-bottom:6px}
+  .tweaks .input input{flex:1;background:#1c1d22;border:1px solid #2a2a30;border-radius:6px;color:#fff;font-family:inherit;font-size:11px;padding:6px 8px;outline:none}
+  .tweaks .input input:focus{border-color:#1c7ed6}
+  .tweaks-toggle{position:fixed;right:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+  .tweaks-toggle.hidden{display:none}
+  .tweaks .close{position:absolute;top:8px;right:10px;background:none;border:0;color:#a8a8ad;font-size:18px;cursor:pointer;line-height:1}
+
+  /* ─────────────────────────────────────────────
+     THEME: EDITORIAL  (default — refined magazine)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="editorial"]{
+    --font-display:'Bricolage Grotesque', sans-serif;
+    --accent:#ffb24c;--accent-2:#84c8ff;
+    --leak-a:rgba(255,138,40,.18);
+    --leak-b:rgba(132,200,255,.14);
+    --bg-1:#0c0d11;--bg-2:#15161a;--bg-3:#0a0a0c;
+  }
+
+  /* ─────────────────────────────────────────────
+     THEME: SPEC SHEET (blueprint / mono / technical)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="spec"]{
+    --font-display:'Space Grotesk', sans-serif;
+    --font-body:'JetBrains Mono', monospace;
+    --accent:#4cd2ff;--accent-2:#ffb24c;
+    --ribbon-op:.04;
+    --rail-color:rgba(132,200,255,.45);
+    --leak-a:rgba(76,210,255,.10);
+    --leak-b:rgba(76,210,255,.06);
+    --bg-1:#070a12;--bg-2:#0d1220;--bg-3:#070a12;
+  }
+  .stage[data-theme="spec"] .slot.poly{ padding:0;background:#111;border-radius:2px}
+  .stage[data-theme="spec"] .slot.poly::before{inset:0}
+  .stage[data-theme="spec"] .slot.poly::after{inset:0}
+  .stage[data-theme="spec"] .slot.poly .cap{display:none}
+  .stage[data-theme="spec"] .slot{border-radius:2px !important}
+  .stage[data-theme="spec"] .slot.circle{border-radius:50%!important}
+  .stage[data-theme="spec"] .slot{transform:none !important}
+  .stage[data-theme="spec"] .spec{display:block}
+  .stage[data-theme="spec"] .leak{opacity:.4}
+  .stage[data-theme="spec"] .ribbon{font-family:'Space Grotesk',sans-serif;font-weight:700;
+    letter-spacing:-4px;opacity:.05;color:#84c8ff}
+  .stage[data-theme="spec"] .t{letter-spacing:-1px}
+  .stage[data-theme="spec"] .t .kicker{font-family:'JetBrains Mono',monospace;letter-spacing:1.5px}
+  .stage[data-theme="spec"] .sig .name,.stage[data-theme="spec"] .sig .name2{
+    font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:34px;letter-spacing:-1px;
+    text-transform:uppercase}
+  .stage[data-theme="spec"] .sig .x{font-family:'JetBrains Mono',monospace;font-style:normal;font-size:14px}
+  .stage[data-theme="spec"] .num{color:rgba(132,200,255,.10) !important;font-family:'JetBrains Mono',monospace;font-weight:700}
+  .stage[data-theme="spec"] .home-ind,
+  .stage[data-theme="spec"] .grain{opacity:.5}
+  /* Spec theme: panel-title (.t) sits in the same spot as the spec card
+     and both render at full opacity → unreadable overlap. Shrink + dim
+     the titles so spec cards read cleanly. */
+  .stage[data-theme="spec"] .t{font-size:24px !important;opacity:0.6}
+  .stage[data-theme="spec"] .t .kicker{display:none}
+
+  /* ─────────────────────────────────────────────
+     THEME: MIXTAPE  (chaotic tape + stickers)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="mixtape"]{
+    --font-display:'Caveat', cursive;
+    --accent:#ff6a6a;--accent-2:#ffe66a;
+    --paper:#fffaf0;
+    --ribbon-op:.04;
+    --leak-a:rgba(255,80,120,.18);
+    --leak-b:rgba(255,200,80,.14);
+    --bg-1:#1a0f14;--bg-2:#221319;--bg-3:#100a0d;
+  }
+  .stage[data-theme="mixtape"] .slot{transform:rotate(var(--rot, 0deg)) !important}
+  .stage[data-theme="mixtape"] .ribbon{font-family:'Bricolage Grotesque',sans-serif;letter-spacing:-8px}
+  .stage[data-theme="mixtape"] .t{font-family:'Bricolage Grotesque',sans-serif;font-weight:800}
+  .stage[data-theme="mixtape"] .t .kicker{font-family:'Caveat',cursive;font-weight:700;font-size:18px;letter-spacing:0;color:var(--accent-2);text-transform:none}
+  .stage[data-theme="mixtape"] .sig .x{color:var(--accent-2)}
+
+
+  /* ─────────────────────────────────────────────
+     THEME: SHOWROOM  (Porsche gallery — pale gulf blue, navy ink)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="showroom"]{
+    --font-display:'Bricolage Grotesque', sans-serif;
+    --font-body:'Inter', sans-serif;
+    --font-script:'Instrument Serif', serif;
+    --accent:#d96a1f;             /* gulf orange, sparingly */
+    --accent-2:#3d6a8a;           /* deep gulf */
+    --paper:#ffffff;
+    --ink:#0d1f2d;
+    --ribbon-op:.06;
+    --rail-color:rgba(13,31,45,.35);
+    --leak-a:rgba(180,212,228,.55);
+    --leak-b:rgba(140,185,210,.45);
+    --bg-1:#dde9f0;--bg-2:#eef4f7;--bg-3:#cfdfe8;
+    --grain:.04;
+  }
+  /* light viewport — repaint atmospherics */
+  .stage[data-theme="showroom"] .viewport{background:#eef4f7}
+  .stage[data-theme="showroom"] .layer.bg{
+    background:
+      radial-gradient(56% 90% at 12% 50%, rgba(155,199,216,.7), transparent 70%),
+      radial-gradient(40% 80% at 36% 24%, rgba(255,255,255,.9), transparent 70%),
+      radial-gradient(50% 90% at 60% 76%, rgba(155,199,216,.55), transparent 70%),
+      radial-gradient(34% 80% at 82% 30%, rgba(255,255,255,.9), transparent 70%),
+      linear-gradient(180deg,#e6eff4 0%, #f4f8fa 45%, #d9e6ed 100%);
+  }
+  .stage[data-theme="showroom"] .leak{display:none}
+  .stage[data-theme="showroom"] .ribbon{
+    color:#0d1f2d;mix-blend-mode:multiply;opacity:.05;letter-spacing:-10px;
+  }
+  .stage[data-theme="showroom"] .topline{color:rgba(13,31,45,.55)}
+  .stage[data-theme="showroom"] .topline b{color:#0d1f2d}
+  .stage[data-theme="showroom"] .topline em{background:rgba(13,31,45,.25)}
+  .stage[data-theme="showroom"] .tickLabel{color:rgba(13,31,45,.55)}
+  .stage[data-theme="showroom"] .tickLabel b{color:#0d1f2d}
+  .stage[data-theme="showroom"] .mark::before,
+  .stage[data-theme="showroom"] .mark::after{background:rgba(13,31,45,.4)}
+  .stage[data-theme="showroom"] .num{color:rgba(13,31,45,.08);text-shadow:none}
+  .stage[data-theme="showroom"] .t{
+    color:#0d1f2d;text-shadow:none;letter-spacing:-2.5px;font-weight:800;
+  }
+  .stage[data-theme="showroom"] .t .kicker{color:rgba(13,31,45,.65)}
+  .stage[data-theme="showroom"] .t .accent{color:#d96a1f}
+  .stage[data-theme="showroom"] .sig{color:#0d1f2d}
+  .stage[data-theme="showroom"] .sig .small{color:rgba(13,31,45,.55)}
+  .stage[data-theme="showroom"] .sig .name,
+  .stage[data-theme="showroom"] .sig .name2{
+    font-family:'Instrument Serif',serif;font-weight:400;font-style:italic;
+    text-shadow:none;letter-spacing:-1px;font-size:60px;
+  }
+  .stage[data-theme="showroom"] .sig .x{color:#d96a1f;font-family:'Instrument Serif',serif;font-style:italic}
+  .stage[data-theme="showroom"] .sig .date{color:rgba(13,31,45,.5)}
+  .stage[data-theme="showroom"] .sig .barcode i{background:rgba(13,31,45,.85)}
+  .stage[data-theme="showroom"] .slot:not(.poly){border:1px solid rgba(13,31,45,.08)}
+  .stage[data-theme="showroom"] .slot.poly{
+    background:#fff;
+    box-shadow:0 18px 32px rgba(13,31,45,.12),0 3px 6px rgba(13,31,45,.08);
+  }
+  .stage[data-theme="showroom"] .slot.poly .cap{color:#0d1f2d}
+  .stage[data-theme="showroom"] .grain{mix-blend-mode:multiply;opacity:calc(var(--grain) * .6)}
+  /* phone chrome — light */
+  .stage[data-theme="showroom"] .phone{
+    background:#f4f3ee;color:#0d1f2d;
+    box-shadow:0 0 0 2px #d3d3cd,0 0 0 12px #b8b8b3,0 30px 80px rgba(0,0,0,.5),0 80px 200px rgba(0,0,0,.6);
+  }
+  .stage[data-theme="showroom"] .phone::before{background:#1a1a1c}
+  .stage[data-theme="showroom"] .status{color:#0d1f2d}
+  .stage[data-theme="showroom"] .status svg path,
+  .stage[data-theme="showroom"] .status svg circle{fill:#0d1f2d}
+  .stage[data-theme="showroom"] .status svg rect{stroke:rgba(13,31,45,.5)}
+  .stage[data-theme="showroom"] .status svg rect[fill="#fff"]{fill:#0d1f2d}
+  .stage[data-theme="showroom"] .status span{color:#0d1f2d}
+  .stage[data-theme="showroom"] .ig-nav,
+  .stage[data-theme="showroom"] .post-head,
+  .stage[data-theme="showroom"] .actions,
+  .stage[data-theme="showroom"] .caption,
+  .stage[data-theme="showroom"] .date,
+  .stage[data-theme="showroom"] .liked,
+  .stage[data-theme="showroom"] .dots-row{background:#f4f3ee;color:#0d1f2d}
+  .stage[data-theme="showroom"] .ig-nav{border-bottom-color:rgba(13,31,45,.12)}
+  .stage[data-theme="showroom"] .ig-nav .back,
+  .stage[data-theme="showroom"] .ig-nav .t1{color:#0d1f2d}
+  .stage[data-theme="showroom"] .ig-nav .t2{color:rgba(13,31,45,.55)}
+  .stage[data-theme="showroom"] .post-head .who .u{color:#0d1f2d}
+  .stage[data-theme="showroom"] .post-head .who .loc{color:rgba(13,31,45,.7)}
+  .stage[data-theme="showroom"] .post-head .dots{color:#0d1f2d}
+  .stage[data-theme="showroom"] .actions svg{stroke:#0d1f2d}
+  .stage[data-theme="showroom"] .actions .count{color:#0d1f2d}
+  .stage[data-theme="showroom"] .caption .u,
+  .stage[data-theme="showroom"] .caption{color:#0d1f2d}
+  .stage[data-theme="showroom"] .caption .more{color:rgba(13,31,45,.5)}
+  .stage[data-theme="showroom"] .date{color:rgba(13,31,45,.5)}
+  .stage[data-theme="showroom"] .liked{color:rgba(13,31,45,.7)}
+  .stage[data-theme="showroom"] .liked b{color:#0d1f2d !important}
+  .stage[data-theme="showroom"] .liked .pile span{border-color:#f4f3ee}
+  .stage[data-theme="showroom"] .pbar{background:rgba(13,31,45,.1)}
+  .stage[data-theme="showroom"] .pbar i{background:#0d1f2d}
+  .stage[data-theme="showroom"] .dot{background:rgba(13,31,45,.18)}
+  .stage[data-theme="showroom"] .dot.active{background:#0d1f2d}
+  .stage[data-theme="showroom"] .dot.near{background:rgba(13,31,45,.4)}
+  .stage[data-theme="showroom"] .home-ind{background:#0d1f2d;opacity:.4}
+  .stage[data-theme="showroom"] .counter{background:rgba(13,31,45,.7);color:#fff}
+  .stage[data-theme="showroom"] .arrow{background:rgba(255,255,255,.75);color:#0d1f2d;border:1px solid rgba(13,31,45,.1)}
+  .stage[data-theme="showroom"] .avatar{border-color:rgba(13,31,45,.15)}
+  .stage[data-theme="showroom"] .guides{
+    background-image:linear-gradient(90deg,
+      transparent calc(100%/var(--panels) - 1px),
+      rgba(13,31,45,.06) calc(100%/var(--panels) - 1px),
+      rgba(13,31,45,.06) calc(100%/var(--panels)),
+      transparent calc(100%/var(--panels)));
+  }
+
+  /* ─────────────────────────────────────────────
+     THEME: CYANOTYPE  (blueprint print — deep blue paper, cream ink)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="cyanotype"]{
+    --font-display:'Instrument Serif', serif;
+    --font-body:'JetBrains Mono', monospace;
+    --accent:#f0d8a8;              /* cream */
+    --accent-2:#a8d4e8;
+    --paper:#f4ecd8;
+    --ink:#f4ecd8;
+    --ribbon-op:.08;
+    --rail-color:rgba(244,236,216,.45);
+    --leak-a:rgba(244,236,216,.10);
+    --leak-b:rgba(168,212,232,.18);
+    --bg-1:#1a3a5a;--bg-2:#2a557a;--bg-3:#163050;
+    --grain:.15;
+  }
+  .stage[data-theme="cyanotype"] .layer.bg{
+    background:
+      radial-gradient(60% 100% at 18% 50%, rgba(80,140,180,.35), transparent 70%),
+      radial-gradient(40% 80% at 48% 25%, rgba(244,236,216,.08), transparent 70%),
+      radial-gradient(55% 95% at 78% 65%, rgba(80,140,180,.30), transparent 70%),
+      linear-gradient(180deg,#1f4368 0%, #2a557a 50%, #18365a 100%);
+  }
+  .stage[data-theme="cyanotype"] .leak{mix-blend-mode:soft-light;opacity:.5}
+  .stage[data-theme="cyanotype"] .ribbon{
+    font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;
+    color:#f4ecd8;opacity:.08;letter-spacing:-4px;
+  }
+  .stage[data-theme="cyanotype"] .topline{color:rgba(244,236,216,.65);letter-spacing:2.5px}
+  .stage[data-theme="cyanotype"] .topline b{color:#f4ecd8}
+  .stage[data-theme="cyanotype"] .topline em{background:rgba(244,236,216,.35)}
+  .stage[data-theme="cyanotype"] .tickLabel{color:rgba(244,236,216,.6);font-family:'JetBrains Mono',monospace}
+  .stage[data-theme="cyanotype"] .tickLabel b{color:#f4ecd8;font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;font-size:13px}
+  .stage[data-theme="cyanotype"] .num{
+    font-family:'Instrument Serif',serif;font-weight:400;font-style:italic;
+    color:rgba(244,236,216,.18) !important;
+  }
+  .stage[data-theme="cyanotype"] .t{
+    font-family:'Instrument Serif',serif;font-weight:400;font-style:italic;
+    color:#f4ecd8;letter-spacing:-2px;text-transform:none;
+    text-shadow:0 2px 18px rgba(0,30,60,.4);
+  }
+  .stage[data-theme="cyanotype"] .t .kicker{
+    font-family:'JetBrains Mono',monospace;font-weight:600;font-style:normal;
+    text-transform:uppercase;color:rgba(244,236,216,.75);letter-spacing:2.5px;
+  }
+  .stage[data-theme="cyanotype"] .t .accent{color:#f0d8a8}
+  .stage[data-theme="cyanotype"] .sig .small{color:rgba(244,236,216,.65);font-family:'JetBrains Mono',monospace}
+  .stage[data-theme="cyanotype"] .sig .name,
+  .stage[data-theme="cyanotype"] .sig .name2{
+    font-family:'Instrument Serif',serif;font-weight:400;font-style:italic;
+    color:#f4ecd8;font-size:58px;text-shadow:0 2px 14px rgba(0,30,60,.5);letter-spacing:-1px;
+  }
+  .stage[data-theme="cyanotype"] .sig .x{color:#f0d8a8;font-family:'Instrument Serif',serif;font-style:italic}
+  .stage[data-theme="cyanotype"] .sig .date{color:rgba(244,236,216,.55);font-family:'JetBrains Mono',monospace}
+  .stage[data-theme="cyanotype"] .sig .barcode i{background:rgba(244,236,216,.85)}
+  .stage[data-theme="cyanotype"] .slot{filter:saturate(.5) hue-rotate(-15deg) brightness(.85)}
+  .stage[data-theme="cyanotype"] .slot.poly{
+    background:#f4ecd8;padding:8px 8px 28px;
+    box-shadow:0 14px 28px rgba(0,20,40,.4),0 3px 6px rgba(0,20,40,.3);
+  }
+  .stage[data-theme="cyanotype"] .slot.poly::before{inset:8px 8px 28px}
+  .stage[data-theme="cyanotype"] .slot.poly::after{inset:8px 8px 28px}
+  .stage[data-theme="cyanotype"] .slot.poly .cap{color:#1a3a5a;font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;font-size:15px}
+  .stage[data-theme="cyanotype"] .mark::before,
+  .stage[data-theme="cyanotype"] .mark::after{background:rgba(244,236,216,.6)}
+  .stage[data-theme="cyanotype"] .grain{opacity:calc(var(--grain) * 1.2)}
+  .stage[data-theme="cyanotype"] .dot.active{background:#f0d8a8}
+
+  /* ─────────────────────────────────────────────
+     THEME: GULF  (racing heritage — sky blue + signature orange stripe)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="gulf"]{
+    --font-display:'Bricolage Grotesque', sans-serif;
+    --font-body:'Space Grotesk', sans-serif;
+    --font-script:'Bricolage Grotesque', sans-serif;
+    --accent:#ff671f;              /* Gulf orange */
+    --accent-2:#0a2540;
+    --paper:#ffffff;
+    --ink:#0a2540;
+    --ribbon-op:.10;
+    --rail-color:rgba(10,37,64,.45);
+    --leak-a:rgba(255,103,31,.22);
+    --leak-b:rgba(255,255,255,.30);
+    --bg-1:#7ec1d8;--bg-2:#a3d4e6;--bg-3:#6db6d0;
+    --grain:.06;
+  }
+  .stage[data-theme="gulf"] .layer.bg{
+    background:
+      /* gulf orange racing stripes — fixed in viewport */
+      linear-gradient(180deg, transparent 0 36%, rgba(255,103,31,.95) 36% 38%, transparent 38% 42%, rgba(255,103,31,.95) 42% 44%, transparent 44%),
+      radial-gradient(50% 90% at 15% 50%, rgba(255,255,255,.45), transparent 70%),
+      radial-gradient(60% 100% at 65% 60%, rgba(125,190,212,.6), transparent 75%),
+      linear-gradient(180deg,#9bcbdd 0%, #b1d6e5 50%, #82bdd2 100%);
+  }
+  .stage[data-theme="gulf"] .leak{display:none}
+  .stage[data-theme="gulf"] .ribbon{
+    color:#0a2540;mix-blend-mode:multiply;opacity:.07;
+    font-weight:800;letter-spacing:-10px;font-style:italic;
+  }
+  .stage[data-theme="gulf"] .topline{color:rgba(10,37,64,.65)}
+  .stage[data-theme="gulf"] .topline b{color:#0a2540}
+  .stage[data-theme="gulf"] .topline em{background:rgba(10,37,64,.3)}
+  .stage[data-theme="gulf"] .tickLabel{color:rgba(10,37,64,.65)}
+  .stage[data-theme="gulf"] .tickLabel b{color:#0a2540}
+  .stage[data-theme="gulf"] .mark::before,
+  .stage[data-theme="gulf"] .mark::after{background:rgba(10,37,64,.5)}
+  .stage[data-theme="gulf"] .num{
+    color:rgba(10,37,64,.12) !important;font-style:italic;font-weight:800;
+    text-shadow:none;
+  }
+  .stage[data-theme="gulf"] .t{
+    color:#0a2540;text-shadow:none;font-style:italic;font-weight:800;
+    letter-spacing:-3px;
+  }
+  .stage[data-theme="gulf"] .t .kicker{color:rgba(10,37,64,.7);font-style:normal}
+  .stage[data-theme="gulf"] .t .accent{color:#ff671f}
+  .stage[data-theme="gulf"] .sig{color:#0a2540}
+  .stage[data-theme="gulf"] .sig .small{color:rgba(10,37,64,.65)}
+  .stage[data-theme="gulf"] .sig .name,
+  .stage[data-theme="gulf"] .sig .name2{
+    font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-style:italic;
+    text-shadow:none;letter-spacing:-2px;font-size:56px;color:#0a2540;text-transform:uppercase;
+  }
+  .stage[data-theme="gulf"] .sig .x{color:#ff671f;font-family:'Bricolage Grotesque',sans-serif;font-style:italic;font-weight:800}
+  .stage[data-theme="gulf"] .sig .date{color:rgba(10,37,64,.5)}
+  .stage[data-theme="gulf"] .sig .barcode i{background:rgba(10,37,64,.85)}
+  .stage[data-theme="gulf"] .slot:not(.poly){
+    border:3px solid #fff;
+    box-shadow:0 14px 28px rgba(10,37,64,.25),0 4px 8px rgba(10,37,64,.18);
+  }
+  .stage[data-theme="gulf"] .slot.poly{
+    background:#fff;box-shadow:0 14px 26px rgba(10,37,64,.22),0 3px 6px rgba(10,37,64,.15);
+  }
+  .stage[data-theme="gulf"] .slot.poly .cap{color:#0a2540}
+  .stage[data-theme="gulf"] .grain{mix-blend-mode:multiply;opacity:calc(var(--grain) * .8)}
+  /* phone chrome */
+  .stage[data-theme="gulf"] .phone{
+    background:#f6f3ec;color:#0a2540;
+    box-shadow:0 0 0 2px #d3d0c8,0 0 0 12px #b8b5ad,0 30px 80px rgba(0,0,0,.5),0 80px 200px rgba(0,0,0,.6);
+  }
+  .stage[data-theme="gulf"] .phone::before{background:#1a1a1c}
+  .stage[data-theme="gulf"] .status{color:#0a2540}
+  .stage[data-theme="gulf"] .status svg path,
+  .stage[data-theme="gulf"] .status svg circle{fill:#0a2540}
+  .stage[data-theme="gulf"] .status svg rect{stroke:rgba(10,37,64,.5)}
+  .stage[data-theme="gulf"] .status svg rect[fill="#fff"]{fill:#0a2540}
+  .stage[data-theme="gulf"] .ig-nav,
+  .stage[data-theme="gulf"] .post-head,
+  .stage[data-theme="gulf"] .actions,
+  .stage[data-theme="gulf"] .caption,
+  .stage[data-theme="gulf"] .date,
+  .stage[data-theme="gulf"] .liked,
+  .stage[data-theme="gulf"] .dots-row{background:#f6f3ec;color:#0a2540}
+  .stage[data-theme="gulf"] .ig-nav{border-bottom-color:rgba(10,37,64,.12)}
+  .stage[data-theme="gulf"] .ig-nav .back,
+  .stage[data-theme="gulf"] .ig-nav .t1{color:#0a2540}
+  .stage[data-theme="gulf"] .ig-nav .t2{color:rgba(10,37,64,.55)}
+  .stage[data-theme="gulf"] .post-head .who .u{color:#0a2540}
+  .stage[data-theme="gulf"] .post-head .who .loc{color:rgba(10,37,64,.7)}
+  .stage[data-theme="gulf"] .post-head .dots{color:#0a2540}
+  .stage[data-theme="gulf"] .actions svg{stroke:#0a2540}
+  .stage[data-theme="gulf"] .actions .count{color:#0a2540}
+  .stage[data-theme="gulf"] .caption .u,
+  .stage[data-theme="gulf"] .caption{color:#0a2540}
+  .stage[data-theme="gulf"] .caption .more{color:rgba(10,37,64,.5)}
+  .stage[data-theme="gulf"] .date{color:rgba(10,37,64,.5)}
+  .stage[data-theme="gulf"] .liked{color:rgba(10,37,64,.7)}
+  .stage[data-theme="gulf"] .liked b{color:#0a2540 !important}
+  .stage[data-theme="gulf"] .liked .pile span{border-color:#f6f3ec}
+  .stage[data-theme="gulf"] .pbar{background:rgba(10,37,64,.1)}
+  .stage[data-theme="gulf"] .pbar i{background:#ff671f}
+  .stage[data-theme="gulf"] .dot{background:rgba(10,37,64,.18)}
+  .stage[data-theme="gulf"] .dot.active{background:#ff671f}
+  .stage[data-theme="gulf"] .dot.near{background:rgba(10,37,64,.4)}
+  .stage[data-theme="gulf"] .home-ind{background:#0a2540;opacity:.45}
+  .stage[data-theme="gulf"] .counter{background:#0a2540;color:#fff}
+  .stage[data-theme="gulf"] .arrow{background:rgba(255,255,255,.85);color:#0a2540;border:1px solid rgba(10,37,64,.1)}
+  .stage[data-theme="gulf"] .avatar{border-color:rgba(10,37,64,.15)}
+  .stage[data-theme="gulf"] .guides{display:none}
+
+  /* ─────────────────────────────────────────────
+     THEME: TIDE  (blue + white gradient wave, polished, dynamic)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="tide"]{
+    --font-display:'Bricolage Grotesque', sans-serif;
+    --font-body:'Inter', sans-serif;
+    --font-script:'Instrument Serif', serif;
+    --accent:#d4a04a;              /* champagne gold (badge) */
+    --accent-2:#1d4d7a;
+    --paper:#ffffff;
+    --ink:#08233d;
+    --ribbon-op:.05;
+    --rail-color:rgba(8,35,61,.30);
+    --leak-a:rgba(150,200,232,.45);
+    --leak-b:rgba(255,255,255,.55);
+    --bg-1:#cfe4f2;--bg-2:#eaf3f9;--bg-3:#9fc7e0;
+    --grain:.03;
+  }
+  /* base sky — diagonal gradient suggesting horizon */
+  .stage[data-theme="tide"] .viewport{background:#eaf3f9}
+  .stage[data-theme="tide"] .layer.bg{
+    background:
+      radial-gradient(70% 60% at 80% -10%, rgba(255,255,255,.9), transparent 60%),
+      radial-gradient(60% 50% at 10% 10%, rgba(220,236,247,.9), transparent 70%),
+      linear-gradient(180deg,
+        #b8d6ea 0%,
+        #d5e7f3 35%,
+        #eef5fb 60%,
+        #ffffff 100%);
+  }
+  .stage[data-theme="tide"] .leak{display:none}
+  /* dim ribbon — gentle on light bg */
+  .stage[data-theme="tide"] .ribbon{
+    color:#08233d;mix-blend-mode:multiply;opacity:.04;
+    font-weight:800;letter-spacing:-10px;
+  }
+  .stage[data-theme="tide"] .topline{color:rgba(8,35,61,.55)}
+  .stage[data-theme="tide"] .topline b{color:#08233d}
+  .stage[data-theme="tide"] .topline em{background:rgba(8,35,61,.22)}
+  .stage[data-theme="tide"] .tickLabel{color:rgba(8,35,61,.55)}
+  .stage[data-theme="tide"] .tickLabel b{color:#08233d}
+  .stage[data-theme="tide"] .mark::before,
+  .stage[data-theme="tide"] .mark::after{background:rgba(8,35,61,.35)}
+  .stage[data-theme="tide"] .num{
+    color:rgba(8,35,61,.10) !important;font-weight:800;text-shadow:none;
+  }
+  .stage[data-theme="tide"] .t{
+    color:#08233d;text-shadow:0 1px 12px rgba(255,255,255,.6);
+    letter-spacing:-2.5px;font-weight:800;
+  }
+  .stage[data-theme="tide"] .t .kicker{color:rgba(8,35,61,.65)}
+  .stage[data-theme="tide"] .t .accent{color:#1d4d7a;font-style:italic;font-family:'Instrument Serif',serif;font-weight:400;text-transform:none}
+  .stage[data-theme="tide"] .sig{color:#08233d}
+  .stage[data-theme="tide"] .sig .small{color:rgba(8,35,61,.6)}
+  .stage[data-theme="tide"] .sig .name,
+  .stage[data-theme="tide"] .sig .name2{
+    font-family:'Instrument Serif',serif;font-weight:400;font-style:italic;
+    text-shadow:none;letter-spacing:-1px;font-size:60px;color:#08233d;
+  }
+  .stage[data-theme="tide"] .sig .x{color:#d4a04a;font-family:'Instrument Serif',serif;font-style:italic}
+  .stage[data-theme="tide"] .sig .date{color:rgba(8,35,61,.5)}
+  .stage[data-theme="tide"] .sig .barcode i{background:rgba(8,35,61,.85)}
+  .stage[data-theme="tide"] .slot:not(.poly){
+    border:1px solid rgba(255,255,255,.6);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.8) inset,
+      0 18px 38px rgba(8,35,61,.18),
+      0 4px 10px rgba(8,35,61,.12);
+  }
+  .stage[data-theme="tide"] .slot.poly{
+    background:#fff;
+    box-shadow:0 18px 32px rgba(8,35,61,.18),0 3px 6px rgba(8,35,61,.10);
+  }
+  .stage[data-theme="tide"] .slot.poly .cap{color:#08233d}
+  .stage[data-theme="tide"] .grain{mix-blend-mode:multiply;opacity:calc(var(--grain) * .5)}
+
+  /* WAVE LAYER — only visible in tide theme */
+  .wave-stack{position:absolute;left:0;right:0;bottom:0;height:60%;
+    pointer-events:none;z-index:2;overflow:hidden;display:none}
+  .stage[data-theme="tide"] .wave-stack{display:none}
+  .wave-stack svg{position:absolute;left:-10%;width:130%;height:100%;
+    bottom:0;display:block;will-change:transform}
+  .wave-1{animation:waveSlideA 18s linear infinite;opacity:.55;
+    bottom:-2%;height:96%}
+  .wave-2{animation:waveSlideB 26s linear infinite;opacity:.42;
+    bottom:-6%;height:90%}
+  .wave-3{animation:waveSlideA 34s linear infinite reverse;opacity:.30;
+    bottom:-10%;height:78%}
+  .wave-4{animation:waveSlideB 22s linear infinite;opacity:.85;
+    bottom:-1%;height:38%}
+  @keyframes waveSlideA{
+    0%{transform:translate3d(0,0,0)}
+    100%{transform:translate3d(-180px,0,0)}
+  }
+  @keyframes waveSlideB{
+    0%{transform:translate3d(0,0,0)}
+    100%{transform:translate3d(180px,0,0)}
+  }
+
+  /* shimmer highlight on top of waves */
+  .stage[data-theme="tide"] .viewport::before{
+    content:"";position:absolute;left:0;right:0;top:0;height:55%;
+    background:linear-gradient(180deg, rgba(255,255,255,.45), transparent 60%);
+    pointer-events:none;z-index:3;
+  }
+
+  /* PORSCHE BADGE — stylized shield, wordmark-based (not the trademarked crest) */
+  .crest{position:absolute;pointer-events:none;display:none;
+    filter:drop-shadow(0 8px 24px rgba(8,35,61,.35)) drop-shadow(0 2px 4px rgba(8,35,61,.25))}
+  .stage[data-theme="tide"] .crest{display:block}
+
+  /* phone chrome */
+  .stage[data-theme="tide"] .phone{
+    background:#ffffff;color:#08233d;
+    box-shadow:0 0 0 2px #d8e1ea,0 0 0 12px #b0bcc8,0 30px 80px rgba(8,35,61,.4),0 80px 200px rgba(8,35,61,.5);
+  }
+  .stage[data-theme="tide"] .phone::before{background:#1a1a1c}
+  .stage[data-theme="tide"] .status{color:#08233d}
+  .stage[data-theme="tide"] .status svg path,
+  .stage[data-theme="tide"] .status svg circle{fill:#08233d}
+  .stage[data-theme="tide"] .status svg rect{stroke:rgba(8,35,61,.5)}
+  .stage[data-theme="tide"] .status svg rect[fill="#fff"]{fill:#08233d}
+  .stage[data-theme="tide"] .ig-nav,
+  .stage[data-theme="tide"] .post-head,
+  .stage[data-theme="tide"] .actions,
+  .stage[data-theme="tide"] .caption,
+  .stage[data-theme="tide"] .date,
+  .stage[data-theme="tide"] .liked,
+  .stage[data-theme="tide"] .dots-row{background:#ffffff;color:#08233d}
+  .stage[data-theme="tide"] .ig-nav{border-bottom-color:rgba(8,35,61,.10)}
+  .stage[data-theme="tide"] .ig-nav .back,
+  .stage[data-theme="tide"] .ig-nav .t1{color:#08233d}
+  .stage[data-theme="tide"] .ig-nav .t2{color:rgba(8,35,61,.55)}
+  .stage[data-theme="tide"] .post-head .who .u{color:#08233d}
+  .stage[data-theme="tide"] .post-head .who .loc{color:rgba(8,35,61,.7)}
+  .stage[data-theme="tide"] .post-head .dots{color:#08233d}
+  .stage[data-theme="tide"] .actions svg{stroke:#08233d}
+  .stage[data-theme="tide"] .actions .count{color:#08233d}
+  .stage[data-theme="tide"] .caption .u,
+  .stage[data-theme="tide"] .caption{color:#08233d}
+  .stage[data-theme="tide"] .caption .more{color:rgba(8,35,61,.5)}
+  .stage[data-theme="tide"] .date{color:rgba(8,35,61,.5)}
+  .stage[data-theme="tide"] .liked{color:rgba(8,35,61,.7)}
+  .stage[data-theme="tide"] .liked b{color:#08233d !important}
+  .stage[data-theme="tide"] .liked .pile span{border-color:#ffffff}
+  .stage[data-theme="tide"] .pbar{background:rgba(8,35,61,.1)}
+  .stage[data-theme="tide"] .pbar i{background:linear-gradient(90deg,#1d4d7a,#5c95c2)}
+  .stage[data-theme="tide"] .dot{background:rgba(8,35,61,.18)}
+  .stage[data-theme="tide"] .dot.active{background:#1d4d7a}
+  .stage[data-theme="tide"] .dot.near{background:rgba(8,35,61,.4)}
+  .stage[data-theme="tide"] .home-ind{background:#08233d;opacity:.4}
+  .stage[data-theme="tide"] .counter{background:rgba(8,35,61,.75);color:#fff;backdrop-filter:blur(8px)}
+  .stage[data-theme="tide"] .arrow{background:rgba(255,255,255,.85);color:#08233d;border:1px solid rgba(8,35,61,.1)}
+  .stage[data-theme="tide"] .avatar{border-color:rgba(8,35,61,.15)}
+  .stage[data-theme="tide"] .guides{display:none}
+
+
+  /* ─────────────────────────────────────────────
+     LAYOUT VARIANTS — re-shape slots without moving panel positions
+     Standard = original (mostly landscape rectangles).
+     Portrait = phone-photo friendly: hero slots become tall portraits.
+     Square   = uniform 1:1 slots, gridded feel.
+     ───────────────────────────────────────────── */
+  /* Layout dimensions are applied via JS (see applyLayout) — keeping them
+     out of CSS so user drag-to-resize / drag-to-move always wins. */
+
+  /* ─────────────────────────────────────────────
+     KEN BURNS — subtle zoom on slots in active panel
+     ───────────────────────────────────────────── */
+  @keyframes kb { from{transform:scale(1)} to{transform:scale(1.05)} }
+  .slot.active-photo::before{animation:kb 8s ease-in-out infinite alternate}
+
+  /* type entrance per panel */
+  @keyframes typeIn{
+    from{opacity:0;transform:translateY(12px)}
+    to  {opacity:1;transform:translateY(0)}
+  }
+  .t.active-type, .sig.active-type, .num.active-num, .spec.active-spec, .anno.active-anno{
+    animation:typeIn .9s cubic-bezier(.18,.7,.18,1) both;
+  }
+
+  /* small media qol */
+
+  /* ─────────────────────────────────────────────
+     EDIT MODE — toggle in Tweaks panel turns on
+     customisation affordances. Off = pristine view.
+     ───────────────────────────────────────────── */
+  /* SELECTION-BASED EDIT MODEL (Pixlr / Adobe Express style):
+     - Click an element → it becomes selected (cyan outline + handles).
+     - Drag selected element → moves it.
+     - Drag handles on selected → resize / rotate.
+     - Double-click text → enter content-edit (cursor in text).
+     - Click empty area → deselect.
+     - Esc → deselect or exit edit mode.
+     No modifier keys, no hidden gestures. */
+
+  body.edit-mode [data-edit-id],
+  body.edit-mode .slot[data-slot] {
+    pointer-events: auto !important;
+    cursor: pointer;
+  }
+  /* Hover preview — faint cyan outline to signal selectable. */
+  body.edit-mode [data-edit-id]:not(.gar-selected):hover,
+  body.edit-mode .slot[data-slot]:not(.gar-selected):hover {
+    outline: 1px dashed rgba(76,210,255,0.5);
+    outline-offset: 2px;
+  }
+  /* Selected state — bright cyan outline. */
+  body.edit-mode .gar-selected {
+    outline: 2px solid var(--accent-2, #4cd2ff) !important;
+    outline-offset: 2px;
+  }
+  body.edit-mode .gar-selected.slot[data-slot] {
+    cursor: move;
+  }
+  /* Chrome (toolbar + handles + id) only on the SELECTED slot. */
+  body.edit-mode .slot[data-slot] .slot-tools,
+  body.edit-mode .slot[data-slot] .resize-handle,
+  body.edit-mode .slot[data-slot] .rotate-handle,
+  body.edit-mode .slot[data-slot] .slot-id {
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  body.edit-mode .gar-selected.slot[data-slot] .slot-tools,
+  body.edit-mode .gar-selected.slot[data-slot] .resize-handle,
+  body.edit-mode .gar-selected.slot[data-slot] .rotate-handle,
+  body.edit-mode .gar-selected.slot[data-slot] .slot-id {
+    opacity: 1 !important; pointer-events: auto !important;
+    z-index: 200 !important;
+  }
+  /* When text is in content-edit mode (after dblclick), give it a clear
+     focus state so the user knows they're typing into it. */
+  body.edit-mode [data-edit-id].gar-editing {
+    outline: 2px solid var(--accent, #d4a04a) !important;
+    background: rgba(255,255,255,0.08);
+    cursor: text !important;
+  }
+  /* Force text layers above the slot body so single-click selects text
+     even if a slot is positioned under it. Slot chrome still floats
+     above via z-index: 200. */
+  body.edit-mode .layer.type,
+  body.edit-mode .layer.specs,
+  body.edit-mode .layer.deco,
+  body.edit-mode .layer.numbers,
+  body.edit-mode .layer.topline {
+    z-index: 50;
+  }
+  /* Disable swipe .tap zones in edit mode so they don't eat clicks. */
+  body.edit-mode .tap { pointer-events: none !important; }
+
+  /* Tools panel — shown when a slot is the active selection */
+  .tools-panel {
+    position: fixed; right: 24px; top: 80px; z-index: 250;
+    background: rgba(20,20,24,0.92); backdrop-filter: blur(10px);
+    border: 1px solid rgba(76,210,255,0.4); border-radius: 10px;
+    padding: 12px; min-width: 200px;
+    font-family: var(--font-mono); font-size: 11px; color: #fff;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .tools-panel[hidden] { display: none; }
+  .tools-panel .tp-head {
+    font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+    color: rgba(255,255,255,0.6); padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    cursor: grab; user-select: none;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tools-panel .tp-head::before {
+    content: "⋮⋮"; color: rgba(255,255,255,0.4); font-size: 12px;
+    letter-spacing: -2px; margin-right: 2px;
+  }
+  .tools-panel .tp-head.dragging { cursor: grabbing; }
+  .tools-panel .tp-head #tpName {
+    color: var(--accent-2, #4cd2ff); font-weight: 700;
+  }
+  .tools-panel .tp-row { display: flex; align-items: center; gap: 4px; }
+  .tools-panel .tp-lbl {
+    font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+    color: rgba(255,255,255,0.5); min-width: 36px;
+  }
+  .tools-panel button {
+    background: rgba(255,255,255,0.08); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;
+    padding: 4px 8px; font-family: inherit; font-size: 11px;
+    cursor: pointer; min-width: 28px;
+  }
+  .tools-panel button:hover { background: rgba(76,210,255,0.2); border-color: rgba(76,210,255,0.5); }
+  .tools-panel .tp-val { color: var(--accent-2); min-width: 36px; text-align: center; }
+  .tools-panel .tp-actions { margin-top: 4px; flex-wrap: wrap; gap: 4px; }
+  .tools-panel .tp-actions button { flex: 1; }
+  .tools-panel .tp-danger { background: rgba(255,80,80,0.15); border-color: rgba(255,80,80,0.4); }
+  .tools-panel .tp-danger:hover { background: rgba(255,80,80,0.3); }
+
+  /* When the user clicks a slot in edit mode, highlight it brightly */
+  body.edit-mode .slot[data-slot].gar-active {
+    outline: 2px solid var(--accent-2, #4cd2ff) !important;
+    outline-offset: 2px;
+  }
+  .slot-id {
+    position: absolute; top: 6px; left: 6px; z-index: 41;
+    background: rgba(20,20,24,0.85); color: var(--accent-2);
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    padding: 2px 6px; border-radius: 3px; letter-spacing: 1px;
+    opacity: 0; pointer-events: none; transition: opacity 0.12s;
+  }
+  /* Empty slots in edit mode get a louder 'drop image here' affordance */
+  body.edit-mode .slot.empty {
+    background: rgba(76,210,255,0.06) !important;
+    outline: 2px dashed rgba(76,210,255,0.55);
+    color: var(--accent-2);
+  }
+  body.edit-mode .slot.empty::after {
+    content: 'drop or click ↻ to add image';
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.5px;
+    text-transform: uppercase; color: var(--accent-2);
+    background: none; mix-blend-mode: normal; pointer-events: none;
+    text-align: center; max-width: 90%;
+    display: block !important; inset: auto;
+  }
+  body.edit-mode .slot[data-slot].swap-source {
+    outline: 2px solid var(--accent); outline-offset: -2px;
+  }
+  body.edit-mode .slot[data-slot].swap-target-hover {
+    outline: 2px dashed var(--accent-2); outline-offset: -2px;
+  }
+
+  .slot-tools {
+    position: absolute; top: 4px; right: 4px; z-index: 40;
+    display: flex; gap: 3px; padding: 3px;
+    background: rgba(20,20,24,0.85); backdrop-filter: blur(8px);
+    border-radius: 6px; opacity: 0; pointer-events: none;
+    transition: opacity 0.12s;
+  }
+  .slot-tools button {
+    width: 22px; height: 22px; border: 0; background: transparent;
+    color: #fff; font-size: 12px; cursor: pointer; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: inherit; line-height: 1;
+  }
+  .slot-tools button:hover { background: rgba(255,255,255,0.15); }
+  .slot-tools button.danger:hover { background: var(--accent); color: #1a1b1f; }
+
+  .resize-handle {
+    position: absolute; width: 14px; height: 14px;
+    background: var(--accent); border: 1.5px solid #fff;
+    bottom: -7px; right: -7px; z-index: 40;
+    cursor: nwse-resize; border-radius: 2px;
+    opacity: 0; pointer-events: none; transition: opacity 0.12s;
+  }
+  .rotate-handle {
+    position: absolute; width: 18px; height: 18px;
+    background: var(--accent-2); border: 1.5px solid #fff;
+    border-radius: 50%; top: 6px; left: 50%; transform: translateX(-50%);
+    z-index: 40; cursor: grab;
+    opacity: 0; pointer-events: none; transition: opacity 0.12s;
+    /* Inside the slot (top:6 not -28) so .slot's overflow:hidden doesn't
+       clip it and break clicks. */
+  }
+  .rotate-handle::before { display: none; }
+  body.edit-mode .slot[data-slot]:hover .rotate-handle {
+    opacity: 1; pointer-events: auto;
+  }
+  body.edit-mode.dragging .slot[data-slot]:not(.dragging-this) {
+    pointer-events: none;
+  }
+  body.edit-mode .slot[data-slot].dragging-this {
+    opacity: 0.85; cursor: grabbing;
+  }
+  /* Shift held → crop mode cursor + faint cyan tint to signal mode change */
+  body.edit-mode.shift-held .slot[data-slot] {
+    cursor: crosshair;
+  }
+  body.edit-mode.shift-held .slot[data-slot]::before {
+    box-shadow: inset 0 0 0 2px rgba(76,210,255,0.6);
+  }
+
+  .edit-mode-banner {
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+    z-index: 250; background: rgba(28,30,40,0.85); backdrop-filter: blur(10px);
+    color: #fff; padding: 5px 12px; border-radius: 999px;
+    font-size: 10px; font-weight: 500; letter-spacing: 0.2px;
+    border: 1px solid rgba(76,210,255,0.3);
+    display: none; align-items: center; gap: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    max-width: 360px; cursor: help;
+    transition: max-width 0.25s, padding 0.25s;
+    white-space: nowrap; overflow: hidden;
+  }
+  .edit-mode-banner .hint-full { display: none; }
+  .edit-mode-banner:hover {
+    max-width: 90vw; padding: 8px 14px;
+    white-space: normal;
+  }
+  .edit-mode-banner:hover .hint-short { display: none; }
+  .edit-mode-banner:hover .hint-full { display: inline; }
+  /* Obvious cyan glow around the page when edit mode is on. */
+  body.edit-mode {
+    box-shadow: inset 0 0 0 3px rgba(76,210,255,0.5);
+  }
+  body.edit-mode .edit-mode-banner { display: flex; }
+  .edit-mode-banner .dot { width: 5px; height: 5px; border-radius: 50%; background: #4cd2ff; box-shadow: 0 0 6px #4cd2ff; flex-shrink: 0; }
+  .edit-mode-banner kbd {
+    font-family: var(--font-mono); font-size: 9px; background: rgba(0,0,0,0.4);
+    padding: 0 4px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.15);
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="/hot-reload.js"></script>
+</head>
+<body>
+
+<button id="tweaksToggle" class="tweaks-toggle">Tweaks</button>
+<a href="/photo-ai" style="position:fixed;left:24px;top:24px;z-index:201;background:rgba(20,20,24,.85);backdrop-filter:blur(20px);border:1px solid #2a2a30;color:#fff;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none;font-family:inherit">← back to /photo-ai</a>
+
+<!-- Always-visible big download button so the user never has to hunt
+     through the tweaks panel. Click → render current slide → preview
+     modal pops up with the result + a real download anchor. -->
+<button id="bigDownload" style="position:fixed;right:24px;top:24px;z-index:201;background:#e84300;color:#fff;border:0;border-radius:10px;padding:11px 18px;font-size:13px;font-weight:700;font-family:var(--font-mono,monospace);letter-spacing:.5px;cursor:pointer;box-shadow:0 6px 18px rgba(232,67,0,.35)">↓ DOWNLOAD SLIDE</button>
+<div class="edit-mode-banner" title="Hover for full shortcut list">
+  <span class="dot"></span>
+  <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
+  <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
+</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v34 · grain filter fix</div>
+
+<!-- Tools panel — appears at top-right when a slot is the active selection -->
+<div id="toolsPanel" class="tools-panel" hidden>
+  <div class="tp-head"><span class="tp-label">slot</span> <span id="tpName">A</span></div>
+  <div class="tp-row">
+    <span class="tp-lbl">size</span>
+    <button data-tp="w-">w−</button><button data-tp="w+">w+</button>
+    <button data-tp="h-">h−</button><button data-tp="h+">h+</button>
+  </div>
+  <div class="tp-row">
+    <span class="tp-lbl">zoom</span>
+    <button data-tp="z-">−</button>
+    <span id="tpZoom" class="tp-val">1.0×</span>
+    <button data-tp="z+">+</button>
+  </div>
+  <div class="tp-row">
+    <span class="tp-lbl">pan</span>
+    <button data-tp="p-up">↑</button>
+    <button data-tp="p-down">↓</button>
+    <button data-tp="p-left">←</button>
+    <button data-tp="p-right">→</button>
+  </div>
+  <div class="tp-row tp-actions">
+    <button data-tp="replace">Replace</button>
+    <button data-tp="clear" class="tp-danger">Clear</button>
+    <button data-tp="reset">Reset</button>
+  </div>
+</div>
+
+<div id="tweaks" class="tweaks" style="display:none">
+  <button class="close" id="tweaksClose">×</button>
+
+  <h4>Theme</h4>
+  <div class="row" id="themes">
+    <button class="opt on" data-t="tide">Tide</button>
+    <button class="opt" data-t="showroom">Showroom</button>
+    <button class="opt" data-t="cyanotype">Cyanotype</button>
+    <button class="opt" data-t="gulf">Gulf '25</button>
+  </div>
+  <div class="row" id="themes2" style="margin-top:6px">
+    <button class="opt" data-t="editorial">Editorial</button>
+    <button class="opt" data-t="spec">Spec Sheet</button>
+    <button class="opt" data-t="mixtape">Mixtape</button>
+  </div>
+
+  <h4>Layout</h4>
+  <div class="row" id="layouts">
+    <button class="opt on" data-layout="standard">Standard</button>
+    <button class="opt" data-layout="portrait">Portrait</button>
+    <button class="opt" data-layout="square">Square grid</button>
+  </div>
+
+  <h4>Edit mode</h4>
+  <div class="toggle"><span>Customise everything</span><div class="switch" id="tEdit"></div></div>
+  <div class="hint">
+    When on:<br>
+    · click any text to edit<br>
+    · drag any slot to move it<br>
+    · drag the cyan <b>corner</b> to resize (Shift snaps)<br>
+    · drag the yellow <b>top circle</b> to rotate (Shift snaps to 15°)<br>
+    · hold <b>Shift</b> + drag inside a slot to re-crop the photo<br>
+    · hover for clear / swap / reset / replace tools
+    <button class="opt" id="resetAll" style="margin-top:10px;width:100%">Reset all customisations</button>
+  </div>
+
+  <h4>Export · resolution</h4>
+  <div class="row" id="dlQuality" style="margin-bottom:4px">
+    <button class="opt" data-w="1080" style="flex:1">1080p</button>
+    <button class="opt on" data-w="1440" style="flex:1">1440p</button>
+    <button class="opt" data-w="2160" style="flex:1">4K</button>
+  </div>
+  <div class="row" style="margin-bottom:4px">
+    <button class="opt on" id="dlPolishBtn" style="flex:1">Polish: on</button>
+    <button class="opt" id="reloadFullRes" style="flex:1" title="Clears slot photos and refills from /photo-ai with native-resolution export enabled. Direct-drop photos are already full-res.">↻ Reload at native res</button>
+  </div>
+  <div class="row">
+    <button class="opt" id="dlCurrent" style="flex:1">↓ Current slide</button>
+    <button class="opt" id="dlAll" style="flex:1">↓ All 6 slides</button>
+  </div>
+  <div class="hint" id="dlHint" style="margin-top:4px">PNG at 1440p (1440 × 1800px) · polish on.</div>
+
+  <h4>Enhance preset</h4>
+  <div class="row" id="presets">
+    <button class="opt on" data-p="showroom">Showroom</button>
+    <button class="opt" data-p="vivid">Vivid</button>
+    <button class="opt" data-p="filmic">Filmic</button>
+    <button class="opt" data-p="raw">Raw</button>
+  </div>
+
+  <h4>Personalize</h4>
+  <div class="input"><input type="text" id="iTitle" value="Late Night Pull-Up"/></div>
+  <div class="input"><input type="text" id="iLoc" value="Garage 25 · Miami"/></div>
+  <div class="input"><input type="text" id="iCar" value="Gulf Blue 992 GT3"/></div>
+
+  <h4>Layout</h4>
+  <div class="toggle"><span>Polaroid borders</span><div class="switch on" id="tBorders"></div></div>
+  <div class="toggle"><span>Drop shadows</span><div class="switch on" id="tShadow"></div></div>
+  <div class="toggle"><span>Film grain</span><div class="switch on" id="tGrain"></div></div>
+  <div class="toggle"><span>Light leaks</span><div class="switch on" id="tLeaks"></div></div>
+  <div class="toggle"><span>Parallax depth</span><div class="switch on" id="tParallax"></div></div>
+  <div class="toggle"><span>Ken Burns zoom</span><div class="switch on" id="tKenBurns"></div></div>
+  <div class="toggle"><span>Auto-play</span><div class="switch" id="tAuto"></div></div>
+
+  <h4>Drop images</h4>
+  <div class="drop" id="globalDrop">
+    Drop here<br><span style="opacity:.6">auto-placed & enhanced</span>
+  </div>
+  <div class="hint">Drag any photo onto a slot to swap, or drop here to auto-fill slots left-to-right starting at the current slide. Settings + image swaps persist between reloads.</div>
+</div>
+
+<div class="stage" id="stage" data-theme="tide" data-layout="standard">
+  <div class="phone">
+
+    <!-- iOS status -->
+    <div class="status">
+      <div>2:35</div>
+      <div class="right">
+        <svg width="17" height="11" viewBox="0 0 17 11"><circle cx="2" cy="9" r="1.4" fill="#fff"/><circle cx="6" cy="9" r="1.4" fill="#fff"/><circle cx="10" cy="9" r="1.4" fill="#fff" opacity=".4"/></svg>
+        <svg width="16" height="11" viewBox="0 0 16 11"><path d="M8 2.5C10.2 2.5 12.2 3.4 13.7 4.8L14.8 3.7C13 1.9 10.6 .8 8 .8C5.4 .8 3 1.9 1.2 3.7L2.3 4.8C3.8 3.4 5.8 2.5 8 2.5Z" fill="#fff"/><path d="M8 5.5C9.4 5.5 10.6 6 11.5 6.9L12.6 5.8C11.4 4.6 9.8 3.8 8 3.8C6.2 3.8 4.6 4.6 3.4 5.8L4.5 6.9C5.4 6 6.6 5.5 8 5.5Z" fill="#fff"/><circle cx="8" cy="9" r="1.4" fill="#fff"/></svg>
+        <div style="display:flex;align-items:center;gap:3px">
+          <span style="font-size:9px;color:#fff;font-weight:700">49</span>
+          <svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3" fill="none" stroke="#fff" stroke-opacity=".55"/><rect x="2" y="2" width="11.5" height="8" rx="1.5" fill="#fff"/><rect x="24" y="4" width="1.5" height="4" rx=".7" fill="#fff" fill-opacity=".55"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="ig-nav">
+      <div class="back">‹</div>
+      <div class="title"><div class="t1">Posts</div><div class="t2">cartheme_</div></div>
+      <div class="spacer"></div>
+    </div>
+
+    <div class="post-head">
+      <div class="avatar"></div>
+      <div class="who">
+        <div class="u">cartheme_
+          <svg width="12" height="12" viewBox="0 0 24 24"><path fill="#1c7ed6" d="M22.5 12.5 20.2 10l1.2-3.2-3.4-.7L17.3 3l-3.2.7L12 2 9.9 3.7 6.7 3 6 6.1l-3.4.7L3.8 10 1.5 12.5 3.8 15l-1.2 3.2 3.4.7L6.7 22l3.2-.7L12 23l2.1-1.7 3.2.7.7-3.1 3.4-.7L20.2 15l2.3-2.5zM10.5 17 6 12.5l1.6-1.6 2.9 2.9 6-6L18 9.4 10.5 17z"/></svg>
+        </div>
+        <div class="loc" id="locText">Late Night Pull-Up · Garage 25</div>
+      </div>
+      <div class="dots">⋯</div>
+    </div>
+
+    <div class="viewport" id="viewport">
+      <div class="counter"><span id="counter">1/6</span></div>
+      <div class="arrow l" id="arrowL">‹</div>
+      <div class="arrow r" id="arrowR">›</div>
+      <div class="tap l" id="tapL"></div>
+      <div class="tap r" id="tapR"></div>
+
+      <!-- bg + atmospheric leaks (slow parallax) -->
+      <div class="layer bg"></div>
+
+      <div class="layer leak">
+        <div class="leak a" id="leakA"></div>
+        <div class="leak b" id="leakB"></div>
+        <div class="leak c" id="leakC"></div>
+      </div>
+
+      <!-- background mega ribbon -->
+      <div class="layer ribbon">
+        <div class="ribbon" id="ribbonText">CARTHEME · GARAGE25 · GULFBLUE · LATENIGHT · PULLUP · CARTHEME · GARAGE25 · GULFBLUE · LATENIGHT · PULLUP ·</div>
+      </div>
+
+      <!-- ghosted huge numbers (parallax 0.75 so they drift) -->
+      <div class="layer numbers">
+        <div class="num" style="position:absolute;left:870px;top:50px;font-size:200px;color:rgba(255,255,255,.10);mix-blend-mode:screen">03</div>
+        <div class="num" style="position:absolute;left:1680px;top:30px;font-size:160px;color:rgba(255,255,255,.08);mix-blend-mode:screen">05</div>
+      </div>
+
+      <!-- topline strip -->
+      <div class="layer topline">
+        <div class="topline" id="topline">
+          <span><b>CARTHEME</b></span><em></em>
+          <span>VOL · I</span><em></em>
+          <span id="topGarage">GARAGE 25</span><em></em>
+          <span id="topCar">SKY BLUE 911s</span><em></em>
+          <span>NOCTURNE</span><em></em>
+          <span>FILM ROLL · 06</span><em></em>
+          <span>02 : 35 AM</span><em></em>
+          <span id="topDate">MAY · 2026</span>
+        </div>
+      </div>
+
+      <!-- photos (anchor speed) -->
+      <div class="layer photos">
+        <!-- A: hero 911 — spans P1 → P2 -->
+        <div class="slot" data-slot="A"
+             style="--rot:-2deg;left:24px;top:120px;width:540px;height:340px;border-radius:6px"></div>
+
+        <!-- B: rear polaroid — spans P1 → P2 -->
+        <div class="slot poly" data-slot="B"
+             style="--rot:-5deg;left:340px;top:230px;width:300px;height:230px;transform:rotate(-5deg);z-index:4">
+          <div class="cap">rear three-quarter</div>
+        </div>
+
+        <!-- C: wheel circle — spans P2 → P3 -->
+        <div class="slot circle" data-slot="C"
+             style="left:680px;top:90px;width:340px;height:340px;border:5px solid var(--paper);z-index:3"></div>
+
+        <!-- D: stripe polaroid — spans P3 → P4 -->
+        <div class="slot poly" data-slot="D"
+             style="--rot:5deg;left:1080px;top:200px;width:300px;height:230px;transform:rotate(5deg);z-index:5">
+          <div class="cap">heritage stripe</div>
+        </div>
+
+        <!-- E: garage doorway — spans P4 → P5 -->
+        <div class="slot" data-slot="E"
+             style="--rot:2deg;left:1320px;top:60px;width:520px;height:320px;border-radius:6px;z-index:2"></div>
+
+        <!-- F: wheel detail polaroid — P5 -->
+        <div class="slot poly" data-slot="F"
+             style="--rot:-6deg;left:1720px;top:240px;width:280px;height:210px;transform:rotate(-6deg);z-index:5">
+          <div class="cap">centerlocks · orange bite</div>
+        </div>
+
+        <!-- G: lineup hero — spans P5 → P6 -->
+        <div class="slot" data-slot="G"
+             style="--rot:-1deg;left:1980px;top:90px;width:580px;height:340px;border-radius:6px;z-index:3"></div>
+
+        <!-- H: sculpture polaroid — P5 → P6 -->
+        <div class="slot poly" data-slot="H"
+             style="--rot:-4deg;left:2060px;top:240px;width:240px;height:170px;transform:rotate(-4deg);z-index:6">
+          <div class="cap">the gang.</div>
+        </div>
+
+        <!-- tape -->
+        <div class="tape" style="left:380px;top:215px;transform:rotate(40deg);z-index:5"></div>
+        <div class="tape" style="left:1120px;top:190px;transform:rotate(-30deg);z-index:6"></div>
+        <div class="tape" style="left:1740px;top:228px;transform:rotate(40deg);z-index:6"></div>
+
+        <!-- crest badges (tide theme only) — stylized brand plates -->
+        <svg class="crest" data-panel="0" style="left:298px;top:60px;width:96px;height:124px;z-index:8" viewBox="0 0 120 155">
+          <defs>
+            <linearGradient id="goldA" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#f6e4b0"/>
+              <stop offset="45%" stop-color="#d4a04a"/>
+              <stop offset="100%" stop-color="#8a5e1e"/>
+            </linearGradient>
+            <linearGradient id="shieldA" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#1b4570"/>
+              <stop offset="100%" stop-color="#08233d"/>
+            </linearGradient>
+            <linearGradient id="goldShine" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#fff5d0" stop-opacity=".9"/>
+              <stop offset="100%" stop-color="#fff5d0" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path d="M60 4 L112 18 L112 78 Q112 122 60 150 Q8 122 8 78 L8 18 Z"
+                fill="url(#shieldA)" stroke="url(#goldA)" stroke-width="2"/>
+          <path d="M60 11 L106 23 L106 78 Q106 118 60 142 Q14 118 14 78 L14 23 Z"
+                fill="none" stroke="url(#goldA)" stroke-width=".6" opacity=".75"/>
+          <rect x="14" y="26" width="92" height="18" fill="url(#goldA)"/>
+          <rect x="14" y="26" width="92" height="6" fill="url(#goldShine)"/>
+          <text x="60" y="39.5" text-anchor="middle"
+                font-family="Bricolage Grotesque, sans-serif" font-weight="800"
+                font-size="11" fill="#0a2540" letter-spacing="2.2">PORSCHE</text>
+          <text x="60" y="62" text-anchor="middle"
+                font-family="Inter, sans-serif" font-weight="600"
+                font-size="6" fill="#f0d18a" letter-spacing="2.4">STUTTGART</text>
+          <circle cx="60" cy="78" r="3.2" fill="url(#goldA)"/>
+          <circle cx="60" cy="78" r="1.2" fill="#08233d"/>
+          <line x1="22" y1="78" x2="52" y2="78" stroke="url(#goldA)" stroke-width=".6"/>
+          <line x1="68" y1="78" x2="98" y2="78" stroke="url(#goldA)" stroke-width=".6"/>
+          <line x1="26" y1="82" x2="48" y2="82" stroke="url(#goldA)" stroke-width=".4" opacity=".5"/>
+          <line x1="72" y1="82" x2="94" y2="82" stroke="url(#goldA)" stroke-width=".4" opacity=".5"/>
+          <text x="60" y="105" text-anchor="middle"
+                font-family="Bricolage Grotesque, sans-serif" font-weight="800"
+                font-size="11" fill="url(#goldA)" letter-spacing="1.2">992 GT3</text>
+          <text x="60" y="118" text-anchor="middle"
+                font-family="Inter, sans-serif" font-weight="600"
+                font-size="5.5" fill="#bcd9ec" letter-spacing="1.4">GULF BLUE · 5359</text>
+          <path d="M40 128 L60 134 L80 128" fill="none" stroke="url(#goldA)" stroke-width=".7"/>
+        </svg>
+
+        <svg class="crest" data-panel="5" style="left:2375px;top:295px;width:80px;height:104px;z-index:8" viewBox="0 0 120 155">
+          <path d="M60 4 L112 18 L112 78 Q112 122 60 150 Q8 122 8 78 L8 18 Z"
+                fill="url(#shieldA)" stroke="url(#goldA)" stroke-width="2"/>
+          <path d="M60 11 L106 23 L106 78 Q106 118 60 142 Q14 118 14 78 L14 23 Z"
+                fill="none" stroke="url(#goldA)" stroke-width=".6" opacity=".75"/>
+          <rect x="14" y="26" width="92" height="18" fill="url(#goldA)"/>
+          <text x="60" y="39.5" text-anchor="middle"
+                font-family="Bricolage Grotesque, sans-serif" font-weight="800"
+                font-size="11" fill="#0a2540" letter-spacing="2.2">PORSCHE</text>
+          <text x="60" y="62" text-anchor="middle"
+                font-family="Inter, sans-serif" font-weight="600"
+                font-size="6" fill="#f0d18a" letter-spacing="2.4">STUTTGART</text>
+          <circle cx="60" cy="78" r="3.2" fill="url(#goldA)"/>
+          <circle cx="60" cy="78" r="1.2" fill="#08233d"/>
+          <line x1="22" y1="78" x2="52" y2="78" stroke="url(#goldA)" stroke-width=".6"/>
+          <line x1="68" y1="78" x2="98" y2="78" stroke="url(#goldA)" stroke-width=".6"/>
+          <text x="60" y="105" text-anchor="middle"
+                font-family="Bricolage Grotesque, sans-serif" font-weight="800"
+                font-size="11" fill="url(#goldA)" letter-spacing="1.2">VOL · I</text>
+          <text x="60" y="118" text-anchor="middle"
+                font-family="Inter, sans-serif" font-weight="600"
+                font-size="5.5" fill="#bcd9ec" letter-spacing="1.4">CARTHEME · 25</text>
+          <path d="M40 128 L60 134 L80 128" fill="none" stroke="url(#goldA)" stroke-width=".7"/>
+        </svg>
+
+        <!-- stickers (mixtape only) -->
+        <div class="sticker" data-panel="0" style="left:40px;top:54px;transform:rotate(-6deg);color:var(--accent)">★</div>
+        <div class="sticker box" data-panel="1" style="left:560px;top:55px;transform:rotate(-4deg)">912 hp gang</div>
+        <div class="sticker" data-panel="2" style="left:880px;top:430px;font-size:22px;transform:rotate(8deg);color:var(--accent-2)">!!</div>
+        <div class="sticker box" data-panel="3" style="left:1300px;top:40px;transform:rotate(3deg);background:var(--accent-2)">gulf · &apos;25</div>
+        <div class="sticker" data-panel="4" style="left:1880px;top:60px;transform:rotate(-10deg);color:var(--accent-2);font-size:22px">✦</div>
+        <div class="sticker box" data-panel="5" style="left:2120px;top:50px;transform:rotate(-4deg)">end · side A</div>
+
+        <!-- hand-drawn annotations (mixtape only) -->
+        <div class="anno" data-panel="2" style="left:760px;top:60px">
+          centerlocks!<br>
+          <svg width="40" height="40" viewBox="0 0 40 40" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round">
+            <path d="M5 5 C 15 25, 22 30, 35 35"/>
+            <path d="M28 32 L35 35 L32 28"/>
+          </svg>
+        </div>
+        <div class="anno" data-panel="3" style="left:1100px;top:430px;transform:rotate(-4deg)">heritage&nbsp;⟶</div>
+      </div>
+
+      <!-- big titles per panel -->
+      <div class="layer type">
+        <!-- P1 cover -->
+        <div class="t" data-panel="0" style="left:30px;top:60px;font-size:80px;font-weight:800;color:#fff;z-index:7">
+          <span class="kicker">— vol. I · <span id="kickCar">gulf blue</span></span>
+          LATE<br>NIGHT.
+        </div>
+        <!-- P2 -->
+        <div class="t" data-panel="1" style="left:570px;top:80px;font-size:74px;font-weight:800;z-index:7;color:#fff">
+          <span class="kicker">— the hero shot</span>
+          PULL—<br>UP.
+        </div>
+        <!-- P3 caption -->
+        <div class="t" data-panel="2" style="left:870px;top:330px;font-size:24px;font-weight:700;letter-spacing:-.5px;z-index:7;color:#fff">
+          <span class="kicker">DETAIL · 03</span>
+          SIX SPOKES,<br><span class="accent">ORANGE BITE.</span>
+        </div>
+        <!-- P4 -->
+        <div class="t" data-panel="3" style="left:1280px;top:380px;font-size:36px;font-weight:800;line-height:.9;z-index:7;color:#fff">
+          <span class="kicker">04 — heritage stripe</span>
+          GULF BLUE,<br>FACTORY GLOW.
+        </div>
+        <!-- P5 -->
+        <div class="t" data-panel="4" style="left:1680px;top:50px;font-size:34px;font-weight:800;z-index:7;color:#fff">
+          <span class="kicker">05 — the pair</span>
+          TWIN<br>TURBO<br><span class="accent" style="color:var(--accent-2)">DREAMS.</span>
+        </div>
+      </div>
+
+      <!-- specs (visible in Spec Sheet theme only) -->
+      <div class="layer specs">
+
+        <!-- spec A -->
+        <div class="spec" data-panel="0" style="left:30px;top:60px;width:200px">
+          <div class="id">— 01 / HERO</div>
+          <div class="h">992.1 GT3 TOURING</div>
+          <div class="d">PTS · GULF BLUE 5359<br>3,996 cc · 502 hp<br>0–100 : 3.4 s</div>
+          <svg width="200" height="2" style="top:50px;left:0"><line x1="0" y1="1" x2="200" y2="1" stroke="#4cd2ff" stroke-width="1" stroke-dasharray="2,2"/></svg>
+        </div>
+        <!-- spec B -->
+        <div class="spec" data-panel="1" style="left:580px;top:60px;width:200px">
+          <div class="id">— 02 / REAR</div>
+          <div class="h">AERO · TOURING SPEC</div>
+          <div class="d">spoiler delete<br>twin-tail pipe<br>PCCB ceramics</div>
+        </div>
+        <!-- spec C -->
+        <div class="spec" data-panel="2" style="left:870px;top:50px;width:200px">
+          <div class="id">— 03 / WHEEL</div>
+          <div class="h">BBS RS-GT CENTERLOCK</div>
+          <div class="d">FRONT · 20×9.5 j<br>REAR · 21×12.5 j<br>silver-forged · ⌀ 410</div>
+        </div>
+        <!-- spec D -->
+        <div class="spec" data-panel="3" style="left:1280px;top:60px;width:200px">
+          <div class="id">— 04 / LIVERY</div>
+          <div class="h">HERITAGE STRIPE</div>
+          <div class="d">Lava Orange OEM<br>3M PPF wrap<br>side decal · custom</div>
+        </div>
+        <!-- spec E -->
+        <div class="spec" data-panel="4" style="left:1680px;top:50px;width:200px">
+          <div class="id">— 05 / THE PAIR</div>
+          <div class="h">TWIN BUILDS</div>
+          <div class="d">PTS Gulf Blue · ×2<br>matched delivery<br>VIN 0241 / 0273</div>
+        </div>
+        <!-- spec G -->
+        <div class="spec" data-panel="5" style="left:2090px;top:50px;width:200px">
+          <div class="id">— 06 / LINEUP</div>
+          <div class="h">FOUR FLAVORS</div>
+          <div class="d">Gulf Blue · 992 GT3<br>Crayon · 992.2 GT3<br>Chalk · 992.1 GT3<br>Onyx · 992.2 GT3RS</div>
+        </div>
+      </div>
+
+      <!-- rail + ticks + signature (anchor speed) -->
+      <div class="layer deco">
+        <div class="rail"></div>
+
+        <div class="tick" style="left:30px"></div>
+        <div class="tickLabel" style="left:30px"><b>01</b>LATE NIGHT</div>
+        <div class="mark" style="left:6px;top:6px"></div>
+
+        <div class="tick" style="left:442px"></div>
+        <div class="tickLabel" style="left:442px"><b>02</b>HERO · 992</div>
+
+        <div class="tick" style="left:854px"></div>
+        <div class="tickLabel" style="left:854px"><b>03</b>CENTERLOCK</div>
+
+        <div class="tick" style="left:1266px"></div>
+        <div class="tickLabel" style="left:1266px"><b>04</b>HERITAGE</div>
+
+        <div class="tick" style="left:1678px"></div>
+        <div class="tickLabel" style="left:1678px"><b>05</b>THE PAIR</div>
+
+        <div class="tick" style="left:2090px"></div>
+        <div class="tickLabel" style="left:2090px"><b>06</b>FOUR FLAVORS</div>
+
+        <!-- signature panel 6 -->
+        <div class="sig" data-panel="5" style="left:2092px;top:60px;width:340px">
+          <div class="small">cartheme · garage 25</div>
+          <div class="name">Late Night</div>
+          <div class="x">×</div>
+          <div class="name2">Pull-Up</div>
+          <div class="date">06 · MAY 24 · 2:35 AM · 2026</div>
+          <div class="barcode">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+      </div>
+
+      <div class="guides"></div>
+      <div class="grain"></div>
+    </div>
+
+    <!-- progress -->
+    <div class="pbar"><i id="pbar"></i></div>
+
+    <!-- actions -->
+    <div class="actions">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"/></svg>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M21 12a8 8 0 1 1-3.5-6.6L21 4l-1 4 .5 .5"/></svg>
+      <span class="count">1,942</span>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M17 2l4 4-4 4M21 6H8a5 5 0 0 0-5 5v1M7 22l-4-4 4-4M3 18h13a5 5 0 0 0 5-5v-1"/></svg>
+      <span class="count">38</span>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M3 12l18-9-6 18-2-7-10-2z"/></svg>
+      <div class="spacer"></div>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M19 21l-7-5-7 5V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+    </div>
+
+    <div class="dots-row" id="dotsRow"></div>
+
+    <div class="liked">
+      <div class="pile"><span></span><span></span><span></span></div>
+      Liked by <b style="color:#fff;font-weight:600;margin:0 4px">limitedspec</b> and others
+    </div>
+    <div class="caption">
+      <span class="u">cartheme_</span><span id="captionText">late night pull-up at garage 25 · gulf blue 911s, slime-drip plane, lil money man 💸</span> <span class="more">… more</span>
+    </div>
+    <div class="date">May 24, 2026</div>
+
+    <div class="home-ind"></div>
+  </div>
+</div>
+
+<script>
+/* ─── fit phone ─── */
+(function fit(){
+  const stage = document.getElementById('stage');
+  function set(){
+    const vh = window.innerHeight - 40;
+    const vw = window.innerWidth - 340;
+    const s = Math.min(vh/892, vw/412, 1);
+    stage.style.transform = `scale(${s})`;
+  }
+  set(); window.addEventListener('resize', set);
+})();
+
+/* ─── carousel ─── */
+const N = 6, PANEL = 412;
+let idx = 0;
+const viewport = document.getElementById('viewport');
+const counterEl = document.getElementById('counter');
+const pbar = document.getElementById('pbar');
+const dotsRow = document.getElementById('dotsRow');
+
+for(let i=0;i<N;i++){
+  const d = document.createElement('div');
+  d.className='dot'; d.addEventListener('click', ()=>go(i));
+  dotsRow.appendChild(d);
+}
+const dotEls = [...dotsRow.children];
+
+function activatePanel(i){
+  // mark photos that belong to panel i as active (for Ken Burns)
+  document.querySelectorAll('.slot').forEach(s=>{
+    const l = parseInt(s.style.left)||0, w = parseInt(s.style.width)||0;
+    const center = l + w/2;
+    const inPanel = center >= i*PANEL && center < (i+1)*PANEL;
+    s.classList.toggle('active-photo', inPanel);
+  });
+  // restart entrance animations for type pieces tagged with this panel
+  document.querySelectorAll('[data-panel]').forEach(el=>{
+    const p = +el.dataset.panel;
+    el.classList.remove('active-type','active-num','active-spec','active-anno');
+    if(p===i){
+      void el.offsetWidth; // reflow to restart anim
+      if(el.classList.contains('t')) el.classList.add('active-type');
+      else if(el.classList.contains('sig')) el.classList.add('active-type');
+      else if(el.classList.contains('num')) el.classList.add('active-num');
+      else if(el.classList.contains('spec')) el.classList.add('active-spec');
+      else if(el.classList.contains('anno')) el.classList.add('active-anno');
+    }
+  });
+}
+
+function go(i){
+  idx = (i + N) % N;
+  viewport.style.setProperty('--slideX', `${-idx * PANEL}px`);
+  // belt-and-suspenders: also set transforms in JS in case @property/calc fails
+  const sx = -idx * PANEL;
+  document.querySelectorAll('.layer').forEach(l=>{
+    const sp = parseFloat(getComputedStyle(l).getPropertyValue('--speed')) || 1;
+    l.style.transform = `translate3d(${sx*sp}px, 0, 0)`;
+  });
+  counterEl.textContent = `${idx+1}/${N}`;
+  pbar.style.width = `${(idx+1)*100/N}%`;
+  dotEls.forEach((d,j)=>{
+    d.classList.toggle('active', j===idx);
+    d.classList.toggle('near', Math.abs(j-idx)===1);
+  });
+  activatePanel(idx);
+}
+go(0);
+
+document.getElementById('tapL').addEventListener('click', ()=>go(idx-1));
+document.getElementById('tapR').addEventListener('click', ()=>go(idx+1));
+document.getElementById('arrowL').addEventListener('click', ()=>go(idx-1));
+document.getElementById('arrowR').addEventListener('click', ()=>go(idx+1));
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowLeft') go(idx-1);
+  if(e.key==='ArrowRight') go(idx+1);
+});
+
+/* swipe */
+let sx=0, sy=0;
+viewport.addEventListener('touchstart', e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;}, {passive:true});
+viewport.addEventListener('touchend', e=>{
+  const dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy;
+  if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)) go(idx + (dx<0?1:-1));
+}, {passive:true});
+
+/* ─── slot images ─── */
+const slots = [...document.querySelectorAll('.slot[data-slot]')];
+const stored = (()=>{try{return JSON.parse(localStorage.getItem('garage3-slots')||'{}')}catch(e){return{}}})();
+// Track which photo-ai IDB record (if any) backs each slot. We use this
+// at export time to re-render the slot photo at its native resolution
+// straight from the original Blob — bypassing the 2800px / 0.95 cap that
+// applies to stored display data URLs. localStorage only holds the
+// {slotId → photoId} map (tiny) plus the small display data URLs.
+const storedIds = (()=>{try{return JSON.parse(localStorage.getItem('garage3-slot-ids')||'{}')}catch(e){return{}}})();
+slots.forEach((slot) => {
+  const pid = storedIds[slot.dataset.slot];
+  if (pid != null) slot.dataset.photoId = String(pid);
+});
+
+/* One-time upgrade: older versions of garage stored slot photos at
+   maxDim=1400 / quality 0.88, which capped export sharpness. On page
+   load, decode each stored data URL and drop any that's smaller than
+   2000px on its long edge — fillFromRoll() (below) will then re-render
+   those slots from IDB at the new 2800px / 0.95 quality. */
+async function upgradeStoredPhotos(){
+  let removed = 0;
+  await Promise.all(Object.entries(stored).map(([id, src]) => new Promise((resolve) => {
+    if (!src || typeof src !== 'string') return resolve();
+    const img = new Image();
+    img.onload = () => {
+      const long = Math.max(img.naturalWidth, img.naturalHeight);
+      if (long < 2000) { delete stored[id]; removed++; }
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = src;
+  })));
+  if (removed) {
+    try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch {}
+    console.log('[garage] upgraded', removed, 'low-res slot photo(s) — will refill from IDB at 2800px');
+  }
+  return removed;
+}
+
+function applySlot(slot){
+  const id = slot.dataset.slot;
+  const src = stored[id] || slot.dataset.src;
+  if(src){
+    // Probe the image first — if it doesn't load (corrupt / unsupported /
+    // dropped non-image), fall through to the empty state with a hint so
+    // the slot doesn't silently render as a grey polaroid backing.
+    const probe = new Image();
+    probe.onload = () => {
+      slot.style.backgroundImage = `url("${src}")`;
+      slot.classList.remove('empty');
+      // applySlot might have been called when the slot had its textContent
+      // wiped; chrome (slot-tools etc.) is added after by buildSlotChrome.
+    };
+    probe.onerror = () => {
+      console.warn('[garage] image failed to load for slot', id);
+      delete stored[id];
+      try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch(e){}
+      slot.style.backgroundImage = '';
+      slot.classList.add('empty');
+      slot.textContent = 'image failed — drop again';
+    };
+    probe.src = src;
+  } else {
+    slot.classList.add('empty');
+    slot.textContent = 'drop image';
+  }
+}
+// Run the low-res upgrade first; fillFromRoll runs after so any cleared
+// slots get refilled from IDB at the higher resolution.
+(async function bootSlots(){
+  await upgradeStoredPhotos();
+  slots.forEach(applySlot);
+  await fillFromRoll();
+})();
+
+/* Load photos from the photo-ai IDB store and fill empty slots. URL ?ids=p1,p2…
+   picks those photos in order; otherwise uses the most recent N. Renders each
+   through canvas with its look applied so the AI grade carries over. */
+async function fillFromRoll(){
+  const slotIds = ['A','B','C','D','E','F','G','H'];
+  const wanted = new URLSearchParams(location.search).get('ids');
+  let records;
+  try {
+    records = await new Promise((resolve) => {
+      const req = indexedDB.open('photo-ai', 1);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('photos')) return resolve([]);
+        const tx = db.transaction('photos', 'readonly');
+        const all = tx.objectStore('photos').getAll();
+        all.onsuccess = () => resolve(all.result || []);
+        all.onerror = () => resolve([]);
+      };
+      req.onerror = () => resolve([]);
+    });
+  } catch { records = []; }
+  if (!records.length) return;
+
+  if (wanted) {
+    const ids = wanted.split(',');
+    records = ids.map((id) => records.find((r) => String(r.id) === id)).filter(Boolean);
+  } else {
+    records = records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  }
+
+  // Compute each record's natural aspect ratio so we can match it to a slot
+  // whose dimensions crop the photo well. Reading from the blob is cheap
+  // (just creates an HTMLImageElement) so we batch it before assignment.
+  await Promise.all(records.map(async (rec) => {
+    if (rec.aspect) return;
+    const src = rec.genBlob || rec.originalBlob;
+    if (!src) return;
+    try {
+      const img = await loadImage(URL.createObjectURL(src));
+      rec.aspect = img.naturalWidth / img.naturalHeight;
+      rec._img = img;
+    } catch {}
+  }));
+
+  function blobToDataUrl(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); }); }
+  function loadImage(src)      { return new Promise((res, rej) => { const i = new Image();      i.onload = () => res(i);      i.onerror = rej; i.src = src; }); }
+
+  async function photoToDataUrl(rec) {
+    if (rec.genBlob) return await blobToDataUrl(rec.genBlob);
+    if (!rec.originalBlob) return null;
+    const img = await loadImage(URL.createObjectURL(rec.originalBlob));
+    // 2800px gives slots a much higher source res for high-scale exports
+    // (was 1400 — that hard-capped the export sharpness no matter what
+    // html2canvas scale we used). 2800 keeps a reasonable localStorage
+    // budget while letting 14× export tap a near-native source.
+    const maxDim = 2800;
+    const sc = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * sc);
+    c.height = Math.round(img.naturalHeight * sc);
+    const ctx = c.getContext('2d');
+    if (rec.look) {
+      const f = (k, d = 1) => (typeof rec.look[k] === 'number' ? rec.look[k] : d);
+      ctx.filter = `brightness(${f('brightness')}) contrast(${f('contrast')}) saturate(${f('saturate')}) hue-rotate(${f('hueRotate', 0)}deg) sepia(${f('sepia', 0)}) grayscale(${f('grayscale', 0)}) blur(${f('blur', 0)}px) invert(${f('invert', 0)})`;
+    }
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    ctx.filter = 'none';
+    if (rec.look?.tintAlpha > 0.005) {
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = rec.look.tintAlpha; ctx.fillStyle = rec.look.tintColor;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    }
+    if (rec.look?.vignette > 0.01) {
+      const grad = ctx.createRadialGradient(c.width/2, c.height/2, Math.min(c.width, c.height) * 0.35, c.width/2, c.height/2, Math.max(c.width, c.height) * 0.72);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, `rgba(0,0,0,${0.85 * rec.look.vignette})`);
+      ctx.fillStyle = grad; ctx.fillRect(0, 0, c.width, c.height);
+    }
+    return c.toDataURL('image/jpeg', 0.95);
+  }
+
+  // Read each slot's aspect ratio from its current computed size so the
+  // matcher picks up whatever layout (Standard / Portrait / Square) is
+  // active. Then greedily assign each slot the photo whose aspect ratio
+  // is closest in log space — log makes 'portrait vs landscape' diffs
+  // symmetric (0.5 and 2.0 are equally far from 1.0).
+  const pool = records.filter((r) => r.aspect && !stored[r.id]);
+  const slotsToFill = slotIds
+    .map((id) => slots.find((s) => s.dataset.slot === id))
+    .filter((s) => s && !stored[s.dataset.slot])
+    .map((s) => {
+      const r = s.getBoundingClientRect();
+      return { slot: s, aspect: r.width / r.height || 1 };
+    });
+
+  // Assign biggest slots first so the hero gets the best-fitting photo.
+  slotsToFill.sort((a, b) => (b.slot.offsetWidth * b.slot.offsetHeight) - (a.slot.offsetWidth * a.slot.offsetHeight));
+
+  for (const { slot, aspect: slotAspect } of slotsToFill) {
+    if (!pool.length) break;
+    let bestI = 0, bestDiff = Infinity;
+    for (let i = 0; i < pool.length; i++) {
+      const diff = Math.abs(Math.log(pool[i].aspect / slotAspect));
+      if (diff < bestDiff) { bestDiff = diff; bestI = i; }
+    }
+    const rec = pool.splice(bestI, 1)[0];
+    try {
+      const url = await photoToDataUrl(rec);
+      if (url) setSlot(slot, url, rec.id);
+    } catch (err) { console.warn('garage slot fill failed:', err); }
+  }
+}
+
+function setSlot(slot, src, photoId){
+  console.log('[garage] setSlot', slot.dataset.slot, src ? src.slice(0, 50) + '…' : '(empty)', 'photoId=', photoId);
+  stored[slot.dataset.slot] = src;
+  if (photoId != null) {
+    slot.dataset.photoId = String(photoId);
+    storedIds[slot.dataset.slot] = String(photoId);
+  } else {
+    delete slot.dataset.photoId;
+    delete storedIds[slot.dataset.slot];
+  }
+  try{
+    localStorage.setItem('garage3-slots', JSON.stringify(stored));
+    localStorage.setItem('garage3-slot-ids', JSON.stringify(storedIds));
+  } catch(e){
+    console.warn('[garage] localStorage save failed (probably quota exceeded):', e.message);
+  }
+  applySlot(slot);
+  // applySlot may textContent-wipe the slot when going empty — rebuild
+  // chrome (tools, handles, id label) so the edit-mode affordances stay.
+  if (typeof buildSlotChrome === 'function') buildSlotChrome(slot);
+}
+function handleFile(file, slot){
+  if(!file || !file.type.startsWith('image/')) return;
+  const fr = new FileReader();
+  fr.onload = e => setSlot(slot, e.target.result);
+  fr.readAsDataURL(file);
+}
+
+slots.forEach(slot=>{
+  slot.addEventListener('dragover', e=>{e.preventDefault();slot.classList.add('dragover');});
+  slot.addEventListener('dragleave', ()=>slot.classList.remove('dragover'));
+  slot.addEventListener('drop', e=>{
+    e.preventDefault(); slot.classList.remove('dragover');
+    const f = [...(e.dataTransfer.files||[])][0];
+    if(f) handleFile(f, slot);
+  });
+  slot.addEventListener('dblclick', ()=>{
+    const inp = document.createElement('input');
+    inp.type='file';inp.accept='image/*';
+    inp.onchange=()=>{if(inp.files[0]) handleFile(inp.files[0], slot);};
+    inp.click();
+  });
+});
+
+const orderedSlots = [...slots].sort((a,b)=> (parseInt(a.style.left)||0) - (parseInt(b.style.left)||0));
+
+function autoFill(files){
+  const start = idx * PANEL;
+  let startI = orderedSlots.findIndex(s => (parseInt(s.style.left)||0) >= start);
+  if(startI<0) startI = 0;
+  const order = [...orderedSlots.slice(startI), ...orderedSlots.slice(0,startI)];
+  let fi=0;
+  for(const slot of order){
+    if(fi>=files.length) break;
+    handleFile(files[fi++], slot);
+  }
+}
+
+const globalDrop = document.getElementById('globalDrop');
+[globalDrop, viewport].forEach(zone=>{
+  zone.addEventListener('dragover', e=>{
+    if(e.target.closest('.slot[data-slot]')) return;
+    e.preventDefault();zone.classList.add('over');
+  });
+  zone.addEventListener('dragleave', ()=>zone.classList.remove('over'));
+  zone.addEventListener('drop', e=>{
+    if(e.target.closest('.slot[data-slot]')) return;
+    e.preventDefault();zone.classList.remove('over');
+    const fs = [...(e.dataTransfer.files||[])].filter(f=>f.type.startsWith('image/'));
+    if(fs.length) autoFill(fs);
+  });
+});
+globalDrop.addEventListener('click', ()=>{
+  const inp = document.createElement('input');
+  inp.type='file';inp.accept='image/*';inp.multiple=true;
+  inp.onchange=()=>autoFill([...inp.files]);
+  inp.click();
+});
+
+/* ─── presets ─── */
+const presets = {
+  showroom:{sat:1.28,con:1.10,bri:1.04,warm:'-2deg',sep:0},
+  vivid:   {sat:1.55,con:1.20,bri:1.05,warm:'-4deg',sep:0},
+  filmic:  {sat:1.12,con:1.18,bri:0.98,warm:'-6deg',sep:0.06},
+  raw:     {sat:1.00,con:1.00,bri:1.00,warm:'0deg', sep:0}
+};
+function applyPreset(name){
+  const p = presets[name]||presets.showroom;
+  const r = document.documentElement;
+  r.style.setProperty('--sat',p.sat); r.style.setProperty('--con',p.con);
+  r.style.setProperty('--bri',p.bri); r.style.setProperty('--warm',p.warm);
+  r.style.setProperty('--sep',p.sep);
+}
+document.querySelectorAll('#presets .opt').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#presets .opt').forEach(o=>o.classList.remove('on'));
+    b.classList.add('on');
+    applyPreset(b.dataset.p);
+  });
+});
+
+/* ─── theme switch ─── */
+const stage = document.getElementById('stage');
+// Track each .t element's original inline font-size so we can restore it
+// when switching back from spec theme.
+document.querySelectorAll('.t').forEach((t) => {
+  t._origFontSize = t.style.fontSize || '';
+});
+function applyThemeStyles(theme){
+  // In spec theme, the panel-title .t elements sit in the same coords as
+  // the spec callout cards and read as overlap. Shrink them down inline
+  // (and dim them) so the spec callouts are the readable element. Do this
+  // via direct inline JS so we don't fight CSS cascade specificity.
+  document.querySelectorAll('.t').forEach((t) => {
+    if (theme === 'spec') {
+      t.style.fontSize = '20px';
+      t.style.opacity = '0.55';
+      t.style.letterSpacing = '-0.5px';
+    } else {
+      t.style.fontSize = t._origFontSize || '';
+      t.style.opacity = '';
+      t.style.letterSpacing = '';
+    }
+  });
+}
+// Restore saved theme preference + sync the button highlight.
+const THEME_KEY = 'garage-theme';
+(function restoreTheme(){
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch(e){}
+  if (saved) stage.dataset.theme = saved;
+  // Sync highlight across BOTH theme rows (primary + secondary).
+  document.querySelectorAll('#themes .opt, #themes2 .opt').forEach((o) => {
+    o.classList.toggle('on', o.dataset.t === stage.dataset.theme);
+  });
+})();
+applyThemeStyles(stage.dataset.theme);
+document.querySelectorAll('#themes .opt, #themes2 .opt').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#themes .opt, #themes2 .opt').forEach(o=>o.classList.remove('on'));
+    b.classList.add('on');
+    stage.dataset.theme = b.dataset.t;
+    applyThemeStyles(b.dataset.t);
+    try { localStorage.setItem(THEME_KEY, b.dataset.t); } catch(e){}
+  });
+});
+
+/* ─── layout switch ─── */
+// Layouts are applied via JS now (not CSS) so that any user-dragged
+// position / size always wins. Standard = the design's original inline
+// values; the JS table provides overrides only for non-standard layouts.
+const LAYOUT_DIMS = {
+  portrait: {
+    A: { left:60,   top:60,  width:300, height:430 },
+    B: { left:370,  top:170, width:240, height:300 },
+    C: { left:700,  top:110, width:300, height:300 },
+    D: { left:1080, top:170, width:240, height:300 },
+    E: { left:1380, top:60,  width:280, height:430 },
+    F: { left:1720, top:180, width:240, height:300 },
+    G: { left:2030, top:60,  width:300, height:430 },
+    H: { left:2080, top:200, width:220, height:280 },
+  },
+  square: {
+    A: { left:60,   top:90,  width:340, height:340 },
+    B: { left:380,  top:180, width:260, height:260 },
+    C: { left:720,  top:90,  width:340, height:340 },
+    D: { left:1100, top:180, width:260, height:260 },
+    E: { left:1380, top:90,  width:340, height:340 },
+    F: { left:1720, top:200, width:260, height:260 },
+    G: { left:2050, top:90,  width:340, height:340 },
+    H: { left:2100, top:230, width:220, height:220 },
+  },
+};
+function applyLayout(name){
+  stage.dataset.layout = name;
+  if (name === 'standard') {
+    // Restore each slot to its captured-on-load default.
+    document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
+      const d = slotDefaults[slot.dataset.slot];
+      if (!d) return;
+      slot.style.left   = d.left   + 'px';
+      slot.style.top    = d.top    + 'px';
+      slot.style.width  = d.width  + 'px';
+      slot.style.height = d.height + 'px';
+    });
+    return;
+  }
+  const dims = LAYOUT_DIMS[name];
+  if (!dims) return;
+  document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
+    const d = dims[slot.dataset.slot];
+    if (!d) return;
+    slot.style.left   = d.left   + 'px';
+    slot.style.top    = d.top    + 'px';
+    slot.style.width  = d.width  + 'px';
+    slot.style.height = d.height + 'px';
+  });
+}
+
+const LAYOUT_KEY = 'garage-layout';
+(function restoreLayout(){
+  let saved = 'standard';
+  try { saved = localStorage.getItem(LAYOUT_KEY) || 'standard'; } catch(e){}
+  if (saved !== 'standard') {
+    applyLayout(saved);
+    document.querySelectorAll('#layouts .opt').forEach((o) => {
+      o.classList.toggle('on', o.dataset.layout === saved);
+    });
+    // Per-slot user dims (savedDims) get re-applied later in the edit-mode
+    // block's step 4. Don't call applySlotDims here — it's not defined yet
+    // in script order, and calling it would throw a ReferenceError that
+    // aborts the rest of the script (which is why drag stopped working
+    // for users in non-standard layouts).
+  }
+})();
+document.querySelectorAll('#layouts .opt').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    const name = b.dataset.layout;
+    console.log('[garage] layout switch ->', name);
+    document.querySelectorAll('#layouts .opt').forEach(o=>o.classList.remove('on'));
+    b.classList.add('on');
+    try {
+      localStorage.setItem(LAYOUT_KEY, name);
+      // New layout = different slot shapes. Drop saved dims (they were
+      // for the old layout's slots) and any photo swaps so the matcher
+      // re-runs on next page load. Wait until AFTER the writes complete
+      // before reloading.
+      localStorage.removeItem('garage-slot-dims');
+      localStorage.removeItem('garage3-slots');
+    } catch(e){}
+    location.reload();
+  });
+});
+
+/* ─── personalize inputs ─── */
+const captionText = document.getElementById('captionText');
+const locText = document.getElementById('locText');
+const topGarage = document.getElementById('topGarage');
+const topCar = document.getElementById('topCar');
+const kickCar = document.getElementById('kickCar');
+
+function bindInput(id, fn){
+  const el = document.getElementById(id);
+  el.addEventListener('input', ()=>fn(el.value));
+}
+bindInput('iTitle', v=>{
+  captionText.textContent = `${v.toLowerCase()} at garage 25 · gulf blue 911s, slime-drip plane, lil money man 💸`;
+  locText.textContent = `${v} · Garage 25`;
+});
+bindInput('iLoc', v=>{
+  topGarage.textContent = v.toUpperCase();
+});
+bindInput('iCar', v=>{
+  topCar.textContent = v.toUpperCase();
+  kickCar.textContent = v.toLowerCase();
+});
+
+/* ─── toggles ─── */
+function bindSwitch(id, fn, initial){
+  const el = document.getElementById(id);
+  if(initial!==undefined) el.classList.toggle('on', !!initial);
+  el.addEventListener('click', ()=>{el.classList.toggle('on'); fn(el.classList.contains('on'));});
+}
+bindSwitch('tBorders', on=>{
+  document.querySelectorAll('.slot.poly').forEach(s=>{
+    s.style.padding = on ? '' : '0';
+    s.style.background = on ? '' : '#111';
+  });
+}, true);
+bindSwitch('tShadow', on=> document.documentElement.style.setProperty('--shadow', on?1:0), true);
+bindSwitch('tGrain', on=> document.querySelector('.grain').style.opacity = on ? 'var(--grain)' : '0', true);
+bindSwitch('tLeaks', on=>{
+  ['leakA','leakB','leakC'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.style.display = on?'':'none';
+  });
+}, true);
+bindSwitch('tParallax', on=>{
+  document.querySelectorAll('.layer').forEach(l=>{
+    if(!l.dataset.origSpeed){
+      const s = getComputedStyle(l).getPropertyValue('--speed').trim() || '1';
+      l.dataset.origSpeed = s;
+    }
+    l.style.setProperty('--speed', on ? l.dataset.origSpeed : 1);
+  });
+  go(idx); // re-apply transforms with new speeds
+}, true);
+bindSwitch('tKenBurns', on=>{
+  document.querySelectorAll('.slot').forEach(s=>{
+    if(on){ /* class added by activatePanel */ }
+    else  { s.classList.remove('active-photo'); }
+  });
+  if(on) activatePanel(idx);
+}, true);
+
+let autoTimer=null;
+bindSwitch('tAuto', on=>{
+  if(autoTimer){clearInterval(autoTimer);autoTimer=null;}
+  if(on) autoTimer = setInterval(()=>go(idx+1), 3500);
+}, false);
+
+/* ─── tweaks panel show/hide ─── */
+const tweaksEl=document.getElementById('tweaks');
+const tweaksToggle=document.getElementById('tweaksToggle');
+function showTweaks(v){
+  tweaksEl.style.display = v?'':'none';
+  tweaksToggle.classList.toggle('hidden', v);
+}
+tweaksToggle.addEventListener('click', ()=>showTweaks(true));
+document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
+
+// Version banner — confirms which build the browser actually loaded.
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v34-grain-filter-fix loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+
+/* ─────────────────────────────────────────────────────────────────────
+   EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
+   Step 1: prove that click+drag works on any editable element.
+   Uses elementsFromPoint at the cursor position so nothing in the
+   stacking context can absorb the click. Bypasses every issue we hit.
+   ───────────────────────────────────────────────────────────────────── */
+
+// 1. Assign data-edit-id to every text element + treat slots as editable.
+const EDITABLE_SELECTOR = '.t, .t .kicker, .t .accent, .sig .small, .sig .name, .sig .x, .sig .name2, .sig .date, .tickLabel, .num, .anno, .sticker, .topline span, .topline b, .slot .cap';
+let _editIdSeq = 0;
+document.querySelectorAll(EDITABLE_SELECTOR).forEach((el) => {
+  if (!el.dataset.editId) el.dataset.editId = 'e-' + (_editIdSeq++);
+});
+
+// 2. localStorage helpers.
+const POS_KEY = 'garage-pos-v18';
+const TEXT_KEY = 'garage-text-v18';
+const savedPos = (() => { try { return JSON.parse(localStorage.getItem(POS_KEY) || '{}'); } catch { return {}; } })();
+const savedText = (() => { try { return JSON.parse(localStorage.getItem(TEXT_KEY) || '{}'); } catch { return {}; } })();
+
+function keyFor(el) {
+  // Stable id for the element so we can persist its position.
+  if (el.dataset.slot) return 'slot:' + el.dataset.slot;
+  if (el.dataset.editId) return 'text:' + el.dataset.editId;
+  return null;
+}
+
+// 3. Restore saved positions + text content on page load.
+function restoreEdits() {
+  for (const [k, v] of Object.entries(savedPos)) {
+    let el;
+    if (k.startsWith('slot:')) el = document.querySelector('.slot[data-slot="' + k.slice(5) + '"]');
+    else if (k.startsWith('text:')) el = document.querySelector('[data-edit-id="' + CSS.escape(k.slice(5)) + '"]');
+    if (!el) continue;
+    if (typeof v.left === 'number') el.style.left = v.left + 'px';
+    if (typeof v.top === 'number')  el.style.top  = v.top + 'px';
+    if (typeof v.tx === 'number' || typeof v.ty === 'number') {
+      el.style.transform = `translate(${v.tx || 0}px, ${v.ty || 0}px)`;
+    }
+  }
+  for (const [id, html] of Object.entries(savedText)) {
+    const el = document.querySelector('[data-edit-id="' + CSS.escape(id) + '"]');
+    if (el) el.innerHTML = html;
+  }
+}
+restoreEdits();
+
+// 4. Edit-mode toggle.
+const EDIT_KEY = 'garage-edit-mode';
+let editMode = false;
+function setEditMode(on) {
+  editMode = !!on;
+  document.body.classList.toggle('edit-mode', editMode);
+  document.getElementById('tEdit').classList.toggle('on', editMode);
+  try { localStorage.setItem(EDIT_KEY, editMode ? '1' : '0'); } catch {}
+  console.log('[garage] edit mode:', editMode);
+}
+try { setEditMode(localStorage.getItem(EDIT_KEY) === '1'); } catch { setEditMode(false); }
+
+const editToggleRow = document.getElementById('tEdit')?.closest('.toggle');
+if (editToggleRow) {
+  editToggleRow.style.cursor = 'pointer';
+  editToggleRow.addEventListener('click', () => setEditMode(!editMode));
+} else {
+  document.getElementById('tEdit')?.addEventListener('click', () => setEditMode(!editMode));
+}
+
+// 5. Stage scale (for converting cursor delta to canvas px).
+function getStageScale() {
+  const m = (document.getElementById('stage').style.transform || '').match(/scale\(([0-9.]+)\)/);
+  return m ? parseFloat(m[1]) : 1;
+}
+
+// 6. The ONE drag handler. Uses elementsFromPoint so it finds the right
+//    target regardless of z-index, stacking context, or layer ordering.
+//    Window-level capture so nothing upstream can stop it.
+window.addEventListener('mousedown', (e) => {
+  if (!editMode) return;
+  if (e.button !== 0) return;
+
+  // Find the topmost editable element under the cursor.
+  const hits = document.elementsFromPoint(e.clientX, e.clientY);
+  const target = hits.find((el) => {
+    if (!el.closest('.viewport')) return false;
+    if (el.classList.contains('slot-tools')) return false;
+    if (el.closest('.slot-tools')) return false;
+    return el.matches('.slot[data-slot]') || el.matches('[data-edit-id]');
+  });
+  if (!target) return;
+
+  // Drag the EXACT element clicked. If it's already absolutely positioned
+  // (slots, .t panel-title blocks, .sig, .num, .anno, .sticker, .tickLabel),
+  // we set left/top directly. If it's inline / static (kicker spans inside
+  // .t, the words inside .topline, etc.) we use transform: translate() so
+  // we don't tear the element out of its flow.
+  const mover = target;
+  const cs = getComputedStyle(mover);
+  const isPositioned = (cs.position === 'absolute' || cs.position === 'fixed');
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  const scale = getStageScale();
+  const startX = e.clientX, startY = e.clientY;
+  let startL, startT, startTx, startTy;
+  if (isPositioned) {
+    startL = parseInt(mover.style.left) || parseInt(cs.left) || 0;
+    startT = parseInt(mover.style.top)  || parseInt(cs.top)  || 0;
+  } else {
+    const m = (mover.style.transform || '').match(/translate\(([-0-9.]+)px,\s*([-0-9.]+)px\)/);
+    startTx = m ? parseFloat(m[1]) : 0;
+    startTy = m ? parseFloat(m[2]) : 0;
+  }
+  console.log('[garage] drag start ·', keyFor(mover) || mover.className, '· positioned:', isPositioned);
+  if (mover.matches('.slot[data-slot]')) setActiveSlot(mover);
+
+  function onMove(ev) {
+    const dx = (ev.clientX - startX) / scale;
+    const dy = (ev.clientY - startY) / scale;
+    if (isPositioned) {
+      mover.style.left = Math.round(startL + dx) + 'px';
+      mover.style.top  = Math.round(startT + dy) + 'px';
+    } else {
+      const nx = Math.round(startTx + dx);
+      const ny = Math.round(startTy + dy);
+      mover.style.transform = `translate(${nx}px, ${ny}px)`;
+    }
+  }
+  function onUp() {
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    const k = keyFor(mover);
+    if (k) {
+      if (isPositioned) {
+        savedPos[k] = {
+          left: parseInt(mover.style.left) || 0,
+          top:  parseInt(mover.style.top)  || 0,
+        };
+      } else {
+        const m = (mover.style.transform || '').match(/translate\(([-0-9.]+)px,\s*([-0-9.]+)px\)/);
+        savedPos[k] = { tx: m ? parseFloat(m[1]) : 0, ty: m ? parseFloat(m[2]) : 0 };
+      }
+      try { localStorage.setItem(POS_KEY, JSON.stringify(savedPos)); } catch {}
+      console.log('[garage] drag saved ·', k, '·', isPositioned ? (savedPos[k].left + ',' + savedPos[k].top) : ('tx=' + savedPos[k].tx + ' ty=' + savedPos[k].ty));
+    }
+  }
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}, true);
+
+// 7. Double-click any text element → enter content-edit (cursor in text).
+window.addEventListener('dblclick', (e) => {
+  if (!editMode) return;
+  const hits = document.elementsFromPoint(e.clientX, e.clientY);
+  const textEl = hits.find((el) => el.matches('[data-edit-id]') && el.closest('.viewport'));
+  if (!textEl) return;
+  e.preventDefault();
+  e.stopPropagation();
+  textEl.contentEditable = 'true';
+  textEl.classList.add('gar-editing');
+  textEl.focus();
+  console.log('[garage] content-edit on', textEl.dataset.editId);
+}, true);
+
+// 8. Editing text → save html on input. Esc / click outside → exit edit.
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('[data-edit-id]');
+  if (!el || !el.classList.contains('gar-editing')) return;
+  savedText[el.dataset.editId] = el.innerHTML;
+  clearTimeout(savedText._t);
+  savedText._t = setTimeout(() => {
+    try { localStorage.setItem(TEXT_KEY, JSON.stringify(savedText)); } catch {}
+  }, 300);
+}, true);
+function exitContentEdit() {
+  document.querySelectorAll('.gar-editing').forEach((el) => {
+    el.classList.remove('gar-editing');
+    el.contentEditable = 'false';
+    el.blur();
+  });
+}
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (document.querySelector('.gar-editing')) exitContentEdit();
+    else if (editMode) setEditMode(false);
+  }
+});
+
+// 9. Reset all customisations.
+document.getElementById('resetAll')?.addEventListener('click', () => {
+  if (!confirm('Reset every customisation (positions + text edits)?')) return;
+  try {
+    localStorage.removeItem(POS_KEY);
+    localStorage.removeItem(TEXT_KEY);
+    localStorage.removeItem(SIZE_KEY);
+    localStorage.removeItem('garage-layout');
+    localStorage.removeItem('garage-theme');
+  } catch {}
+  location.reload();
+});
+
+/* ─────────────────────────────────────────────────────────────────────
+   TOOLS PANEL — appears at top-right when a slot is the active selection.
+   Provides explicit buttons (no gestures) for resize, zoom, pan-photo,
+   replace, clear, reset. ─────────────────────────────────────────── */
+
+const SIZE_KEY = 'garage-size-v18';
+const savedSize = (() => { try { return JSON.parse(localStorage.getItem(SIZE_KEY) || '{}'); } catch { return {}; } })();
+// Restore saved size/zoom/pan
+for (const [slotId, s] of Object.entries(savedSize)) {
+  const slot = document.querySelector('.slot[data-slot="' + slotId + '"]');
+  if (!slot) continue;
+  if (typeof s.width === 'number')  slot.style.width  = s.width + 'px';
+  if (typeof s.height === 'number') slot.style.height = s.height + 'px';
+  if (typeof s.zoom === 'number') {
+    slot.style.setProperty('--zoom', s.zoom);
+    if (Math.abs(s.zoom - 1) < 0.01) {
+      slot.style.backgroundSize = '';
+    } else {
+      slot.style.backgroundSize = (s.zoom * 100).toFixed(1) + '% auto';
+    }
+  }
+  if (typeof s.bgX === 'number' || typeof s.bgY === 'number') {
+    slot.style.backgroundPosition = (s.bgX ?? 50) + '% ' + (s.bgY ?? 50) + '%';
+  }
+}
+function saveSize(slot, partial) {
+  const id = slot.dataset.slot;
+  savedSize[id] = Object.assign({}, savedSize[id], partial);
+  try { localStorage.setItem(SIZE_KEY, JSON.stringify(savedSize)); } catch {}
+}
+
+let activeSlot = null;
+const tpPanel = document.getElementById('toolsPanel');
+const tpName = document.getElementById('tpName');
+const tpZoom = document.getElementById('tpZoom');
+
+function setActiveSlot(slot) {
+  if (activeSlot) activeSlot.classList.remove('gar-active');
+  activeSlot = slot || null;
+  if (activeSlot) {
+    activeSlot.classList.add('gar-active');
+    tpName.textContent = activeSlot.dataset.slot;
+    refreshToolsPanel();
+    tpPanel.hidden = false;
+  } else {
+    tpPanel.hidden = true;
+  }
+}
+
+function refreshToolsPanel() {
+  if (!activeSlot) return;
+  const z = parseFloat(activeSlot.style.getPropertyValue('--zoom') || savedSize[activeSlot.dataset.slot]?.zoom || '1') || 1;
+  tpZoom.textContent = z.toFixed(1) + '×';
+}
+
+function getCurSize(slot) {
+  return {
+    w: parseInt(slot.style.width)  || slot.offsetWidth,
+    h: parseInt(slot.style.height) || slot.offsetHeight,
+  };
+}
+function getCurZoom(slot) {
+  return parseFloat(slot.style.getPropertyValue('--zoom') || savedSize[slot.dataset.slot]?.zoom || '1') || 1;
+}
+// Apply zoom by modifying background-size directly. background-size with
+// a percentage scales the photo relative to the slot — 100% = photo's
+// width fills slot width (height proportional), 130% = 30% bigger, etc.
+// Falls back to 'cover' at zoom 1 so the design's intended fit is kept.
+function applyZoom(slot, z) {
+  slot.style.setProperty('--zoom', z.toFixed(2));
+  if (Math.abs(z - 1) < 0.01) {
+    slot.style.backgroundSize = ''; // back to cover (from base CSS)
+  } else {
+    // Use auto for height so aspect is preserved; size scales from slot width.
+    slot.style.backgroundSize = (z * 100).toFixed(1) + '% auto';
+  }
+}
+function getCurBg(slot) {
+  const s = savedSize[slot.dataset.slot] || {};
+  return { x: s.bgX ?? 50, y: s.bgY ?? 50 };
+}
+
+// Click on a slot (no drag) → make it active. Also clicking elsewhere in
+// the viewport (e.g. background, ribbon) → deactivate. Hooks into the
+// existing mousedown handler indirectly through setActiveSlot in drag.
+window.addEventListener('mousedown', (e) => {
+  if (!editMode) return;
+  // If user clicks the tools panel itself or anywhere outside .viewport,
+  // don't change active state.
+  if (e.target.closest('.tools-panel')) return;
+  if (!e.target.closest('.viewport')) return;
+  // If the user clicked a slot or text-inside-slot, we'll set active in
+  // the drag handler. If they clicked empty space, clear active.
+  const hits = document.elementsFromPoint(e.clientX, e.clientY);
+  const slot = hits.find((el) => el.matches?.('.slot[data-slot]') && el.closest('.viewport'));
+  if (!slot) setActiveSlot(null);
+}, true);
+
+// Tools panel — drag from header to reposition. Position persists.
+const TP_POS_KEY = 'garage-toolspanel-pos';
+(function restoreToolsPanelPos(){
+  try {
+    const p = JSON.parse(localStorage.getItem(TP_POS_KEY) || 'null');
+    if (p && typeof p.left === 'number' && typeof p.top === 'number') {
+      tpPanel.style.left = p.left + 'px';
+      tpPanel.style.top  = p.top + 'px';
+      tpPanel.style.right = 'auto';
+    }
+  } catch {}
+})();
+const tpHead = tpPanel.querySelector('.tp-head');
+tpHead.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  tpHead.classList.add('dragging');
+  const startX = e.clientX, startY = e.clientY;
+  const rect = tpPanel.getBoundingClientRect();
+  const startL = rect.left, startT = rect.top;
+  function onMove(ev){
+    const left = Math.max(0, Math.min(window.innerWidth  - 40, startL + ev.clientX - startX));
+    const top  = Math.max(0, Math.min(window.innerHeight - 40, startT + ev.clientY - startY));
+    tpPanel.style.left  = left + 'px';
+    tpPanel.style.top   = top  + 'px';
+    tpPanel.style.right = 'auto';
+  }
+  function onUp(){
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    tpHead.classList.remove('dragging');
+    try {
+      localStorage.setItem(TP_POS_KEY, JSON.stringify({
+        left: parseInt(tpPanel.style.left) || 0,
+        top:  parseInt(tpPanel.style.top)  || 0,
+      }));
+    } catch {}
+  }
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+});
+
+/* ─── DOWNLOAD SLIDES (high-res PNG via html2canvas) ─────────────────── */
+// Target output width in CSS px. captureSlide derives its html2canvas
+// scale factor as dlTargetW / viewport.clientWidth. 1080p ≈ 2.6×, 1440p
+// ≈ 3.5×, 4K ≈ 5.2× — all comfortably inside browser canvas limits and
+// well-suited to typical 2800–4032px source photos (we down/up-sample
+// instead of pushing 14× extreme upscales that softened detail and
+// occasionally blew out html2canvas).
+let dlTargetW = 1440;
+let dlPolish = true;
+const VP_W = 412, VP_H = 515; // viewport intrinsic size in CSS px
+function dlScale() { return dlTargetW / VP_W; }
+
+/* Polish pass — contrast + saturation + brightness lift applied as a
+   single GPU-filtered redraw. We deliberately avoid composite-mode
+   "unsharp mask" tricks here: overlay-blending a high-pass layer onto
+   the base darkens mid-/shadow pixels into mush at high canvas sizes,
+   and a single ctx.filter redraw is reliable on any canvas the browser
+   can hold. Mutates the passed canvas in place. */
+function polishCanvas(canvas) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  if (!ctx || !w || !h) return canvas;
+  const tmp = document.createElement('canvas');
+  tmp.width = w; tmp.height = h;
+  tmp.getContext('2d').drawImage(canvas, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.filter = 'contrast(1.07) saturate(1.14) brightness(1.02)';
+  ctx.drawImage(tmp, 0, 0);
+  ctx.filter = 'none';
+  return canvas;
+}
+
+/* ── Full-resolution swap for export ─────────────────────────────────
+   Slot backgrounds are stored as 2800px JPEG data URLs (so display +
+   localStorage stay cheap). At export time we temporarily swap each
+   slot's background-image for a re-rendered NATIVE-RESOLUTION data URL
+   built straight from the photo-ai IDB blob — eliminating the upscale
+   step that's responsible for the soft look in 14× exports. */
+let _photoAiDB = null;
+async function getPhotoAiDB() {
+  if (_photoAiDB) return _photoAiDB;
+  return new Promise((resolve) => {
+    try {
+      if (typeof indexedDB === 'undefined') return resolve(null);
+      const req = indexedDB.open('photo-ai', 1);
+      req.onsuccess = (e) => { _photoAiDB = e.target.result; resolve(_photoAiDB); };
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
+    } catch (err) {
+      console.warn('[garage] IDB open failed:', err);
+      resolve(null);
+    }
+  });
+}
+async function getPhotoRecord(db, id) {
+  if (!db || !db.objectStoreNames.contains('photos')) return null;
+  // IDB key types matter — try the raw value first, then a Number cast.
+  const tryGet = (k) => new Promise((resolve) => {
+    const tx = db.transaction('photos', 'readonly');
+    const req = tx.objectStore('photos').get(k);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => resolve(null);
+  });
+  let rec = await tryGet(id);
+  if (!rec) {
+    const n = Number(id);
+    if (Number.isFinite(n)) rec = await tryGet(n);
+  }
+  return rec;
+}
+async function renderFullResPhoto(rec) {
+  const blob = rec.genBlob || rec.originalBlob;
+  if (!blob || !blob.size) return null;
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error('image load failed for blob ' + blob.size + 'B'));
+      i.src = url;
+    });
+    if (!img.naturalWidth || !img.naturalHeight) {
+      console.warn('[garage] image decoded to 0×0 — skipping native-res swap for this slot');
+      return null;
+    }
+    // Cap canvas dimensions so we never allocate something a browser
+    // can't handle (Safari iOS caps around 16MP per canvas; even desktop
+    // Chrome throttles past ~32k px on a side). 4096 covers iPhone 12MP
+    // shots at native quality while staying safe everywhere.
+    const MAX = 4096;
+    const longEdge = Math.max(img.naturalWidth, img.naturalHeight);
+    const sc = Math.min(1, MAX / longEdge);
+    const w = Math.round(img.naturalWidth * sc);
+    const h = Math.round(img.naturalHeight * sc);
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    if (rec.look) {
+      const f = (k, d = 1) => (typeof rec.look[k] === 'number' ? rec.look[k] : d);
+      ctx.filter = `brightness(${f('brightness')}) contrast(${f('contrast')}) saturate(${f('saturate')}) hue-rotate(${f('hueRotate', 0)}deg) sepia(${f('sepia', 0)}) grayscale(${f('grayscale', 0)}) blur(${f('blur', 0)}px) invert(${f('invert', 0)})`;
+    }
+    ctx.drawImage(img, 0, 0, w, h);
+    ctx.filter = 'none';
+    if (rec.look?.tintAlpha > 0.005) {
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = rec.look.tintAlpha;
+      ctx.fillStyle = rec.look.tintColor;
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    if (rec.look?.vignette > 0.01) {
+      const grad = ctx.createRadialGradient(w/2, h/2, Math.min(w, h) * 0.35, w/2, h/2, Math.max(w, h) * 0.72);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, `rgba(0,0,0,${0.85 * rec.look.vignette})`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+    }
+    // Use a Blob + blob: URL instead of a multi-MB data URL string.
+    // Setting a huge data URL as CSS background-image is unreliable
+    // (some browsers truncate or fail silently → slot renders empty).
+    // A blob: URL is a tiny string reference to a stored Blob, which
+    // every browser handles cleanly even for 4096px JPEGs.
+    return await new Promise((res) => {
+      c.toBlob((outBlob) => {
+        res(outBlob ? URL.createObjectURL(outBlob) : null);
+      }, 'image/jpeg', 0.96);
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+async function swapSlotsToFullRes() {
+  const swaps = [];
+  const db = await getPhotoAiDB();
+  if (!db) return swaps;
+  for (const slot of document.querySelectorAll('.slot[data-slot]')) {
+    const pid = slot.dataset.photoId;
+    if (!pid) continue;
+    try {
+      const rec = await getPhotoRecord(db, pid);
+      if (!rec) continue;
+      const fullUrl = await renderFullResPhoto(rec);
+      if (!fullUrl) continue;
+      swaps.push({ slot, oldBg: slot.style.backgroundImage, newUrl: fullUrl });
+      slot.style.backgroundImage = `url("${fullUrl}")`;
+    } catch (err) {
+      console.warn('[garage] full-res swap failed for slot', slot.dataset.slot, err);
+    }
+  }
+  console.log('[garage] full-res swap: replaced', swaps.length, 'slot backgrounds with native-resolution photos');
+  return swaps;
+}
+function restoreSlotBackgrounds(swaps) {
+  for (const { slot, oldBg, newUrl } of swaps) {
+    slot.style.backgroundImage = oldBg;
+    if (newUrl) try { URL.revokeObjectURL(newUrl); } catch {}
+  }
+}
+
+// Wait until every <img> and CSS background-image inside the viewport has
+// finished loading, so html2canvas doesn't snapshot a half-decoded photo.
+// Returns a map of src → natural pixel dimensions, which we use later to
+// re-render slot backgrounds at full source resolution instead of CSS size.
+async function waitForViewportImages() {
+  const viewport = document.getElementById('viewport');
+  const urls = new Set();
+  viewport.querySelectorAll('img').forEach((img) => { if (img.src) urls.add(img.src); });
+  viewport.querySelectorAll('*').forEach((el) => {
+    const bg = getComputedStyle(el).backgroundImage;
+    if (!bg || bg === 'none') return;
+    const m = bg.match(/url\(["']?([^"')]+)["']?\)/g);
+    if (!m) return;
+    m.forEach((u) => {
+      const inner = u.match(/url\(["']?([^"')]+)["']?\)/);
+      if (inner && inner[1]) urls.add(inner[1]);
+    });
+  });
+  const dims = new Map();
+  await Promise.all([...urls].map((src) => new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { dims.set(src, { w: img.naturalWidth, h: img.naturalHeight, img }); resolve(); };
+    img.onerror = () => resolve();
+    img.src = src;
+  })));
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return dims;
+}
+
+async function captureSlide(slideIdx, scale) {
+  if (typeof scale !== 'number' || !isFinite(scale) || scale <= 0) scale = dlScale();
+  // Navigate to the target slide and wait for parallax transitions
+  // (.layer transition is 650ms cubic-bezier .22 .7 .18 1).
+  const wasIdx = idx;
+  go(slideIdx);
+  await new Promise((r) => setTimeout(r, 700));
+  // Hide chrome that shouldn't appear in the exported image.
+  const hides = [
+    document.getElementById('toolsPanel'),
+    document.querySelector('.edit-mode-banner'),
+    document.getElementById('versionStamp'),
+    document.querySelector('.tweaks'),
+    document.querySelector('.tweaks-toggle'),
+    document.querySelector('.arrow.l'),
+    document.querySelector('.arrow.r'),
+    document.querySelector('.counter'),
+  ].filter(Boolean);
+  const prev = hides.map((el) => el.style.display);
+  hides.forEach((el) => { el.style.display = 'none'; });
+  const wasEditMode = editMode;
+  if (editMode) document.body.classList.remove('edit-mode');
+
+  // Native-resolution swap is OFF by default. At 1080p / 1440p / 4K the
+  // cached 2800px slot backgrounds already match or exceed the target
+  // canvas width, so html2canvas downsamples — no upscale, plenty sharp,
+  // and we sidestep the html2canvas createPattern crash that fires when
+  // any swap source decodes to a 0×0 image. To re-enable for the
+  // unlikely case of a >4K target, flip dlNativeSwap to true.
+  const dlNativeSwap = false;
+  let swaps = [];
+  if (dlNativeSwap) {
+    try { swaps = await swapSlotsToFullRes(); } catch (err) { console.warn('[garage] swap skipped:', err); }
+  }
+
+  const viewport = document.getElementById('viewport');
+  let canvas;
+  try {
+    canvas = await window.html2canvas(viewport, {
+      backgroundColor: null,
+      scale,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      imageTimeout: 8000,
+      letterRendering: true,
+      removeContainer: true,
+      // html2canvas v1.4.1 can't render SVG <feTurbulence> filters
+      // (the .grain noise overlay) and crashes the whole export with
+      // "createPattern: image argument is a canvas of width/height 0".
+      // Strip the grain + guide backgrounds from the cloned DOM before
+      // rendering — they're pure decoration and the loss is invisible.
+      onclone: (doc) => {
+        doc.querySelectorAll('.grain, .guides').forEach((el) => {
+          el.style.backgroundImage = 'none';
+          el.style.display = 'none';
+        });
+      },
+    });
+    const ctx = canvas.getContext('2d');
+    if (ctx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
+    if (dlPolish) try { polishCanvas(canvas); } catch (err) { console.warn('[garage] polish skipped:', err); }
+  } finally {
+    restoreSlotBackgrounds(swaps);
+    hides.forEach((el, i) => { el.style.display = prev[i]; });
+    if (wasEditMode) document.body.classList.add('edit-mode');
+    if (wasIdx !== slideIdx) go(wasIdx);
+  }
+  return canvas;
+}
+
+function canvasToDownload(canvas, filename, showPreview) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) { reject(new Error('canvas.toBlob returned null (canvas may be tainted by cross-origin images)')); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        a.remove();
+        if (showPreview) {
+          // Pop the rendered image up as a visible confirmation + fallback
+          // (right-click → "Save image as…" works even if the auto-download
+          // was blocked by browser security or hidden in a download tray).
+          showDownloadPreview(url, filename, blob.size);
+        } else {
+          // Revoke shortly after; the browser has already started the
+          // download by this point.
+          setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
+        }
+        resolve();
+      }, 300);
+    }, 'image/png');
+  });
+}
+
+function showDownloadPreview(url, filename, size) {
+  // Remove any existing preview so consecutive downloads stack cleanly.
+  const old = document.getElementById('dlPreview');
+  if (old) old.remove();
+  const wrap = document.createElement('div');
+  wrap.id = 'dlPreview';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;backdrop-filter:blur(8px)';
+  const head = document.createElement('div');
+  head.style.cssText = 'color:#fff;font-family:var(--font-mono,monospace);font-size:14px;font-weight:700;letter-spacing:.5px;text-align:center';
+  head.innerHTML = `Downloaded <span style="color:#4cd2ff">${filename}</span> · ${(size/1024).toFixed(0)} KB<br><span style="font-weight:400;opacity:.7;font-size:12px">If your browser didn't save the file, right-click the image → "Save image as…"</span>`;
+  wrap.appendChild(head);
+  const img = document.createElement('img');
+  img.src = url;
+  img.style.cssText = 'max-width:min(90vw,500px);max-height:70vh;object-fit:contain;border:1px solid #333;border-radius:4px;box-shadow:0 20px 60px rgba(0,0,0,.7)';
+  wrap.appendChild(img);
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:10px';
+  const saveBtn = document.createElement('a');
+  saveBtn.href = url; saveBtn.download = filename;
+  saveBtn.textContent = '↓ Save again';
+  saveBtn.style.cssText = 'background:#1c7ed6;color:#fff;padding:10px 18px;border-radius:6px;font-family:var(--font-mono,monospace);font-size:12px;font-weight:700;text-decoration:none';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.style.cssText = 'background:#2a2a30;color:#fff;border:1px solid #444;padding:10px 18px;border-radius:6px;font-family:var(--font-mono,monospace);font-size:12px;font-weight:700;cursor:pointer';
+  closeBtn.addEventListener('click', () => wrap.remove());
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+  row.appendChild(saveBtn);
+  row.appendChild(closeBtn);
+  wrap.appendChild(row);
+  document.body.appendChild(wrap);
+}
+
+function dlLabel() {
+  if (dlTargetW >= 2160) return '4K';
+  if (dlTargetW >= 1440) return '1440p';
+  return '1080p';
+}
+function dlHintBaseline() {
+  const w = dlTargetW;
+  const h = Math.round(dlTargetW * (VP_H / VP_W));
+  const polishBit = dlPolish ? ' · polish on' : '';
+  return `PNG at ${dlLabel()} (${w} × ${h}px)${polishBit}.`;
+}
+
+function fileSuffix() { return dlPolish ? `-${dlLabel()}-polished.png` : `-${dlLabel()}.png`; }
+
+// Wrap a Promise in a hard timeout so a hung captureSlide can't leave
+// the UI stuck on "Rendering…" forever.
+function withTimeout(p, ms, label) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error((label || 'operation') + ' timed out after ' + ms + 'ms')), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
+async function downloadSlide(slideIdx) {
+  const hint = document.getElementById('dlHint');
+  hint.textContent = `Rendering slide ${slideIdx + 1} at ${dlLabel()}${dlPolish ? ' (+ polish)' : ''}…`;
+  try {
+    const canvas = await withTimeout(captureSlide(slideIdx, dlScale()), 60000, 'captureSlide');
+    if (!canvas || !canvas.width) throw new Error('captureSlide returned no canvas');
+    console.log('[garage] captured', canvas.width, 'x', canvas.height, '— starting toBlob');
+    await withTimeout(canvasToDownload(canvas, `garage-slide-${String(slideIdx + 1).padStart(2, '0')}${fileSuffix()}`, true), 30000, 'toBlob');
+    hint.textContent = `Saved slide ${slideIdx + 1}.`;
+    setTimeout(() => { hint.textContent = dlHintBaseline(); }, 2500);
+  } catch (err) {
+    console.error('[garage] download failed:', err);
+    hint.textContent = 'Download failed: ' + (err?.message || err);
+    // Briefly flash the panel red so the failure is visible.
+    const tw = document.querySelector('.tweaks');
+    if (tw) {
+      const prev = tw.style.boxShadow;
+      tw.style.boxShadow = '0 0 0 3px #ff5d4a, 0 12px 30px rgba(0,0,0,.6)';
+      setTimeout(() => { tw.style.boxShadow = prev; }, 1500);
+    }
+  }
+}
+
+async function downloadAllSlides() {
+  const hint = document.getElementById('dlHint');
+  for (let i = 0; i < N; i++) {
+    hint.textContent = `Rendering slide ${i + 1} of ${N} at ${dlLabel()}${dlPolish ? ' (+ polish)' : ''}…`;
+    try {
+      const canvas = await captureSlide(i, dlScale());
+      await canvasToDownload(canvas, `garage-slide-${String(i + 1).padStart(2, '0')}${fileSuffix()}`);
+    } catch (err) {
+      console.error('[garage] slide', i + 1, 'failed:', err);
+      hint.textContent = `Slide ${i + 1} failed — see console.`;
+      return;
+    }
+  }
+  hint.textContent = `All ${N} slides saved.`;
+  setTimeout(() => { hint.textContent = dlHintBaseline(); }, 3000);
+}
+
+// Resolution selector — buttons carry target width in px (1080 / 1440 / 2160).
+document.querySelectorAll('#dlQuality button[data-w]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    dlTargetW = parseInt(btn.dataset.w, 10) || 1440;
+    document.querySelectorAll('#dlQuality button[data-w]').forEach((b) => b.classList.toggle('on', b === btn));
+    document.getElementById('dlHint').textContent = dlHintBaseline();
+  });
+});
+
+// Polish toggle — flips dlPolish, updates button label + hint.
+const dlPolishBtn = document.getElementById('dlPolishBtn');
+dlPolishBtn?.addEventListener('click', () => {
+  dlPolish = !dlPolish;
+  dlPolishBtn.textContent = `Polish: ${dlPolish ? 'on' : 'off'}`;
+  dlPolishBtn.classList.toggle('on', dlPolish);
+  document.getElementById('dlHint').textContent = dlHintBaseline();
+});
+
+document.getElementById('dlCurrent')?.addEventListener('click', () => downloadSlide(idx));
+document.getElementById('dlAll')?.addEventListener('click', () => downloadAllSlides());
+
+// Always-visible big download button (top-right). Same flow as dlCurrent
+// but logs every step to the console so failures are diagnosable, and
+// can't be missed because the button isn't tucked inside the tweaks
+// panel. If the toBlob/anchor-click path fails silently, the preview
+// modal still pops up with the rendered image + a guaranteed-working
+// Save button driven by a direct user gesture.
+const bigDlBtn = document.getElementById('bigDownload');
+bigDlBtn?.addEventListener('click', async () => {
+  console.log('[garage] BIG DOWNLOAD clicked · idx=' + idx + ' · target=' + dlLabel() + ' (scale ' + dlScale().toFixed(2) + ')');
+  const orig = bigDlBtn.textContent;
+  bigDlBtn.textContent = '↓ RENDERING…';
+  bigDlBtn.disabled = true;
+  try {
+    console.log('[garage] calling captureSlide…');
+    const canvas = await withTimeout(captureSlide(idx, dlScale()), 60000, 'captureSlide');
+    console.log('[garage] captureSlide returned canvas ' + canvas.width + '×' + canvas.height);
+    await withTimeout(canvasToDownload(canvas, `garage-slide-${String(idx + 1).padStart(2, '0')}${fileSuffix()}`, true), 30000, 'toBlob');
+    console.log('[garage] download finished');
+  } catch (err) {
+    console.error('[garage] BIG DOWNLOAD failed:', err);
+    alert('Download failed:\n\n' + (err?.stack || err?.message || String(err)));
+  } finally {
+    bigDlBtn.textContent = orig;
+    bigDlBtn.disabled = false;
+  }
+});
+
+// "Reload at native res" — wipes the cached 2800px slot data URLs and
+// re-runs fillFromRoll so each slot grabs its photo straight from IDB,
+// this time with photoId tracked. After this, downloads use the full
+// native-resolution swap path in captureSlide. Direct-drop slots aren't
+// touched because they already store their full file via FileReader.
+document.getElementById('reloadFullRes')?.addEventListener('click', async () => {
+  const hint = document.getElementById('dlHint');
+  hint.textContent = 'Reloading photos at native resolution…';
+  for (const slot of slots) {
+    const id = slot.dataset.slot;
+    delete stored[id];
+    delete storedIds[id];
+    delete slot.dataset.photoId;
+    slot.style.backgroundImage = '';
+    slot.classList.add('empty');
+  }
+  try {
+    localStorage.setItem('garage3-slots', JSON.stringify(stored));
+    localStorage.setItem('garage3-slot-ids', JSON.stringify(storedIds));
+  } catch {}
+  await fillFromRoll();
+  hint.textContent = 'Photos reloaded. Native-resolution export enabled.';
+  setTimeout(() => { hint.textContent = dlHintBaseline(); }, 3000);
+});
+
+// Tools panel button clicks.
+tpPanel.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-tp]');
+  if (!btn || !activeSlot) return;
+  const action = btn.dataset.tp;
+  const slot = activeSlot;
+  const STEP = 20;        // px for size adjustments
+  const ZSTEP = 0.1;      // zoom increment
+  const PSTEP = 5;        // % for pan adjustments
+  if (action === 'w+') {
+    const s = getCurSize(slot); slot.style.width  = (s.w + STEP) + 'px'; saveSize(slot, { width:  s.w + STEP });
+  } else if (action === 'w-') {
+    const s = getCurSize(slot); slot.style.width  = Math.max(40, s.w - STEP) + 'px'; saveSize(slot, { width:  Math.max(40, s.w - STEP) });
+  } else if (action === 'h+') {
+    const s = getCurSize(slot); slot.style.height = (s.h + STEP) + 'px'; saveSize(slot, { height: s.h + STEP });
+  } else if (action === 'h-') {
+    const s = getCurSize(slot); slot.style.height = Math.max(40, s.h - STEP) + 'px'; saveSize(slot, { height: Math.max(40, s.h - STEP) });
+  } else if (action === 'z+') {
+    const z = Math.min(4, getCurZoom(slot) + ZSTEP);
+    applyZoom(slot, z);
+    saveSize(slot, { zoom: z });
+  } else if (action === 'z-') {
+    const z = Math.max(0.4, getCurZoom(slot) - ZSTEP);
+    applyZoom(slot, z);
+    saveSize(slot, { zoom: z });
+  } else if (action.startsWith('p-')) {
+    const b = getCurBg(slot);
+    if (action === 'p-up')    b.y = Math.max(0, b.y - PSTEP);
+    if (action === 'p-down')  b.y = Math.min(100, b.y + PSTEP);
+    if (action === 'p-left')  b.x = Math.max(0, b.x - PSTEP);
+    if (action === 'p-right') b.x = Math.min(100, b.x + PSTEP);
+    slot.style.backgroundPosition = b.x + '% ' + b.y + '%';
+    saveSize(slot, { bgX: b.x, bgY: b.y });
+  } else if (action === 'replace') {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*';
+    inp.onchange = () => { if (inp.files[0]) handleFile(inp.files[0], slot); };
+    inp.click();
+  } else if (action === 'clear') {
+    delete stored[slot.dataset.slot];
+    try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch {}
+    slot.style.backgroundImage = '';
+    slot.classList.add('empty');
+  } else if (action === 'reset') {
+    const id = slot.dataset.slot;
+    delete savedSize[id]; delete savedPos[id];
+    try {
+      localStorage.setItem(SIZE_KEY, JSON.stringify(savedSize));
+      localStorage.setItem(POS_KEY, JSON.stringify(savedPos));
+    } catch {}
+    slot.style.removeProperty('width'); slot.style.removeProperty('height');
+    slot.style.removeProperty('--zoom'); slot.style.removeProperty('background-position');
+    slot.style.removeProperty('left'); slot.style.removeProperty('top');
+    // Reload to re-apply original inline styles from HTML.
+    location.reload();
+  }
+  refreshToolsPanel();
+});
+
+// Final setup-complete banner — if the user opens DevTools and DOESN'T see
+// this line in the console, the script crashed somewhere above and edit
+// mode handlers were never installed.
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v34-grain-filter-fix · ALL HANDLERS INSTALLED · ' +
+  document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
+  document.querySelectorAll('.slot[data-slot]').length + ' slots',
+  'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
+</script>
+</body>
+</html>

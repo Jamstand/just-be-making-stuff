@@ -1046,10 +1046,11 @@ async function openaiEdit({ image, prompt, mask, mediaType }) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error('OPENAI_API_KEY not set');
   const model = process.env.OPENAI_IMAGE_MODEL || GEN_PROVIDERS.openai.defaultModel;
+  const ext = mediaType === 'image/jpeg' ? 'jpg' : mediaType === 'image/webp' ? 'webp' : 'png';
   const form = new FormData();
   form.append('model', model);
   form.append('prompt', prompt);
-  form.append('image', new Blob([Buffer.from(image, 'base64')], { type: mediaType }), 'image.png');
+  form.append('image', new Blob([Buffer.from(image, 'base64')], { type: mediaType }), `image.${ext}`);
   if (mask) form.append('mask', new Blob([Buffer.from(mask, 'base64')], { type: 'image/png' }), 'mask.png');
   const res = await fetch('https://api.openai.com/v1/images/edits', {
     method: 'POST',
@@ -1095,13 +1096,157 @@ app.post('/ai/photo-generate', async (req, res) => {
   }
 });
 
+// ── Polish / upscale (Magnific via Freepik API, Clarity via Replicate) ──────
+// Different from gen-edit: no prompt, no mask — pure detail enhancement.
+// Magnific: async POST → poll task_id → fetch URL.
+// Clarity: same Replicate /predictions pattern as flux-kontext.
+const POLISH_PROVIDERS = {
+  magnific_2k: {
+    envKey: 'FREEPIK_API_KEY',
+    estCostUsd: 0.08,
+    label: 'Magnific 2K',
+    maxInputDim: 1024,
+  },
+  magnific_4k: {
+    envKey: 'FREEPIK_API_KEY',
+    estCostUsd: 0.16,
+    label: 'Magnific 4K',
+    maxInputDim: 2048,
+  },
+  clarity: {
+    envKey: 'REPLICATE_API_TOKEN',
+    defaultModel: 'philz1337x/clarity-upscaler',
+    estCostUsd: 0.03,
+    label: 'Clarity (Replicate)',
+    maxInputDim: 2048,
+  },
+};
+
+function polishProviderStatus() {
+  const out = {};
+  for (const [id, p] of Object.entries(POLISH_PROVIDERS)) {
+    out[id] = {
+      ready: !!process.env[p.envKey],
+      estCostUsd: p.estCostUsd,
+      label: p.label,
+      maxInputDim: p.maxInputDim,
+    };
+  }
+  return out;
+}
+
+async function magnificPolish({ image }) {
+  const key = process.env.FREEPIK_API_KEY;
+  if (!key) throw new Error('FREEPIK_API_KEY not set');
+  const createRes = await fetch('https://api.freepik.com/v1/ai/image-upscaler', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'accept': 'application/json',
+      'x-freepik-api-key': key,
+    },
+    body: JSON.stringify({
+      image,
+      scale_factor: '2x',
+      sharpen: 50,
+      smart_grain: 7,
+      ultra_detail: 30,
+    }),
+  });
+  if (!createRes.ok) throw new Error(`Magnific ${createRes.status}: ${(await createRes.text()).slice(0, 400)}`);
+  const created = await createRes.json();
+  const taskId = created?.data?.task_id;
+  if (!taskId) throw new Error('Magnific returned no task_id');
+
+  const deadline = Date.now() + 240_000; // 4 min cap — Magnific edits typically finish in 30–90s
+  let task = created.data;
+  while (task.status !== 'COMPLETED' && task.status !== 'FAILED' && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2500));
+    const pollRes = await fetch(`https://api.freepik.com/v1/ai/image-upscaler/${taskId}`, {
+      headers: { 'x-freepik-api-key': key, 'accept': 'application/json' },
+    });
+    if (!pollRes.ok) throw new Error(`Magnific poll ${pollRes.status}`);
+    task = (await pollRes.json())?.data;
+    if (!task) throw new Error('Magnific poll returned no data');
+  }
+  if (task.status !== 'COMPLETED') throw new Error(`Magnific ${task.status || 'timeout'}`);
+  const outUrl = Array.isArray(task.generated) ? task.generated[0] : null;
+  if (!outUrl) throw new Error('Magnific returned no image URL');
+  const imgRes = await fetch(outUrl);
+  if (!imgRes.ok) throw new Error(`Magnific output fetch ${imgRes.status}`);
+  const buf = Buffer.from(await imgRes.arrayBuffer());
+  return { mediaType: imgRes.headers.get('content-type') || 'image/jpeg', data: buf.toString('base64') };
+}
+
+async function clarityPolish({ image, mediaType }) {
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) throw new Error('REPLICATE_API_TOKEN not set');
+  const model = process.env.CLARITY_MODEL || POLISH_PROVIDERS.clarity.defaultModel;
+  const createRes = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+    method: 'POST',
+    headers: {
+      'authorization': `Bearer ${token}`,
+      'content-type': 'application/json',
+      'prefer': 'wait=60',
+    },
+    body: JSON.stringify({
+      input: {
+        image: `data:${mediaType};base64,${image}`,
+        scale_factor: 2,
+        creativity: 0.35,
+        resemblance: 0.6,
+        dynamic: 6,
+        output_format: 'png',
+      },
+    }),
+  });
+  if (!createRes.ok) throw new Error(`Clarity ${createRes.status}: ${(await createRes.text()).slice(0, 400)}`);
+  let pred = await createRes.json();
+  const deadline = Date.now() + 240_000;
+  while ((pred.status === 'starting' || pred.status === 'processing') && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${pred.id}`, {
+      headers: { 'authorization': `Bearer ${token}` },
+    });
+    pred = await pollRes.json();
+  }
+  if (pred.status !== 'succeeded') throw new Error(`Clarity ${pred.status}: ${pred.error || 'timeout'}`);
+  const outUrl = Array.isArray(pred.output) ? pred.output[0] : pred.output;
+  if (typeof outUrl !== 'string') throw new Error('Clarity returned no image URL');
+  const imgRes = await fetch(outUrl);
+  if (!imgRes.ok) throw new Error(`Clarity output fetch ${imgRes.status}`);
+  const buf = Buffer.from(await imgRes.arrayBuffer());
+  return { mediaType: imgRes.headers.get('content-type') || 'image/png', data: buf.toString('base64') };
+}
+
+app.post('/ai/photo-polish', async (req, res) => {
+  const { image, provider } = req.body || {};
+  const p = provider || 'magnific';
+  if (typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'image must be a data URL' });
+  }
+  if (!POLISH_PROVIDERS[p]) return res.status(400).json({ error: `unknown polish provider: ${p}` });
+  const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!m) return res.status(400).json({ error: 'invalid image data URL' });
+  try {
+    let result;
+    if (p.startsWith('magnific')) result = await magnificPolish({ image: m[2] });
+    else if (p === 'clarity') result = await clarityPolish({ image: m[2], mediaType: m[1] });
+    res.json({ image: `data:${result.mediaType};base64,${result.data}`, provider: p });
+  } catch (err) {
+    console.error('photo-polish error:', err.message);
+    res.status(500).json({ error: 'polish_failed', detail: err.message });
+  }
+});
+
 app.get('/ai/status', async (req, res) => {
   const gen = genProviderStatus();
+  const polish = polishProviderStatus();
   if (AI_BACKEND === 'claude-code') {
     const ok = await checkClaudeCodeAvailable();
-    return res.json({ ready: ok, model: 'claude-code', backend: 'claude-code', gen });
+    return res.json({ ready: ok, model: 'claude-code', backend: 'claude-code', gen, polish });
   }
-  res.json({ ready: anthropicReady(), model: AI_MODEL, backend: 'sdk', gen });
+  res.json({ ready: anthropicReady(), model: AI_MODEL, backend: 'sdk', gen, polish });
 });
 
 app.post('/ai/detect', async (req, res) => {
@@ -1251,8 +1396,10 @@ Return a JSON object matching the schema. Guidelines:
 - glow 0.1–0.3 adds soft halation; above 0.5 gets dreamy/hazy. glow ≥ 0.7 washes the frame out — only use that for explicit "dreamy / foggy / hazy" prompts. NEVER use glow for "smooth", "polish", "clean", or "denoise" — that's what blur is for.
 - blur is the right tool for "smooth", "polish", "soft", "remove noise", "denoise", "clean up" requests — use 0.5–1.5 for those. For other looks keep blur at 0 or under 1.
 - Don't stack multiple lightening effects: brightness > 1.2 + glow > 0.4 + a light tintColor with tintAlpha > 0.2 together will produce a near-white, washed-out frame. Pick one lightening tool and keep the others restrained.
+- CRITICAL — DO NOT DARKEN DIM PHOTOS. If the source is already dim (showroom, garage, indoor low-light, night scene, underexposed) then brightness MUST be ≥ 1.05 and vignette MUST be ≤ 0.3. Cinematic mood on a dim photo comes from contrast (1.15–1.35) + a tintColor (teal/orange/amber with tintAlpha 0.15–0.25), NOT from lowering brightness or piling on vignette. A "cinematic" look on an already-dark photo with brightness 0.7 + vignette 0.7 makes it unreadable — never do that.
+- Only LOWER brightness (< 1.0) on photos that are clearly OVER-exposed: blown highlights, washed-out scenes, harsh midday sun. If the photo looks normally exposed or dim, keep brightness ≥ 1.0.
 - caption is a 2–6 word name for the look (e.g. "warm 70s film", "noir contrast", "neon dream").
-- Consider the actual scene: a dim indoor shot probably wants brightness a hair above 1; a blown-out window scene wants contrast up and brightness down.
+- Consider the actual scene: a dim indoor shot wants brightness 1.05–1.2 + contrast bump; a blown-out window scene wants contrast up and brightness down (0.85–0.95).
 
 Output ONLY the JSON object matching the schema. No prose, no markdown.`;
 
@@ -1294,7 +1441,7 @@ app.post('/ai/photo-edit', async (req, res) => {
       look = text ? JSON.parse(text) : null;
     }
     if (!look) return res.status(502).json({ error: 'ai_empty', detail: 'no JSON returned' });
-    res.json({ look });
+    res.json({ look: softenDarkLook(look, !!userPrompt) });
   } catch (err) {
     const status = err.status || (err instanceof Anthropic.APIError ? err.status || 500 : 500);
     console.error('photo-edit error:', err.message);
@@ -1302,7 +1449,368 @@ app.post('/ai/photo-edit', async (req, res) => {
   }
 });
 
+// Guardrail: even with the system-prompt warning, Claude occasionally pairs
+// brightness < 1.0 with vignette > 0.4 on dim source photos, or applies a
+// dark tintColor at high tintAlpha — both crush the image to near-black.
+// AUTO-grade gets aggressive caps so the user always sees a readable photo.
+// When the user explicitly prompts (e.g. "moody noir"), we relax everything
+// because they've asked for the dark mood.
+function softenDarkLook(look, hasUserPrompt) {
+  if (!look) return look;
+  const before = { ...look };
+
+  if (typeof look.brightness === 'number') {
+    if (!hasUserPrompt && look.brightness < 1.0) look.brightness = 1.0;
+  }
+  if (typeof look.contrast === 'number') {
+    if (!hasUserPrompt && look.contrast > 1.2) look.contrast = 1.2;
+    if (hasUserPrompt && look.contrast > 1.4) look.contrast = 1.4;
+  }
+  if (typeof look.vignette === 'number') {
+    if (!hasUserPrompt && look.vignette > 0.2) look.vignette = 0.2;
+    if (hasUserPrompt && look.vignette > 0.5) look.vignette = 0.5;
+  }
+  if (typeof look.tintColor === 'string' && typeof look.tintAlpha === 'number') {
+    const m = look.tintColor.match(/^#([0-9a-f]{6})$/i);
+    if (m) {
+      const r = parseInt(m[1].slice(0, 2), 16);
+      const g = parseInt(m[1].slice(2, 4), 16);
+      const b = parseInt(m[1].slice(4, 6), 16);
+      const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      const cap = !hasUserPrompt ? (luma < 0.5 ? 0.12 : 0.25)
+                                 : (luma < 0.3 ? 0.2 : luma < 0.5 ? 0.35 : 0.5);
+      if (look.tintAlpha > cap) look.tintAlpha = cap;
+    }
+  }
+  if (typeof look.grain === 'number') {
+    if (!hasUserPrompt && look.grain > 0.3) look.grain = 0.3;
+  }
+
+  const diffs = [];
+  for (const k of ['brightness', 'contrast', 'vignette', 'tintAlpha', 'grain']) {
+    if (before[k] !== look[k]) diffs.push(`${k}: ${before[k]} → ${look[k]}`);
+  }
+  const mode = hasUserPrompt ? 'prompt' : 'auto';
+  // Log every field so we can spot any extreme value (invert, glow, blur,
+  // grayscale, sepia, hueRotate, saturate) that could be darkening.
+  const full = `bright=${look.brightness} contrast=${look.contrast} sat=${look.saturate} hue=${look.hueRotate} sepia=${look.sepia} gray=${look.grayscale} blur=${look.blur} invert=${look.invert} vign=${look.vignette} grain=${look.grain} glow=${look.glow} tint=${look.tintColor}@${look.tintAlpha}`;
+  if (diffs.length) console.log(`[guardrail/${mode}] softened "${look.caption}":`, diffs.join(', '), '|', full);
+  else console.log(`[grade/${mode}] "${look.caption}":`, full);
+  return look;
+}
+
 app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', 'photo-ai.html')));
+app.get('/lumen', (req, res) => res.sendFile(path.join(__dirname, 'public', 'lumen.html')));
+app.get('/aperture', (req, res) => res.sendFile(path.join(__dirname, 'public', 'aperture.html')));
+app.get('/garage', (req, res) => {
+  // Force the browser to revalidate /garage every load — without this,
+  // Chrome aggressively caches the HTML and users running through
+  // multiple iterations of edit-mode fixes were stuck on stale JS.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.sendFile(path.join(__dirname, 'public', 'garage.html'));
+});
+
+// ── Smarter auto-grade: analyze + propose 4 tailored looks in one call ───────
+// Replaces the fan-out of 4 separate /ai/photo-edit calls with a single
+// richer call. Claude reads the photo, identifies subject / lighting /
+// mood, then proposes 4 distinct looks NAMED for what suits THIS photo
+// (e.g. "Showroom Polish" / "Track Day" / "Magazine Editorial" / "Noir
+// Concept" instead of generic "Natural / Cinematic / Film / Vivid").
+//
+// Each variant comes with a one-sentence rationale so the user
+// understands why Claude is suggesting it. Cheaper than 4 separate
+// calls (1 image transfer instead of 4) and noticeably smarter.
+
+const LOOK_PROPS = LOOK_SCHEMA.properties;
+const GRADE_PACK_SCHEMA = {
+  type: 'object',
+  required: ['analysis', 'variants'],
+  additionalProperties: false,
+  properties: {
+    analysis: {
+      type: 'object',
+      required: ['subject', 'lighting', 'mood'],
+      additionalProperties: false,
+      properties: {
+        subject:  { type: 'string', description: '1–4 words for what the photo is of (e.g. "car detail", "portrait", "landscape").' },
+        lighting: { type: 'string', description: '1–6 words on lighting condition + quality (e.g. "indoor showroom · warm", "golden hour outdoor").' },
+        mood:     { type: 'string', description: '1–4 words for the overall vibe (e.g. "polished, premium", "moody, dark").' },
+        notes:    { type: 'string', description: 'Optional: 1 sentence on what could be improved or preserved.' },
+      },
+    },
+    variants: {
+      type: 'array', minItems: 4, maxItems: 4,
+      items: {
+        type: 'object',
+        required: ['name', 'rationale', 'look'],
+        additionalProperties: false,
+        properties: {
+          name:      { type: 'string', description: '2–4 word name tailored to this specific photo. Avoid generic words like "Natural" or "Cinematic" unless they\'re truly the best fit.' },
+          rationale: { type: 'string', description: 'One sentence explaining why this look suits the shot.' },
+          look:      { type: 'object', required: LOOK_SCHEMA.required, additionalProperties: false, properties: LOOK_PROPS },
+        },
+      },
+    },
+  },
+};
+
+const GRADE_PACK_SYSTEM = `${EDIT_SYSTEM}
+
+You are now in PACK mode — instead of returning ONE look, return an ANALYSIS of the photo plus FOUR distinct looks that suit it.
+
+The 4 variants should be:
+- VISUALLY DIFFERENT from each other (don't return 4 similar warm grades)
+- NAMED for what makes them right for THIS photo (a car shot variant could be "Showroom Polish"; a portrait could be "Window Light Soft"; a landscape could be "Golden Hour Lift"). Avoid the generic words "Natural", "Cinematic", "Film", "Vivid" unless one of those is genuinely the perfect description.
+- Each accompanied by a one-sentence rationale explaining the choice.
+
+The analysis fields (subject, lighting, mood) should be specific and concise — a single line each. Notes is optional, only include if there's something useful to flag.
+
+All look-parameter rules from the regular EDIT_SYSTEM apply to every variant — especially the dim-photo brightness/vignette/contrast rules.
+
+Output ONLY the JSON object matching the pack schema. No prose, no markdown.`;
+
+async function claudeCodeGradePack(mediaType, b64) {
+  const ext = mediaType.split('/')[1] || 'jpg';
+  const id = crypto.randomUUID();
+  const imgFile = path.join(os.tmpdir(), `gradepack-${id}.${ext}`);
+  const instFile = path.join(os.tmpdir(), `gradepack-${id}.txt`);
+  fs.writeFileSync(imgFile, Buffer.from(b64, 'base64'));
+  // The pack system prompt + schema together exceed Windows cmd.exe's 8K
+  // command-line limit. Write the long instructions to a tmp file and have
+  // Claude Read both files — keeps the spawn args tiny.
+  fs.writeFileSync(instFile, `${GRADE_PACK_SYSTEM}
+
+Schema you must follow:
+${JSON.stringify(GRADE_PACK_SCHEMA, null, 2)}
+
+Output ONLY the JSON object — no prose, no markdown fences.`);
+  try {
+    const prompt = `Read the instructions at ${instFile} and the photo at ${imgFile}, then return the JSON pack per the schema.`;
+    const text = await runClaudeCode(prompt, 240000);
+    return extractJsonObject(text);
+  } finally {
+    try { fs.unlinkSync(imgFile); } catch {}
+    try { fs.unlinkSync(instFile); } catch {}
+  }
+}
+
+app.post('/ai/photo-grade-pack', async (req, res) => {
+  const { image } = req.body || {};
+  if (typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'image must be a data URL' });
+  }
+  const m = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!m) return res.status(400).json({ error: 'invalid image data URL' });
+  try {
+    let pack;
+    if (AI_BACKEND === 'claude-code') {
+      pack = await claudeCodeGradePack(m[1], m[2]);
+    } else {
+      if (!anthropicReady()) {
+        return res.status(400).json({ error: 'ai_not_configured', detail: 'Set ANTHROPIC_API_KEY or AI_BACKEND=claude-code.' });
+      }
+      const response = await getAnthropicClient().messages.create({
+        model: process.env.AI_GRADE_MODEL || 'claude-opus-4-7',
+        max_tokens: 2048,
+        system: [{ type: 'text', text: GRADE_PACK_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        output_config: { format: { type: 'json_schema', schema: GRADE_PACK_SCHEMA } },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
+            { type: 'text', text: 'Analyze this photo and return 4 tailored grade variants per the schema.' },
+          ],
+        }],
+      });
+      const text = response.content.find((b) => b.type === 'text')?.text;
+      pack = text ? JSON.parse(text) : null;
+    }
+    if (!pack?.variants?.length) return res.status(502).json({ error: 'ai_empty' });
+    // Run each variant through the dim-photo guardrail (auto mode).
+    pack.variants = pack.variants.map((v) => ({ ...v, look: softenDarkLook(v.look, false) }));
+    res.json(pack);
+  } catch (err) {
+    console.error('photo-grade-pack error:', err.message);
+    res.status(500).json({ error: 'gradepack_failed', detail: err.message });
+  }
+});
+
+// ── Compose (auto-group photos into Instagram-ready sets) ────────────────────
+// Sends a batch of thumbnails to Claude with vision and asks for:
+//   - themed groups (subject/style clusters)
+//   - profile_grids (3 / 6 / 9 photos that look cohesive in a 3-col feed)
+//   - carousels (3–10 photos in best swipe order)
+// Photos are referenced by client-supplied id so the response stays small
+// and the client can map back to its IDB records.
+
+const COMPOSE_MAX_PHOTOS = 30;
+const COMPOSE_MODEL = process.env.AI_COMPOSE_MODEL || 'claude-opus-4-7';
+
+const COMPOSE_SYSTEM = `You are an Instagram art director with an eye for cohesive visual sets.
+
+You will receive a batch of photos, each tagged with an ID like "p1", "p2", "p3". Your job:
+
+1. CLUSTER the photos into themed groups based on subject, lighting, palette, and mood. Each group should feel like it belongs in the same post or feed section.
+2. PROPOSE PROFILE_GRIDS — groups of exactly 3, 6, or 9 photos that would look clean as a 3-column Instagram profile grid (so visual flow across rows matters).
+3. PROPOSE CAROUSELS — sets of 3 to 10 photos in best swipe order for a single carousel post (open with a hero, vary pacing, close strong).
+
+Rules:
+- Only use the photo IDs given to you. Never invent IDs.
+- A photo may appear in multiple proposals (e.g. cluster + grid + carousel) but inside ONE proposal it must appear at most once.
+- Skip blurry / duplicate / weak photos rather than padding a group with them.
+- Titles are 1–4 words, concrete (e.g. "Track day", "Garage moody"), not generic ("Cool shots").
+- Rationales are one sentence, specific to THESE photos — call out what makes them cohesive (palette, subject, lighting).
+
+Output ONLY the JSON object matching the schema. No prose, no markdown fences.`;
+
+const COMPOSE_SCHEMA = {
+  type: 'object',
+  required: ['groups', 'profile_grids', 'carousels'],
+  properties: {
+    groups: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['title', 'rationale', 'photo_ids'],
+        properties: {
+          title: { type: 'string' },
+          rationale: { type: 'string' },
+          photo_ids: { type: 'array', items: { type: 'string' }, minItems: 2 },
+        },
+      },
+    },
+    profile_grids: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['title', 'rationale', 'photo_ids'],
+        properties: {
+          title: { type: 'string' },
+          rationale: { type: 'string' },
+          photo_ids: {
+            type: 'array', items: { type: 'string' },
+            minItems: 3, maxItems: 9,
+          },
+        },
+      },
+    },
+    carousels: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['title', 'rationale', 'photo_ids'],
+        properties: {
+          title: { type: 'string' },
+          rationale: { type: 'string' },
+          photo_ids: {
+            type: 'array', items: { type: 'string' },
+            minItems: 3, maxItems: 10,
+          },
+        },
+      },
+    },
+  },
+};
+
+function validateComposeResponse(parsed, validIds) {
+  const ids = new Set(validIds);
+  const filterValid = (arr) => arr.filter((id) => ids.has(id));
+  const out = { groups: [], profile_grids: [], carousels: [] };
+  for (const g of parsed.groups || []) {
+    const photo_ids = filterValid(g.photo_ids || []);
+    if (photo_ids.length >= 2) out.groups.push({ ...g, photo_ids });
+  }
+  for (const g of parsed.profile_grids || []) {
+    const photo_ids = filterValid(g.photo_ids || []);
+    if (photo_ids.length >= 3) out.profile_grids.push({ ...g, photo_ids: photo_ids.slice(0, 9) });
+  }
+  for (const c of parsed.carousels || []) {
+    const photo_ids = filterValid(c.photo_ids || []);
+    if (photo_ids.length >= 3) out.carousels.push({ ...c, photo_ids: photo_ids.slice(0, 10) });
+  }
+  return out;
+}
+
+async function claudeCodeCompose(photos) {
+  const tmpFiles = [];
+  try {
+    const fileLines = photos.map((p, i) => {
+      const ext = (p.mediaType || 'image/jpeg').split('/')[1] || 'jpg';
+      const tmpFile = path.join(os.tmpdir(), `compose-${crypto.randomUUID()}.${ext}`);
+      fs.writeFileSync(tmpFile, Buffer.from(p.image, 'base64'));
+      tmpFiles.push(tmpFile);
+      return `  ${p.id} → ${tmpFile}`;
+    }).join('\n');
+
+    const prompt = `${COMPOSE_SYSTEM}
+
+Read each photo with the Read tool. Photos and their IDs:
+${fileLines}
+
+Schema you must follow:
+${JSON.stringify(COMPOSE_SCHEMA, null, 2)}
+
+Output ONLY the JSON object — no prose, no markdown fences.`;
+    const text = await runClaudeCode(prompt, 240000);
+    return extractJsonObject(text);
+  } finally {
+    for (const f of tmpFiles) { try { fs.unlinkSync(f); } catch {} }
+  }
+}
+
+app.post('/ai/photo-compose', async (req, res) => {
+  const { photos } = req.body || {};
+  if (!Array.isArray(photos) || photos.length < 3) {
+    return res.status(400).json({ error: 'need at least 3 photos to compose' });
+  }
+  if (photos.length > COMPOSE_MAX_PHOTOS) {
+    return res.status(400).json({ error: `too many photos — cap is ${COMPOSE_MAX_PHOTOS}` });
+  }
+
+  const parsed = [];
+  for (const p of photos) {
+    if (typeof p.id !== 'string' || !p.id) return res.status(400).json({ error: 'each photo needs an id' });
+    if (typeof p.image !== 'string' || !p.image.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'each photo needs an image data URL' });
+    }
+    const m = p.image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!m) return res.status(400).json({ error: 'invalid image data URL' });
+    parsed.push({ id: p.id, mediaType: m[1], image: m[2] });
+  }
+  const validIds = parsed.map((p) => p.id);
+
+  try {
+    let raw;
+    if (AI_BACKEND === 'claude-code') {
+      raw = await claudeCodeCompose(parsed);
+    } else {
+      if (!anthropicReady()) {
+        return res.status(400).json({ error: 'ai_not_configured', detail: 'Set ANTHROPIC_API_KEY or AI_BACKEND=claude-code.' });
+      }
+      const content = [];
+      for (const p of parsed) {
+        content.push({ type: 'text', text: `[id: ${p.id}]` });
+        content.push({ type: 'image', source: { type: 'base64', media_type: p.mediaType, data: p.image } });
+      }
+      content.push({ type: 'text', text: 'Group these photos into themed clusters, propose profile grids (3/6/9 photos), and carousel posts (3–10 photos in swipe order). Output JSON matching the schema.' });
+      const response = await getAnthropicClient().messages.create({
+        model: COMPOSE_MODEL,
+        max_tokens: 4096,
+        system: [{ type: 'text', text: COMPOSE_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        output_config: { format: { type: 'json_schema', schema: COMPOSE_SCHEMA } },
+        messages: [{ role: 'user', content }],
+      });
+      const text = response.content.find((b) => b.type === 'text')?.text;
+      raw = text ? JSON.parse(text) : null;
+    }
+    if (!raw) return res.status(502).json({ error: 'ai_empty' });
+    const cleaned = validateComposeResponse(raw, validIds);
+    res.json(cleaned);
+  } catch (err) {
+    console.error('photo-compose error:', err.message);
+    res.status(500).json({ error: 'compose_failed', detail: err.message });
+  }
+});
 
 // ── Claude Design (Max ed.) ──────────────────────────────────────────────────
 //
@@ -1628,6 +2136,47 @@ app.post('/design/generate', async (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ── Dev hot-reload ───────────────────────────────────────────────────────────
+// SSE endpoint + fs.watch on /public so the browser auto-refreshes whenever
+// you edit / git-pull a page. Page reload script lives in public/hot-reload.js
+// and is included with a single <script src> tag (see garage.html, etc.).
+const reloadClients = new Set();
+let lastChangeAt = Date.now();
+try {
+  fs.watch(path.join(__dirname, 'public'), { recursive: true }, (evt, filename) => {
+    if (!filename) return;
+    lastChangeAt = Date.now();
+    for (const res of reloadClients) {
+      try { res.write('data: ' + JSON.stringify({ t: lastChangeAt, file: filename }) + '\n\n'); } catch {}
+    }
+  });
+  console.log('[hot-reload] watching public/ for changes');
+} catch (err) {
+  console.warn('[hot-reload] fs.watch failed:', err.message);
+}
+app.get('/dev/live', (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders?.();
+  res.write(': connected\n\n');
+  reloadClients.add(res);
+  const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 25000);
+  req.on('close', () => { clearInterval(ping); reloadClients.delete(res); });
+});
+// Trigger `git pull` from the browser — call POST /dev/pull and the page
+// will reload moments later when fs.watch fires.
+app.post('/dev/pull', (req, res) => {
+  const { exec } = require('child_process');
+  exec('git pull --ff-only', { cwd: __dirname }, (err, stdout, stderr) => {
+    if (err) return res.status(500).json({ ok: false, error: stderr || err.message });
+    res.json({ ok: true, output: stdout.trim() });
+  });
+});
 
 // ── Start ────────────────────────────────────────────────────────────────────
 

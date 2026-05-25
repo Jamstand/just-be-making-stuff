@@ -194,6 +194,132 @@
   .mode-pane { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; min-height: 0; flex: 1; }
   .mode-pane[hidden] { display: none; }
 
+  /* ── Compose mode (AI auto-grouping) ───────────────────────────────────── */
+  .compose-bar {
+    width: 100%; max-width: 1100px; flex-shrink: 0;
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  }
+  .compose-stats { font-size: 12px; color: var(--muted); flex: 1; }
+  .compose-results {
+    width: 100%; max-width: 1100px;
+    flex: 1 1 0; min-height: 0; overflow-y: auto;
+    padding: 4px 12px 24px 4px;
+    scrollbar-width: thin; scrollbar-color: var(--coral) var(--ivory);
+  }
+  .compose-results::-webkit-scrollbar { width: 10px; }
+  .compose-results::-webkit-scrollbar-track { background: var(--ivory); border-radius: 8px; }
+  .compose-results::-webkit-scrollbar-thumb { background: var(--coral); border-radius: 8px; border: 2px solid var(--ivory); }
+  .compose-empty {
+    text-align: center; padding: 60px 20px; max-width: 540px; margin: 0 auto;
+    display: flex; flex-direction: column; gap: 14px; color: var(--muted);
+  }
+  .compose-empty h2 { color: var(--ink); margin: 0; font-weight: 500; font-size: 24px; }
+  .compose-empty p { font-size: 13px; line-height: 1.5; margin: 0; }
+  .compose-set {
+    background: var(--cream); border: 1px solid var(--hair); border-radius: 12px;
+    padding: 16px; margin-bottom: 16px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .compose-set .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .compose-set .title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 500; color: var(--ink); }
+  .compose-set .count { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
+  .compose-set .why { font-size: 13px; color: var(--char); line-height: 1.4; font-style: italic; }
+  .compose-set .actions { display: flex; gap: 6px; margin-top: 4px; }
+
+  /* Profile grid layout — Instagram-style 3-column square grid. */
+  .compose-set.grid .photos {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px;
+    background: var(--ink); padding: 3px; border-radius: 4px;
+  }
+  .compose-set.grid .photos img {
+    width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block;
+  }
+
+  /* Carousel layout — horizontal row, numbered, scroll if too many. */
+  .compose-set.carousel .photos {
+    display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px;
+    scrollbar-width: thin; scrollbar-color: var(--coral) var(--cream);
+  }
+  .compose-set.carousel .photos::-webkit-scrollbar { height: 8px; }
+  .compose-set.carousel .photos::-webkit-scrollbar-thumb { background: var(--coral); border-radius: 8px; }
+  .compose-set.carousel .photo-slot {
+    flex: 0 0 160px; position: relative;
+  }
+  .compose-set.carousel .photo-slot img {
+    width: 160px; height: 160px; object-fit: cover; border-radius: 6px; display: block;
+  }
+  .compose-set.carousel .photo-slot .order {
+    position: absolute; top: 6px; left: 6px;
+    background: rgba(31,31,30,0.85); color: var(--cream);
+    font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 10px;
+  }
+  .compose-set img.missing {
+    background: var(--paper); display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 10px;
+  }
+  /* Themed-cluster view (just a tag-list of cluster groups). */
+  .compose-clusters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .compose-cluster-chip {
+    background: var(--paper); border: 1px solid var(--hair);
+    padding: 4px 10px; border-radius: 14px; font-size: 11px; color: var(--muted);
+  }
+
+  /* Slideshow editor — sized larger than the gen-edit modal. */
+  .slideshow-panel { max-width: 900px; }
+  .aesthetic-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .aesthetic-chip {
+    border: 1px solid var(--hair); background: var(--ivory); color: var(--ink);
+    border-radius: 999px; padding: 6px 14px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  .aesthetic-chip.on { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+  .slide-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+  .slide-row {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--ivory); border-radius: 8px; padding: 8px;
+  }
+  .slide-row .num {
+    width: 24px; height: 24px; border-radius: 999px; background: var(--ink);
+    color: var(--cream); font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .slide-row img.src {
+    width: 48px; height: 48px; object-fit: cover; border-radius: 4px; flex-shrink: 0;
+  }
+  .slide-row .effects { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+  .slide-row .effect-chip {
+    border: 1px solid var(--hair); background: var(--cream); color: var(--ink);
+    border-radius: 999px; padding: 3px 9px; font-size: 11px; cursor: pointer;
+    font-family: inherit;
+  }
+  .slide-row .effect-chip.on { background: var(--coral); color: var(--cream); border-color: var(--coral); }
+  .slide-row .effect-chip.ai { border-style: dashed; }
+
+  .slide-previews { display: flex; flex-direction: column; gap: 10px; }
+  .slide-previews-row {
+    display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px;
+    scrollbar-width: thin; scrollbar-color: var(--coral) var(--ivory);
+  }
+  .slide-previews-row .slide-preview {
+    flex: 0 0 240px; position: relative;
+    background: var(--ink); border-radius: 6px; overflow: hidden;
+  }
+  .slide-previews-row .slide-preview img,
+  .slide-previews-row .slide-preview canvas {
+    width: 100%; height: 320px; object-fit: cover; display: block;
+  }
+  .slide-previews-row .slide-preview .order {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(31,31,30,0.85); color: var(--cream);
+    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+  }
+  .slide-previews-row .slide-preview .effect-label {
+    position: absolute; bottom: 8px; left: 8px; right: 8px;
+    background: rgba(31,31,30,0.85); color: var(--cream);
+    font-size: 10px; padding: 3px 8px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+
   /* ── Drop mode ── */
   .drop-zone {
     width: 100%; max-width: 720px; min-height: 220px;
@@ -203,21 +329,95 @@
     padding: 32px; gap: 10px; text-align: center;
     transition: border-color 0.15s, background 0.15s;
     cursor: pointer;
+    flex-shrink: 0;
   }
+  .drop-prompt-row {
+    width: 100%; max-width: 920px; display: flex; gap: 8px;
+    flex-wrap: wrap; align-items: center;
+  }
+  .drop-prompt-row input {
+    /* width: auto overrides the base 'input[type=text] { width: 100% }'
+       which otherwise made the input take the whole row and push the
+       Auto-denoise / view-toggle / Re-edit / Clear off the right edge. */
+    flex: 1 1 220px; width: auto; min-width: 180px;
+    min-height: 0; padding: 8px 12px;
+  }
+  /* Group the action chips together so when the row wraps they stay
+     adjacent instead of scattering one per line. */
+  .drop-prompt-row .controls {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+
+  /* Claude's read of the photo — sits under the filename */
+  .card .analysis {
+    font-size: 10px; color: var(--muted); line-height: 1.4;
+    font-family: 'Inter Tight', monospace; margin-top: 2px;
+    display: none;
+  }
+  .card .analysis.has { display: block; }
+  .card .analysis .chip {
+    display: inline-block; padding: 1px 6px; margin-right: 4px;
+    background: var(--paper); border-radius: 8px; font-size: 9px;
+    color: var(--ink); letter-spacing: 0.04em;
+  }
+  .card .analysis .notes { display: block; margin-top: 3px; font-style: italic; color: var(--ink2); }
+  .batch-grid.view-list .card .analysis { font-size: 9px; }
+  .batch-grid.view-list .card .analysis .notes { display: none; }
+
+  /* Per-card variant preview strip (4 auto-grade options) */
+  .card .variants {
+    display: flex; gap: 4px; margin-top: 2px; flex-wrap: wrap;
+  }
+  .card .variant {
+    background: transparent; border: 0; padding: 0; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    font-family: inherit;
+  }
+  .card .variant canvas, .card .variant .skel {
+    display: block; width: 36px; height: 36px; border-radius: 3px;
+    box-shadow: 0 0 0 1px var(--hair); background: var(--ivory);
+  }
+  .card .variant.on canvas { box-shadow: 0 0 0 1.5px var(--coral); }
+  .card .variant .v-name {
+    font-size: 9px; color: var(--muted); letter-spacing: 0.04em;
+    line-height: 1; max-width: 50px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .card .variant.on .v-name { color: var(--ink); font-weight: 600; }
+  .card .variant.loading .skel {
+    background: linear-gradient(90deg, var(--ivory) 0%, var(--cream) 50%, var(--ivory) 100%);
+    background-size: 200% 100%; animation: variantShimmer 1.2s linear infinite;
+  }
+  .card .variant.error .skel { background: rgba(181,82,59,0.12); }
+  .card .variant:disabled { cursor: default; }
+  @keyframes variantShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  /* In list view the strip sits inline with the rest of the meta. */
+  .batch-grid.view-list .card .variants { margin-top: 4px; }
   .drop-zone.dragover { border-color: var(--coral); background: var(--paper); }
   .drop-zone h2 { font-family: 'Fraunces',serif; font-weight: 500; font-size: 22px; }
   .drop-zone p { color: var(--muted); font-size: 13px; }
   .drop-zone .or { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; }
-  .drop-prompt-row {
-    width: 100%; max-width: 720px; display: flex; gap: 8px;
-  }
-  .drop-prompt-row input { flex: 1; }
 
   .batch-grid {
     width: 100%; gap: 12px;
-    max-height: calc(100vh - 230px); overflow-y: auto;
-    padding: 4px;
+    /* Fill remaining vertical space in the flex column parent (.mode-pane)
+       and scroll within that. flex-basis: 0 (not auto) so the grid starts
+       at zero and grows into whatever's left after the drop-zone +
+       prompt-row, instead of taking its content size and overflowing. */
+    flex: 1 1 0; min-height: 0; overflow-y: auto;
+    padding: 4px 12px 4px 4px;
+    /* Always-visible themed scrollbar so users can see the gallery scrolls. */
+    scrollbar-width: thin;
+    scrollbar-color: var(--coral) var(--ivory);
   }
+  .batch-grid::-webkit-scrollbar { width: 10px; }
+  .batch-grid::-webkit-scrollbar-track {
+    background: var(--ivory); border-radius: 8px;
+  }
+  .batch-grid::-webkit-scrollbar-thumb {
+    background: var(--coral); border-radius: 8px;
+    border: 2px solid var(--ivory);
+  }
+  .batch-grid::-webkit-scrollbar-thumb:hover { background: var(--ink); }
   .batch-grid.view-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -276,9 +476,13 @@
   .card .reprompt button { padding: 4px 8px; font-size: 10px; }
   .card.needs-setup .reprompt { display: none; }
 
-  /* List view — horizontal cards, redo hidden until hover/focus. */
+  /* List view — horizontal cards. flex-shrink: 0 stops the column-flex
+     parent from squashing tall cards (wrapped action buttons + reprompt)
+     when the gallery's overflow-y: auto would otherwise let them grow
+     and scroll. align-items: flex-start so the thumbnail stays at 64×64
+     and meta drives the card's natural height. */
   .batch-grid.view-list .card {
-    flex-direction: row; align-items: stretch;
+    flex-direction: row; align-items: flex-start; flex-shrink: 0;
   }
   .batch-grid.view-list .card .compare {
     width: 64px; height: 64px; flex: 0 0 64px; border-radius: 0;
@@ -291,13 +495,7 @@
     flex: 1; padding: 6px 10px; gap: 2px;
   }
   .batch-grid.view-list .card .actions { margin-top: 0; }
-  .batch-grid.view-list .card .reprompt {
-    display: none; margin-top: 4px;
-  }
-  .batch-grid.view-list .card:hover .reprompt,
-  .batch-grid.view-list .card:focus-within .reprompt {
-    display: flex;
-  }
+  .batch-grid.view-list .card .reprompt { margin-top: 4px; }
   .batch-grid.view-list .card .badge {
     top: 4px; left: 4px; font-size: 8px; padding: 2px 5px;
   }
@@ -517,6 +715,7 @@
     <div class="mode-tabs" role="tablist">
       <button class="mode-tab on" data-mode="live" role="tab">Live camera</button>
       <button class="mode-tab" data-mode="drop" role="tab">Drop photos</button>
+      <button class="mode-tab" data-mode="compose" role="tab">Compose</button>
     </div>
 
     <!-- Live camera mode -->
@@ -542,16 +741,22 @@
     <div class="mode-pane" id="dropMode" hidden>
       <div class="drop-prompt-row">
         <input type="text" id="batchPrompt" placeholder="(optional) describe a look to apply to every photo — leave blank to let Claude auto-style each one" disabled>
-        <label class="auto-toggle" title="When off, dropped photos sit untouched until you click Redo or Re-edit all.">
-          <input type="checkbox" id="autoEditToggle" checked>
-          <span>Auto-grade on drop</span>
-        </label>
-        <div class="view-toggle" role="tablist" aria-label="View mode">
-          <button class="view-btn on" data-view="grid" title="Grid view" aria-label="Grid view">▦</button>
-          <button class="view-btn" data-view="list" title="List view" aria-label="List view">☰</button>
+        <div class="controls">
+          <label class="auto-toggle" title="When off, dropped photos sit untouched until you click Redo or Re-edit all.">
+            <input type="checkbox" id="autoEditToggle" checked>
+            <span>Auto-grade on drop</span>
+          </label>
+          <label class="auto-toggle" title="Bakes a subtle blur into the render to soften sensor noise. Light touch — safe to leave on.">
+            <input type="checkbox" id="denoiseToggle" checked>
+            <span>Auto-denoise</span>
+          </label>
+          <div class="view-toggle" role="tablist" aria-label="View mode">
+            <button class="view-btn on" data-view="grid" title="Grid view" aria-label="Grid view">▦</button>
+            <button class="view-btn" data-view="list" title="List view" aria-label="List view">☰</button>
+          </div>
+          <button id="reeditAll" class="btn ghost" disabled>Re-edit all</button>
+          <button id="clearAll" class="btn ghost" disabled title="Remove all saved photos">Clear</button>
         </div>
-        <button id="reeditAll" class="btn ghost" disabled>Re-edit all</button>
-        <button id="clearAll" class="btn ghost" disabled title="Remove all saved photos">Clear</button>
       </div>
       <div class="drop-zone" id="dropZone">
         <h2 class="serif">Drop photos here</h2>
@@ -562,6 +767,25 @@
         <input type="file" id="filePicker" accept="image/*" multiple hidden disabled>
       </div>
       <div class="batch-grid view-grid" id="batchGrid"></div>
+    </div>
+
+    <!-- Compose mode — AI groups photos into Instagram-ready sets. -->
+    <div class="mode-pane" id="composeMode" hidden>
+      <div class="compose-bar">
+        <div class="compose-stats" id="composeStats">0 photos · drop or grade some first</div>
+        <button id="composeRunBtn" class="btn primary" disabled>Auto-compose</button>
+        <div class="view-toggle" role="tablist" aria-label="Compose view">
+          <button class="view-btn on" data-compose-view="grids" title="Profile grids">▦ Grids</button>
+          <button class="view-btn" data-compose-view="carousels" title="Carousel posts">▭ Carousels</button>
+        </div>
+      </div>
+      <div class="compose-results" id="composeResults">
+        <div class="compose-empty">
+          <h2 class="serif">Auto-compose your photos</h2>
+          <p>Claude will look at every photo you've graded, then group them into themed sets that look clean together — profile grids (3×3 squares) and swipe-ordered carousels.</p>
+          <p class="capability-note">Up to 30 photos per run. Each photo can show up in more than one suggestion.</p>
+        </div>
+      </div>
     </div>
   </main>
 </div>
@@ -622,6 +846,40 @@
     <div class="actions-row">
       <button class="btn ghost" id="genCancel">Cancel</button>
       <button class="btn coral" id="genConfirm">Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Slideshow editor modal — turn a carousel set into a styled, swipeable post. -->
+<div class="gen-modal slideshow-modal" id="slideshowModal" hidden>
+  <div class="panel slideshow-panel">
+    <div>
+      <h3>Slideshow editor</h3>
+      <p class="sub">Pick an aesthetic. Each slide gets a built-in effect (free, canvas-based) or an AI generative edit (uses your gen-edit provider). Render the whole post, then download numbered.</p>
+    </div>
+
+    <div>
+      <div class="field-label">Aesthetic</div>
+      <div class="aesthetic-chips" id="aestheticChips"></div>
+    </div>
+
+    <div>
+      <div class="field-label">Slides — click an effect chip to change it</div>
+      <div class="slide-list" id="slideList"></div>
+    </div>
+
+    <div class="actions-row">
+      <button class="btn ghost" id="slideshowCancel">Cancel</button>
+      <button class="btn ghost" id="slideshowAiPlan">🧠 Let Claude plan effects</button>
+      <button class="btn coral" id="slideshowRender">Render all</button>
+    </div>
+
+    <div class="slide-previews" id="slidePreviews" hidden>
+      <div class="field-label">Preview — swipe order</div>
+      <div class="slide-previews-row" id="slidePreviewsRow"></div>
+      <div class="actions-row">
+        <button class="btn coral" id="slideshowDownload">Download all (numbered)</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1000,6 +1258,23 @@ function renderStill(img, theLook, dstCanvas) {
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
   }
+
+  // Auto-denoise — downscale + high-quality upscale gives subtle softening
+  // without the alpha loss that CSS-filter blur causes on a transparent
+  // canvas. Done LAST so it smooths over noise + grain together.
+  if (denoiseEnabled) {
+    const tmp = document.createElement('canvas');
+    tmp.width = Math.max(1, Math.round(w * 0.85));
+    tmp.height = Math.max(1, Math.round(h * 0.85));
+    const tctx = tmp.getContext('2d');
+    tctx.imageSmoothingEnabled = true;
+    tctx.imageSmoothingQuality = 'high';
+    tctx.drawImage(dstCanvas, 0, 0, tmp.width, tmp.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(tmp, 0, 0, w, h);
+  }
 }
 
 // ── Camera control ───────────────────────────────────────────────────────────
@@ -1277,6 +1552,8 @@ document.querySelectorAll('.mode-tab').forEach((tab) => {
     document.querySelectorAll('.mode-tab').forEach((t) => t.classList.toggle('on', t === tab));
     $('liveMode').hidden = (m !== 'live');
     $('dropMode').hidden = (m !== 'drop');
+    $('composeMode').hidden = (m !== 'compose');
+    if (m === 'compose') refreshComposeStats();
   });
 });
 
@@ -1337,6 +1614,11 @@ async function persistPhoto(photo) {
       genBlob: photo.genBlob || null,
       genProvider: photo.genProvider || null,
       genPrompt: photo.genPrompt || null,
+      // Persist only the look JSON for each variant — thumbs re-render
+      // locally from the source on display.
+      variants: (photo.variants || []).map((v) => ({ id: v.id, name: v.name, rationale: v.rationale || '', look: v.look, status: v.status })),
+      variantIndex: photo.variantIndex ?? 0,
+      analysis: photo.analysis || null,
     });
   } catch (err) { console.warn('photo persist failed:', err); }
 }
@@ -1352,6 +1634,28 @@ const autoToggle = $('autoEditToggle');
     try { localStorage.setItem(AUTO_KEY, autoToggle.checked ? '1' : '0'); } catch {}
   });
 })();
+
+// ── Auto-denoise toggle ──────────────────────────────────────────────────────
+// Bakes a small blur into every rendered photo to soften sensor noise.
+// Re-renders all existing cards on toggle so the change is visible immediately.
+const DENOISE_KEY = 'photo-ai-denoise';
+const DENOISE_PX = 0.5;
+let denoiseEnabled = true;
+const denoiseToggle = $('denoiseToggle');
+(function initDenoiseToggle() {
+  let saved = '1';
+  try { saved = localStorage.getItem(DENOISE_KEY); if (saved === null) saved = '1'; } catch {}
+  denoiseEnabled = saved !== '0';
+  denoiseToggle.checked = denoiseEnabled;
+  denoiseToggle.addEventListener('change', () => {
+    denoiseEnabled = denoiseToggle.checked;
+    try { localStorage.setItem(DENOISE_KEY, denoiseEnabled ? '1' : '0'); } catch {}
+    for (const p of photos) {
+      if (p.img && p.look && p.canvas) renderStill(p.img, p.look, p.canvas);
+    }
+  });
+})();
+function denoisePx() { return denoiseEnabled ? DENOISE_PX : 0; }
 
 // ── View toggle (grid vs list) ───────────────────────────────────────────────
 const VIEW_KEY = 'photo-ai-view';
@@ -1377,6 +1681,627 @@ let aiStatus = null;
 function anyGenProviderReady() {
   return aiStatus && aiStatus.gen && Object.values(aiStatus.gen).some((g) => g.ready);
 }
+function anyPolishProviderReady() {
+  return aiStatus && aiStatus.polish && Object.values(aiStatus.polish).some((p) => p.ready);
+}
+
+// ── ✨ Polish (Magnific upscaler / Replicate Clarity) ───────────────────────
+// One-click enhancement per provider. Two-step confirm on the card button
+// itself so the per-image cost is shown before billing.
+async function polishPhoto(photo, btn, provider) {
+  const p = aiStatus?.polish?.[provider];
+  if (!p?.ready) {
+    toast(`${provider} not configured`);
+    return;
+  }
+  const origLabel = btn.dataset.label || btn.textContent;
+  btn.dataset.label = origLabel;
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = '1';
+    btn.textContent = `Confirm — ~$${p.estCostUsd.toFixed(2)}`;
+    setTimeout(() => {
+      if (btn.dataset.armed === '1') {
+        delete btn.dataset.armed;
+        btn.textContent = origLabel;
+      }
+    }, 5000);
+    return;
+  }
+  delete btn.dataset.armed;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Polishing…';
+  setBadge(photo, 'busy', `${p.label}…`);
+  try {
+    const dataUrl = await normalizePhotoForUpload(photo.file, p.maxInputDim || 2048);
+    const res = await fetch('/ai/photo-polish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, provider }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'request failed');
+    await applyGeneratedImage(photo, data.image, provider, 'polished');
+  } catch (err) {
+    setBadge(photo, 'err', 'Failed');
+    photo.card.querySelector('.cap').textContent = (err.message || 'failed').slice(0, 80);
+    toast(err.message || 'polish failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origLabel;
+  }
+}
+
+// ── Compose mode (AI auto-grouping into Instagram-ready sets) ───────────────
+let composeData = null;        // last server response
+let composeView = 'grids';     // 'grids' | 'carousels'
+const composeThumbs = new Map(); // id -> small data URL (cached for renders)
+
+function refreshComposeStats() {
+  const ready = photos.filter((p) => p.canvas && (p.status === 'done' || p.status === 'gen'));
+  const stats = $('composeStats');
+  const btn = $('composeRunBtn');
+  if (!aiReady) {
+    stats.textContent = 'Claude not configured — set ANTHROPIC_API_KEY or AI_BACKEND=claude-code';
+    btn.disabled = true;
+  } else if (ready.length < 3) {
+    stats.textContent = `${ready.length} ready · drop and grade at least 3 photos first`;
+    btn.disabled = true;
+  } else if (ready.length > 30) {
+    stats.textContent = `${ready.length} ready · will use the first 30 (Compose cap)`;
+    btn.disabled = false;
+  } else {
+    stats.textContent = `${ready.length} ready · Claude will group them into themed sets`;
+    btn.disabled = false;
+  }
+}
+
+function snapshotPhotoForCompose(photo, maxDim = 384) {
+  // Use the rendered canvas (has filter look applied) when available, else
+  // fall back to the original image at the same size.
+  const src = photo.canvas?.width ? photo.canvas : photo.img;
+  if (!src) return null;
+  const w = src.naturalWidth || src.width;
+  const h = src.naturalHeight || src.height;
+  const scale = Math.min(1, maxDim / Math.max(w, h));
+  const cw = Math.max(1, Math.round(w * scale));
+  const ch = Math.max(1, Math.round(h * scale));
+  const c = document.createElement('canvas');
+  c.width = cw; c.height = ch;
+  c.getContext('2d').drawImage(src, 0, 0, cw, ch);
+  return c.toDataURL('image/jpeg', 0.78);
+}
+
+async function runCompose() {
+  const ready = photos.filter((p) => p.canvas && (p.status === 'done' || p.status === 'gen')).slice(0, 30);
+  if (ready.length < 3) { toast('need at least 3 graded photos'); return; }
+  const btn = $('composeRunBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Composing…';
+  $('composeResults').innerHTML = '<div class="compose-empty"><p>Claude is looking at your photos…</p></div>';
+
+  composeThumbs.clear();
+  const payload = [];
+  for (const p of ready) {
+    const dataUrl = snapshotPhotoForCompose(p);
+    if (!dataUrl) continue;
+    const sid = String(p.id);
+    composeThumbs.set(sid, dataUrl);
+    payload.push({ id: sid, image: dataUrl });
+  }
+  try {
+    const res = await fetch('/ai/photo-compose', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ photos: payload }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'request failed');
+    composeData = data;
+    renderCompose();
+  } catch (err) {
+    $('composeResults').innerHTML = `<div class="compose-empty"><p style="color:var(--coral-ink)">${(err.message || 'compose failed')}</p></div>`;
+    toast(err.message || 'compose failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Auto-compose';
+  }
+}
+
+function renderCompose() {
+  const results = $('composeResults');
+  if (!composeData) {
+    results.innerHTML = '<div class="compose-empty"><h2 class="serif">No composition yet</h2><p>Click Auto-compose to start.</p></div>';
+    return;
+  }
+  const sets = composeView === 'grids' ? composeData.profile_grids : composeData.carousels;
+  if (!sets || !sets.length) {
+    results.innerHTML = `<div class="compose-empty"><p>No ${composeView === 'grids' ? 'profile grids' : 'carousels'} returned. Try Auto-compose again or switch view.</p></div>`;
+    return;
+  }
+  const isGrid = composeView === 'grids';
+  results.innerHTML = '';
+
+  // Themed clusters preview at the top (shown once, in both views).
+  if (composeData.groups?.length) {
+    const chipsEl = document.createElement('div');
+    chipsEl.className = 'compose-set';
+    chipsEl.innerHTML = `
+      <div class="head"><span class="title">Themes Claude saw</span></div>
+      <div class="compose-clusters">${
+        composeData.groups.map((g) => `<span class="compose-cluster-chip" title="${escapeHtml(g.rationale)}">${escapeHtml(g.title)} · ${g.photo_ids.length}</span>`).join('')
+      }</div>`;
+    results.appendChild(chipsEl);
+  }
+
+  for (let i = 0; i < sets.length; i++) {
+    const s = sets[i];
+    const setEl = document.createElement('div');
+    setEl.className = `compose-set ${isGrid ? 'grid' : 'carousel'}`;
+    setEl.innerHTML = `
+      <div class="head">
+        <span class="title">${escapeHtml(s.title)}</span>
+        <span class="count">${s.photo_ids.length} photo${s.photo_ids.length === 1 ? '' : 's'}</span>
+      </div>
+      <p class="why">${escapeHtml(s.rationale)}</p>
+      <div class="photos"></div>
+      <div class="actions">
+        <button class="btn ghost" data-action="download-set" data-set-index="${i}">Download all (numbered)</button>
+        ${!isGrid ? `<button class="btn coral" data-action="edit-slideshow" data-set-index="${i}">✨ Edit as slideshow</button>` : ''}
+        ${!isGrid ? `<button class="btn ghost" data-action="open-garage" data-set-index="${i}">📱 Open in Garage</button>` : ''}
+      </div>`;
+    const photosEl = setEl.querySelector('.photos');
+    s.photo_ids.forEach((pid, idx) => {
+      const url = composeThumbs.get(pid);
+      if (isGrid) {
+        const img = document.createElement('img');
+        if (url) img.src = url; else img.className = 'missing';
+        img.alt = pid;
+        photosEl.appendChild(img);
+      } else {
+        const slot = document.createElement('div');
+        slot.className = 'photo-slot';
+        slot.innerHTML = `<span class="order">${idx + 1}</span>`;
+        const img = document.createElement('img');
+        if (url) img.src = url; else img.className = 'missing';
+        img.alt = pid;
+        slot.appendChild(img);
+        photosEl.appendChild(slot);
+      }
+    });
+    results.appendChild(setEl);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+async function downloadComposeSet(setIndex) {
+  if (!composeData) return;
+  const sets = composeView === 'grids' ? composeData.profile_grids : composeData.carousels;
+  const s = sets[setIndex];
+  if (!s) return;
+  for (let i = 0; i < s.photo_ids.length; i++) {
+    const pid = s.photo_ids[i];
+    const photo = photos.find((p) => String(p.id) === pid);
+    if (!photo) continue;
+    const blob = photo.genBlob || photo.file;
+    const ext = blob.type?.split('/')[1] || 'jpg';
+    const prefix = String(i + 1).padStart(2, '0');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${prefix}_${s.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    await new Promise((r) => setTimeout(r, 120));
+  }
+}
+
+$('composeRunBtn').addEventListener('click', runCompose);
+$('composeResults').addEventListener('click', (e) => {
+  const a = e.target.closest('[data-action="download-set"]');
+  if (a) downloadComposeSet(parseInt(a.dataset.setIndex, 10));
+  const s = e.target.closest('[data-action="edit-slideshow"]');
+  if (s) openSlideshowEditor(parseInt(s.dataset.setIndex, 10));
+  const g = e.target.closest('[data-action="open-garage"]');
+  if (g) {
+    const sets = composeView === 'grids' ? composeData.profile_grids : composeData.carousels;
+    const set = sets[parseInt(g.dataset.setIndex, 10)];
+    if (set?.photo_ids?.length) {
+      window.open(`/garage?ids=${set.photo_ids.join(',')}`, '_blank');
+    }
+  }
+});
+document.querySelectorAll('[data-compose-view]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    composeView = btn.dataset.composeView;
+    document.querySelectorAll('[data-compose-view]').forEach((b) => b.classList.toggle('on', b === btn));
+    renderCompose();
+  });
+});
+
+// ── Slideshow editor (per-slide effects for Instagram carousel posts) ──────
+// Canvas-based effect engine + optional AI gen-edit per slide. The user
+// opens this from a Compose carousel suggestion; we keep the photo set
+// fixed and let them dial the per-slide treatment.
+
+const SLIDE_EFFECTS = {
+  none:     { label: 'Original',   ai: false, apply: (c) => c },
+  chroma:   { label: 'Chroma',     ai: false, apply: (c) => effectChromatic(c, 6) },
+  liquid:   { label: 'Liquid',     ai: false, apply: (c) => effectLiquid(c, 12) },
+  glow:     { label: 'Glow',       ai: false, apply: (c) => effectGlow(c, 0.5) },
+  halftone: { label: 'Halftone',   ai: false, apply: (c) => effectHalftone(c, 4) },
+  duotone:  { label: 'Duotone',    ai: false, apply: (c) => effectDuotone(c, '#0a1a3a', '#ff5b8a') },
+  grade:    { label: 'Cine grade', ai: false, apply: (c) => effectCineGrade(c) },
+  ai:       { label: '✨ AI edit', ai: true,  apply: null },
+};
+
+// Aesthetic → recommended effect rotation across slides. The user can
+// override any single slide after the aesthetic is applied.
+const AESTHETICS = {
+  neon: {
+    label: 'Neon',
+    aiPrompt: 'add a glowing neon-sign light spill onto this image, magenta and cyan glow, slight wet-street reflection — keep the subject intact',
+    rotation: ['glow', 'chroma', 'liquid', 'glow', 'chroma', 'grade', 'glow', 'chroma', 'liquid', 'grade'],
+  },
+  cyberpunk: {
+    label: 'Cyberpunk',
+    aiPrompt: 'cyberpunk treatment: heavy chromatic aberration, magenta and cyan colour cast, slight liquid distortion, dark moody background — keep the subject readable',
+    rotation: ['chroma', 'liquid', 'glow', 'duotone', 'chroma', 'liquid', 'glow', 'duotone', 'grade'],
+  },
+  vintage: {
+    label: 'Vintage',
+    aiPrompt: 'faded 90s film look: warm cream tint, lifted shadows, heavy grain, slight halation around highlights — keep the subject sharp',
+    rotation: ['grade', 'glow', 'halftone', 'grade', 'glow', 'grade', 'halftone', 'glow'],
+  },
+  noir: {
+    label: 'Noir',
+    aiPrompt: 'high-contrast black-and-white noir: deep blacks, blown highlights, hard shadow falloff, slight grain — moody and cinematic',
+    rotation: ['duotone', 'grade', 'glow', 'duotone', 'grade', 'glow', 'duotone'],
+  },
+  dreamy: {
+    label: 'Dreamy',
+    aiPrompt: 'dreamy soft haze: pastel pink and lavender tint, soft glow around highlights, gentle vignette — ethereal mood',
+    rotation: ['glow', 'grade', 'glow', 'halftone', 'glow', 'grade', 'glow'],
+  },
+  editorial: {
+    label: 'Editorial',
+    aiPrompt: 'magazine editorial polish: clean colour grade, deep contrast, subtle vignette, neutral whites — premium and refined',
+    rotation: ['grade', 'none', 'grade', 'none', 'glow', 'grade'],
+  },
+};
+
+const slideshow = {
+  el: $('slideshowModal'),
+  setIndex: -1,        // which compose carousel set we're editing
+  photos: [],          // [{ id, photo, baseDataUrl, srcThumbDataUrl }]
+  effects: [],         // parallel: effect id per slide
+  aiPrompts: [],       // parallel: ai prompt per slide (only used if effect === 'ai')
+  aesthetic: 'neon',
+  rendered: [],        // parallel: rendered DataURLs after Render-all
+  rendering: false,
+};
+
+function openSlideshowEditor(setIndex) {
+  if (!composeData) return;
+  const sets = composeView === 'grids' ? composeData.profile_grids : composeData.carousels;
+  const s = sets?.[setIndex];
+  if (!s) return;
+  slideshow.setIndex = setIndex;
+  slideshow.photos = [];
+  for (const pid of s.photo_ids) {
+    const photo = photos.find((p) => String(p.id) === pid);
+    if (!photo || !photo.canvas) continue;
+    slideshow.photos.push({
+      id: pid,
+      photo,
+      // baseDataUrl = full-res rendered canvas (with grading look applied).
+      baseDataUrl: photo.canvas.toDataURL('image/png'),
+      srcThumbDataUrl: composeThumbs.get(pid) || photo.canvas.toDataURL('image/jpeg', 0.7),
+    });
+  }
+  if (slideshow.photos.length < 2) { toast('need at least 2 graded photos in this set'); return; }
+  slideshow.aesthetic = 'neon';
+  slideshow.rendered = [];
+  applyAestheticRotation();
+  renderAestheticChips();
+  renderSlideList();
+  $('slidePreviews').hidden = true;
+  $('slidePreviewsRow').innerHTML = '';
+  slideshow.el.hidden = false;
+}
+
+function closeSlideshowEditor() {
+  slideshow.el.hidden = true;
+  slideshow.photos = [];
+  slideshow.rendered = [];
+}
+
+function applyAestheticRotation() {
+  const a = AESTHETICS[slideshow.aesthetic] || AESTHETICS.neon;
+  slideshow.effects = slideshow.photos.map((_, i) => a.rotation[i % a.rotation.length]);
+  slideshow.aiPrompts = slideshow.photos.map(() => a.aiPrompt);
+}
+
+function renderAestheticChips() {
+  const wrap = $('aestheticChips');
+  wrap.innerHTML = '';
+  for (const [id, a] of Object.entries(AESTHETICS)) {
+    const btn = document.createElement('button');
+    btn.className = 'aesthetic-chip' + (id === slideshow.aesthetic ? ' on' : '');
+    btn.textContent = a.label;
+    btn.addEventListener('click', () => {
+      slideshow.aesthetic = id;
+      applyAestheticRotation();
+      renderAestheticChips();
+      renderSlideList();
+    });
+    wrap.appendChild(btn);
+  }
+}
+
+function renderSlideList() {
+  const list = $('slideList');
+  list.innerHTML = '';
+  slideshow.photos.forEach((s, idx) => {
+    const row = document.createElement('div');
+    row.className = 'slide-row';
+    row.innerHTML = `
+      <span class="num">${idx + 1}</span>
+      <img class="src" src="${s.srcThumbDataUrl}" alt="">
+      <div class="effects"></div>
+    `;
+    const fx = row.querySelector('.effects');
+    for (const [eid, def] of Object.entries(SLIDE_EFFECTS)) {
+      const chip = document.createElement('button');
+      chip.className = 'effect-chip' + (slideshow.effects[idx] === eid ? ' on' : '') + (def.ai ? ' ai' : '');
+      chip.textContent = def.label;
+      chip.addEventListener('click', () => {
+        slideshow.effects[idx] = eid;
+        renderSlideList();
+      });
+      fx.appendChild(chip);
+    }
+    list.appendChild(row);
+  });
+}
+
+// ── Canvas-effect primitives (operate on a canvas, return a canvas) ─────────
+
+function effectChromatic(srcCanvas, offsetPx) {
+  const c = document.createElement('canvas');
+  c.width = srcCanvas.width; c.height = srcCanvas.height;
+  const ctx = c.getContext('2d');
+  // Red shifted right, blue shifted left — classic RGB split.
+  ctx.globalCompositeOperation = 'lighten';
+  ctx.filter = 'brightness(0) saturate(0)';
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none';
+  // Now layer the channels.
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, c.width, c.height);
+  // Use composite-mode tricks to isolate channels approximately.
+  // R channel: keep red, multiply out G/B by drawing magenta-only mask.
+  drawChannel(ctx, srcCanvas, '#ff0000', offsetPx, 0);
+  drawChannel(ctx, srcCanvas, '#00ff00', 0, 0);
+  drawChannel(ctx, srcCanvas, '#0000ff', -offsetPx, 0);
+  return c;
+}
+function drawChannel(ctx, src, color, dx, dy) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighten';
+  const tmp = document.createElement('canvas');
+  tmp.width = src.width; tmp.height = src.height;
+  const t = tmp.getContext('2d');
+  t.drawImage(src, 0, 0);
+  t.globalCompositeOperation = 'multiply';
+  t.fillStyle = color;
+  t.fillRect(0, 0, tmp.width, tmp.height);
+  ctx.drawImage(tmp, dx, dy);
+  ctx.restore();
+}
+
+function effectLiquid(srcCanvas, scale) {
+  // SVG turbulence + displacement applied via canvas filter — baked in.
+  const c = document.createElement('canvas');
+  c.width = srcCanvas.width; c.height = srcCanvas.height;
+  const ctx = c.getContext('2d');
+  const svgId = 'liquidFilter_' + Math.random().toString(36).slice(2);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0">
+    <filter id="${svgId}">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="${Math.floor(Math.random()*99)}"/>
+      <feDisplacementMap in="SourceGraphic" scale="${scale}"/>
+    </filter>
+  </svg>`;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = svg;
+  document.body.appendChild(wrap);
+  ctx.filter = `url(#${svgId})`;
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none';
+  document.body.removeChild(wrap);
+  return c;
+}
+
+function effectGlow(srcCanvas, strength) {
+  const c = document.createElement('canvas');
+  c.width = srcCanvas.width; c.height = srcCanvas.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.globalCompositeOperation = 'lighten';
+  ctx.globalAlpha = Math.min(0.85, strength);
+  ctx.filter = `blur(${10 + strength * 30}px) brightness(1.4) saturate(1.2)`;
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none'; ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  return c;
+}
+
+function effectHalftone(srcCanvas, dotSize) {
+  // Resize down, then draw scaled up with image-rendering: pixelated effect.
+  // Real halftone is heavier; this is the cheap, visually similar version.
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const dw = Math.max(2, Math.floor(w / dotSize));
+  const dh = Math.max(2, Math.floor(h / dotSize));
+  const small = document.createElement('canvas');
+  small.width = dw; small.height = dh;
+  const sctx = small.getContext('2d');
+  sctx.drawImage(srcCanvas, 0, 0, dw, dh);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(small, 0, 0, w, h);
+  // Overlay original at lower alpha so subject stays readable.
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.globalAlpha = 0.5;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  return c;
+}
+
+function effectDuotone(srcCanvas, darkHex, lightHex) {
+  // Convert to greyscale via filter, then tint with gradient mapping by
+  // overlaying dark in multiply + light in screen.
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.filter = 'grayscale(1) contrast(1.15)';
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none';
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = lightHex;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'screen';
+  ctx.fillStyle = darkHex;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'source-over';
+  return c;
+}
+
+function effectCineGrade(srcCanvas) {
+  const c = document.createElement('canvas');
+  c.width = srcCanvas.width; c.height = srcCanvas.height;
+  const ctx = c.getContext('2d');
+  ctx.filter = 'contrast(1.15) saturate(0.85) brightness(0.96)';
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none';
+  // Soft warm tint on highlights, cool tint in shadows = teal/orange.
+  ctx.globalCompositeOperation = 'soft-light';
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = '#cc7a4c';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  // Vignette.
+  const grad = ctx.createRadialGradient(c.width/2, c.height/2, Math.min(c.width, c.height)*0.35, c.width/2, c.height/2, Math.max(c.width, c.height)*0.7);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.45)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, c.width, c.height);
+  return c;
+}
+
+// ── Render & preview ────────────────────────────────────────────────────────
+
+async function renderAllSlides() {
+  if (slideshow.rendering) return;
+  if (!slideshow.photos.length) return;
+  slideshow.rendering = true;
+  const btn = $('slideshowRender');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Rendering…';
+  const rendered = [];
+  try {
+    for (let i = 0; i < slideshow.photos.length; i++) {
+      const s = slideshow.photos[i];
+      const eid = slideshow.effects[i];
+      const def = SLIDE_EFFECTS[eid] || SLIDE_EFFECTS.none;
+      btn.innerHTML = `<span class="spinner"></span>Rendering ${i + 1}/${slideshow.photos.length}…`;
+      if (def.ai) {
+        const aiUrl = await renderAiSlide(s, slideshow.aiPrompts[i]);
+        rendered.push({ dataUrl: aiUrl, effect: def.label });
+      } else {
+        // Load base canvas from data URL, run effect, output data URL.
+        const img = await loadImage(s.baseDataUrl);
+        const base = document.createElement('canvas');
+        base.width = img.naturalWidth; base.height = img.naturalHeight;
+        base.getContext('2d').drawImage(img, 0, 0);
+        const out = def.apply(base);
+        rendered.push({ dataUrl: out.toDataURL('image/png'), effect: def.label });
+      }
+    }
+    slideshow.rendered = rendered;
+    renderSlidePreviews();
+    $('slidePreviews').hidden = false;
+  } catch (err) {
+    toast(err.message || 'render failed');
+    console.error(err);
+  } finally {
+    slideshow.rendering = false;
+    btn.disabled = false;
+    btn.textContent = 'Render all';
+  }
+}
+
+async function renderAiSlide(slide, prompt) {
+  // Use the gen-edit endpoint with whichever provider is ready, preferring
+  // Gemini (cheapest + best for natural overlays), then Replicate, then OpenAI.
+  const order = ['gemini', 'replicate', 'openai'];
+  const provider = order.find((p) => aiStatus?.gen?.[p]?.ready);
+  if (!provider) throw new Error('no gen-edit provider configured for AI slides');
+  const res = await fetch('/ai/photo-generate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ image: slide.baseDataUrl, prompt, provider }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || data.error || 'AI render failed');
+  return data.image;
+}
+
+function renderSlidePreviews() {
+  const row = $('slidePreviewsRow');
+  row.innerHTML = '';
+  slideshow.rendered.forEach((r, idx) => {
+    const div = document.createElement('div');
+    div.className = 'slide-preview';
+    div.innerHTML = `
+      <span class="order">${idx + 1}</span>
+      <img src="${r.dataUrl}" alt="">
+      <div class="effect-label">${r.effect}</div>`;
+    row.appendChild(div);
+  });
+}
+
+async function downloadSlideshow() {
+  const sets = composeView === 'grids' ? composeData?.profile_grids : composeData?.carousels;
+  const setName = sets?.[slideshow.setIndex]?.title || 'slideshow';
+  const safe = setName.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  for (let i = 0; i < slideshow.rendered.length; i++) {
+    const prefix = String(i + 1).padStart(2, '0');
+    const a = document.createElement('a');
+    a.href = slideshow.rendered[i].dataUrl;
+    a.download = `${prefix}_${safe}.png`;
+    a.click();
+    await new Promise((r) => setTimeout(r, 150));
+  }
+}
+
+$('slideshowCancel').addEventListener('click', closeSlideshowEditor);
+$('slideshowRender').addEventListener('click', renderAllSlides);
+$('slideshowDownload').addEventListener('click', downloadSlideshow);
+$('slideshowAiPlan').addEventListener('click', () => {
+  // Future: ask Claude to pick the best effect per slide. For now, the
+  // aesthetic rotation already varies effects across slides reasonably.
+  toast('Aesthetic rotation already picks effects per slide — change individual chips to override');
+});
+slideshow.el.addEventListener('click', (e) => {
+  if (e.target === slideshow.el) closeSlideshowEditor();
+});
 
 // ── Generative edit modal (Gemini / Replicate / OpenAI) ─────────────────────
 const genModal = {
@@ -1561,7 +2486,7 @@ $('genConfirm').addEventListener('click', async () => {
   setBadge(photo, 'busy', 'Generating…');
 
   try {
-    const dataUrl = await blobToDataUrl(photo.file);
+    const dataUrl = await normalizePhotoForUpload(photo.file);
     const body = { image: dataUrl, prompt, provider: genModal.provider };
     if (useMask) body.mask = maskPainter.canvas.toDataURL('image/png');
     const res = await fetch('/ai/photo-generate', {
@@ -1597,6 +2522,27 @@ function blobToDataUrl(blob) {
     r.onerror = reject;
     r.readAsDataURL(blob);
   });
+}
+
+// Draw the photo through a canvas so EXIF orientation, CMYK profiles, and
+// other camera-JPEG quirks are baked into a clean RGB PNG that all the
+// image-edit APIs accept. Caps the longest edge at maxDim to keep the
+// upload reasonable.
+async function normalizePhotoForUpload(file, maxDim = 2048) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(url);
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const scale = Math.min(1, maxDim / Math.max(w, h));
+    const cw = Math.round(w * scale), ch = Math.round(h * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, cw, ch);
+    return canvas.toDataURL('image/png');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 async function applyGeneratedImage(photo, dataUrl, provider, prompt) {
@@ -1647,10 +2593,15 @@ function makeCard(photo) {
     <div class="meta">
       <div class="cap">…</div>
       <div class="filename"></div>
+      <div class="analysis"></div>
+      <div class="variants" hidden></div>
       <div class="actions">
         <button class="btn ghost" data-action="toggle">Show original</button>
         <button class="btn coral" data-action="download">Download</button>
         <button class="btn ghost" data-action="gen" hidden>Gen edit</button>
+        <button class="btn ghost" data-action="polish" data-provider="magnific_2k" hidden>✨ Magnific 2K</button>
+        <button class="btn ghost" data-action="polish" data-provider="magnific_4k" hidden>✨ Magnific 4K</button>
+        <button class="btn ghost" data-action="polish" data-provider="clarity" hidden>✨ Clarity</button>
         <button class="btn ghost" data-action="remove">Remove</button>
       </div>
       <div class="reprompt">
@@ -1662,9 +2613,14 @@ function makeCard(photo) {
   card.querySelector('.filename').textContent = photo.file.name;
   card.querySelector('.orig').src = photo.originalUrl;
   photo.canvas = card.querySelector('canvas.edited');
+  photo.variantsEl = card.querySelector('.variants');
+  photo.analysisEl = card.querySelector('.analysis');
   // The Gen edit button stays hidden until /ai/status confirms at least one
   // provider has its API key configured.
   if (anyGenProviderReady()) card.querySelector('[data-action="gen"]').hidden = false;
+  card.querySelectorAll('[data-action="polish"]').forEach((b) => {
+    if (aiStatus?.polish?.[b.dataset.provider]?.ready) b.hidden = false;
+  });
 
   card.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
@@ -1682,6 +2638,10 @@ function makeCard(photo) {
       enqueue(photo, input.value.trim());
     } else if (action === 'gen') {
       openGenModal(photo);
+    } else if (action === 'polish') {
+      polishPhoto(photo, e.target, e.target.dataset.provider);
+    } else if (action === 'variant') {
+      applyVariant(photo, parseInt(e.target.closest('[data-action="variant"]').dataset.index, 10));
     }
   });
 
@@ -1707,6 +2667,13 @@ function enqueue(photo, customPrompt) {
   pump();
 }
 
+// Auto-grade now uses ONE rich Claude call (/ai/photo-grade-pack) that
+// returns an analysis of the photo plus 4 variants tailored to it —
+// instead of 4 separate /ai/photo-edit calls with hardcoded prompt
+// suffixes. The variant names come from Claude per-photo (e.g.
+// "Showroom Polish" for a car shot) and each carries a one-line
+// rationale that shows up as the chip's tooltip.
+
 async function pump() {
   if (inflight >= MAX_CONCURRENT) return;
   const next = photos.find((p) => p.status === 'queued');
@@ -1715,31 +2682,45 @@ async function pump() {
     return;
   }
   inflight++;
-  setBadge(next, 'busy', 'Grading…');
+  setBadge(next, 'busy', 'Reading…');
   try {
     const dataUrl = downscaleDataUrl(next.img, 768);
-    const res = await fetch('/ai/photo-edit', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl, prompt: next._prompt || '' }),
+
+    // Loading placeholder strip — 4 generic slots until Claude's pack lands.
+    next.variants = [0,1,2,3].map((i) => ({ id: 'v' + i, name: '…', look: null, status: 'loading' }));
+    next.variantIndex = 0;
+    renderVariants(next);
+
+    const res = await fetch('/ai/photo-grade-pack', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl }),
     });
     const data = await res.json();
     if (!res.ok) {
-      const e = new Error(data.detail || data.error || 'request failed');
+      const e = new Error(data.detail || data.error || 'grade pack failed');
       e.code = data.error;
       throw e;
     }
-    next.look = { ...NEUTRAL, ...data.look };
+    next.analysis = data.analysis || null;
+    renderAnalysis(next);
+    next.variants = (data.variants || []).map((v) => ({
+      id: v.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'variant',
+      name: v.name || 'Variant',
+      rationale: v.rationale || '',
+      look: { ...NEUTRAL, ...v.look },
+      status: 'ready',
+    }));
+    if (!next.variants.length) throw new Error('no variants returned');
+    next.variantIndex = 0;
+    next.look = next.variants[0].look;
     renderStill(next.img, next.look, next.canvas);
-    next.card.querySelector('.cap').textContent = next.look.caption || 'edited';
+    next.card.querySelector('.cap').textContent = next.look.caption || next.variants[0].name;
     setBadge(next, 'done', 'Done');
+    renderVariants(next);
     persistPhoto(next);
   } catch (err) {
     setBadge(next, 'err', 'Failed');
     if (err.code === 'ai_not_configured') {
-      // The setup banner already says what to do — don't repeat env-var
-      // instructions on every failed card. Lock the UI so further drops
-      // don't queue up more failures.
       lockForSetup();
       next.card.classList.add('needs-setup');
       next.card.querySelector('.cap').textContent = 'Claude isn’t wired up — see banner above';
@@ -1751,6 +2732,87 @@ async function pump() {
     pump();
   }
 }
+
+function renderAnalysis(photo) {
+  const el = photo.analysisEl;
+  if (!el) return;
+  const a = photo.analysis;
+  if (!a) { el.classList.remove('has'); el.innerHTML = ''; return; }
+  el.classList.add('has');
+  el.innerHTML = `
+    ${a.subject  ? `<span class="chip">${escapeAttr(a.subject)}</span>`  : ''}
+    ${a.lighting ? `<span class="chip">${escapeAttr(a.lighting)}</span>` : ''}
+    ${a.mood     ? `<span class="chip">${escapeAttr(a.mood)}</span>`     : ''}
+    ${a.notes    ? `<span class="notes">${escapeAttr(a.notes)}</span>`   : ''}
+  `;
+}
+
+// Render the 4-variant thumbnail strip for a card. Thumbs are rendered
+// locally by re-applying each variant's look to the source image — no
+// extra AI calls.
+function renderVariants(photo) {
+  const el = photo.variantsEl;
+  if (!el) return;
+  if (!photo.variants?.length) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  el.innerHTML = photo.variants.map((v, i) => `
+    <button class="variant ${i === photo.variantIndex ? 'on' : ''} ${v.status === 'loading' ? 'loading' : ''} ${v.status === 'error' ? 'error' : ''}"
+            data-action="variant" data-index="${i}"
+            ${v.status !== 'ready' ? 'disabled' : ''}
+            title="${escapeAttr(v.rationale || v.look?.caption || v.name)}">
+      <span class="skel"></span>
+      <span class="v-name">${v.name}</span>
+    </button>
+  `).join('');
+  // Replace skeletons with real thumbnails for the variants that are ready.
+  photo.variants.forEach((v, i) => {
+    if (v.status !== 'ready') return;
+    const btn = el.querySelector(`[data-index="${i}"]`);
+    const skel = btn.querySelector('.skel');
+    const c = document.createElement('canvas');
+    c.width = 72; c.height = 72;
+    renderVariantThumb(photo, v.look, c);
+    skel.replaceWith(c);
+  });
+}
+function renderVariantThumb(photo, look, dst) {
+  const ctx = dst.getContext('2d');
+  ctx.filter = (function () {
+    const f = (k, d = 1) => (typeof look[k] === 'number' ? look[k] : d);
+    return `brightness(${f('brightness')}) contrast(${f('contrast')}) saturate(${f('saturate')}) hue-rotate(${f('hueRotate', 0)}deg) sepia(${f('sepia', 0)}) grayscale(${f('grayscale', 0)}) blur(${f('blur', 0)}px) invert(${f('invert', 0)})`;
+  })();
+  // Cover-fit: scale to fill dst, center-crop.
+  const iw = photo.img.naturalWidth || photo.img.width;
+  const ih = photo.img.naturalHeight || photo.img.height;
+  const sc = Math.max(dst.width / iw, dst.height / ih);
+  const w = iw * sc, h = ih * sc;
+  ctx.drawImage(photo.img, (dst.width - w) / 2, (dst.height - h) / 2, w, h);
+  ctx.filter = 'none';
+  if (look?.tintAlpha > 0.005) {
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha = look.tintAlpha; ctx.fillStyle = look.tintColor;
+    ctx.fillRect(0, 0, dst.width, dst.height);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  }
+  if (look?.vignette > 0.01) {
+    const grad = ctx.createRadialGradient(dst.width/2, dst.height/2, Math.min(dst.width, dst.height) * 0.35, dst.width/2, dst.height/2, Math.max(dst.width, dst.height) * 0.72);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, `rgba(0,0,0,${0.85 * look.vignette})`);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, dst.width, dst.height);
+  }
+}
+function applyVariant(photo, i) {
+  const v = photo.variants?.[i];
+  if (!v || v.status !== 'ready') return;
+  photo.variantIndex = i;
+  photo.look = v.look;
+  renderStill(photo.img, photo.look, photo.canvas);
+  photo.card.querySelector('.cap').textContent = photo.look.caption || 'edited';
+  setBadge(photo, 'done', 'Done');
+  renderVariants(photo);
+  persistPhoto(photo);
+}
+function escapeAttr(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 // `null` until /ai/status resolves, then true/false. Treating "unknown" as
 // not-ready closes a race where a drop/paste before the status check would
@@ -1796,6 +2858,7 @@ function refreshBatchControls() {
   const has = photos.length > 0;
   $('reeditAll').disabled = !has;
   $('clearAll').disabled = !has;
+  if (!$('composeMode').hidden) refreshComposeStats();
 }
 
 function downloadPhoto(photo) {
@@ -1857,6 +2920,16 @@ async function restorePhotos() {
     } else {
       photo.card.querySelector('.cap').textContent = 'waiting…';
       setBadge(photo, 'queued', 'Queued');
+    }
+    // Restore variants (already persisted as look JSON per variant).
+    if (rec.variants?.length) {
+      photo.variants = rec.variants;
+      photo.variantIndex = rec.variantIndex ?? 0;
+      renderVariants(photo);
+    }
+    if (rec.analysis) {
+      photo.analysis = rec.analysis;
+      renderAnalysis(photo);
     }
     if (photo.id > photoSeq) photoSeq = photo.id;
   }
@@ -1975,6 +3048,9 @@ fetch('/ai/status')
     if (anyGenProviderReady()) {
       document.querySelectorAll('.card [data-action="gen"]').forEach((b) => { b.hidden = false; });
     }
+    document.querySelectorAll('.card [data-action="polish"]').forEach((b) => {
+      if (aiStatus?.polish?.[b.dataset.provider]?.ready) b.hidden = false;
+    });
   })
   .catch(() => { lockForSetup(); });
 </script>
