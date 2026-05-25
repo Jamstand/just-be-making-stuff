@@ -1186,7 +1186,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v27 · polish fix</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v28 · native-res export</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1261,6 +1261,7 @@
   </div>
   <div class="row" style="margin-bottom:4px">
     <button class="opt on" id="dlPolishBtn" style="flex:1">Polish: on</button>
+    <button class="opt" id="reloadFullRes" style="flex:1" title="Clears slot photos and refills from /photo-ai with native-resolution export enabled. Direct-drop photos are already full-res.">↻ Reload at native res</button>
   </div>
   <div class="row">
     <button class="opt" id="dlCurrent" style="flex:1">↓ Current slide</button>
@@ -1737,6 +1738,16 @@ viewport.addEventListener('touchend', e=>{
 /* ─── slot images ─── */
 const slots = [...document.querySelectorAll('.slot[data-slot]')];
 const stored = (()=>{try{return JSON.parse(localStorage.getItem('garage3-slots')||'{}')}catch(e){return{}}})();
+// Track which photo-ai IDB record (if any) backs each slot. We use this
+// at export time to re-render the slot photo at its native resolution
+// straight from the original Blob — bypassing the 2800px / 0.95 cap that
+// applies to stored display data URLs. localStorage only holds the
+// {slotId → photoId} map (tiny) plus the small display data URLs.
+const storedIds = (()=>{try{return JSON.parse(localStorage.getItem('garage3-slot-ids')||'{}')}catch(e){return{}}})();
+slots.forEach((slot) => {
+  const pid = storedIds[slot.dataset.slot];
+  if (pid != null) slot.dataset.photoId = String(pid);
+});
 
 /* One-time upgrade: older versions of garage stored slot photos at
    maxDim=1400 / quality 0.88, which capped export sharpness. On page
@@ -1908,15 +1919,25 @@ async function fillFromRoll(){
     const rec = pool.splice(bestI, 1)[0];
     try {
       const url = await photoToDataUrl(rec);
-      if (url) setSlot(slot, url);
+      if (url) setSlot(slot, url, rec.id);
     } catch (err) { console.warn('garage slot fill failed:', err); }
   }
 }
 
-function setSlot(slot, src){
-  console.log('[garage] setSlot', slot.dataset.slot, src ? src.slice(0, 50) + '…' : '(empty)');
+function setSlot(slot, src, photoId){
+  console.log('[garage] setSlot', slot.dataset.slot, src ? src.slice(0, 50) + '…' : '(empty)', 'photoId=', photoId);
   stored[slot.dataset.slot] = src;
-  try{localStorage.setItem('garage3-slots', JSON.stringify(stored));}catch(e){
+  if (photoId != null) {
+    slot.dataset.photoId = String(photoId);
+    storedIds[slot.dataset.slot] = String(photoId);
+  } else {
+    delete slot.dataset.photoId;
+    delete storedIds[slot.dataset.slot];
+  }
+  try{
+    localStorage.setItem('garage3-slots', JSON.stringify(stored));
+    localStorage.setItem('garage3-slot-ids', JSON.stringify(storedIds));
+  } catch(e){
     console.warn('[garage] localStorage save failed (probably quota exceeded):', e.message);
   }
   applySlot(slot);
@@ -2215,7 +2236,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v27-polish-fix loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v28-native-res-export loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
@@ -2583,6 +2604,103 @@ function polishCanvas(canvas) {
   return canvas;
 }
 
+/* ── Full-resolution swap for export ─────────────────────────────────
+   Slot backgrounds are stored as 2800px JPEG data URLs (so display +
+   localStorage stay cheap). At export time we temporarily swap each
+   slot's background-image for a re-rendered NATIVE-RESOLUTION data URL
+   built straight from the photo-ai IDB blob — eliminating the upscale
+   step that's responsible for the soft look in 14× exports. */
+let _photoAiDB = null;
+async function getPhotoAiDB() {
+  if (_photoAiDB) return _photoAiDB;
+  return new Promise((resolve) => {
+    const req = indexedDB.open('photo-ai', 1);
+    req.onsuccess = (e) => { _photoAiDB = e.target.result; resolve(_photoAiDB); };
+    req.onerror = () => resolve(null);
+  });
+}
+async function getPhotoRecord(db, id) {
+  if (!db || !db.objectStoreNames.contains('photos')) return null;
+  // IDB key types matter — try the raw value first, then a Number cast.
+  const tryGet = (k) => new Promise((resolve) => {
+    const tx = db.transaction('photos', 'readonly');
+    const req = tx.objectStore('photos').get(k);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => resolve(null);
+  });
+  let rec = await tryGet(id);
+  if (!rec) {
+    const n = Number(id);
+    if (Number.isFinite(n)) rec = await tryGet(n);
+  }
+  return rec;
+}
+async function renderFullResPhoto(rec) {
+  const blob = rec.genBlob || rec.originalBlob;
+  if (!blob) return null;
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = url;
+    });
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext('2d');
+    if (rec.look) {
+      const f = (k, d = 1) => (typeof rec.look[k] === 'number' ? rec.look[k] : d);
+      ctx.filter = `brightness(${f('brightness')}) contrast(${f('contrast')}) saturate(${f('saturate')}) hue-rotate(${f('hueRotate', 0)}deg) sepia(${f('sepia', 0)}) grayscale(${f('grayscale', 0)}) blur(${f('blur', 0)}px) invert(${f('invert', 0)})`;
+    }
+    ctx.drawImage(img, 0, 0);
+    ctx.filter = 'none';
+    if (rec.look?.tintAlpha > 0.005) {
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = rec.look.tintAlpha;
+      ctx.fillStyle = rec.look.tintColor;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    if (rec.look?.vignette > 0.01) {
+      const grad = ctx.createRadialGradient(c.width/2, c.height/2, Math.min(c.width, c.height) * 0.35, c.width/2, c.height/2, Math.max(c.width, c.height) * 0.72);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, `rgba(0,0,0,${0.85 * rec.look.vignette})`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, c.width, c.height);
+    }
+    return c.toDataURL('image/jpeg', 0.96);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+async function swapSlotsToFullRes() {
+  const swaps = [];
+  const db = await getPhotoAiDB();
+  if (!db) return swaps;
+  for (const slot of document.querySelectorAll('.slot[data-slot]')) {
+    const pid = slot.dataset.photoId;
+    if (!pid) continue;
+    try {
+      const rec = await getPhotoRecord(db, pid);
+      if (!rec) continue;
+      const fullUrl = await renderFullResPhoto(rec);
+      if (!fullUrl) continue;
+      swaps.push({ slot, oldBg: slot.style.backgroundImage });
+      slot.style.backgroundImage = `url("${fullUrl}")`;
+    } catch (err) {
+      console.warn('[garage] full-res swap failed for slot', slot.dataset.slot, err);
+    }
+  }
+  console.log('[garage] full-res swap: replaced', swaps.length, 'slot backgrounds with native-resolution photos');
+  return swaps;
+}
+function restoreSlotBackgrounds(swaps) {
+  for (const { slot, oldBg } of swaps) slot.style.backgroundImage = oldBg;
+}
+
 // Wait until every <img> and CSS background-image inside the viewport has
 // finished loading, so html2canvas doesn't snapshot a half-decoded photo.
 // Returns a map of src → natural pixel dimensions, which we use later to
@@ -2619,6 +2737,10 @@ async function captureSlide(slideIdx, scale = dlScale) {
   const wasIdx = idx;
   go(slideIdx);
   await new Promise((r) => setTimeout(r, 750));
+  // Swap each photo-ai-backed slot to a native-resolution render BEFORE
+  // we decode/snapshot — that way html2canvas samples from the original
+  // 4000px+ pixels instead of the 2800px-capped display data URL.
+  const swaps = await swapSlotsToFullRes();
   const imgDims = await waitForViewportImages();
   // Hide chrome that shouldn't appear in the exported image.
   const hides = [
@@ -2653,6 +2775,7 @@ async function captureSlide(slideIdx, scale = dlScale) {
     if (ctx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
     if (dlPolish) polishCanvas(canvas);
   } finally {
+    restoreSlotBackgrounds(swaps);
     hides.forEach((el, i) => { el.style.display = prev[i]; });
     if (wasEditMode) document.body.classList.add('edit-mode');
     if (wasIdx !== slideIdx) go(wasIdx);
@@ -2733,6 +2856,31 @@ dlPolishBtn?.addEventListener('click', () => {
 document.getElementById('dlCurrent')?.addEventListener('click', () => downloadSlide(idx));
 document.getElementById('dlAll')?.addEventListener('click', () => downloadAllSlides());
 
+// "Reload at native res" — wipes the cached 2800px slot data URLs and
+// re-runs fillFromRoll so each slot grabs its photo straight from IDB,
+// this time with photoId tracked. After this, downloads use the full
+// native-resolution swap path in captureSlide. Direct-drop slots aren't
+// touched because they already store their full file via FileReader.
+document.getElementById('reloadFullRes')?.addEventListener('click', async () => {
+  const hint = document.getElementById('dlHint');
+  hint.textContent = 'Reloading photos at native resolution…';
+  for (const slot of slots) {
+    const id = slot.dataset.slot;
+    delete stored[id];
+    delete storedIds[id];
+    delete slot.dataset.photoId;
+    slot.style.backgroundImage = '';
+    slot.classList.add('empty');
+  }
+  try {
+    localStorage.setItem('garage3-slots', JSON.stringify(stored));
+    localStorage.setItem('garage3-slot-ids', JSON.stringify(storedIds));
+  } catch {}
+  await fillFromRoll();
+  hint.textContent = 'Photos reloaded. Native-resolution export enabled.';
+  setTimeout(() => { hint.textContent = dlHintBaseline(); }, 3000);
+});
+
 // Tools panel button clicks.
 tpPanel.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-tp]');
@@ -2795,7 +2943,7 @@ tpPanel.addEventListener('click', (e) => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v27-polish-fix · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v28-native-res-export · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
