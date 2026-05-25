@@ -1186,7 +1186,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v30 · download safety</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v31 · preview fallback</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2235,7 +2235,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v30-download-safety loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v31-preview-fallback loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
@@ -2765,28 +2765,13 @@ async function waitForViewportImages() {
   return dims;
 }
 
-async function captureSlide(slideIdx, scale = dlScale) {
-  // Navigate to the target slide and wait for the parallax transitions
-  // to settle. .layer transition is 650ms (cubic-bezier .22 .7 .18 1).
+async function captureSlide(slideIdx, scale) {
+  if (typeof scale !== 'number' || !isFinite(scale) || scale <= 0) scale = dlScale();
+  // Navigate to the target slide and wait for parallax transitions
+  // (.layer transition is 650ms cubic-bezier .22 .7 .18 1).
   const wasIdx = idx;
   go(slideIdx);
-  await new Promise((r) => setTimeout(r, 750));
-  // Swap each photo-ai-backed slot to a native-resolution render BEFORE
-  // we decode/snapshot — that way html2canvas samples from the original
-  // 4000px+ pixels instead of the 2800px-capped display data URL.
-  // Swap failure (no IDB, no records, blob render error, …) is NEVER
-  // allowed to kill the download — we just fall back to the cached
-  // 2800px slot backgrounds and continue.
-  let swaps = [];
-  try {
-    swaps = await swapSlotsToFullRes();
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  } catch (err) {
-    console.warn('[garage] full-res swap aborted, exporting from cached backgrounds:', err);
-    swaps = [];
-  }
-  let imgDims;
-  try { imgDims = await waitForViewportImages(); } catch { imgDims = new Map(); }
+  await new Promise((r) => setTimeout(r, 700));
   // Hide chrome that shouldn't appear in the exported image.
   const hides = [
     document.getElementById('toolsPanel'),
@@ -2802,6 +2787,13 @@ async function captureSlide(slideIdx, scale = dlScale) {
   hides.forEach((el) => { el.style.display = 'none'; });
   const wasEditMode = editMode;
   if (editMode) document.body.classList.remove('edit-mode');
+
+  // Native-resolution swap is best-effort. If anything in the swap path
+  // throws (no IDB, blob render error, security taint), fall back to
+  // capturing the cached display backgrounds.
+  let swaps = [];
+  try { swaps = await swapSlotsToFullRes(); } catch (err) { console.warn('[garage] swap skipped:', err); }
+
   const viewport = document.getElementById('viewport');
   let canvas;
   try {
@@ -2811,14 +2803,13 @@ async function captureSlide(slideIdx, scale = dlScale) {
       useCORS: true,
       allowTaint: true,
       logging: false,
-      imageTimeout: 0,         // no early cutoff on slow images
-      letterRendering: true,   // sharper text
+      imageTimeout: 8000,
+      letterRendering: true,
       removeContainer: true,
     });
-    // Force high-quality smoothing on the resulting bitmap.
     const ctx = canvas.getContext('2d');
     if (ctx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
-    if (dlPolish) polishCanvas(canvas);
+    if (dlPolish) try { polishCanvas(canvas); } catch (err) { console.warn('[garage] polish skipped:', err); }
   } finally {
     restoreSlotBackgrounds(swaps);
     hides.forEach((el, i) => { el.style.display = prev[i]; });
@@ -2828,17 +2819,63 @@ async function captureSlide(slideIdx, scale = dlScale) {
   return canvas;
 }
 
-function canvasToDownload(canvas, filename) {
+function canvasToDownload(canvas, filename, showPreview) {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) { reject(new Error('canvas.toBlob returned null (canvas may be tainted by cross-origin images)')); return; }
-      const a = document.createElement('a');
       const url = URL.createObjectURL(blob);
-      a.href = url; a.download = filename;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => { URL.revokeObjectURL(url); resolve(); }, 100);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        a.remove();
+        if (showPreview) {
+          // Pop the rendered image up as a visible confirmation + fallback
+          // (right-click → "Save image as…" works even if the auto-download
+          // was blocked by browser security or hidden in a download tray).
+          showDownloadPreview(url, filename, blob.size);
+        } else {
+          // Revoke shortly after; the browser has already started the
+          // download by this point.
+          setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
+        }
+        resolve();
+      }, 300);
     }, 'image/png');
   });
+}
+
+function showDownloadPreview(url, filename, size) {
+  // Remove any existing preview so consecutive downloads stack cleanly.
+  const old = document.getElementById('dlPreview');
+  if (old) old.remove();
+  const wrap = document.createElement('div');
+  wrap.id = 'dlPreview';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;backdrop-filter:blur(8px)';
+  const head = document.createElement('div');
+  head.style.cssText = 'color:#fff;font-family:var(--font-mono,monospace);font-size:14px;font-weight:700;letter-spacing:.5px;text-align:center';
+  head.innerHTML = `Downloaded <span style="color:#4cd2ff">${filename}</span> · ${(size/1024).toFixed(0)} KB<br><span style="font-weight:400;opacity:.7;font-size:12px">If your browser didn't save the file, right-click the image → "Save image as…"</span>`;
+  wrap.appendChild(head);
+  const img = document.createElement('img');
+  img.src = url;
+  img.style.cssText = 'max-width:min(90vw,500px);max-height:70vh;object-fit:contain;border:1px solid #333;border-radius:4px;box-shadow:0 20px 60px rgba(0,0,0,.7)';
+  wrap.appendChild(img);
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:10px';
+  const saveBtn = document.createElement('a');
+  saveBtn.href = url; saveBtn.download = filename;
+  saveBtn.textContent = '↓ Save again';
+  saveBtn.style.cssText = 'background:#1c7ed6;color:#fff;padding:10px 18px;border-radius:6px;font-family:var(--font-mono,monospace);font-size:12px;font-weight:700;text-decoration:none';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.style.cssText = 'background:#2a2a30;color:#fff;border:1px solid #444;padding:10px 18px;border-radius:6px;font-family:var(--font-mono,monospace);font-size:12px;font-weight:700;cursor:pointer';
+  closeBtn.addEventListener('click', () => wrap.remove());
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+  row.appendChild(saveBtn);
+  row.appendChild(closeBtn);
+  wrap.appendChild(row);
+  document.body.appendChild(wrap);
 }
 
 function dlLabel() {
@@ -2871,7 +2908,7 @@ async function downloadSlide(slideIdx) {
     const canvas = await withTimeout(captureSlide(slideIdx, dlScale()), 60000, 'captureSlide');
     if (!canvas || !canvas.width) throw new Error('captureSlide returned no canvas');
     console.log('[garage] captured', canvas.width, 'x', canvas.height, '— starting toBlob');
-    await withTimeout(canvasToDownload(canvas, `garage-slide-${String(slideIdx + 1).padStart(2, '0')}${fileSuffix()}`), 30000, 'toBlob');
+    await withTimeout(canvasToDownload(canvas, `garage-slide-${String(slideIdx + 1).padStart(2, '0')}${fileSuffix()}`, true), 30000, 'toBlob');
     hint.textContent = `Saved slide ${slideIdx + 1}.`;
     setTimeout(() => { hint.textContent = dlHintBaseline(); }, 2500);
   } catch (err) {
@@ -3012,7 +3049,7 @@ tpPanel.addEventListener('click', (e) => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v30-download-safety · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v31-preview-fallback · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
