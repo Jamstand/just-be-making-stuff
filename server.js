@@ -2137,6 +2137,47 @@ app.post('/design/generate', async (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── Dev hot-reload ───────────────────────────────────────────────────────────
+// SSE endpoint + fs.watch on /public so the browser auto-refreshes whenever
+// you edit / git-pull a page. Page reload script lives in public/hot-reload.js
+// and is included with a single <script src> tag (see garage.html, etc.).
+const reloadClients = new Set();
+let lastChangeAt = Date.now();
+try {
+  fs.watch(path.join(__dirname, 'public'), { recursive: true }, (evt, filename) => {
+    if (!filename) return;
+    lastChangeAt = Date.now();
+    for (const res of reloadClients) {
+      try { res.write('data: ' + JSON.stringify({ t: lastChangeAt, file: filename }) + '\n\n'); } catch {}
+    }
+  });
+  console.log('[hot-reload] watching public/ for changes');
+} catch (err) {
+  console.warn('[hot-reload] fs.watch failed:', err.message);
+}
+app.get('/dev/live', (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders?.();
+  res.write(': connected\n\n');
+  reloadClients.add(res);
+  const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 25000);
+  req.on('close', () => { clearInterval(ping); reloadClients.delete(res); });
+});
+// Trigger `git pull` from the browser — call POST /dev/pull and the page
+// will reload moments later when fs.watch fires.
+app.post('/dev/pull', (req, res) => {
+  const { exec } = require('child_process');
+  exec('git pull --ff-only', { cwd: __dirname }, (err, stdout, stderr) => {
+    if (err) return res.status(500).json({ ok: false, error: stderr || err.message });
+    res.json({ ok: true, output: stdout.trim() });
+  });
+});
+
 // ── Start ────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
