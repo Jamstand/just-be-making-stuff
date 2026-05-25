@@ -122,15 +122,20 @@
   }
   /* Slots and their chrome ALWAYS receive events — re-enable. */
   .slot[data-slot] { pointer-events: auto; }
-  .layer.bg     { --speed:0.30; }
-  .layer.leak   { --speed:0.55; }
-  .layer.ribbon { --speed:1.45; }
-  .layer.topline{ --speed:1.20; }
+  /* All layers translate at the same speed — no parallax — so every
+     element stays locked to its panel as you switch slides. Used to
+     have bg=0.30 / topline=1.20 / numbers=0.75 / ribbon=1.45 for a
+     depth effect, but the cross-layer drift was confusing when
+     editing the slides. */
+  .layer.bg     { --speed:1.00; }
+  .layer.leak   { --speed:1.00; }
+  .layer.ribbon { --speed:1.00; }
+  .layer.topline{ --speed:1.00; }
   .layer.photos { --speed:1.00; }
   .layer.deco   { --speed:1.00; }
   .layer.type   { --speed:1.00; }
   .layer.specs  { --speed:1.00; }
-  .layer.numbers{ --speed:0.75; }
+  .layer.numbers{ --speed:1.00; }
 
   /* base atmosphere — overridden per theme */
   .layer.bg{
@@ -1224,7 +1229,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v39 · empty text recovery</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v40 · no parallax + undo reset</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2491,18 +2496,51 @@ window.addEventListener('contextmenu', (e) => {
   console.log('[garage] revert · restored original for', id);
 }, true);
 
-// 9. Reset all customisations.
+// 9. Reset all customisations — but snapshot everything to a backup
+// key first so the user can undo within 24h. Restore button is wired
+// in below.
+const BACKUP_KEY = 'garage-reset-backup';
+// String-literal for size key here because the SIZE_KEY const is
+// declared further down the file and would be in the TDZ at this point.
+const RESET_KEYS = [POS_KEY, TEXT_KEY, 'garage-size-v18', 'garage-layout', 'garage-theme'];
 document.getElementById('resetAll')?.addEventListener('click', () => {
-  if (!confirm('Reset every customisation (positions + text edits)?')) return;
+  if (!confirm('Reset every customisation (positions + text edits)?\n\nYou can undo this for the next 24 hours.')) return;
   try {
-    localStorage.removeItem(POS_KEY);
-    localStorage.removeItem(TEXT_KEY);
-    localStorage.removeItem(SIZE_KEY);
-    localStorage.removeItem('garage-layout');
-    localStorage.removeItem('garage-theme');
+    const snapshot = { ts: Date.now(), data: {} };
+    for (const k of RESET_KEYS) {
+      const v = localStorage.getItem(k);
+      if (v != null) snapshot.data[k] = v;
+    }
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(snapshot));
+    for (const k of RESET_KEYS) localStorage.removeItem(k);
   } catch {}
   location.reload();
 });
+
+// 9b. Undo last reset — if a backup exists and is < 24h old, show a
+// small floating "Undo reset" pill near the bottom-left. Click to
+// restore every key from the snapshot + reload.
+(function maybeShowUndoReset() {
+  let snap;
+  try { snap = JSON.parse(localStorage.getItem(BACKUP_KEY) || 'null'); } catch {}
+  if (!snap || !snap.ts || (Date.now() - snap.ts) > 24 * 60 * 60 * 1000) return;
+  const btn = document.createElement('button');
+  btn.id = 'undoResetBtn';
+  btn.textContent = '↩ Undo last reset';
+  btn.title = `Restore your customisations from ${new Date(snap.ts).toLocaleString()}`;
+  btn.style.cssText = 'position:fixed;left:24px;bottom:18px;z-index:999;background:#1c7ed6;color:#fff;border:0;border-radius:8px;padding:8px 14px;font:600 12px/1 var(--font-mono,monospace);letter-spacing:.5px;cursor:pointer;box-shadow:0 4px 14px rgba(28,126,214,.4)';
+  btn.addEventListener('click', () => {
+    if (!confirm('Restore your customisations from before the last reset?')) return;
+    try {
+      for (const [k, v] of Object.entries(snap.data || {})) {
+        localStorage.setItem(k, v);
+      }
+      localStorage.removeItem(BACKUP_KEY);
+    } catch {}
+    location.reload();
+  });
+  document.body.appendChild(btn);
+})();
 
 /* ─────────────────────────────────────────────────────────────────────
    TOOLS PANEL — appears at top-right when a slot is the active selection.
