@@ -954,28 +954,59 @@
      EDIT MODE — toggle in Tweaks panel turns on
      customisation affordances. Off = pristine view.
      ───────────────────────────────────────────── */
-  body.edit-mode [data-edit-id] {
-    outline: 1px dotted rgba(76,210,255,0.55);
-    outline-offset: 2px;
-    cursor: text;
-    /* Most editable elements (.t, .num, .sig, .tickLabel, .topline, .anno,
-       .sticker, .spec) have pointer-events: none in the base design so
-       they don't intercept swipe gestures. In edit mode we need clicks to
-       land on them so contentEditable can take focus. */
+  /* SELECTION-BASED EDIT MODEL (Pixlr / Adobe Express style):
+     - Click an element → it becomes selected (cyan outline + handles).
+     - Drag selected element → moves it.
+     - Drag handles on selected → resize / rotate.
+     - Double-click text → enter content-edit (cursor in text).
+     - Click empty area → deselect.
+     - Esc → deselect or exit edit mode.
+     No modifier keys, no hidden gestures. */
+
+  body.edit-mode [data-edit-id],
+  body.edit-mode .slot[data-slot] {
     pointer-events: auto !important;
+    cursor: pointer;
   }
-  body.edit-mode [data-edit-id]:hover {
-    background: rgba(76,210,255,0.18);
-    outline: 1.5px solid rgba(76,210,255,0.9);
+  /* Hover preview — faint cyan outline to signal selectable. */
+  body.edit-mode [data-edit-id]:not(.gar-selected):hover,
+  body.edit-mode .slot[data-slot]:not(.gar-selected):hover {
+    outline: 1px dashed rgba(76,210,255,0.5);
+    outline-offset: 2px;
   }
-  body.edit-mode [data-edit-id]:focus {
-    outline: 2px solid var(--accent-2, #4cd2ff);
-    background: rgba(76,210,255,0.22);
+  /* Selected state — bright cyan outline. */
+  body.edit-mode .gar-selected {
+    outline: 2px solid var(--accent-2, #4cd2ff) !important;
+    outline-offset: 2px;
   }
-  /* Force text-bearing layers above the photos layer in edit mode so
-     contentEditable clicks reliably hit the .t / .sig / .tickLabel /
-     .num / .anno / .sticker / .topline elements even when a slot is
-     positioned under them. Slot chrome floats above this via z-index 200. */
+  body.edit-mode .gar-selected.slot[data-slot] {
+    cursor: move;
+  }
+  /* Chrome (toolbar + handles + id) only on the SELECTED slot. */
+  body.edit-mode .slot[data-slot] .slot-tools,
+  body.edit-mode .slot[data-slot] .resize-handle,
+  body.edit-mode .slot[data-slot] .rotate-handle,
+  body.edit-mode .slot[data-slot] .slot-id {
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  body.edit-mode .gar-selected.slot[data-slot] .slot-tools,
+  body.edit-mode .gar-selected.slot[data-slot] .resize-handle,
+  body.edit-mode .gar-selected.slot[data-slot] .rotate-handle,
+  body.edit-mode .gar-selected.slot[data-slot] .slot-id {
+    opacity: 1 !important; pointer-events: auto !important;
+    z-index: 200 !important;
+  }
+  /* When text is in content-edit mode (after dblclick), give it a clear
+     focus state so the user knows they're typing into it. */
+  body.edit-mode [data-edit-id].gar-editing {
+    outline: 2px solid var(--accent, #d4a04a) !important;
+    background: rgba(255,255,255,0.08);
+    cursor: text !important;
+  }
+  /* Force text layers above the slot body so single-click selects text
+     even if a slot is positioned under it. Slot chrome still floats
+     above via z-index: 200. */
   body.edit-mode .layer.type,
   body.edit-mode .layer.specs,
   body.edit-mode .layer.deco,
@@ -983,46 +1014,8 @@
   body.edit-mode .layer.topline {
     z-index: 50;
   }
-  /* The .tap zones (left + right 33% of the viewport, z-index 34) sit
-     ABOVE every text element (z-index 7) and silently absorb clicks
-     before they reach the contentEditable text. Disable them in edit
-     mode — navigation is still available via arrows, dots, and keys. */
+  /* Disable swipe .tap zones in edit mode so they don't eat clicks. */
   body.edit-mode .tap { pointer-events: none !important; }
-  body.edit-mode [data-edit-id]:hover {
-    outline: 1px dashed rgba(76,210,255,0.95);
-  }
-  body.edit-mode [data-edit-id]:focus {
-    outline: 2px solid rgba(76,210,255,1);
-    background: rgba(76,210,255,0.08);
-  }
-  /* Every slot's chrome is ALWAYS visible in edit mode (not hover-gated)
-     so it's obvious which slot is which + where each handle lives. */
-  body.edit-mode .slot[data-slot] .slot-tools,
-  body.edit-mode .slot[data-slot] .resize-handle,
-  body.edit-mode .slot[data-slot] .rotate-handle,
-  body.edit-mode .slot[data-slot] .slot-id {
-    opacity: 1 !important; pointer-events: auto !important;
-  }
-  body.edit-mode .slot[data-slot] {
-    cursor: move;
-    outline: 1px dashed rgba(76,210,255,0.4);
-    outline-offset: 0;
-  }
-  body.edit-mode .slot[data-slot]:hover {
-    outline: 2px solid rgba(76,210,255,0.7);
-  }
-  /* Raise ONLY the slot's chrome (toolbar buttons + handles + id label)
-     above every layer so they're always clickable, even where text or
-     other higher-stacked layers would otherwise cover them. The slot
-     BODY stays at its natural z-index so clicks on text-covered area
-     go to the text (contentEditable focuses, edit works). To drag a
-     slot, grab a corner, the slot ID, or any area not covered by text. */
-  body.edit-mode .slot[data-slot] .slot-tools,
-  body.edit-mode .slot[data-slot] .resize-handle,
-  body.edit-mode .slot[data-slot] .rotate-handle,
-  body.edit-mode .slot[data-slot] .slot-id {
-    z-index: 200 !important;
-  }
   .slot-id {
     position: absolute; top: 6px; left: 6px; z-index: 41;
     background: rgba(20,20,24,0.85); color: var(--accent-2);
@@ -1140,9 +1133,9 @@
 <div class="edit-mode-banner" title="Hover for full shortcut list">
   <span class="dot"></span>
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
-  <span class="hint-full">click text = edit · <kbd>Shift</kbd>+drag text = move it · drag slot = move · corner = resize · circle = rotate · <kbd>wheel</kbd> on slot = pan photo · <kbd>Esc</kbd> exit</span>
+  <span class="hint-full">click anything = select · drag selected = move · double-click text = edit · corner = resize · circle = rotate · <kbd>wheel</kbd> on slot = pan photo · click empty = deselect · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v16 · minimal-banner</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v17 · click-to-select</div>
 
 <div id="tweaks" class="tweaks" style="display:none">
   <button class="close" id="tweaksClose">×</button>
@@ -2092,7 +2085,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v16-minimal-banner loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v17-click-to-select loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — wires up full customisation: editable text, slot tools
@@ -2270,12 +2263,44 @@ let editMode = false;
 function setEditMode(on){
   editMode = !!on;
   document.body.classList.toggle('edit-mode', editMode);
-  document.querySelectorAll('[data-edit-id]').forEach((el) => {
-    el.contentEditable = editMode ? 'true' : 'false';
-  });
+  // contentEditable is NOT auto-enabled on every text element — instead
+  // it's enabled only on the specific element the user double-clicks
+  // (see dblclick handler below). Otherwise single-click would always
+  // open content-edit instead of selecting.
+  if (!editMode) {
+    document.querySelectorAll('[data-edit-id]').forEach((el) => { el.contentEditable = 'false'; });
+    clearSelection();
+  }
   document.getElementById('tEdit').classList.toggle('on', editMode);
   try { localStorage.setItem(EDIT_KEY, editMode ? '1' : '0'); } catch(e){}
   console.log('[garage] edit mode:', editMode, '· editable elements:', document.querySelectorAll('[data-edit-id]').length, '· slots:', document.querySelectorAll('.slot[data-slot]').length);
+}
+// Selection state — exactly one element is selected at a time.
+let selectedEl = null;
+function setSelection(el){
+  if (selectedEl === el) return;
+  if (selectedEl) {
+    selectedEl.classList.remove('gar-selected');
+    if (selectedEl.classList.contains('gar-editing')) {
+      selectedEl.classList.remove('gar-editing');
+      selectedEl.contentEditable = 'false';
+    }
+  }
+  selectedEl = el;
+  if (el) el.classList.add('gar-selected');
+  console.log('[garage] selected', el ? (el.dataset.slot ? 'slot ' + el.dataset.slot : el.dataset.editId || el.tagName) : 'nothing');
+}
+function clearSelection(){ setSelection(null); }
+function enterContentEdit(el){
+  if (!el || !el.dataset.editId) return;
+  setSelection(el);
+  el.classList.add('gar-editing');
+  el.contentEditable = 'true';
+  el.focus();
+  // Place caret at click position
+  const sel = window.getSelection();
+  sel.selectAllChildren(el);
+  sel.collapseToEnd();
 }
 // Restore edit-mode preference.
 try { setEditMode(localStorage.getItem(EDIT_KEY) === '1'); } catch(e){ setEditMode(false); }
@@ -2297,7 +2322,8 @@ if (editToggleRow) {
   document.getElementById('tEdit').addEventListener('click', () => setEditMode(!editMode));
 }
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && editMode) setEditMode(false);
+  // Esc handler moved to the selection block lower in the script
+  // (clears selection first, then exits edit mode on second press).
   if (e.key === 'Shift' && editMode) document.body.classList.add('shift-held');
 });
 window.addEventListener('keyup', (e) => {
@@ -2486,67 +2512,117 @@ document.addEventListener('click', (e) => {
   e.stopImmediatePropagation(); // prevent per-button click handler from also firing
   handleToolClick(slot, btn.dataset.tool);
 }, true);
+// SELECTION + DRAG: single mousedown selects the element AND begins a
+// drag. If the user releases without moving, it's just a selection. If
+// they move > 4px, it drags. Same gesture handles both clicks and
+// click-and-drag — no modifier keys, no separate "select first" step.
 document.addEventListener('mousedown', (e) => {
   if (!editMode) return;
   if (e.target.closest('.slot-tools')) return;
 
-  // SHIFT + click on text → drag the text element to a new position.
-  // Without shift, the click focuses the element for contentEditable.
   const textEl = e.target.closest('[data-edit-id]');
-  if (textEl && (e.shiftKey || e.button === 1)) {
-    e.preventDefault();
+  const slotEl = e.target.closest('.slot[data-slot]');
+
+  // If the user clicks INSIDE an already-editing text, let the browser
+  // handle the caret/selection normally — they're typing into it.
+  if (textEl && textEl.classList.contains('gar-editing')) return;
+
+  // Click on slot's resize/rotate handle → existing slotMouseDown does
+  // the right thing once we set selection.
+  if (slotEl && (e.target.closest('.resize-handle') || e.target.closest('.rotate-handle'))) {
+    setSelection(slotEl);
     e.stopPropagation();
-    // Find the positioned element to actually move. Walk up until we
-    // hit something with computed position: absolute (so left/top do
-    // something) and that lives inside the viewport canvas. Falls back
-    // to the clicked element if no positioned ancestor is found.
-    let target = textEl;
-    while (target && target !== document.body) {
-      const cs = getComputedStyle(target);
-      if ((cs.position === 'absolute' || cs.position === 'fixed') &&
-          target.closest('.viewport')) break;
-      target = target.parentElement;
-    }
-    if (!target || target === document.body) target = textEl;
-    const scale = getStageScale();
-    const startX = e.clientX, startY = e.clientY;
-    // Read current position from inline first, falling back to computed.
-    const startL = parseInt(target.style.left)  || parseInt(getComputedStyle(target).left)  || 0;
-    const startT = parseInt(target.style.top)   || parseInt(getComputedStyle(target).top)   || 0;
-    target.style.cursor = 'grabbing';
-    console.log('[garage] text drag start on', target.dataset.editId || target.className);
-    function onMove(ev){
-      const dx = (ev.clientX - startX) / scale;
-      const dy = (ev.clientY - startY) / scale;
-      target.style.left = Math.round(startL + dx) + 'px';
-      target.style.top  = Math.round(startT + dy) + 'px';
-    }
-    function onUp(){
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      target.style.cursor = '';
-      const id = target.dataset.editId;
-      if (id) {
-        savedTextPos[id] = {
-          left: parseInt(target.style.left) || 0,
-          top:  parseInt(target.style.top)  || 0,
-        };
-        try { localStorage.setItem('garage-text-pos', JSON.stringify(savedTextPos)); } catch(e){}
-      }
-    }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    Object.defineProperty(e, 'currentTarget', { value: slotEl, configurable: true });
+    slotMouseDown(e);
     return;
   }
-  if (textEl) return; // plain click on text — let contentEditable focus
 
-  const slot = e.target.closest('.slot[data-slot]');
-  if (!slot) return;
-  console.log('[garage] CAPTURE mousedown on slot', slot.dataset.slot);
+  // Drag-or-click on text or slot — text wins if both match (text is
+  // visually on top in the carousel design).
+  const target = textEl || slotEl;
+  if (!target) {
+    // Click on empty area inside viewport → deselect.
+    if (e.target.closest('.viewport')) clearSelection();
+    return;
+  }
+  e.preventDefault();
   e.stopPropagation();
-  Object.defineProperty(e, 'currentTarget', { value: slot, configurable: true });
-  slotMouseDown(e);
+  setSelection(target);
+
+  // For dragging, work out which element to actually move (positioned
+  // ancestor). For slots that's the slot itself. For text, walk up to
+  // the nearest position:absolute ancestor inside .viewport.
+  let moveTarget = target;
+  if (textEl && !slotEl) {
+    let t = textEl;
+    while (t && t !== document.body) {
+      const cs = getComputedStyle(t);
+      if ((cs.position === 'absolute' || cs.position === 'fixed') && t.closest('.viewport')) break;
+      t = t.parentElement;
+    }
+    if (t && t !== document.body) moveTarget = t;
+  }
+
+  const scale = getStageScale();
+  const startX = e.clientX, startY = e.clientY;
+  const startL = parseInt(moveTarget.style.left)  || parseInt(getComputedStyle(moveTarget).left)  || 0;
+  const startT = parseInt(moveTarget.style.top)   || parseInt(getComputedStyle(moveTarget).top)   || 0;
+  let moved = false;
+
+  function onMove(ev){
+    const dx = (ev.clientX - startX) / scale;
+    const dy = (ev.clientY - startY) / scale;
+    if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 4) return;
+    moved = true;
+    moveTarget.style.left = Math.round(startL + dx) + 'px';
+    moveTarget.style.top  = Math.round(startT + dy) + 'px';
+  }
+  function onUp(){
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    if (!moved) return; // pure click — selection already set, done
+    if (slotEl && moveTarget === slotEl) {
+      saveDims(slotEl, { left: parseInt(slotEl.style.left) || 0, top: parseInt(slotEl.style.top) || 0 });
+    } else if (textEl && moveTarget.dataset.editId) {
+      savedTextPos[moveTarget.dataset.editId] = {
+        left: parseInt(moveTarget.style.left) || 0,
+        top:  parseInt(moveTarget.style.top)  || 0,
+      };
+      try { localStorage.setItem('garage-text-pos', JSON.stringify(savedTextPos)); } catch(e){}
+    }
+  }
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
 }, true);
+
+// Double-click text → enter content-edit mode (cursor in the text).
+document.addEventListener('dblclick', (e) => {
+  if (!editMode) return;
+  const textEl = e.target.closest('[data-edit-id]');
+  if (!textEl) return;
+  e.preventDefault();
+  e.stopPropagation();
+  enterContentEdit(textEl);
+}, true);
+
+// Click outside the viewport empties selection.
+document.addEventListener('click', (e) => {
+  if (!editMode) return;
+  if (e.target.closest('.slot-tools')) return;
+  if (e.target.closest('.viewport')) return;
+  if (e.target.closest('.tweaks')) return;
+  if (e.target.closest('.tweaks-toggle')) return;
+  clearSelection();
+}, true);
+
+// Esc — clears selection first; if nothing selected, exits edit mode.
+window.addEventListener('keydown', (e) => {
+  if (!editMode) return;
+  if (e.key === 'Escape') {
+    if (selectedEl) clearSelection();
+    else setEditMode(false);
+  }
+});
 document.addEventListener('wheel', (e) => {
   if (!editMode) return;
   if (e.target.closest('.slot-tools')) return;
@@ -2604,7 +2680,7 @@ document.getElementById('resetAll').addEventListener('click', () => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v16-minimal-banner · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v17-click-to-select · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
