@@ -2812,6 +2812,18 @@ async function captureSlide(slideIdx, scale) {
 
   const viewport = document.getElementById('viewport');
   let canvas;
+  // Defensive shim for createPattern: html2canvas occasionally constructs a
+  // 0×0 source canvas (SVG filters it can't rasterize, photo blob URLs that
+  // decode to 0 dimensions, gradient backgrounds on zero-sized boxes) and
+  // CanvasRenderingContext2D.createPattern throws InvalidStateError for that,
+  // aborting the entire export. Returning null instead lets the library
+  // proceed — that fill is skipped and the rest of the slide renders.
+  const origCreatePattern = CanvasRenderingContext2D.prototype.createPattern;
+  CanvasRenderingContext2D.prototype.createPattern = function (image, repetition) {
+    if (image && (image.width === 0 || image.height === 0)) return null;
+    try { return origCreatePattern.call(this, image, repetition); }
+    catch (err) { console.warn('[garage] createPattern failed, skipping fill:', err); return null; }
+  };
   try {
     canvas = await window.html2canvas(viewport, {
       backgroundColor: null,
@@ -2838,6 +2850,7 @@ async function captureSlide(slideIdx, scale) {
     if (ctx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
     if (dlPolish) try { polishCanvas(canvas); } catch (err) { console.warn('[garage] polish skipped:', err); }
   } finally {
+    CanvasRenderingContext2D.prototype.createPattern = origCreatePattern;
     restoreSlotBackgrounds(swaps);
     hides.forEach((el, i) => { el.style.display = prev[i]; });
     if (wasEditMode) document.body.classList.add('edit-mode');
