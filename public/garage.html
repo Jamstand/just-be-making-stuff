@@ -1186,7 +1186,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v22 · download</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v23 · per-text-move</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2171,7 +2171,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v22-download loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v23-per-text-move loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
@@ -2208,7 +2208,10 @@ function restoreEdits() {
     else if (k.startsWith('text:')) el = document.querySelector('[data-edit-id="' + CSS.escape(k.slice(5)) + '"]');
     if (!el) continue;
     if (typeof v.left === 'number') el.style.left = v.left + 'px';
-    if (typeof v.top === 'number') el.style.top = v.top + 'px';
+    if (typeof v.top === 'number')  el.style.top  = v.top + 'px';
+    if (typeof v.tx === 'number' || typeof v.ty === 'number') {
+      el.style.transform = `translate(${v.tx || 0}px, ${v.ty || 0}px)`;
+    }
   }
   for (const [id, html] of Object.entries(savedText)) {
     const el = document.querySelector('[data-edit-id="' + CSS.escape(id) + '"]');
@@ -2260,45 +2263,60 @@ window.addEventListener('mousedown', (e) => {
   });
   if (!target) return;
 
-  // For text inside a non-positioned span, walk up to the positioned
-  // ancestor (the actual movable element).
-  let mover = target;
-  while (mover && mover !== document.body) {
-    const cs = getComputedStyle(mover);
-    if ((cs.position === 'absolute' || cs.position === 'fixed') && mover.closest('.viewport')) break;
-    mover = mover.parentElement;
-  }
-  if (!mover || mover === document.body) mover = target;
+  // Drag the EXACT element clicked. If it's already absolutely positioned
+  // (slots, .t panel-title blocks, .sig, .num, .anno, .sticker, .tickLabel),
+  // we set left/top directly. If it's inline / static (kicker spans inside
+  // .t, the words inside .topline, etc.) we use transform: translate() so
+  // we don't tear the element out of its flow.
+  const mover = target;
+  const cs = getComputedStyle(mover);
+  const isPositioned = (cs.position === 'absolute' || cs.position === 'fixed');
 
   e.preventDefault();
   e.stopPropagation();
 
   const scale = getStageScale();
   const startX = e.clientX, startY = e.clientY;
-  const startL = parseInt(mover.style.left) || parseInt(getComputedStyle(mover).left) || 0;
-  const startT = parseInt(mover.style.top)  || parseInt(getComputedStyle(mover).top)  || 0;
-  console.log('[garage] drag start ·', keyFor(mover) || mover.className, '· from', startL + ',' + startT);
-  // If the user grabbed a slot (or text inside one), make it the active
-  // selection so the floating tools panel applies to it.
+  let startL, startT, startTx, startTy;
+  if (isPositioned) {
+    startL = parseInt(mover.style.left) || parseInt(cs.left) || 0;
+    startT = parseInt(mover.style.top)  || parseInt(cs.top)  || 0;
+  } else {
+    const m = (mover.style.transform || '').match(/translate\(([-0-9.]+)px,\s*([-0-9.]+)px\)/);
+    startTx = m ? parseFloat(m[1]) : 0;
+    startTy = m ? parseFloat(m[2]) : 0;
+  }
+  console.log('[garage] drag start ·', keyFor(mover) || mover.className, '· positioned:', isPositioned);
   if (mover.matches('.slot[data-slot]')) setActiveSlot(mover);
 
   function onMove(ev) {
     const dx = (ev.clientX - startX) / scale;
     const dy = (ev.clientY - startY) / scale;
-    mover.style.left = Math.round(startL + dx) + 'px';
-    mover.style.top  = Math.round(startT + dy) + 'px';
+    if (isPositioned) {
+      mover.style.left = Math.round(startL + dx) + 'px';
+      mover.style.top  = Math.round(startT + dy) + 'px';
+    } else {
+      const nx = Math.round(startTx + dx);
+      const ny = Math.round(startTy + dy);
+      mover.style.transform = `translate(${nx}px, ${ny}px)`;
+    }
   }
   function onUp() {
     window.removeEventListener('mousemove', onMove);
     window.removeEventListener('mouseup', onUp);
     const k = keyFor(mover);
     if (k) {
-      savedPos[k] = {
-        left: parseInt(mover.style.left) || 0,
-        top:  parseInt(mover.style.top)  || 0,
-      };
+      if (isPositioned) {
+        savedPos[k] = {
+          left: parseInt(mover.style.left) || 0,
+          top:  parseInt(mover.style.top)  || 0,
+        };
+      } else {
+        const m = (mover.style.transform || '').match(/translate\(([-0-9.]+)px,\s*([-0-9.]+)px\)/);
+        savedPos[k] = { tx: m ? parseFloat(m[1]) : 0, ty: m ? parseFloat(m[2]) : 0 };
+      }
       try { localStorage.setItem(POS_KEY, JSON.stringify(savedPos)); } catch {}
-      console.log('[garage] drag saved ·', k, '· to', savedPos[k].left + ',' + savedPos[k].top);
+      console.log('[garage] drag saved ·', k, '·', isPositioned ? (savedPos[k].left + ',' + savedPos[k].top) : ('tx=' + savedPos[k].tx + ' ty=' + savedPos[k].ty));
     }
   }
   window.addEventListener('mousemove', onMove);
@@ -2645,7 +2663,7 @@ tpPanel.addEventListener('click', (e) => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v22-download · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v23-per-text-move · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
