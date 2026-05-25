@@ -388,6 +388,11 @@
   .tweaks::-webkit-scrollbar-thumb{background:#3a3a40;border-radius:2px}
   .tweaks h4{margin:0 0 8px;font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#a8a8ad;font-weight:600}
   .tweaks h4:not(:first-child){margin-top:14px}
+  /* Enhance preset row has 12 buttons — give it a 3-column grid so
+     each preset label still reads instead of getting squashed to 2
+     characters in a single flex-wrap row. */
+  .tweaks #presets{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .tweaks #presets button.opt{padding:8px 4px;font-size:10.5px}
   .tweaks .row{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}
   .tweaks button.opt{flex:1;min-width:0;padding:8px 6px;background:#1c1d22;color:#dcdcde;border:1px solid #2a2a30;border-radius:8px;font-size:10.5px;font-weight:600;cursor:pointer;font-family:inherit}
   .tweaks button.opt.on{background:#1c7ed6;border-color:#1c7ed6;color:#fff}
@@ -1229,7 +1234,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v42 · diptych per panel</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v43 · more presets</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1317,6 +1322,14 @@
     <button class="opt" data-p="vivid">Vivid</button>
     <button class="opt" data-p="filmic">Filmic</button>
     <button class="opt" data-p="raw">Raw</button>
+    <button class="opt" data-p="cinematic">Cinematic</button>
+    <button class="opt" data-p="noir">Noir</button>
+    <button class="opt" data-p="golden">Golden hr</button>
+    <button class="opt" data-p="cool">Cool blue</button>
+    <button class="opt" data-p="pop">Pop</button>
+    <button class="opt" data-p="faded">Faded</button>
+    <button class="opt" data-p="sunset">Sunset</button>
+    <button class="opt" data-p="crisp">Crisp</button>
   </div>
 
   <h4>Personalize</h4>
@@ -2030,10 +2043,18 @@ globalDrop.addEventListener('click', ()=>{
 
 /* ─── presets ─── */
 const presets = {
-  showroom:{sat:1.28,con:1.10,bri:1.04,warm:'-2deg',sep:0},
-  vivid:   {sat:1.55,con:1.20,bri:1.05,warm:'-4deg',sep:0},
-  filmic:  {sat:1.12,con:1.18,bri:0.98,warm:'-6deg',sep:0.06},
-  raw:     {sat:1.00,con:1.00,bri:1.00,warm:'0deg', sep:0}
+  showroom: {sat:1.28,con:1.10,bri:1.04,warm:'-2deg', sep:0    },
+  vivid:    {sat:1.55,con:1.20,bri:1.05,warm:'-4deg', sep:0    },
+  filmic:   {sat:1.12,con:1.18,bri:0.98,warm:'-6deg', sep:0.06 },
+  raw:      {sat:1.00,con:1.00,bri:1.00,warm:'0deg',  sep:0    },
+  cinematic:{sat:0.90,con:1.32,bri:0.94,warm:'8deg',  sep:0.04 },  // desaturated, dramatic
+  noir:     {sat:0.20,con:1.40,bri:0.96,warm:'0deg',  sep:0    },  // near-monochrome
+  golden:   {sat:1.32,con:1.08,bri:1.08,warm:'14deg', sep:0.08 },  // warm, sun-kissed
+  cool:     {sat:1.22,con:1.12,bri:1.02,warm:'-14deg',sep:0    },  // blue / overcast
+  pop:      {sat:1.80,con:1.28,bri:1.06,warm:'-2deg', sep:0    },  // very saturated
+  faded:    {sat:0.72,con:0.86,bri:1.06,warm:'2deg',  sep:0.10 },  // washed out, dreamy
+  sunset:   {sat:1.45,con:1.16,bri:1.02,warm:'12deg', sep:0.05 },  // warm orange
+  crisp:    {sat:1.18,con:1.30,bri:1.00,warm:'-3deg', sep:0    }   // clean, snappy
 };
 function applyPreset(name){
   const p = presets[name]||presets.showroom;
