@@ -1186,7 +1186,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v29 · 1080/1440/4K</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v30 · download safety</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2235,7 +2235,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v29-1080-1440-4k loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v30-download-safety loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
@@ -2621,9 +2621,16 @@ let _photoAiDB = null;
 async function getPhotoAiDB() {
   if (_photoAiDB) return _photoAiDB;
   return new Promise((resolve) => {
-    const req = indexedDB.open('photo-ai', 1);
-    req.onsuccess = (e) => { _photoAiDB = e.target.result; resolve(_photoAiDB); };
-    req.onerror = () => resolve(null);
+    try {
+      if (typeof indexedDB === 'undefined') return resolve(null);
+      const req = indexedDB.open('photo-ai', 1);
+      req.onsuccess = (e) => { _photoAiDB = e.target.result; resolve(_photoAiDB); };
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
+    } catch (err) {
+      console.warn('[garage] IDB open failed:', err);
+      resolve(null);
+    }
   });
 }
 async function getPhotoRecord(db, id) {
@@ -2767,11 +2774,19 @@ async function captureSlide(slideIdx, scale = dlScale) {
   // Swap each photo-ai-backed slot to a native-resolution render BEFORE
   // we decode/snapshot — that way html2canvas samples from the original
   // 4000px+ pixels instead of the 2800px-capped display data URL.
-  const swaps = await swapSlotsToFullRes();
-  // Give the browser one frame to apply the new background-image, then
-  // wait for the new blob: URLs to finish decoding.
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  const imgDims = await waitForViewportImages();
+  // Swap failure (no IDB, no records, blob render error, …) is NEVER
+  // allowed to kill the download — we just fall back to the cached
+  // 2800px slot backgrounds and continue.
+  let swaps = [];
+  try {
+    swaps = await swapSlotsToFullRes();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  } catch (err) {
+    console.warn('[garage] full-res swap aborted, exporting from cached backgrounds:', err);
+    swaps = [];
+  }
+  let imgDims;
+  try { imgDims = await waitForViewportImages(); } catch { imgDims = new Map(); }
   // Hide chrome that shouldn't appear in the exported image.
   const hides = [
     document.getElementById('toolsPanel'),
@@ -2814,8 +2829,9 @@ async function captureSlide(slideIdx, scale = dlScale) {
 }
 
 function canvasToDownload(canvas, filename) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
+      if (!blob) { reject(new Error('canvas.toBlob returned null (canvas may be tainted by cross-origin images)')); return; }
       const a = document.createElement('a');
       const url = URL.createObjectURL(blob);
       a.href = url; a.download = filename;
@@ -2839,17 +2855,35 @@ function dlHintBaseline() {
 
 function fileSuffix() { return dlPolish ? `-${dlLabel()}-polished.png` : `-${dlLabel()}.png`; }
 
+// Wrap a Promise in a hard timeout so a hung captureSlide can't leave
+// the UI stuck on "Rendering…" forever.
+function withTimeout(p, ms, label) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error((label || 'operation') + ' timed out after ' + ms + 'ms')), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
 async function downloadSlide(slideIdx) {
   const hint = document.getElementById('dlHint');
   hint.textContent = `Rendering slide ${slideIdx + 1} at ${dlLabel()}${dlPolish ? ' (+ polish)' : ''}…`;
   try {
-    const canvas = await captureSlide(slideIdx, dlScale());
-    await canvasToDownload(canvas, `garage-slide-${String(slideIdx + 1).padStart(2, '0')}${fileSuffix()}`);
+    const canvas = await withTimeout(captureSlide(slideIdx, dlScale()), 60000, 'captureSlide');
+    if (!canvas || !canvas.width) throw new Error('captureSlide returned no canvas');
+    console.log('[garage] captured', canvas.width, 'x', canvas.height, '— starting toBlob');
+    await withTimeout(canvasToDownload(canvas, `garage-slide-${String(slideIdx + 1).padStart(2, '0')}${fileSuffix()}`), 30000, 'toBlob');
     hint.textContent = `Saved slide ${slideIdx + 1}.`;
     setTimeout(() => { hint.textContent = dlHintBaseline(); }, 2500);
   } catch (err) {
     console.error('[garage] download failed:', err);
-    hint.textContent = 'Download failed — see console.';
+    hint.textContent = 'Download failed: ' + (err?.message || err);
+    // Briefly flash the panel red so the failure is visible.
+    const tw = document.querySelector('.tweaks');
+    if (tw) {
+      const prev = tw.style.boxShadow;
+      tw.style.boxShadow = '0 0 0 3px #ff5d4a, 0 12px 30px rgba(0,0,0,.6)';
+      setTimeout(() => { tw.style.boxShadow = prev; }, 1500);
+    }
   }
 }
 
@@ -2978,7 +3012,7 @@ tpPanel.addEventListener('click', (e) => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v29-1080-1440-4k · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v30-download-safety · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
