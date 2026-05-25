@@ -1186,7 +1186,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v26 · polish toggle</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v27 · polish fix</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1266,7 +1266,7 @@
     <button class="opt" id="dlCurrent" style="flex:1">↓ Current slide</button>
     <button class="opt" id="dlAll" style="flex:1">↓ All 6 slides</button>
   </div>
-  <div class="hint" id="dlHint" style="margin-top:4px">PNG at 14× (~5768 × 7210px). Polish on: unsharp + contrast + saturation pass.</div>
+  <div class="hint" id="dlHint" style="margin-top:4px">PNG at 14× (~5768 × 7210px). Polish on: contrast + saturation + brightness lift.</div>
 
   <h4>Enhance preset</h4>
   <div class="row" id="presets">
@@ -2215,7 +2215,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v26-polish-toggle loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v27-polish-fix loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
@@ -2563,44 +2563,21 @@ tpHead.addEventListener('mousedown', (e) => {
 let dlScale = 14; // selected quality multiplier — see #dlQuality buttons
 let dlPolish = true; // when true, captureSlide runs polishCanvas() on the result
 
-/* Polish pass — sharpening + contrast/saturation lift, run on the
-   already-rendered slide canvas before download. Two stages:
-   1. Unsharp mask: blur a copy, take (orig - blur), add it back with
-      'overlay' blend at 0.4 alpha. The blur is GPU-accelerated via
-      ctx.filter so it's fast even on 5000+px canvases.
-   2. Contrast + saturation lift via ctx.filter on a redraw.
-   Mutates the passed canvas in place. */
+/* Polish pass — contrast + saturation + brightness lift applied as a
+   single GPU-filtered redraw. We deliberately avoid composite-mode
+   "unsharp mask" tricks here: overlay-blending a high-pass layer onto
+   the base darkens mid-/shadow pixels into mush at high canvas sizes,
+   and a single ctx.filter redraw is reliable on any canvas the browser
+   can hold. Mutates the passed canvas in place. */
 function polishCanvas(canvas) {
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
   if (!ctx || !w || !h) return canvas;
-  // --- Stage 1: unsharp mask
-  const blur = document.createElement('canvas');
-  blur.width = w; blur.height = h;
-  const bctx = blur.getContext('2d');
-  bctx.filter = 'blur(1.2px)';
-  bctx.drawImage(canvas, 0, 0);
-  bctx.filter = 'none';
-  // High-pass = |original - blur|
-  const hp = document.createElement('canvas');
-  hp.width = w; hp.height = h;
-  const hctx = hp.getContext('2d');
-  hctx.drawImage(canvas, 0, 0);
-  hctx.globalCompositeOperation = 'difference';
-  hctx.drawImage(blur, 0, 0);
-  hctx.globalCompositeOperation = 'source-over';
-  // Lay high-pass back on top with 'overlay' for perceptual sharpening
-  ctx.globalCompositeOperation = 'overlay';
-  ctx.globalAlpha = 0.4;
-  ctx.drawImage(hp, 0, 0);
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.globalAlpha = 1;
-  // --- Stage 2: contrast + saturation
   const tmp = document.createElement('canvas');
   tmp.width = w; tmp.height = h;
   tmp.getContext('2d').drawImage(canvas, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  ctx.filter = 'contrast(1.06) saturate(1.1) brightness(1.01)';
+  ctx.filter = 'contrast(1.07) saturate(1.14) brightness(1.02)';
   ctx.drawImage(tmp, 0, 0);
   ctx.filter = 'none';
   return canvas;
@@ -2698,7 +2675,7 @@ function canvasToDownload(canvas, filename) {
 function dlHintBaseline() {
   const w = Math.round(412 * dlScale);
   const h = Math.round(515 * dlScale);
-  const polishBit = dlPolish ? ' Polish on: unsharp + contrast + saturation pass.' : '';
+  const polishBit = dlPolish ? ' Polish on: contrast + saturation + brightness lift.' : '';
   return `PNG at ${dlScale}× (~${w} × ${h}px).${polishBit}`;
 }
 
@@ -2818,7 +2795,7 @@ tpPanel.addEventListener('click', (e) => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v26-polish-toggle · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v27-polish-fix · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
