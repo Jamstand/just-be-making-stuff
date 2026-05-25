@@ -1186,7 +1186,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v28 · native-res export</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v29 · 1080/1440/4K</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1252,12 +1252,11 @@
     <button class="opt" id="resetAll" style="margin-top:10px;width:100%">Reset all customisations</button>
   </div>
 
-  <h4>Export · high-res</h4>
+  <h4>Export · resolution</h4>
   <div class="row" id="dlQuality" style="margin-bottom:4px">
-    <button class="opt" data-q="6" style="flex:1">6×</button>
-    <button class="opt" data-q="10" style="flex:1">10×</button>
-    <button class="opt on" data-q="14" style="flex:1">14×</button>
-    <button class="opt" data-q="20" style="flex:1">20×</button>
+    <button class="opt" data-w="1080" style="flex:1">1080p</button>
+    <button class="opt on" data-w="1440" style="flex:1">1440p</button>
+    <button class="opt" data-w="2160" style="flex:1">4K</button>
   </div>
   <div class="row" style="margin-bottom:4px">
     <button class="opt on" id="dlPolishBtn" style="flex:1">Polish: on</button>
@@ -1267,7 +1266,7 @@
     <button class="opt" id="dlCurrent" style="flex:1">↓ Current slide</button>
     <button class="opt" id="dlAll" style="flex:1">↓ All 6 slides</button>
   </div>
-  <div class="hint" id="dlHint" style="margin-top:4px">PNG at 14× (~5768 × 7210px). Polish on: contrast + saturation + brightness lift.</div>
+  <div class="hint" id="dlHint" style="margin-top:4px">PNG at 1440p (1440 × 1800px) · polish on.</div>
 
   <h4>Enhance preset</h4>
   <div class="row" id="presets">
@@ -2236,7 +2235,7 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v28-native-res-export loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v29-1080-1440-4k loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
    EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
@@ -2581,8 +2580,16 @@ tpHead.addEventListener('mousedown', (e) => {
 });
 
 /* ─── DOWNLOAD SLIDES (high-res PNG via html2canvas) ─────────────────── */
-let dlScale = 14; // selected quality multiplier — see #dlQuality buttons
-let dlPolish = true; // when true, captureSlide runs polishCanvas() on the result
+// Target output width in CSS px. captureSlide derives its html2canvas
+// scale factor as dlTargetW / viewport.clientWidth. 1080p ≈ 2.6×, 1440p
+// ≈ 3.5×, 4K ≈ 5.2× — all comfortably inside browser canvas limits and
+// well-suited to typical 2800–4032px source photos (we down/up-sample
+// instead of pushing 14× extreme upscales that softened detail and
+// occasionally blew out html2canvas).
+let dlTargetW = 1440;
+let dlPolish = true;
+const VP_W = 412, VP_H = 515; // viewport intrinsic size in CSS px
+function dlScale() { return dlTargetW / VP_W; }
 
 /* Polish pass — contrast + saturation + brightness lift applied as a
    single GPU-filtered redraw. We deliberately avoid composite-mode
@@ -2646,32 +2653,49 @@ async function renderFullResPhoto(rec) {
       i.onerror = rej;
       i.src = url;
     });
+    // Cap canvas dimensions so we never allocate something a browser
+    // can't handle (Safari iOS caps around 16MP per canvas; even desktop
+    // Chrome throttles past ~32k px on a side). 4096 covers iPhone 12MP
+    // shots at native quality while staying safe everywhere.
+    const MAX = 4096;
+    const longEdge = Math.max(img.naturalWidth, img.naturalHeight);
+    const sc = Math.min(1, MAX / longEdge);
+    const w = Math.round(img.naturalWidth * sc);
+    const h = Math.round(img.naturalHeight * sc);
     const c = document.createElement('canvas');
-    c.width = img.naturalWidth;
-    c.height = img.naturalHeight;
+    c.width = w; c.height = h;
     const ctx = c.getContext('2d');
     if (rec.look) {
       const f = (k, d = 1) => (typeof rec.look[k] === 'number' ? rec.look[k] : d);
       ctx.filter = `brightness(${f('brightness')}) contrast(${f('contrast')}) saturate(${f('saturate')}) hue-rotate(${f('hueRotate', 0)}deg) sepia(${f('sepia', 0)}) grayscale(${f('grayscale', 0)}) blur(${f('blur', 0)}px) invert(${f('invert', 0)})`;
     }
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, 0, 0, w, h);
     ctx.filter = 'none';
     if (rec.look?.tintAlpha > 0.005) {
       ctx.globalCompositeOperation = 'soft-light';
       ctx.globalAlpha = rec.look.tintAlpha;
       ctx.fillStyle = rec.look.tintColor;
-      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillRect(0, 0, w, h);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     }
     if (rec.look?.vignette > 0.01) {
-      const grad = ctx.createRadialGradient(c.width/2, c.height/2, Math.min(c.width, c.height) * 0.35, c.width/2, c.height/2, Math.max(c.width, c.height) * 0.72);
+      const grad = ctx.createRadialGradient(w/2, h/2, Math.min(w, h) * 0.35, w/2, h/2, Math.max(w, h) * 0.72);
       grad.addColorStop(0, 'rgba(0,0,0,0)');
       grad.addColorStop(1, `rgba(0,0,0,${0.85 * rec.look.vignette})`);
       ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillRect(0, 0, w, h);
     }
-    return c.toDataURL('image/jpeg', 0.96);
+    // Use a Blob + blob: URL instead of a multi-MB data URL string.
+    // Setting a huge data URL as CSS background-image is unreliable
+    // (some browsers truncate or fail silently → slot renders empty).
+    // A blob: URL is a tiny string reference to a stored Blob, which
+    // every browser handles cleanly even for 4096px JPEGs.
+    return await new Promise((res) => {
+      c.toBlob((outBlob) => {
+        res(outBlob ? URL.createObjectURL(outBlob) : null);
+      }, 'image/jpeg', 0.96);
+    });
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -2688,7 +2712,7 @@ async function swapSlotsToFullRes() {
       if (!rec) continue;
       const fullUrl = await renderFullResPhoto(rec);
       if (!fullUrl) continue;
-      swaps.push({ slot, oldBg: slot.style.backgroundImage });
+      swaps.push({ slot, oldBg: slot.style.backgroundImage, newUrl: fullUrl });
       slot.style.backgroundImage = `url("${fullUrl}")`;
     } catch (err) {
       console.warn('[garage] full-res swap failed for slot', slot.dataset.slot, err);
@@ -2698,7 +2722,10 @@ async function swapSlotsToFullRes() {
   return swaps;
 }
 function restoreSlotBackgrounds(swaps) {
-  for (const { slot, oldBg } of swaps) slot.style.backgroundImage = oldBg;
+  for (const { slot, oldBg, newUrl } of swaps) {
+    slot.style.backgroundImage = oldBg;
+    if (newUrl) try { URL.revokeObjectURL(newUrl); } catch {}
+  }
 }
 
 // Wait until every <img> and CSS background-image inside the viewport has
@@ -2741,6 +2768,9 @@ async function captureSlide(slideIdx, scale = dlScale) {
   // we decode/snapshot — that way html2canvas samples from the original
   // 4000px+ pixels instead of the 2800px-capped display data URL.
   const swaps = await swapSlotsToFullRes();
+  // Give the browser one frame to apply the new background-image, then
+  // wait for the new blob: URLs to finish decoding.
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   const imgDims = await waitForViewportImages();
   // Hide chrome that shouldn't appear in the exported image.
   const hides = [
@@ -2795,20 +2825,25 @@ function canvasToDownload(canvas, filename) {
   });
 }
 
+function dlLabel() {
+  if (dlTargetW >= 2160) return '4K';
+  if (dlTargetW >= 1440) return '1440p';
+  return '1080p';
+}
 function dlHintBaseline() {
-  const w = Math.round(412 * dlScale);
-  const h = Math.round(515 * dlScale);
-  const polishBit = dlPolish ? ' Polish on: contrast + saturation + brightness lift.' : '';
-  return `PNG at ${dlScale}× (~${w} × ${h}px).${polishBit}`;
+  const w = dlTargetW;
+  const h = Math.round(dlTargetW * (VP_H / VP_W));
+  const polishBit = dlPolish ? ' · polish on' : '';
+  return `PNG at ${dlLabel()} (${w} × ${h}px)${polishBit}.`;
 }
 
-function fileSuffix() { return dlPolish ? `-${dlScale}x-polished.png` : `-${dlScale}x.png`; }
+function fileSuffix() { return dlPolish ? `-${dlLabel()}-polished.png` : `-${dlLabel()}.png`; }
 
 async function downloadSlide(slideIdx) {
   const hint = document.getElementById('dlHint');
-  hint.textContent = `Rendering slide ${slideIdx + 1} at ${dlScale}×${dlPolish ? ' (+ polish)' : ''}…`;
+  hint.textContent = `Rendering slide ${slideIdx + 1} at ${dlLabel()}${dlPolish ? ' (+ polish)' : ''}…`;
   try {
-    const canvas = await captureSlide(slideIdx, dlScale);
+    const canvas = await captureSlide(slideIdx, dlScale());
     await canvasToDownload(canvas, `garage-slide-${String(slideIdx + 1).padStart(2, '0')}${fileSuffix()}`);
     hint.textContent = `Saved slide ${slideIdx + 1}.`;
     setTimeout(() => { hint.textContent = dlHintBaseline(); }, 2500);
@@ -2821,9 +2856,9 @@ async function downloadSlide(slideIdx) {
 async function downloadAllSlides() {
   const hint = document.getElementById('dlHint');
   for (let i = 0; i < N; i++) {
-    hint.textContent = `Rendering slide ${i + 1} of ${N} at ${dlScale}×${dlPolish ? ' (+ polish)' : ''}…`;
+    hint.textContent = `Rendering slide ${i + 1} of ${N} at ${dlLabel()}${dlPolish ? ' (+ polish)' : ''}…`;
     try {
-      const canvas = await captureSlide(i, dlScale);
+      const canvas = await captureSlide(i, dlScale());
       await canvasToDownload(canvas, `garage-slide-${String(i + 1).padStart(2, '0')}${fileSuffix()}`);
     } catch (err) {
       console.error('[garage] slide', i + 1, 'failed:', err);
@@ -2835,11 +2870,11 @@ async function downloadAllSlides() {
   setTimeout(() => { hint.textContent = dlHintBaseline(); }, 3000);
 }
 
-// Quality selector.
-document.querySelectorAll('#dlQuality button[data-q]').forEach((btn) => {
+// Resolution selector — buttons carry target width in px (1080 / 1440 / 2160).
+document.querySelectorAll('#dlQuality button[data-w]').forEach((btn) => {
   btn.addEventListener('click', () => {
-    dlScale = parseInt(btn.dataset.q, 10) || 14;
-    document.querySelectorAll('#dlQuality button[data-q]').forEach((b) => b.classList.toggle('on', b === btn));
+    dlTargetW = parseInt(btn.dataset.w, 10) || 1440;
+    document.querySelectorAll('#dlQuality button[data-w]').forEach((b) => b.classList.toggle('on', b === btn));
     document.getElementById('dlHint').textContent = dlHintBaseline();
   });
 });
@@ -2943,7 +2978,7 @@ tpPanel.addEventListener('click', (e) => {
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v28-native-res-export · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v29-1080-1440-4k · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
