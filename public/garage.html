@@ -1229,7 +1229,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v40 · no parallax + undo reset</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v41 · slots per panel</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1416,43 +1416,47 @@
 
       <!-- photos (anchor speed) -->
       <div class="layer photos">
-        <!-- A: hero 911 — spans P1 → P2 -->
+        <!-- Each slot is now contained within a single panel (412px wide)
+             so it only shows up on one slide. Hero slots had to shrink
+             from 520-580 → 380 to fit. Panel bounds: P1 0-412, P2 412-824,
+             P3 824-1236, P4 1236-1648, P5 1648-2060, P6 2060-2472. -->
+        <!-- A: hero 911 — P1 -->
         <div class="slot" data-slot="A"
-             style="--rot:-2deg;left:24px;top:120px;width:540px;height:340px;border-radius:6px"></div>
+             style="--rot:-2deg;left:30px;top:120px;width:380px;height:340px;border-radius:6px"></div>
 
-        <!-- B: rear polaroid — spans P1 → P2 -->
+        <!-- B: rear polaroid — P2 -->
         <div class="slot poly" data-slot="B"
-             style="--rot:-5deg;left:340px;top:230px;width:300px;height:230px;transform:rotate(-5deg);z-index:4">
+             style="--rot:-5deg;left:466px;top:230px;width:300px;height:230px;transform:rotate(-5deg);z-index:4">
           <div class="cap">rear three-quarter</div>
         </div>
 
-        <!-- C: wheel circle — spans P2 → P3 -->
+        <!-- C: wheel circle — P3 -->
         <div class="slot circle" data-slot="C"
-             style="left:680px;top:90px;width:340px;height:340px;border:5px solid var(--paper);z-index:3"></div>
+             style="left:860px;top:90px;width:340px;height:340px;border:5px solid var(--paper);z-index:3"></div>
 
-        <!-- D: stripe polaroid — spans P3 → P4 -->
+        <!-- D: stripe polaroid — P4 -->
         <div class="slot poly" data-slot="D"
-             style="--rot:5deg;left:1080px;top:200px;width:300px;height:230px;transform:rotate(5deg);z-index:5">
+             style="--rot:5deg;left:1292px;top:200px;width:300px;height:230px;transform:rotate(5deg);z-index:5">
           <div class="cap">heritage stripe</div>
         </div>
 
-        <!-- E: garage doorway — spans P4 → P5 -->
+        <!-- E: garage doorway — P5 -->
         <div class="slot" data-slot="E"
-             style="--rot:2deg;left:1320px;top:60px;width:520px;height:320px;border-radius:6px;z-index:2"></div>
+             style="--rot:2deg;left:1664px;top:60px;width:380px;height:320px;border-radius:6px;z-index:2"></div>
 
-        <!-- F: wheel detail polaroid — P5 -->
+        <!-- F: wheel detail polaroid — P5 (sits below E) -->
         <div class="slot poly" data-slot="F"
-             style="--rot:-6deg;left:1720px;top:240px;width:280px;height:210px;transform:rotate(-6deg);z-index:5">
+             style="--rot:-6deg;left:1740px;top:300px;width:280px;height:210px;transform:rotate(-6deg);z-index:5">
           <div class="cap">centerlocks · orange bite</div>
         </div>
 
-        <!-- G: lineup hero — spans P5 → P6 -->
+        <!-- G: lineup hero — P6 -->
         <div class="slot" data-slot="G"
-             style="--rot:-1deg;left:1980px;top:90px;width:580px;height:340px;border-radius:6px;z-index:3"></div>
+             style="--rot:-1deg;left:2076px;top:90px;width:380px;height:320px;border-radius:6px;z-index:3"></div>
 
-        <!-- H: sculpture polaroid — P5 → P6 -->
+        <!-- H: sculpture polaroid — P6 (sits below G) -->
         <div class="slot poly" data-slot="H"
-             style="--rot:-4deg;left:2060px;top:240px;width:240px;height:170px;transform:rotate(-4deg);z-index:6">
+             style="--rot:-4deg;left:2140px;top:340px;width:240px;height:170px;transform:rotate(-4deg);z-index:6">
           <div class="cap">the gang.</div>
         </div>
 
