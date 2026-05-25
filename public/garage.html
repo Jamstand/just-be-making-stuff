@@ -1152,6 +1152,17 @@
   .slot-tools button:hover { background: rgba(255,255,255,0.15); }
   .slot-tools button.danger:hover { background: var(--accent); color: #1a1b1f; }
 
+  /* Optional thick outline around any slot — toggled per-slot via
+     the tools panel. Sits inside the slot's box so it cuts into the
+     photo a few px, matching the cinevisuals "white-bordered circle"
+     reference. Works on rect, circle, and polaroid shapes. */
+  .slot.gar-outlined {
+    /* !important needed to beat the per-theme .stage[data-theme=...]
+       .slot:not(.poly) border rules, which have higher specificity. */
+    border: 6px solid var(--paper, #fff) !important;
+    box-sizing: border-box;
+    box-shadow: 0 14px 30px rgba(0,0,0,.45), 0 4px 10px rgba(0,0,0,.35);
+  }
   .resize-handle {
     position: absolute; width: 14px; height: 14px;
     background: var(--accent); border: 1.5px solid #fff;
@@ -1234,7 +1245,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v43 · more presets</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v44 · slot shape + outline</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1256,6 +1267,16 @@
     <button data-tp="p-down">↓</button>
     <button data-tp="p-left">←</button>
     <button data-tp="p-right">→</button>
+  </div>
+  <div class="tp-row">
+    <span class="tp-lbl">shape</span>
+    <button data-tp="shape-rect" title="Rectangle">▭</button>
+    <button data-tp="shape-circle" title="Circle">◯</button>
+    <button data-tp="shape-poly" title="Polaroid">▣</button>
+  </div>
+  <div class="tp-row">
+    <span class="tp-lbl">outline</span>
+    <button data-tp="outline-toggle">Toggle outline</button>
   </div>
   <div class="tp-row tp-actions">
     <button data-tp="replace">Replace</button>
@@ -2576,6 +2597,11 @@ for (const [slotId, s] of Object.entries(savedSize)) {
   if (typeof s.bgX === 'number' || typeof s.bgY === 'number') {
     slot.style.backgroundPosition = (s.bgX ?? 50) + '% ' + (s.bgY ?? 50) + '%';
   }
+  // Per-slot shape (rect / circle / polaroid) and outline toggle.
+  if (s.shape === 'circle') { slot.classList.add('circle'); slot.classList.remove('poly'); }
+  else if (s.shape === 'poly') { slot.classList.add('poly'); slot.classList.remove('circle'); }
+  else if (s.shape === 'rect') { slot.classList.remove('circle', 'poly'); }
+  if (s.outlined) slot.classList.add('gar-outlined');
 }
 function saveSize(slot, partial) {
   const id = slot.dataset.slot;
@@ -3228,6 +3254,19 @@ tpPanel.addEventListener('click', (e) => {
     if (action === 'p-right') b.x = Math.min(100, b.x + PSTEP);
     slot.style.backgroundPosition = b.x + '% ' + b.y + '%';
     saveSize(slot, { bgX: b.x, bgY: b.y });
+  } else if (action === 'shape-rect') {
+    slot.classList.remove('circle', 'poly');
+    saveSize(slot, { shape: 'rect' });
+  } else if (action === 'shape-circle') {
+    slot.classList.add('circle'); slot.classList.remove('poly');
+    saveSize(slot, { shape: 'circle' });
+  } else if (action === 'shape-poly') {
+    slot.classList.add('poly'); slot.classList.remove('circle');
+    saveSize(slot, { shape: 'poly' });
+  } else if (action === 'outline-toggle') {
+    const on = !slot.classList.contains('gar-outlined');
+    slot.classList.toggle('gar-outlined', on);
+    saveSize(slot, { outlined: on });
   } else if (action === 'replace') {
     const inp = document.createElement('input');
     inp.type = 'file'; inp.accept = 'image/*';
@@ -3248,6 +3287,7 @@ tpPanel.addEventListener('click', (e) => {
     slot.style.removeProperty('width'); slot.style.removeProperty('height');
     slot.style.removeProperty('--zoom'); slot.style.removeProperty('background-position');
     slot.style.removeProperty('left'); slot.style.removeProperty('top');
+    slot.classList.remove('circle', 'poly', 'gar-outlined');
     // Reload to re-apply original inline styles from HTML.
     location.reload();
   }
