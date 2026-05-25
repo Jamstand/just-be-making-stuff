@@ -1133,9 +1133,9 @@
 <div class="edit-mode-banner" title="Hover for full shortcut list">
   <span class="dot"></span>
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
-  <span class="hint-full">click anything = select · drag selected = move · double-click text = edit · corner = resize · circle = rotate · <kbd>wheel</kbd> on slot = pan photo · click empty = deselect · <kbd>Esc</kbd> exit</span>
+  <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v17 · click-to-select</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v18 · drag-only</div>
 
 <div id="tweaks" class="tweaks" style="display:none">
   <button class="close" id="tweaksClose">×</button>
@@ -2085,602 +2085,191 @@ tweaksToggle.addEventListener('click', ()=>showTweaks(true));
 document.getElementById('tweaksClose').addEventListener('click', ()=>showTweaks(false));
 
 // Version banner — confirms which build the browser actually loaded.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v17-click-to-select loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v18-drag-only loaded · script reached the end-of-tweaks section', 'background:#08233d;color:#d4a04a;padding:3px 8px;border-radius:3px');
 
 /* ─────────────────────────────────────────────────────────────────────
-   EDIT MODE — wires up full customisation: editable text, slot tools
-   (clear / swap / reset), corner-drag resize, persistence.
-
-   Persistence keys in localStorage:
-     garage-text        { editId : innerHTML }
-     garage-slot-dims   { slotId : { left, top, width, height } }
-     garage-slot-defaults  baked-in defaults captured on first load
-     garage3-slots      (existing) per-slot photo data-URLs
+   EDIT MODE — v18 minimal rewrite. Just drag. Nothing else.
+   Step 1: prove that click+drag works on any editable element.
+   Uses elementsFromPoint at the cursor position so nothing in the
+   stacking context can absorb the click. Bypasses every issue we hit.
    ───────────────────────────────────────────────────────────────────── */
 
-// 1. Assign stable data-edit-id to every editable text element so we can
-//    persist changes by id. Walk in document order so ids are stable as
-//    long as the DOM structure doesn't change.
+// 1. Assign data-edit-id to every text element + treat slots as editable.
 const EDITABLE_SELECTOR = '.t, .t .kicker, .t .accent, .sig .small, .sig .name, .sig .x, .sig .name2, .sig .date, .tickLabel, .num, .anno, .sticker, .topline span, .topline b, .slot .cap';
-(function assignEditIds(){
-  let i = 0;
-  document.querySelectorAll(EDITABLE_SELECTOR).forEach((el) => {
-    if (!el.dataset.editId) el.dataset.editId = 'e-' + (i++);
-  });
-})();
-
-// 2. Restore saved text edits.
-const savedText = (()=>{try{return JSON.parse(localStorage.getItem('garage-text')||'{}');}catch(e){return {};}})();
-// Per-text-element positions ({ editId: { left, top } }) so users can
-// drag panel titles, kickers, ticks, sigs, etc. anywhere on the canvas.
-const savedTextPos = (()=>{try{return JSON.parse(localStorage.getItem('garage-text-pos')||'{}');}catch(e){return {};}})();
-function restoreTextPositions(){
-  for (const [id, pos] of Object.entries(savedTextPos)) {
-    const el = document.querySelector(`[data-edit-id="${CSS.escape(id)}"]`);
-    if (!el) continue;
-    if (typeof pos.left === 'number') el.style.left = pos.left + 'px';
-    if (typeof pos.top  === 'number') el.style.top  = pos.top + 'px';
-  }
-}
-function restoreText(){
-  Object.keys(savedText).forEach((id) => {
-    const el = document.querySelector(`[data-edit-id="${CSS.escape(id)}"]`);
-    if (el) el.innerHTML = savedText[id];
-  });
-}
-restoreText();
-restoreTextPositions();
-
-// 3. Capture each slot's original position/size as the "default" so the
-//    Reset button can return to it. Only captured the first time.
-const SLOT_DEFAULTS_KEY = 'garage-slot-defaults';
-const slotDefaults = (()=>{
-  try { const v = JSON.parse(localStorage.getItem(SLOT_DEFAULTS_KEY) || 'null'); if (v) return v; } catch(e){}
-  const d = {};
-  document.querySelectorAll('.slot[data-slot]').forEach((s) => {
-    d[s.dataset.slot] = {
-      left: parseInt(s.style.left) || 0,
-      top: parseInt(s.style.top) || 0,
-      width: parseInt(s.style.width) || 0,
-      height: parseInt(s.style.height) || 0,
-    };
-  });
-  try { localStorage.setItem(SLOT_DEFAULTS_KEY, JSON.stringify(d)); } catch(e){}
-  return d;
-})();
-
-// 4. Restore saved slot dims.
-const savedDims = (()=>{try{return JSON.parse(localStorage.getItem('garage-slot-dims')||'{}');}catch(e){return {};}})();
-function applySlotDims(slot){
-  const d = savedDims[slot.dataset.slot];
-  if (!d) return;
-  if (typeof d.left   === 'number') slot.style.left   = d.left   + 'px';
-  if (typeof d.top    === 'number') slot.style.top    = d.top    + 'px';
-  if (typeof d.width  === 'number') slot.style.width  = d.width  + 'px';
-  if (typeof d.height === 'number') slot.style.height = d.height + 'px';
-  if (typeof d.rotation === 'number') {
-    // Override the inline transform:rotate(-5deg) baked into some slots.
-    slot.style.transform = `rotate(${d.rotation}deg)`;
-    slot.style.setProperty('--rot', d.rotation + 'deg');
-  }
-  if (typeof d.bgX === 'number' || typeof d.bgY === 'number') {
-    slot.style.backgroundPosition = `${d.bgX || 50}% ${d.bgY || 50}%`;
-  }
-  if (typeof d.zoom === 'number') {
-    slot.style.setProperty('--zoom', d.zoom);
-  }
-}
-function saveDims(slot, partial){
-  const id = slot.dataset.slot;
-  savedDims[id] = Object.assign({}, savedDims[id], partial);
-  try { localStorage.setItem('garage-slot-dims', JSON.stringify(savedDims)); } catch(e){}
-}
-document.querySelectorAll('.slot[data-slot]').forEach(applySlotDims);
-
-// 5. Build per-slot tools (toolbar + resize handle) — always in the DOM,
-//    only visible via CSS in edit mode.
-document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
-  buildSlotChrome(slot);
+let _editIdSeq = 0;
+document.querySelectorAll(EDITABLE_SELECTOR).forEach((el) => {
+  if (!el.dataset.editId) el.dataset.editId = 'e-' + (_editIdSeq++);
 });
-function buildSlotChrome(slot){
-  slot.querySelectorAll('.slot-tools, .resize-handle, .rotate-handle, .slot-id').forEach((n) => n.remove());
-  const id = document.createElement('div');
-  id.className = 'slot-id';
-  id.textContent = slot.dataset.slot;
-  slot.appendChild(id);
-  const tools = document.createElement('div');
-  tools.className = 'slot-tools';
-  tools.innerHTML = `
-    <button type="button" data-tool="replace" title="Replace photo">↻</button>
-    <button type="button" data-tool="swap" title="Swap with another slot">⇄</button>
-    <button type="button" data-tool="reset" title="Reset position + size + rotation + crop">↺</button>
-    <button type="button" data-tool="clear" class="danger" title="Clear photo">×</button>
-  `;
-  slot.appendChild(tools);
-  // Bind each tool button directly so clicks can't be eaten by anything
-  // upstream. Stop mousedown on the button to keep slot drag from
-  // triggering. handleToolClick lives below.
-  tools.querySelectorAll('button[data-tool]').forEach((btn) => {
-    btn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      handleToolClick(slot, btn.dataset.tool);
-    });
-  });
-  const handle = document.createElement('div');
-  handle.className = 'resize-handle';
-  handle.title = 'Drag to resize';
-  slot.appendChild(handle);
-  const rot = document.createElement('div');
-  rot.className = 'rotate-handle';
-  rot.title = 'Drag to rotate';
-  slot.appendChild(rot);
+
+// 2. localStorage helpers.
+const POS_KEY = 'garage-pos-v18';
+const TEXT_KEY = 'garage-text-v18';
+const savedPos = (() => { try { return JSON.parse(localStorage.getItem(POS_KEY) || '{}'); } catch { return {}; } })();
+const savedText = (() => { try { return JSON.parse(localStorage.getItem(TEXT_KEY) || '{}'); } catch { return {}; } })();
+
+function keyFor(el) {
+  // Stable id for the element so we can persist its position.
+  if (el.dataset.slot) return 'slot:' + el.dataset.slot;
+  if (el.dataset.editId) return 'text:' + el.dataset.editId;
+  return null;
 }
 
-// Tool action — replaces the previous document-level click delegation.
-function handleToolClick(slot, tool){
-  console.log('[garage] tool', tool, 'on', slot.dataset.slot);
-  if (!editMode) return;
-  if (tool === 'replace') {
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = 'image/*';
-    inp.onchange = () => { if (inp.files[0]) handleFile(inp.files[0], slot); };
-    inp.click();
-  } else if (tool === 'clear') {
-    delete stored[slot.dataset.slot];
-    try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch(e){}
-    slot.style.backgroundImage = '';
-    slot.classList.add('empty'); slot.textContent = 'drop image';
-    buildSlotChrome(slot);
-  } else if (tool === 'reset') {
-    const d = slotDefaults[slot.dataset.slot];
-    if (d) {
-      slot.style.left = d.left + 'px'; slot.style.top = d.top + 'px';
-      slot.style.width = d.width + 'px'; slot.style.height = d.height + 'px';
-      slot.style.transform = '';
-      slot.style.removeProperty('--rot');
-      slot.style.removeProperty('--zoom');
-      slot.style.backgroundPosition = '';
-      delete savedDims[slot.dataset.slot];
-      try { localStorage.setItem('garage-slot-dims', JSON.stringify(savedDims)); } catch(e){}
-    }
-  } else if (tool === 'swap') {
-    if (swapSource && swapSource !== slot) {
-      doSwap(swapSource, slot);
-      clearSwap();
-    } else if (swapSource === slot) {
-      clearSwap();
-    } else {
-      swapSource = slot;
-      slot.classList.add('swap-source');
-    }
+// 3. Restore saved positions + text content on page load.
+function restoreEdits() {
+  for (const [k, v] of Object.entries(savedPos)) {
+    let el;
+    if (k.startsWith('slot:')) el = document.querySelector('.slot[data-slot="' + k.slice(5) + '"]');
+    else if (k.startsWith('text:')) el = document.querySelector('[data-edit-id="' + CSS.escape(k.slice(5)) + '"]');
+    if (!el) continue;
+    if (typeof v.left === 'number') el.style.left = v.left + 'px';
+    if (typeof v.top === 'number') el.style.top = v.top + 'px';
+  }
+  for (const [id, html] of Object.entries(savedText)) {
+    const el = document.querySelector('[data-edit-id="' + CSS.escape(id) + '"]');
+    if (el) el.innerHTML = html;
   }
 }
+restoreEdits();
 
-// 6. Edit-mode toggle + persistence.
+// 4. Edit-mode toggle.
 const EDIT_KEY = 'garage-edit-mode';
 let editMode = false;
-function setEditMode(on){
+function setEditMode(on) {
   editMode = !!on;
   document.body.classList.toggle('edit-mode', editMode);
-  // contentEditable is NOT auto-enabled on every text element — instead
-  // it's enabled only on the specific element the user double-clicks
-  // (see dblclick handler below). Otherwise single-click would always
-  // open content-edit instead of selecting.
-  if (!editMode) {
-    document.querySelectorAll('[data-edit-id]').forEach((el) => { el.contentEditable = 'false'; });
-    clearSelection();
-  }
   document.getElementById('tEdit').classList.toggle('on', editMode);
-  try { localStorage.setItem(EDIT_KEY, editMode ? '1' : '0'); } catch(e){}
-  console.log('[garage] edit mode:', editMode, '· editable elements:', document.querySelectorAll('[data-edit-id]').length, '· slots:', document.querySelectorAll('.slot[data-slot]').length);
+  try { localStorage.setItem(EDIT_KEY, editMode ? '1' : '0'); } catch {}
+  console.log('[garage] edit mode:', editMode);
 }
-// Selection state — exactly one element is selected at a time.
-let selectedEl = null;
-function setSelection(el){
-  if (selectedEl === el) return;
-  if (selectedEl) {
-    selectedEl.classList.remove('gar-selected');
-    if (selectedEl.classList.contains('gar-editing')) {
-      selectedEl.classList.remove('gar-editing');
-      selectedEl.contentEditable = 'false';
-    }
-  }
-  selectedEl = el;
-  if (el) el.classList.add('gar-selected');
-  console.log('[garage] selected', el ? (el.dataset.slot ? 'slot ' + el.dataset.slot : el.dataset.editId || el.tagName) : 'nothing');
-}
-function clearSelection(){ setSelection(null); }
-function enterContentEdit(el){
-  if (!el || !el.dataset.editId) return;
-  setSelection(el);
-  el.classList.add('gar-editing');
-  el.contentEditable = 'true';
-  el.focus();
-  // Place caret at click position
-  const sel = window.getSelection();
-  sel.selectAllChildren(el);
-  sel.collapseToEnd();
-}
-// Restore edit-mode preference.
-try { setEditMode(localStorage.getItem(EDIT_KEY) === '1'); } catch(e){ setEditMode(false); }
+try { setEditMode(localStorage.getItem(EDIT_KEY) === '1'); } catch { setEditMode(false); }
 
-// Wire click on the WHOLE toggle row (label + switch), not just the switch
-// knob — easy to click the label text and wonder why nothing happens.
-function findToggleRow(){
-  const sw = document.getElementById('tEdit');
-  return sw ? sw.closest('.toggle') : null;
-}
-const editToggleRow = findToggleRow();
+const editToggleRow = document.getElementById('tEdit')?.closest('.toggle');
 if (editToggleRow) {
   editToggleRow.style.cursor = 'pointer';
-  editToggleRow.addEventListener('click', (e) => {
-    // Don't double-toggle when the click already lands on the switch.
-    setEditMode(!editMode);
-  });
+  editToggleRow.addEventListener('click', () => setEditMode(!editMode));
 } else {
-  document.getElementById('tEdit').addEventListener('click', () => setEditMode(!editMode));
-}
-window.addEventListener('keydown', (e) => {
-  // Esc handler moved to the selection block lower in the script
-  // (clears selection first, then exits edit mode on second press).
-  if (e.key === 'Shift' && editMode) document.body.classList.add('shift-held');
-});
-window.addEventListener('keyup', (e) => {
-  if (e.key === 'Shift') document.body.classList.remove('shift-held');
-});
-window.addEventListener('blur', () => document.body.classList.remove('shift-held'));
-
-// 7. Save text edits on blur (or input, debounced).
-let textSaveTimer = null;
-document.addEventListener('input', (e) => {
-  const el = e.target.closest('[data-edit-id]');
-  if (!el || !editMode) return;
-  savedText[el.dataset.editId] = el.innerHTML;
-  clearTimeout(textSaveTimer);
-  textSaveTimer = setTimeout(() => {
-    try { localStorage.setItem('garage-text', JSON.stringify(savedText)); } catch(e){}
-  }, 400);
-}, true);
-
-// 8. Slot tools click handler (delegated).
-let swapSource = null;
-function clearSwap(){
-  document.querySelectorAll('.slot.swap-source, .slot.swap-target-hover').forEach((s) => {
-    s.classList.remove('swap-source', 'swap-target-hover');
-  });
-  swapSource = null;
-}
-// Tool clicks are bound directly in buildSlotChrome (more reliable than
-// document-level delegation, which was being silently intercepted).
-
-// (Click-to-complete-swap is handled inside the mousedown dispatcher's
-// onUp branch when no drag movement happened.)
-function doSwap(a, b){
-  const aId = a.dataset.slot, bId = b.dataset.slot;
-  const aSrc = stored[aId], bSrc = stored[bId];
-  if (aSrc) stored[bId] = aSrc; else delete stored[bId];
-  if (bSrc) stored[aId] = bSrc; else delete stored[aId];
-  try { localStorage.setItem('garage3-slots', JSON.stringify(stored)); } catch(e){}
-  applySlot(a); applySlot(b);
-  rebuildSlotChrome(a); rebuildSlotChrome(b);
+  document.getElementById('tEdit')?.addEventListener('click', () => setEditMode(!editMode));
 }
 
-// Empty slots have their inner text wiped by applySlot — re-add chrome.
-function rebuildSlotChrome(slot){
-  buildSlotChrome(slot);
-}
-
-// 9. Slot interaction dispatcher: resize / rotate / crop / move.
-//
-//    resize-handle drag → width + height
-//    rotate-handle drag → rotation around slot centre
-//    Shift+drag on body → re-crop (move bg-position within slot frame)
-//    plain drag on body → move (update left + top)
-//
-//    Click without drag on the slot body completes an active swap.
-//    Pixel-distance threshold (4px) distinguishes a click from a drag.
-function getStageScale(){
+// 5. Stage scale (for converting cursor delta to canvas px).
+function getStageScale() {
   const m = (document.getElementById('stage').style.transform || '').match(/scale\(([0-9.]+)\)/);
   return m ? parseFloat(m[1]) : 1;
 }
-function slotMouseDown(e){
-  if (!editMode) return;
-  // contentEditable text elements inside slots (.cap on polaroids) need
-  // to take focus normally — skip drag if the click landed on editable text.
-  if (e.target.closest('[data-edit-id]')) return;
-  if (e.target.closest('.slot-tools')) return;
-  const slot = e.currentTarget;
-  const onResize = !!e.target.closest('.resize-handle');
-  const onRotate = !!e.target.closest('.rotate-handle');
-  // Removed shift+drag crop — wheel does panning now, drag is pure move.
-  const cropping = false;
-  console.log('[garage] slot drag start', slot.dataset.slot, { onResize, onRotate });
 
-  e.preventDefault();
-  e.stopPropagation();
-  const startX = e.clientX, startY = e.clientY;
-  const scale = getStageScale();
-
-  const startW = slot.offsetWidth, startH = slot.offsetHeight;
-  const startL = parseInt(slot.style.left) || 0;
-  const startT = parseInt(slot.style.top) || 0;
-  const inlineRot = (slot.style.transform.match(/rotate\(([-0-9.]+)deg\)/) || [])[1];
-  const startRot = (savedDims[slot.dataset.slot]?.rotation ?? (inlineRot !== undefined ? parseFloat(inlineRot) : 0));
-  const startBgX = savedDims[slot.dataset.slot]?.bgX ?? 50;
-  const startBgY = savedDims[slot.dataset.slot]?.bgY ?? 50;
-  const rect = slot.getBoundingClientRect();
-  const centerX = rect.left + rect.width / 2;
-  const centerY = rect.top + rect.height / 2;
-  const startAngle = Math.atan2(startY - centerY, startX - centerX) * 180 / Math.PI;
-
-  let moved = false;
-  document.body.classList.add('dragging');
-  slot.classList.add('dragging-this');
-
-  function onMove(ev){
-    const dx = (ev.clientX - startX) / scale;
-    const dy = (ev.clientY - startY) / scale;
-    if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > 4) moved = true;
-
-    if (onResize) {
-      const w = Math.max(60, Math.round(startW + dx));
-      const h = Math.max(60, Math.round(startH + dy));
-      slot.style.width = w + 'px';
-      slot.style.height = h + 'px';
-    } else if (onRotate) {
-      const a = Math.atan2(ev.clientY - centerY, ev.clientX - centerX) * 180 / Math.PI;
-      let deg = startRot + (a - startAngle);
-      if (ev.shiftKey) deg = Math.round(deg / 15) * 15;
-      slot.style.transform = `rotate(${deg.toFixed(1)}deg)`;
-      slot.style.setProperty('--rot', deg.toFixed(1) + 'deg');
-      slot.dataset._pendingRot = deg;
-    } else if (cropping) {
-      const newBgX = Math.max(0, Math.min(100, startBgX - (dx / startW) * 100));
-      const newBgY = Math.max(0, Math.min(100, startBgY - (dy / startH) * 100));
-      slot.style.backgroundPosition = `${newBgX.toFixed(1)}% ${newBgY.toFixed(1)}%`;
-      slot.dataset._pendingBgX = newBgX;
-      slot.dataset._pendingBgY = newBgY;
-    } else {
-      const newL = Math.round(startL + dx);
-      const newT = Math.round(startT + dy);
-      slot.style.left = newL + 'px';
-      slot.style.top = newT + 'px';
-    }
-  }
-  function onUp(ev){
-    window.removeEventListener('mousemove', onMove);
-    window.removeEventListener('mouseup', onUp);
-    document.body.classList.remove('dragging');
-    slot.classList.remove('dragging-this');
-
-    if (!moved) {
-      if (swapSource && swapSource !== slot) {
-        doSwap(swapSource, slot);
-        clearSwap();
-      }
-      return;
-    }
-    const partial = {};
-    if (onResize) {
-      partial.width  = parseInt(slot.style.width)  || 0;
-      partial.height = parseInt(slot.style.height) || 0;
-    } else if (onRotate) {
-      partial.rotation = parseFloat(slot.dataset._pendingRot);
-      delete slot.dataset._pendingRot;
-    } else if (cropping) {
-      partial.bgX = parseFloat(slot.dataset._pendingBgX);
-      partial.bgY = parseFloat(slot.dataset._pendingBgY);
-      delete slot.dataset._pendingBgX;
-      delete slot.dataset._pendingBgY;
-    } else {
-      partial.left = parseInt(slot.style.left) || 0;
-      partial.top  = parseInt(slot.style.top)  || 0;
-    }
-    saveDims(slot, partial);
-  }
-  window.addEventListener('mousemove', onMove);
-  window.addEventListener('mouseup', onUp);
-}
-// Document-level CAPTURE-phase handlers — fire BEFORE any per-element
-// listener or other layer can intercept. The most reliable hit-detection
-// strategy because the event must traverse the document on the way down
-// to the target, so this always runs first.
-
-// Diagnostic: log EVERY click and mousedown anywhere on the page so we can
-// see whether the events are even reaching the document. If clicks fire
-// here but the slot-specific handler below doesn't, the issue is in the
-// closest()/selector matching. If clicks DON'T fire here, the event
-// isn't reaching the document at all (some upstream layer is eating it
-// or the click isn't happening where the user thinks).
-window.addEventListener('click', (e) => {
-  console.log('[garage] WINDOW click @', e.clientX + ',' + e.clientY,
-    '· target:', e.target.tagName + (e.target.className ? '.' + (e.target.className+'').split(' ').slice(0,3).join('.') : ''),
-    e.target.dataset?.tool ? '[tool=' + e.target.dataset.tool + ']' : '');
-}, true);
+// 6. The ONE drag handler. Uses elementsFromPoint so it finds the right
+//    target regardless of z-index, stacking context, or layer ordering.
+//    Window-level capture so nothing upstream can stop it.
 window.addEventListener('mousedown', (e) => {
-  console.log('[garage] WINDOW mousedown @', e.clientX + ',' + e.clientY, '· target:', e.target.tagName + (e.target.className ? '.' + (e.target.className+'').split(' ').slice(0,3).join('.') : ''));
-}, true);
-document.addEventListener('click', (e) => {
   if (!editMode) return;
-  const btn = e.target.closest('.slot-tools [data-tool]');
-  if (!btn) return;
-  const slot = btn.closest('.slot[data-slot]');
-  if (!slot) return;
-  console.log('[garage] CAPTURE click → tool', btn.dataset.tool, 'on', slot.dataset.slot);
-  e.preventDefault();
-  e.stopImmediatePropagation(); // prevent per-button click handler from also firing
-  handleToolClick(slot, btn.dataset.tool);
-}, true);
-// SELECTION + DRAG: single mousedown selects the element AND begins a
-// drag. If the user releases without moving, it's just a selection. If
-// they move > 4px, it drags. Same gesture handles both clicks and
-// click-and-drag — no modifier keys, no separate "select first" step.
-document.addEventListener('mousedown', (e) => {
-  if (!editMode) return;
-  if (e.target.closest('.slot-tools')) return;
+  if (e.button !== 0) return;
 
-  const textEl = e.target.closest('[data-edit-id]');
-  const slotEl = e.target.closest('.slot[data-slot]');
+  // Find the topmost editable element under the cursor.
+  const hits = document.elementsFromPoint(e.clientX, e.clientY);
+  const target = hits.find((el) => {
+    if (!el.closest('.viewport')) return false;
+    if (el.classList.contains('slot-tools')) return false;
+    if (el.closest('.slot-tools')) return false;
+    return el.matches('.slot[data-slot]') || el.matches('[data-edit-id]');
+  });
+  if (!target) return;
 
-  // If the user clicks INSIDE an already-editing text, let the browser
-  // handle the caret/selection normally — they're typing into it.
-  if (textEl && textEl.classList.contains('gar-editing')) return;
-
-  // Click on slot's resize/rotate handle → existing slotMouseDown does
-  // the right thing once we set selection.
-  if (slotEl && (e.target.closest('.resize-handle') || e.target.closest('.rotate-handle'))) {
-    setSelection(slotEl);
-    e.stopPropagation();
-    Object.defineProperty(e, 'currentTarget', { value: slotEl, configurable: true });
-    slotMouseDown(e);
-    return;
+  // For text inside a non-positioned span, walk up to the positioned
+  // ancestor (the actual movable element).
+  let mover = target;
+  while (mover && mover !== document.body) {
+    const cs = getComputedStyle(mover);
+    if ((cs.position === 'absolute' || cs.position === 'fixed') && mover.closest('.viewport')) break;
+    mover = mover.parentElement;
   }
+  if (!mover || mover === document.body) mover = target;
 
-  // Drag-or-click on text or slot — text wins if both match (text is
-  // visually on top in the carousel design).
-  const target = textEl || slotEl;
-  if (!target) {
-    // Click on empty area inside viewport → deselect.
-    if (e.target.closest('.viewport')) clearSelection();
-    return;
-  }
   e.preventDefault();
   e.stopPropagation();
-  setSelection(target);
-
-  // For dragging, work out which element to actually move (positioned
-  // ancestor). For slots that's the slot itself. For text, walk up to
-  // the nearest position:absolute ancestor inside .viewport.
-  let moveTarget = target;
-  if (textEl && !slotEl) {
-    let t = textEl;
-    while (t && t !== document.body) {
-      const cs = getComputedStyle(t);
-      if ((cs.position === 'absolute' || cs.position === 'fixed') && t.closest('.viewport')) break;
-      t = t.parentElement;
-    }
-    if (t && t !== document.body) moveTarget = t;
-  }
 
   const scale = getStageScale();
   const startX = e.clientX, startY = e.clientY;
-  const startL = parseInt(moveTarget.style.left)  || parseInt(getComputedStyle(moveTarget).left)  || 0;
-  const startT = parseInt(moveTarget.style.top)   || parseInt(getComputedStyle(moveTarget).top)   || 0;
-  let moved = false;
+  const startL = parseInt(mover.style.left) || parseInt(getComputedStyle(mover).left) || 0;
+  const startT = parseInt(mover.style.top)  || parseInt(getComputedStyle(mover).top)  || 0;
+  console.log('[garage] drag start ·', keyFor(mover) || mover.className, '· from', startL + ',' + startT);
 
-  function onMove(ev){
+  function onMove(ev) {
     const dx = (ev.clientX - startX) / scale;
     const dy = (ev.clientY - startY) / scale;
-    if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 4) return;
-    moved = true;
-    moveTarget.style.left = Math.round(startL + dx) + 'px';
-    moveTarget.style.top  = Math.round(startT + dy) + 'px';
+    mover.style.left = Math.round(startL + dx) + 'px';
+    mover.style.top  = Math.round(startT + dy) + 'px';
   }
-  function onUp(){
+  function onUp() {
     window.removeEventListener('mousemove', onMove);
     window.removeEventListener('mouseup', onUp);
-    if (!moved) return; // pure click — selection already set, done
-    if (slotEl && moveTarget === slotEl) {
-      saveDims(slotEl, { left: parseInt(slotEl.style.left) || 0, top: parseInt(slotEl.style.top) || 0 });
-    } else if (textEl && moveTarget.dataset.editId) {
-      savedTextPos[moveTarget.dataset.editId] = {
-        left: parseInt(moveTarget.style.left) || 0,
-        top:  parseInt(moveTarget.style.top)  || 0,
+    const k = keyFor(mover);
+    if (k) {
+      savedPos[k] = {
+        left: parseInt(mover.style.left) || 0,
+        top:  parseInt(mover.style.top)  || 0,
       };
-      try { localStorage.setItem('garage-text-pos', JSON.stringify(savedTextPos)); } catch(e){}
+      try { localStorage.setItem(POS_KEY, JSON.stringify(savedPos)); } catch {}
+      console.log('[garage] drag saved ·', k, '· to', savedPos[k].left + ',' + savedPos[k].top);
     }
   }
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
 }, true);
 
-// Double-click text → enter content-edit mode (cursor in the text).
-document.addEventListener('dblclick', (e) => {
+// 7. Double-click any text element → enter content-edit (cursor in text).
+window.addEventListener('dblclick', (e) => {
   if (!editMode) return;
-  const textEl = e.target.closest('[data-edit-id]');
+  const hits = document.elementsFromPoint(e.clientX, e.clientY);
+  const textEl = hits.find((el) => el.matches('[data-edit-id]') && el.closest('.viewport'));
   if (!textEl) return;
   e.preventDefault();
   e.stopPropagation();
-  enterContentEdit(textEl);
+  textEl.contentEditable = 'true';
+  textEl.classList.add('gar-editing');
+  textEl.focus();
+  console.log('[garage] content-edit on', textEl.dataset.editId);
 }, true);
 
-// Click outside the viewport empties selection.
-document.addEventListener('click', (e) => {
-  if (!editMode) return;
-  if (e.target.closest('.slot-tools')) return;
-  if (e.target.closest('.viewport')) return;
-  if (e.target.closest('.tweaks')) return;
-  if (e.target.closest('.tweaks-toggle')) return;
-  clearSelection();
+// 8. Editing text → save html on input. Esc / click outside → exit edit.
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('[data-edit-id]');
+  if (!el || !el.classList.contains('gar-editing')) return;
+  savedText[el.dataset.editId] = el.innerHTML;
+  clearTimeout(savedText._t);
+  savedText._t = setTimeout(() => {
+    try { localStorage.setItem(TEXT_KEY, JSON.stringify(savedText)); } catch {}
+  }, 300);
 }, true);
-
-// Esc — clears selection first; if nothing selected, exits edit mode.
+function exitContentEdit() {
+  document.querySelectorAll('.gar-editing').forEach((el) => {
+    el.classList.remove('gar-editing');
+    el.contentEditable = 'false';
+    el.blur();
+  });
+}
 window.addEventListener('keydown', (e) => {
-  if (!editMode) return;
   if (e.key === 'Escape') {
-    if (selectedEl) clearSelection();
-    else setEditMode(false);
+    if (document.querySelector('.gar-editing')) exitContentEdit();
+    else if (editMode) setEditMode(false);
   }
 });
-document.addEventListener('wheel', (e) => {
-  if (!editMode) return;
-  if (e.target.closest('.slot-tools')) return;
-  const slot = e.target.closest('.slot[data-slot]');
-  if (!slot) return;
-  e.preventDefault();
-  e.stopPropagation();
-  // WHEEL = pan the photo inside the slot (re-crop). Vertical wheel
-  // adjusts background-position vertically; horizontal wheel (shift+wheel
-  // on most mice, or sideways trackpad scroll) adjusts horizontally.
-  const stored = savedDims[slot.dataset.slot] || {};
-  const startBgX = stored.bgX ?? 50;
-  const startBgY = stored.bgY ?? 50;
-  const dx = (e.deltaX || 0) * 0.2;
-  const dy = (e.deltaY || 0) * 0.2;
-  const newBgX = Math.max(0, Math.min(100, startBgX + dx));
-  const newBgY = Math.max(0, Math.min(100, startBgY + dy));
-  slot.style.backgroundPosition = `${newBgX.toFixed(1)}% ${newBgY.toFixed(1)}%`;
-  saveDims(slot, { bgX: parseFloat(newBgX.toFixed(1)), bgY: parseFloat(newBgY.toFixed(1)) });
-  console.log('[garage] CAPTURE wheel pan', slot.dataset.slot, 'bgX', newBgX.toFixed(1), 'bgY', newBgY.toFixed(1));
-}, { capture: true, passive: false });
 
-// Old per-slot mousedown / wheel bindings — kept as a backup, but only
-// fire if the capture handler somehow didn't catch the event.
-document.querySelectorAll('.slot[data-slot]').forEach((slot) => {
-  slot.addEventListener('mousedown', slotMouseDown);
-  // Wheel-to-zoom inside a slot in edit mode. Updates --zoom on the slot
-  // which the .slot::before transform: scale(var(--zoom)) consumes,
-  // zooming the photo within the frame (overflow:hidden keeps it neat).
-  slot.addEventListener('wheel', (e) => {
-    if (!editMode) { console.log('[garage] wheel on slot but edit mode OFF'); return; }
-    if (e.target.closest('.slot-tools')) return;
-    e.preventDefault();
-    e.stopPropagation();
-    // Backup: capture-phase handler above does the same thing. Skip here.
-    return;
-  }, { passive: false });
-});
-
-// 10. Reset-all button — wipes every customisation.
-document.getElementById('resetAll').addEventListener('click', () => {
-  if (!confirm('Reset every text edit, slot position, slot size, and photo swap to the design defaults?')) return;
+// 9. Reset all customisations.
+document.getElementById('resetAll')?.addEventListener('click', () => {
+  if (!confirm('Reset every customisation (positions + text edits)?')) return;
   try {
-    localStorage.removeItem('garage-text');
-    localStorage.removeItem('garage-text-pos');
-    localStorage.removeItem('garage-slot-dims');
-    localStorage.removeItem('garage3-slots');
+    localStorage.removeItem(POS_KEY);
+    localStorage.removeItem(TEXT_KEY);
     localStorage.removeItem('garage-layout');
-    localStorage.removeItem('garage-slot-defaults');
     localStorage.removeItem('garage-theme');
-  } catch(e){}
+  } catch {}
   location.reload();
 });
 
 // Final setup-complete banner — if the user opens DevTools and DOESN'T see
 // this line in the console, the script crashed somewhere above and edit
 // mode handlers were never installed.
-console.log('%c[garage] BUILD 2026-05-24 edit-mode-v17-click-to-select · ALL HANDLERS INSTALLED · ' +
+console.log('%c[garage] BUILD 2026-05-24 edit-mode-v18-drag-only · ALL HANDLERS INSTALLED · ' +
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
