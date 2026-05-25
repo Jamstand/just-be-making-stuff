@@ -1004,6 +1004,37 @@
     background: rgba(255,255,255,0.08);
     cursor: text !important;
   }
+  /* Empty editable elements collapse to 0×0 and become un-clickable —
+     so once you delete all the text inside one, you lose the ability
+     to put text back. In edit mode, give every empty editable a visible
+     dashed box + "+ text" placeholder so it's still a click target. The
+     placeholder is pure CSS (::before content), so it never lands in
+     the saved innerHTML and never shows up in the exported PNG (export
+     strips body.edit-mode before capturing). */
+  body.edit-mode [data-edit-id]:empty,
+  body.edit-mode [data-edit-id].gar-empty {
+    min-width: 40px;
+    min-height: 18px;
+    outline: 1px dashed rgba(76,210,255,0.5);
+    outline-offset: 2px;
+    position: relative;
+  }
+  body.edit-mode [data-edit-id]:empty::before,
+  body.edit-mode [data-edit-id].gar-empty::before {
+    content: '+ text';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: rgba(76,210,255,0.85);
+    pointer-events: none;
+    text-transform: uppercase;
+  }
   /* Force text layers above the slot body so single-click selects text
      even if a slot is positioned under it. Slot chrome still floats
      above via z-index: 200. */
@@ -1191,9 +1222,9 @@
 <div class="edit-mode-banner" title="Hover for full shortcut list">
   <span class="dot"></span>
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
-  <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
+  <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v38 · export clean</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v39 · empty text recovery</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2251,8 +2282,15 @@ console.log('%c[garage] BUILD 2026-05-24 edit-mode-v38-export-clean loaded · sc
 // 1. Assign data-edit-id to every text element + treat slots as editable.
 const EDITABLE_SELECTOR = '.t, .t .kicker, .t .accent, .sig .small, .sig .name, .sig .x, .sig .name2, .sig .date, .tickLabel, .num, .anno, .sticker, .topline span, .topline b, .slot .cap';
 let _editIdSeq = 0;
+// Snapshot each editable element's *original* innerHTML before any
+// saved-text overrides are applied, so we can offer a per-element
+// "revert" — useful when a user deletes all text inside an element
+// and wants the original back without nuking every customisation
+// via the global reset button.
+const originalText = {};
 document.querySelectorAll(EDITABLE_SELECTOR).forEach((el) => {
   if (!el.dataset.editId) el.dataset.editId = 'e-' + (_editIdSeq++);
+  originalText[el.dataset.editId] = el.innerHTML;
 });
 
 // 2. localStorage helpers.
@@ -2428,6 +2466,30 @@ window.addEventListener('keydown', (e) => {
     else if (editMode) setEditMode(false);
   }
 });
+
+// 8b. Right-click on an editable element (in edit mode) → revert that one
+// element's text to its original. Lets users recover after accidentally
+// deleting all the text inside a box without resorting to the global
+// "Reset all customisations" sledgehammer.
+window.addEventListener('contextmenu', (e) => {
+  if (!editMode) return;
+  const hits = document.elementsFromPoint(e.clientX, e.clientY);
+  const el = hits.find((n) => n.matches?.('[data-edit-id]') && n.closest('.viewport'));
+  if (!el) return;
+  e.preventDefault();
+  const id = el.dataset.editId;
+  const orig = originalText[id];
+  if (orig == null) return;
+  const cur = el.innerHTML;
+  if (cur === orig) {
+    console.log('[garage] revert · already at original ·', id);
+    return;
+  }
+  el.innerHTML = orig;
+  delete savedText[id];
+  try { localStorage.setItem(TEXT_KEY, JSON.stringify(savedText)); } catch {}
+  console.log('[garage] revert · restored original for', id);
+}, true);
 
 // 9. Reset all customisations.
 document.getElementById('resetAll')?.addEventListener('click', () => {
