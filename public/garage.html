@@ -1176,7 +1176,7 @@
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/modern-screenshot@4.6.0/dist/index.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-screenshot@4.6.0/dist/index.js"></script>
 <script src="/hot-reload.js"></script>
 </head>
 <body>
@@ -1193,7 +1193,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v37.1 · diagnostic strip</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v37.2 · cdn + strip fix</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2890,16 +2890,20 @@ async function captureSlide(slideIdx, scale) {
     // Stamp a small diagnostic strip onto the bottom of the canvas so
     // we can see — directly in the saved PNG — which library actually
     // ran, what dimensions came out, and whether the capture threw.
-    // Removed once the export pipeline is stable.
+    // Removed once the export pipeline is stable. html2canvas leaves
+    // the returned canvas with scale+translate still applied to its
+    // context — without resetting the transform the strip lands off
+    // the visible area entirely.
     try {
       const ctx2 = canvas.getContext('2d');
+      ctx2.setTransform(1, 0, 0, 1, 0, 0);
       const strip = Math.max(28, Math.round(canvas.height * 0.022));
       ctx2.fillStyle = 'rgba(232,67,0,0.9)';
       ctx2.fillRect(0, canvas.height - strip, canvas.width, strip);
       ctx2.fillStyle = '#fff';
       ctx2.font = `${Math.round(strip * 0.55)}px monospace`;
       ctx2.textBaseline = 'middle';
-      const label = `v37.1 · ${libUsed} · ${canvas.width}×${canvas.height}${captureErr ? ' · ERR:'+captureErr.message.slice(0,40) : ''}`;
+      const label = `v37.2 · ${libUsed} · ${canvas.width}×${canvas.height}${captureErr ? ' · ERR:'+captureErr.message.slice(0,40) : ''}`;
       ctx2.fillText(label, 12, canvas.height - strip / 2);
     } catch {}
     const ctx = canvas.getContext('2d');
