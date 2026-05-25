@@ -1192,7 +1192,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v35.3 · tweaks close fix</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v36 · solid bg + gradient fallback</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2830,8 +2830,17 @@ async function captureSlide(slideIdx, scale) {
     catch (err) { console.warn('[garage] createPattern failed, skipping fill:', err); return null; }
   };
   try {
+    // Resolve the theme's primary background color. html2canvas v1.4.1
+    // silently skips stacked CSS gradients, leaving the export's
+    // background mostly transparent → looks pitch black against any
+    // dark image viewer. Use the theme's --bg-2 variable (every theme
+    // defines this) and the viewport bg as fallbacks, finally white.
+    const stage = document.querySelector('.stage') || document.documentElement;
+    let bgColor = getComputedStyle(stage).getPropertyValue('--bg-2').trim();
+    if (!bgColor) bgColor = getComputedStyle(viewport).backgroundColor;
+    if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') bgColor = '#ffffff';
     canvas = await window.html2canvas(viewport, {
-      backgroundColor: null,
+      backgroundColor: bgColor,
       scale,
       useCORS: true,
       allowTaint: true,
@@ -2839,15 +2848,18 @@ async function captureSlide(slideIdx, scale) {
       imageTimeout: 8000,
       letterRendering: true,
       removeContainer: true,
-      // html2canvas v1.4.1 can't render SVG <feTurbulence> filters
-      // (the .grain noise overlay) and crashes the whole export with
-      // "createPattern: image argument is a canvas of width/height 0".
-      // Strip the grain + guide backgrounds from the cloned DOM before
-      // rendering — they're pure decoration and the loss is invisible.
+      // Strip elements html2canvas can't handle (SVG feTurbulence in
+      // .grain crashes the export, the .guides overlay is dev-only)
+      // and collapse the layer.bg multi-gradient to a flat color the
+      // library can actually paint.
       onclone: (doc) => {
         doc.querySelectorAll('.grain, .guides').forEach((el) => {
           el.style.backgroundImage = 'none';
           el.style.display = 'none';
+        });
+        doc.querySelectorAll('.layer.bg').forEach((el) => {
+          el.style.backgroundImage = 'none';
+          el.style.background = bgColor;
         });
       },
     });
