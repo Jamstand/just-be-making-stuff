@@ -1291,7 +1291,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v45.3 · stale state migration</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v45.4 · square enforced in applyShape</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2683,6 +2683,21 @@ function applyShape(slot, shape) {
   if (shape === 'circle') slot.style.borderRadius = '50%';
   else if (shape === 'arch') slot.style.removeProperty('border-radius'); // class handles it via !important
   else slot.style.borderRadius = '4px';
+  // Shapes that demand symmetric geometry — circle/hex/diamond all
+  // render as ovals or stretched polygons on a non-square slot, which
+  // also makes background-size:cover crop the photo asymmetrically and
+  // produces the "this wheel looks more zoomed than that one" mismatch
+  // across slides. Enforce square here so every code path (click, page
+  // load restore, future migrations) lands at the same geometry.
+  if (shape === 'circle' || shape === 'hex' || shape === 'diamond') {
+    const w = parseInt(slot.style.width)  || slot.offsetWidth;
+    const h = parseInt(slot.style.height) || slot.offsetHeight;
+    if (w && h && w !== h) {
+      const d = Math.min(w, h);
+      slot.style.width  = d + 'px';
+      slot.style.height = d + 'px';
+    }
+  }
 }
 
 // Restore saved size/zoom/pan
@@ -3360,16 +3375,13 @@ tpPanel.addEventListener('click', (e) => {
   } else if (action.startsWith('shape-')) {
     const shape = action.slice(6);  // 'rect' | 'circle' | 'poly' | 'hex' | 'diamond' | 'arch' | 'blob' | 'pop'
     applyShape(slot, shape);
+    // applyShape may have force-squared the slot for circle/hex/diamond.
+    // Read back whatever it landed at so we persist the same geometry
+    // to localStorage and don't drift on next reload.
     const partial = { shape };
-    // hex / diamond / circle look best on a square slot — auto-square
-    // them using the SMALLER dimension so the slot shrinks to fit
-    // its panel half instead of growing outward and overlapping its
-    // partner slot (which was the v45 behaviour).
     if (shape === 'circle' || shape === 'hex' || shape === 'diamond') {
-      const s = getCurSize(slot);
-      const d = Math.min(s.w, s.h);
-      slot.style.width = d + 'px'; slot.style.height = d + 'px';
-      partial.width = d; partial.height = d;
+      partial.width  = parseInt(slot.style.width)  || slot.offsetWidth;
+      partial.height = parseInt(slot.style.height) || slot.offsetHeight;
     }
     saveSize(slot, partial);
   } else if (action === 'outline-toggle') {
