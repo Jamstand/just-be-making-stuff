@@ -1272,6 +1272,161 @@
     font-family: var(--font-mono); font-size: 9px; background: rgba(0,0,0,0.4);
     padding: 0 4px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.15);
   }
+
+  /* ─────────────────────────────────────────────
+     TIDE WAVE — paper-cut layered ribbon in car tones
+     Spans the full 6-panel canvas as a parallax layer so it flows
+     continuously across slides. Ported from the design bundle.
+     ───────────────────────────────────────────── */
+  .layer.wave   { --speed:1.00; }
+  .wave-canvas{position:absolute;left:0;top:0;
+    width:calc(var(--panel) * var(--panels));
+    height:var(--panel-h);
+    pointer-events:none;display:none;overflow:visible;
+    background:linear-gradient(180deg,#eaf3fb 0%, #f4faff 35%, #ffffff 100%);}
+  .stage[data-theme="tide"] .wave-canvas{display:block}
+  .wave-canvas svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .wave-canvas .band-g{
+    will-change:transform;
+    animation:bandDrift var(--dur,28s) linear infinite;
+  }
+  @keyframes bandDrift{
+    from{transform:translate3d(0,0,0)}
+    to  {transform:translate3d(calc(var(--wl,560) * -1px),0,0)}
+  }
+  .wave-canvas .band-breath{
+    transform-box:fill-box;transform-origin:50% 100%;
+    animation:bandBreath var(--bdur,11s) ease-in-out infinite alternate;
+  }
+  @keyframes bandBreath{
+    from{transform:translate3d(0,-2px,0) scaleY(1.00)}
+    to  {transform:translate3d(0, 3px,0) scaleY(1.015)}
+  }
+  .wave-canvas .sky-glow{position:absolute;left:0;top:0;width:100%;height:100%;
+    pointer-events:none;background:
+      radial-gradient(80% 50% at 25% 6%, rgba(255,255,255,.55), transparent 60%),
+      radial-gradient(60% 40% at 78% 4%, rgba(255,236,200,.32), transparent 70%);
+    mix-blend-mode:screen;opacity:.9}
+  .wave-canvas .sun-disc{position:absolute;left:18%;top:36px;width:90px;height:90px;
+    border-radius:50%;
+    background:radial-gradient(circle, rgba(255,236,200,.95) 0%, rgba(255,210,150,.55) 45%, rgba(255,180,110,0) 75%);
+    filter:blur(1px);opacity:.75;mix-blend-mode:screen}
+  .wave-canvas .grain-fine{position:absolute;inset:0;pointer-events:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.6' numOctaves='1' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/></svg>");
+    mix-blend-mode:overlay;opacity:.18}
+  .stage[data-theme="tide"] .viewport::before{
+    content:"";position:absolute;left:0;right:0;top:0;height:38%;
+    background:linear-gradient(180deg, rgba(255,255,255,.45), rgba(255,255,255,0) 80%);
+    pointer-events:none;z-index:3;
+  }
+
+  /* ─────────────────────────────────────────────
+     THEME: CINEMA  (35mm letterbox, perforations, timecodes)
+     ───────────────────────────────────────────── */
+  .stage[data-theme="cinema"]{
+    --font-display:'Instrument Serif', serif;
+    --font-body:'JetBrains Mono', monospace;
+    --font-script:'Instrument Serif', serif;
+    --accent:#e85d3c;
+    --accent-2:#5cb3c8;
+    --paper:#f4ecd8;
+    --ink:#f4ecd8;
+    --ribbon-op:.04;
+    --rail-color:rgba(244,236,216,.30);
+    --leak-a:rgba(232,93,60,.18);
+    --leak-b:rgba(92,179,200,.14);
+    --bg-1:#080608;--bg-2:#15101a;--bg-3:#0a0608;
+    --grain:.18;
+  }
+  .stage[data-theme="cinema"] .layer.bg{
+    background:
+      radial-gradient(50% 80% at 14% 50%, rgba(232,93,60,.25), transparent 70%),
+      radial-gradient(40% 70% at 42% 30%, rgba(92,179,200,.15), transparent 70%),
+      radial-gradient(55% 85% at 72% 70%, rgba(232,93,60,.18), transparent 70%),
+      linear-gradient(180deg,#0a0608 0%, #14101a 50%, #050306 100%);
+  }
+  .stage[data-theme="cinema"] .ribbon{
+    color:#f4ecd8;mix-blend-mode:screen;opacity:.05;
+    font-family:'Instrument Serif',serif;font-style:italic;letter-spacing:-6px;
+  }
+  .stage[data-theme="cinema"] .topline{display:none}
+  .stage[data-theme="cinema"] .tickLabel{color:rgba(244,236,216,.55);font-family:'JetBrains Mono',monospace}
+  .stage[data-theme="cinema"] .tickLabel b{
+    color:#f4ecd8;font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;font-size:14px;
+  }
+  .stage[data-theme="cinema"] .num{
+    color:rgba(244,236,216,.06) !important;font-family:'Instrument Serif',serif;font-style:italic;
+  }
+  .stage[data-theme="cinema"] .t{
+    color:#f4ecd8;font-family:'Instrument Serif',serif;font-style:italic;
+    font-weight:400;letter-spacing:-1px;text-shadow:0 4px 18px rgba(0,0,0,.8);
+  }
+  .stage[data-theme="cinema"] .t .kicker{
+    font-family:'JetBrains Mono',monospace;color:#e85d3c;letter-spacing:3px;font-style:normal;
+  }
+  .stage[data-theme="cinema"] .t .accent{color:#e85d3c;font-style:italic}
+  .stage[data-theme="cinema"] .slot::before{
+    filter:saturate(.8) contrast(1.18) brightness(.88) sepia(.18) hue-rotate(-4deg);
+  }
+  .stage[data-theme="cinema"] .slot:not(.poly){
+    box-shadow:0 22px 50px rgba(0,0,0,.7),0 6px 14px rgba(0,0,0,.55);
+  }
+  .stage[data-theme="cinema"] .slot.poly{
+    background-color:#f4ecd8;padding:6px 6px 30px;
+    box-shadow:0 18px 36px rgba(0,0,0,.65),0 4px 8px rgba(0,0,0,.5);
+  }
+  .stage[data-theme="cinema"] .slot.poly::before{inset:6px 6px 30px}
+  .stage[data-theme="cinema"] .slot.poly::after{inset:6px 6px 30px}
+  .stage[data-theme="cinema"] .slot.poly .cap{
+    font-family:'Instrument Serif',serif;font-style:italic;color:#0a0608;font-weight:400;font-size:15px;
+  }
+  .stage[data-theme="cinema"] .grain{opacity:calc(var(--grain) * 1.4)}
+
+  /* CINEMA chrome — letterbox + perforations + timecodes */
+  .cinema-bars{position:absolute;left:0;right:0;pointer-events:none;display:none;z-index:25;background:#000}
+  .cinema-bars.top{top:0;height:36px;box-shadow:0 6px 14px rgba(0,0,0,.5)}
+  .cinema-bars.bot{bottom:0;height:36px;box-shadow:0 -6px 14px rgba(0,0,0,.5)}
+  .stage[data-theme="cinema"] .cinema-bars{display:block}
+
+  .perfs{position:absolute;top:36px;bottom:36px;width:16px;
+    display:none;pointer-events:none;z-index:26;overflow:hidden;
+    background:rgba(0,0,0,.85)}
+  .perfs.l{left:0;border-right:1px solid rgba(244,236,216,.08)}
+  .perfs.r{right:0;border-left:1px solid rgba(244,236,216,.08)}
+  .stage[data-theme="cinema"] .perfs{display:block}
+  .perfs::before{
+    content:"";position:absolute;left:50%;top:-40px;
+    width:8px;height:calc(100% + 80px);
+    transform:translateX(-50%);
+    background:repeating-linear-gradient(
+      180deg,
+      transparent 0 14px,
+      rgba(222,210,188,.92) 14px 24px,
+      transparent 24px 38px
+    );
+    animation:filmScroll 1.6s linear infinite;
+    border-radius:1px;
+  }
+  @keyframes filmScroll{
+    from{ transform:translate(-50%,0) }
+    to{ transform:translate(-50%,-38px) }
+  }
+  .timecode{position:absolute;font-family:'JetBrains Mono',monospace;
+    font-size:9px;font-weight:600;letter-spacing:1.8px;
+    color:#e85d3c;display:none;z-index:27;
+    text-shadow:0 0 8px rgba(232,93,60,.5);
+  }
+  .stage[data-theme="cinema"] .timecode{display:block}
+  .timecode.tl{top:12px;left:24px}
+  .timecode.tr{top:12px;right:24px}
+  .timecode.bl{bottom:12px;left:24px}
+  .timecode.br{bottom:12px;right:24px}
+  .timecode .rec{display:inline-block;width:6px;height:6px;border-radius:50%;
+    background:#e85d3c;margin-right:5px;vertical-align:middle;
+    animation:recBlink 1.2s ease-in-out infinite;
+    box-shadow:0 0 8px #e85d3c;}
+  @keyframes recBlink{ 0%,100%{opacity:.4} 50%{opacity:1} }
+  .timecode i{color:rgba(244,236,216,.7);font-style:normal;letter-spacing:1.8px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/modern-screenshot@4.6.0/dist/index.js"></script>
@@ -1291,7 +1446,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v46.1 · stale state auto-clear</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v47 · tide waves + cinema</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1350,6 +1505,7 @@
     <button class="opt" data-t="editorial">Editorial</button>
     <button class="opt" data-t="spec">Spec Sheet</button>
     <button class="opt" data-t="mixtape">Mixtape</button>
+    <button class="opt" data-t="cinema">Cinema 35mm</button>
   </div>
 
   <h4>Layout</h4>
@@ -1465,8 +1621,48 @@
       <div class="tap l" id="tapL"></div>
       <div class="tap r" id="tapR"></div>
 
+      <!-- Cinema chrome (only shown in cinema theme) -->
+      <div class="cinema-bars top"></div>
+      <div class="cinema-bars bot"></div>
+      <div class="perfs l" aria-hidden="true"></div>
+      <div class="perfs r" aria-hidden="true"></div>
+      <div class="timecode tl"><span class="rec"></span>REC <i>·</i> <span id="cineFrame">FRAME 001 / 006</span></div>
+      <div class="timecode tr" id="cineTC">00:02:35:18</div>
+      <div class="timecode bl">CAM·A <i>·</i> 50MM <i>·</i> f/2.8</div>
+      <div class="timecode br">REEL 01 <i>·</i> A24 / CARTHEME</div>
+
       <!-- bg + atmospheric leaks (slow parallax) -->
       <div class="layer bg"></div>
+
+      <!-- Tide theme: paper-cut layered wave canvas (spans all 6 panels) -->
+      <div class="layer wave" aria-hidden="true">
+        <div class="wave-canvas" id="tideCanvas">
+          <svg id="tideSvg" viewBox="0 0 2472 515" preserveAspectRatio="none">
+            <defs>
+              <filter id="bandShadow" x="-2%" y="-30%" width="104%" height="160%">
+                <feGaussianBlur in="SourceAlpha" stdDeviation="2.4"/>
+                <feOffset dy="6"/>
+                <feComponentTransfer><feFuncA type="linear" slope="0.38"/></feComponentTransfer>
+                <feMerge>
+                  <feMergeNode/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+              <linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0d2840"/><stop offset="100%" stop-color="#173f5e"/></linearGradient>
+              <linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1f4f74"/><stop offset="100%" stop-color="#2f6790"/></linearGradient>
+              <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#4c8db7"/><stop offset="100%" stop-color="#69a4c8"/></linearGradient>
+              <linearGradient id="bg3" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#8fbdd6"/><stop offset="100%" stop-color="#a8cce1"/></linearGradient>
+              <linearGradient id="bg4" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#e0d2b0"/><stop offset="100%" stop-color="#ead9b5"/></linearGradient>
+              <linearGradient id="bg5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d97a2f"/><stop offset="100%" stop-color="#c1611f"/></linearGradient>
+              <linearGradient id="bg6" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#a8451a"/><stop offset="100%" stop-color="#8a3614"/></linearGradient>
+            </defs>
+            <g id="tideBands"></g>
+          </svg>
+          <div class="sky-glow"></div>
+          <div class="sun-disc"></div>
+          <div class="grain-fine"></div>
+        </div>
+      </div>
 
       <div class="layer leak">
         <div class="leak a" id="leakA"></div>
@@ -1841,6 +2037,20 @@ function go(i){
   });
   counterEl.textContent = `${idx+1}/${N}`;
   pbar.style.width = `${(idx+1)*100/N}%`;
+  // Cinema theme: per-slide frame counter + timecode (mock 35mm look).
+  // Cheap to keep updated every slide change regardless of active theme;
+  // the CSS hides the elements outside data-theme="cinema".
+  const cf = document.getElementById('cineFrame');
+  const ct = document.getElementById('cineTC');
+  if (cf) cf.textContent = `FRAME ${String(idx + 1).padStart(3, '0')} / ${String(N).padStart(3, '0')}`;
+  if (ct) {
+    const base = 155;            // start at 2:35
+    const sec = base + idx * 7;
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
+    const f = String(((idx * 13) + 18) % 24).padStart(2, '0');
+    ct.textContent = `00:${m}:${s}:${f}`;
+  }
   dotEls.forEach((d,j)=>{
     d.classList.toggle('active', j===idx);
     d.classList.toggle('near', Math.abs(j-idx)===1);
@@ -3536,6 +3746,84 @@ console.log('%c[garage] BUILD 2026-05-24 edit-mode-v38-export-clean · ALL HANDL
   document.querySelectorAll('[data-edit-id]').length + ' editable text · ' +
   document.querySelectorAll('.slot[data-slot]').length + ' slots',
   'background:#1d4d7a;color:#fff;padding:3px 8px;border-radius:3px;font-weight:600');
+
+/* ─── TIDE — paper-cut layered wave (car-themed palette) ───
+   Build once on script init. 7 bands sampled as smooth sine curves
+   across the full 2472px (6-panel) canvas, each with its own
+   wavelength / phase / drift duration so the surface never repeats
+   identically. Path is extended by ±wavelength so the CSS translate
+   loop (translateX(-wl)) hands off seamlessly. */
+(function buildTideWaves(){
+  const svg = document.getElementById('tideSvg');
+  const g   = document.getElementById('tideBands');
+  if (!svg || !g) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const W = 2472, H = 515;
+  const bands = [
+    { grad:'bg0', baseY: 55, amp:24, wl:580, phase:0.10, dur:34 },
+    { grad:'bg1', baseY:125, amp:28, wl:540, phase:0.85, dur:28 },
+    { grad:'bg2', baseY:200, amp:32, wl:520, phase:1.55, dur:24 },
+    { grad:'bg3', baseY:270, amp:30, wl:560, phase:2.30, dur:30 },
+    { grad:'bg4', baseY:345, amp:34, wl:540, phase:3.00, dur:26 },
+    { grad:'bg5', baseY:420, amp:28, wl:520, phase:3.70, dur:22 },
+    { grad:'bg6', baseY:485, amp:22, wl:500, phase:4.40, dur:20 },
+  ];
+  function wavePath(b){
+    const step = 24;
+    const xs = [], ys = [];
+    for (let x = -b.wl - step; x <= W + b.wl + step; x += step){
+      xs.push(x);
+      ys.push(b.baseY + b.amp * Math.sin(2 * Math.PI * x / b.wl + b.phase));
+    }
+    let d = `M ${xs[0]} ${ys[0]}`;
+    for (let i = 1; i < xs.length; i++){
+      const x0 = xs[i-1], y0 = ys[i-1];
+      const x1 = xs[i],   y1 = ys[i];
+      const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      d += ` Q ${x0} ${y0}, ${mx} ${my}`;
+    }
+    d += ` L ${xs[xs.length-1]} ${ys[ys.length-1]}`;
+    d += ` L ${W + b.wl + step} ${H + 12} L ${-b.wl - step} ${H + 12} Z`;
+    return d;
+  }
+  function crestPath(b){
+    const step = 24;
+    let d = '';
+    for (let x = -b.wl - step; x <= W + b.wl + step; x += step){
+      const y = b.baseY + b.amp * Math.sin(2 * Math.PI * x / b.wl + b.phase);
+      d += (d ? ' L ' : 'M ') + x + ' ' + y;
+    }
+    return d;
+  }
+  bands.forEach((b, i) => {
+    const grp = document.createElementNS(NS, 'g');
+    grp.setAttribute('class', 'band-g');
+    grp.style.setProperty('--wl', b.wl);
+    grp.style.setProperty('--dur', b.dur + 's');
+    if (i % 2 === 1) grp.style.animationDirection = 'reverse';
+
+    const inner = document.createElementNS(NS, 'g');
+    inner.setAttribute('class', 'band-breath');
+    inner.style.setProperty('--bdur', (9 + i * 1.3) + 's');
+
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', wavePath(b));
+    path.setAttribute('fill', `url(#${b.grad})`);
+    path.setAttribute('filter', 'url(#bandShadow)');
+    inner.appendChild(path);
+
+    const sheen = document.createElementNS(NS, 'path');
+    sheen.setAttribute('d', crestPath(b));
+    sheen.setAttribute('fill', 'none');
+    sheen.setAttribute('stroke', i < 4 ? 'rgba(255,255,255,.32)' : 'rgba(255,225,180,.28)');
+    sheen.setAttribute('stroke-width', '1');
+    sheen.setAttribute('stroke-linecap', 'round');
+    inner.appendChild(sheen);
+
+    grp.appendChild(inner);
+    g.appendChild(grp);
+  });
+})();
 </script>
 </body>
 </html>
