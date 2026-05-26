@@ -1291,7 +1291,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v45 · 8 shapes + pop</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v45.1 · 8 shapes (TDZ fix)</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2631,6 +2631,23 @@ document.getElementById('resetAll')?.addEventListener('click', () => {
 
 const SIZE_KEY = 'garage-size-v18';
 const savedSize = (() => { try { return JSON.parse(localStorage.getItem(SIZE_KEY) || '{}'); } catch { return {}; } })();
+
+// Mutually-exclusive shape classes — applyShape removes them all,
+// then adds the one requested. Also sets border-radius inline so
+// it beats the HTML's inline border-radius:4px default. Declared
+// HERE (before the savedSize restore loop) because the loop calls
+// applyShape on returning users — putting SHAPE_CLASSES below the
+// loop hit the const TDZ and crashed the whole script on reload.
+const SHAPE_CLASSES = ['circle','poly','hex','diamond','arch','blob','pop'];
+function applyShape(slot, shape) {
+  for (const c of SHAPE_CLASSES) slot.classList.remove(c);
+  if (shape && shape !== 'rect') slot.classList.add(shape);
+  // Inline border-radius needed for circle (otherwise inline 4px wins)
+  if (shape === 'circle') slot.style.borderRadius = '50%';
+  else if (shape === 'arch') slot.style.removeProperty('border-radius'); // class handles it via !important
+  else slot.style.borderRadius = '4px';
+}
+
 // Restore saved size/zoom/pan
 for (const [slotId, s] of Object.entries(savedSize)) {
   const slot = document.querySelector('.slot[data-slot="' + slotId + '"]');
@@ -2652,18 +2669,6 @@ for (const [slotId, s] of Object.entries(savedSize)) {
   if (s.outlined) slot.classList.add('gar-outlined');
 }
 
-// Mutually-exclusive shape classes — applyShape removes them all,
-// then adds the one requested. Also sets border-radius inline so
-// it beats the HTML's inline border-radius:4px default.
-const SHAPE_CLASSES = ['circle','poly','hex','diamond','arch','blob','pop'];
-function applyShape(slot, shape) {
-  for (const c of SHAPE_CLASSES) slot.classList.remove(c);
-  if (shape && shape !== 'rect') slot.classList.add(shape);
-  // Inline border-radius needed for circle (otherwise inline 4px wins)
-  if (shape === 'circle') slot.style.borderRadius = '50%';
-  else if (shape === 'arch') slot.style.removeProperty('border-radius'); // class handles it via !important
-  else slot.style.borderRadius = '4px';
-}
 function saveSize(slot, partial) {
   const id = slot.dataset.slot;
   savedSize[id] = Object.assign({}, savedSize[id], partial);
