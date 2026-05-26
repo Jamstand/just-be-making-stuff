@@ -1291,7 +1291,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v46 · spanning slots restored</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v46.1 · stale state auto-clear</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2687,6 +2687,97 @@ const savedSize = (() => { try { return JSON.parse(localStorage.getItem(SIZE_KEY
       try { localStorage.setItem(SIZE_KEY, JSON.stringify(savedSize)); } catch {}
     }
     try { localStorage.setItem(MIGRATION_FLAG, '1'); } catch {}
+  }
+}
+
+// v46.1 — Clear stale state left over from the v41 / v42 panel-contained
+// and diptych layouts so v46's spanning-hero defaults can take over.
+// Without this, users who used v42 see slot A pinned at left:8/top:220
+// (the diptych default), the bridge effect is gone, and they have no
+// idea why v46 looks broken. Two passes:
+//   1. Drop saved-pos / saved-size / photo entries for slots I, J, K, L
+//      (no DOM elements for those exist anymore, the entries are dead
+//      weight and confuse the user about what's saved).
+//   2. For slots A–H, if the saved position OR size matches the v41 or
+//      v42 defaults exactly, the user never intentionally moved it —
+//      clear it so the v46 HTML defaults take over. Anything moved
+//      somewhere else is treated as an intentional drag and preserved.
+{
+  const MIGRATION_FLAG = 'garage-migrated-v46.1';
+  if (!localStorage.getItem(MIGRATION_FLAG)) {
+    const DEAD_SLOTS = ['I', 'J', 'K', 'L'];
+    // Known position presets the user never explicitly chose.
+    const STALE_POS = {
+      A: [{left:30,  top:120}, {left:8,    top:220}],
+      B: [{left:466, top:230}, {left:420,  top:220}],
+      C: [{left:860, top:90 }, {left:832,  top:220}],
+      D: [{left:1292,top:200}, {left:1244, top:220}],
+      E: [{left:1664,top:60 }, {left:1656, top:220}],
+      F: [{left:1740,top:300}, {left:1856, top:220}],
+      G: [{left:2076,top:90 }, {left:2068, top:220}],
+      H: [{left:2140,top:340}, {left:2268, top:220}],
+    };
+    // Known size presets (anything matching the v42 diptych 196×260 or
+    // the v41 shrunken-hero sizes) is also stale.
+    const STALE_SIZES = {
+      A: [{width:380,height:340}, {width:196,height:260}],
+      B: [{width:300,height:230}, {width:196,height:260}],
+      C: [{width:340,height:340}, {width:196,height:260}],
+      D: [{width:300,height:230}, {width:196,height:260}],
+      E: [{width:380,height:320}, {width:196,height:260}],
+      F: [{width:280,height:210}, {width:196,height:260}],
+      G: [{width:380,height:320}, {width:196,height:260}],
+      H: [{width:240,height:170}, {width:196,height:260}],
+    };
+    const matches = (entry, presets) =>
+      presets.some((p) => Object.keys(p).every((k) => entry?.[k] === p[k]));
+
+    // pass 1 — drop zombies
+    let posDirty = false;
+    for (const dead of DEAD_SLOTS) {
+      if (savedPos['slot:' + dead] != null) { delete savedPos['slot:' + dead]; posDirty = true; }
+    }
+    let sizeDirty = false;
+    for (const dead of DEAD_SLOTS) {
+      if (savedSize[dead] != null) { delete savedSize[dead]; sizeDirty = true; }
+    }
+    let photoDirty = false;
+    for (const dead of DEAD_SLOTS) {
+      if (stored[dead] != null) { delete stored[dead]; photoDirty = true; }
+      if (storedIds[dead] != null) { delete storedIds[dead]; photoDirty = true; }
+    }
+
+    // pass 2 — reset stale defaults for A–H
+    for (const id of Object.keys(STALE_POS)) {
+      const k = 'slot:' + id;
+      if (savedPos[k] && matches(savedPos[k], STALE_POS[id])) {
+        delete savedPos[k];
+        posDirty = true;
+      }
+    }
+    for (const id of Object.keys(STALE_SIZES)) {
+      const entry = savedSize[id];
+      if (entry && matches(entry, STALE_SIZES[id])) {
+        // Only clear the width+height keys; preserve shape/zoom/bgX/bgY etc.
+        delete entry.width; delete entry.height;
+        if (Object.keys(entry).length === 0) delete savedSize[id];
+        sizeDirty = true;
+      }
+    }
+
+    try {
+      if (posDirty)   localStorage.setItem(POS_KEY,  JSON.stringify(savedPos));
+      if (sizeDirty)  localStorage.setItem(SIZE_KEY, JSON.stringify(savedSize));
+      if (photoDirty) {
+        localStorage.setItem('garage3-slots',    JSON.stringify(stored));
+        localStorage.setItem('garage3-slot-ids', JSON.stringify(storedIds));
+      }
+      localStorage.setItem(MIGRATION_FLAG, '1');
+    } catch {}
+    if (posDirty || sizeDirty || photoDirty) {
+      console.log('[garage] v46.1 cleared stale v41/v42 state — reloading');
+      location.reload();
+    }
   }
 }
 
