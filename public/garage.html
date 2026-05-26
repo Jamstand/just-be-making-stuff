@@ -2598,9 +2598,18 @@ for (const [slotId, s] of Object.entries(savedSize)) {
     slot.style.backgroundPosition = (s.bgX ?? 50) + '% ' + (s.bgY ?? 50) + '%';
   }
   // Per-slot shape (rect / circle / polaroid) and outline toggle.
-  if (s.shape === 'circle') { slot.classList.add('circle'); slot.classList.remove('poly'); }
-  else if (s.shape === 'poly') { slot.classList.add('poly'); slot.classList.remove('circle'); }
-  else if (s.shape === 'rect') { slot.classList.remove('circle', 'poly'); }
+  // Need to set border-radius inline because the HTML already
+  // ships an inline 4px which would otherwise win specificity.
+  if (s.shape === 'circle') {
+    slot.classList.add('circle'); slot.classList.remove('poly');
+    slot.style.borderRadius = '50%';
+  } else if (s.shape === 'poly') {
+    slot.classList.add('poly'); slot.classList.remove('circle');
+    slot.style.borderRadius = '4px';
+  } else if (s.shape === 'rect') {
+    slot.classList.remove('circle', 'poly');
+    slot.style.borderRadius = '4px';
+  }
   if (s.outlined) slot.classList.add('gar-outlined');
 }
 function saveSize(slot, partial) {
@@ -3256,9 +3265,13 @@ tpPanel.addEventListener('click', (e) => {
     saveSize(slot, { bgX: b.x, bgY: b.y });
   } else if (action === 'shape-rect') {
     slot.classList.remove('circle', 'poly');
+    // Inline border-radius from the slot HTML wins over CSS rules,
+    // so we have to set it inline too whenever shape changes.
+    slot.style.borderRadius = '4px';
     saveSize(slot, { shape: 'rect' });
   } else if (action === 'shape-circle') {
     slot.classList.add('circle'); slot.classList.remove('poly');
+    slot.style.borderRadius = '50%';
     // Auto-square the slot so border-radius:50% renders as a real
     // circle instead of an oval. Use the larger of width/height so
     // the circle stays visually prominent (matches the v40 wheel
@@ -3269,6 +3282,7 @@ tpPanel.addEventListener('click', (e) => {
     saveSize(slot, { shape: 'circle', width: d, height: d });
   } else if (action === 'shape-poly') {
     slot.classList.add('poly'); slot.classList.remove('circle');
+    slot.style.borderRadius = '4px';
     saveSize(slot, { shape: 'poly' });
   } else if (action === 'outline-toggle') {
     const on = !slot.classList.contains('gar-outlined');
@@ -3294,6 +3308,7 @@ tpPanel.addEventListener('click', (e) => {
     slot.style.removeProperty('width'); slot.style.removeProperty('height');
     slot.style.removeProperty('--zoom'); slot.style.removeProperty('background-position');
     slot.style.removeProperty('left'); slot.style.removeProperty('top');
+    slot.style.removeProperty('border-radius');
     slot.classList.remove('circle', 'poly', 'gar-outlined');
     // Reload to re-apply original inline styles from HTML.
     location.reload();
