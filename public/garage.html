@@ -1291,7 +1291,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v45.2 · shape keeps alignment</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v45.3 · stale state migration</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -2631,6 +2631,43 @@ document.getElementById('resetAll')?.addEventListener('click', () => {
 
 const SIZE_KEY = 'garage-size-v18';
 const savedSize = (() => { try { return JSON.parse(localStorage.getItem(SIZE_KEY) || '{}'); } catch { return {}; } })();
+
+// One-time migration of v45-era state. v45's shape-circle/hex/diamond
+// handler used Math.max(w,h) to auto-square the slot, which on the
+// diptych default (196×260) grew the slot to 260×260 — bigger than
+// its panel half. v45.2 fixed the handler to use min(), but the
+// already-saved oversized state stayed broken on reload because
+// min(260,260)=260. Snapshot every slot's HTML-default size before
+// any saved override applies, then clamp oversized circle/hex/diamond
+// entries down to a square that fits the smaller dimension.
+{
+  const MIGRATION_FLAG = 'garage-migrated-v45.3';
+  const SQUARE_SHAPES = new Set(['circle', 'hex', 'diamond']);
+  if (!localStorage.getItem(MIGRATION_FLAG)) {
+    const defaults = {};
+    document.querySelectorAll('.slot[data-slot]').forEach((s) => {
+      // offsetWidth / offsetHeight reflect the HTML-inline w/h since
+      // savedSize hasn't been applied yet at this point in the script.
+      defaults[s.dataset.slot] = { w: s.offsetWidth, h: s.offsetHeight };
+    });
+    let dirty = false;
+    for (const [id, entry] of Object.entries(savedSize)) {
+      if (!SQUARE_SHAPES.has(entry?.shape)) continue;
+      const def = defaults[id];
+      if (!def) continue;
+      const target = Math.min(def.w, def.h);
+      if ((entry.width  ?? 0) > target || (entry.height ?? 0) > target) {
+        entry.width  = target;
+        entry.height = target;
+        dirty = true;
+      }
+    }
+    if (dirty) {
+      try { localStorage.setItem(SIZE_KEY, JSON.stringify(savedSize)); } catch {}
+    }
+    try { localStorage.setItem(MIGRATION_FLAG, '1'); } catch {}
+  }
+}
 
 // Mutually-exclusive shape classes — applyShape removes them all,
 // then adds the one requested. Also sets border-radius inline so
