@@ -1291,7 +1291,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v45.1 · 8 shapes (TDZ fix)</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v45.2 · shape keeps alignment</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -3325,11 +3325,12 @@ tpPanel.addEventListener('click', (e) => {
     applyShape(slot, shape);
     const partial = { shape };
     // hex / diamond / circle look best on a square slot — auto-square
-    // them so the user doesn't have to fiddle with w/h to get a
-    // proper symmetric shape.
+    // them using the SMALLER dimension so the slot shrinks to fit
+    // its panel half instead of growing outward and overlapping its
+    // partner slot (which was the v45 behaviour).
     if (shape === 'circle' || shape === 'hex' || shape === 'diamond') {
       const s = getCurSize(slot);
-      const d = Math.max(s.w, s.h);
+      const d = Math.min(s.w, s.h);
       slot.style.width = d + 'px'; slot.style.height = d + 'px';
       partial.width = d; partial.height = d;
     }
