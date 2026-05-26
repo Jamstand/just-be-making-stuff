@@ -1099,6 +1099,11 @@
   .tools-panel .tp-val { color: var(--accent-2); min-width: 36px; text-align: center; }
   .tools-panel .tp-actions { margin-top: 4px; flex-wrap: wrap; gap: 4px; }
   .tools-panel .tp-actions button { flex: 1; }
+  /* Shape row has 8 buttons — wrap into a grid so each icon stays
+     readable. Label takes its own row, then 4 buttons per row. */
+  .tools-panel .tp-shapes { flex-wrap: wrap; gap: 4px; }
+  .tools-panel .tp-shapes .tp-lbl { flex-basis: 100%; }
+  .tools-panel .tp-shapes button { flex: 1 1 22%; min-width: 30px; font-size: 14px; }
   .tools-panel .tp-danger { background: rgba(255,80,80,0.15); border-color: rgba(255,80,80,0.4); }
   .tools-panel .tp-danger:hover { background: rgba(255,80,80,0.3); }
 
@@ -1162,6 +1167,47 @@
     border: 6px solid var(--paper, #fff) !important;
     box-sizing: border-box;
     box-shadow: 0 14px 30px rgba(0,0,0,.45), 0 4px 10px rgba(0,0,0,.35);
+  }
+
+  /* ── Extra slot shapes (rect, circle, poly already defined above) ── */
+  /* Hexagon — flat-top */
+  .slot.hex {
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  }
+  /* Diamond / rhombus */
+  .slot.diamond {
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+  }
+  /* Arch — top rounded, bottom flat (tombstone / portrait niche) */
+  .slot.arch {
+    border-top-left-radius: 50% !important;
+    border-top-right-radius: 50% !important;
+    border-bottom-left-radius: 4px !important;
+    border-bottom-right-radius: 4px !important;
+  }
+  /* Blob — asymmetric organic shape that morphs slightly over time */
+  .slot.blob {
+    border-radius: 60% 40% 55% 45% / 45% 50% 50% 55% !important;
+    animation: garBlobMorph 12s ease-in-out infinite;
+  }
+  @keyframes garBlobMorph {
+    0%,100% { border-radius: 60% 40% 55% 45% / 45% 50% 50% 55%; }
+    33%     { border-radius: 45% 55% 40% 60% / 55% 40% 60% 45%; }
+    66%     { border-radius: 50% 50% 65% 35% / 40% 60% 45% 55%; }
+  }
+  /* Pop — tilted, bold shadow, gentle float so it visibly stands out
+     from the rest of the spread. Designed for ONE slot at a time. */
+  .slot.pop {
+    box-shadow:
+      0 28px 48px rgba(0,0,0,.55),
+      0 10px 18px rgba(0,0,0,.4),
+      0 1px 2px rgba(0,0,0,.5) !important;
+    animation: garPopFloat 4.2s ease-in-out infinite;
+    z-index: 50;
+  }
+  @keyframes garPopFloat {
+    0%, 100% { transform: rotate(-4deg) scale(1.04) translateY(0); }
+    50%      { transform: rotate(-4deg) scale(1.04) translateY(-8px); }
   }
   .resize-handle {
     position: absolute; width: 14px; height: 14px;
@@ -1245,7 +1291,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v44 · slot shape + outline</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v45 · 8 shapes + pop</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1268,11 +1314,16 @@
     <button data-tp="p-left">←</button>
     <button data-tp="p-right">→</button>
   </div>
-  <div class="tp-row">
+  <div class="tp-row tp-shapes">
     <span class="tp-lbl">shape</span>
-    <button data-tp="shape-rect" title="Rectangle">▭</button>
-    <button data-tp="shape-circle" title="Circle">◯</button>
-    <button data-tp="shape-poly" title="Polaroid">▣</button>
+    <button data-tp="shape-rect"    title="Rectangle">▭</button>
+    <button data-tp="shape-circle"  title="Circle">◯</button>
+    <button data-tp="shape-poly"    title="Polaroid">▣</button>
+    <button data-tp="shape-hex"     title="Hexagon">⬢</button>
+    <button data-tp="shape-diamond" title="Diamond">◆</button>
+    <button data-tp="shape-arch"    title="Arch">⌒</button>
+    <button data-tp="shape-blob"    title="Blob (morphing)">☁</button>
+    <button data-tp="shape-pop"     title="Pop (animated, popping out)">✺</button>
   </div>
   <div class="tp-row">
     <span class="tp-lbl">outline</span>
@@ -2597,20 +2648,21 @@ for (const [slotId, s] of Object.entries(savedSize)) {
   if (typeof s.bgX === 'number' || typeof s.bgY === 'number') {
     slot.style.backgroundPosition = (s.bgX ?? 50) + '% ' + (s.bgY ?? 50) + '%';
   }
-  // Per-slot shape (rect / circle / polaroid) and outline toggle.
-  // Need to set border-radius inline because the HTML already
-  // ships an inline 4px which would otherwise win specificity.
-  if (s.shape === 'circle') {
-    slot.classList.add('circle'); slot.classList.remove('poly');
-    slot.style.borderRadius = '50%';
-  } else if (s.shape === 'poly') {
-    slot.classList.add('poly'); slot.classList.remove('circle');
-    slot.style.borderRadius = '4px';
-  } else if (s.shape === 'rect') {
-    slot.classList.remove('circle', 'poly');
-    slot.style.borderRadius = '4px';
-  }
+  if (s.shape) applyShape(slot, s.shape);
   if (s.outlined) slot.classList.add('gar-outlined');
+}
+
+// Mutually-exclusive shape classes — applyShape removes them all,
+// then adds the one requested. Also sets border-radius inline so
+// it beats the HTML's inline border-radius:4px default.
+const SHAPE_CLASSES = ['circle','poly','hex','diamond','arch','blob','pop'];
+function applyShape(slot, shape) {
+  for (const c of SHAPE_CLASSES) slot.classList.remove(c);
+  if (shape && shape !== 'rect') slot.classList.add(shape);
+  // Inline border-radius needed for circle (otherwise inline 4px wins)
+  if (shape === 'circle') slot.style.borderRadius = '50%';
+  else if (shape === 'arch') slot.style.removeProperty('border-radius'); // class handles it via !important
+  else slot.style.borderRadius = '4px';
 }
 function saveSize(slot, partial) {
   const id = slot.dataset.slot;
@@ -3263,27 +3315,20 @@ tpPanel.addEventListener('click', (e) => {
     if (action === 'p-right') b.x = Math.min(100, b.x + PSTEP);
     slot.style.backgroundPosition = b.x + '% ' + b.y + '%';
     saveSize(slot, { bgX: b.x, bgY: b.y });
-  } else if (action === 'shape-rect') {
-    slot.classList.remove('circle', 'poly');
-    // Inline border-radius from the slot HTML wins over CSS rules,
-    // so we have to set it inline too whenever shape changes.
-    slot.style.borderRadius = '4px';
-    saveSize(slot, { shape: 'rect' });
-  } else if (action === 'shape-circle') {
-    slot.classList.add('circle'); slot.classList.remove('poly');
-    slot.style.borderRadius = '50%';
-    // Auto-square the slot so border-radius:50% renders as a real
-    // circle instead of an oval. Use the larger of width/height so
-    // the circle stays visually prominent (matches the v40 wheel
-    // slot which was 340×340).
-    const s = getCurSize(slot);
-    const d = Math.max(s.w, s.h);
-    slot.style.width = d + 'px'; slot.style.height = d + 'px';
-    saveSize(slot, { shape: 'circle', width: d, height: d });
-  } else if (action === 'shape-poly') {
-    slot.classList.add('poly'); slot.classList.remove('circle');
-    slot.style.borderRadius = '4px';
-    saveSize(slot, { shape: 'poly' });
+  } else if (action.startsWith('shape-')) {
+    const shape = action.slice(6);  // 'rect' | 'circle' | 'poly' | 'hex' | 'diamond' | 'arch' | 'blob' | 'pop'
+    applyShape(slot, shape);
+    const partial = { shape };
+    // hex / diamond / circle look best on a square slot — auto-square
+    // them so the user doesn't have to fiddle with w/h to get a
+    // proper symmetric shape.
+    if (shape === 'circle' || shape === 'hex' || shape === 'diamond') {
+      const s = getCurSize(slot);
+      const d = Math.max(s.w, s.h);
+      slot.style.width = d + 'px'; slot.style.height = d + 'px';
+      partial.width = d; partial.height = d;
+    }
+    saveSize(slot, partial);
   } else if (action === 'outline-toggle') {
     const on = !slot.classList.contains('gar-outlined');
     slot.classList.toggle('gar-outlined', on);
@@ -3309,7 +3354,8 @@ tpPanel.addEventListener('click', (e) => {
     slot.style.removeProperty('--zoom'); slot.style.removeProperty('background-position');
     slot.style.removeProperty('left'); slot.style.removeProperty('top');
     slot.style.removeProperty('border-radius');
-    slot.classList.remove('circle', 'poly', 'gar-outlined');
+    for (const c of SHAPE_CLASSES) slot.classList.remove(c);
+    slot.classList.remove('gar-outlined');
     // Reload to re-apply original inline styles from HTML.
     location.reload();
   }
