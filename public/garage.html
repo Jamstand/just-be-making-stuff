@@ -1427,6 +1427,28 @@
     box-shadow:0 0 8px #e85d3c;}
   @keyframes recBlink{ 0%,100%{opacity:.4} 50%{opacity:1} }
   .timecode i{color:rgba(244,236,216,.7);font-style:normal;letter-spacing:1.8px}
+
+  /* ─────────────────────────────────────────────
+     SLIDES-ONLY — strip the Instagram phone chrome so the carousel
+     is just the slide canvas. Collapses .phone down to the viewport
+     so the live view matches the download 1:1 (the export already
+     captures only #viewport, so chrome-off live == exported PNG).
+     ───────────────────────────────────────────── */
+  .stage.chrome-off .status,
+  .stage.chrome-off .ig-nav,
+  .stage.chrome-off .post-head,
+  .stage.chrome-off .actions,
+  .stage.chrome-off .dots-row,
+  .stage.chrome-off .liked,
+  .stage.chrome-off .caption,
+  .stage.chrome-off .home-ind{ display:none !important; }
+  .stage.chrome-off .phone{
+    width:var(--panel); height:var(--panel-h);
+    border-radius:14px; overflow:hidden;
+    box-shadow:0 30px 80px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.4);
+  }
+  .stage.chrome-off .phone::before{ display:none; }   /* notch */
+  .stage.chrome-off .viewport{ width:var(--panel); height:var(--panel-h); }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/modern-screenshot@4.6.0/dist/index.js"></script>
@@ -1446,7 +1468,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v47 · tide waves + cinema</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v48 · slides-only mode</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -1566,6 +1588,7 @@
   <div class="input"><input type="text" id="iCar" value="Gulf Blue 992 GT3"/></div>
 
   <h4>Layout</h4>
+  <div class="toggle"><span>Instagram UI</span><div class="switch" id="tChrome"></div></div>
   <div class="toggle"><span>Polaroid borders</span><div class="switch on" id="tBorders"></div></div>
   <div class="toggle"><span>Drop shadows</span><div class="switch on" id="tShadow"></div></div>
   <div class="toggle"><span>Film grain</span><div class="switch on" id="tGrain"></div></div>
@@ -2536,6 +2559,16 @@ function bindSwitch(id, fn, initial){
   if(initial!==undefined) el.classList.toggle('on', !!initial);
   el.addEventListener('click', ()=>{el.classList.toggle('on'); fn(el.classList.contains('on'));});
 }
+// Instagram UI toggle — when OFF, strip the phone chrome so it's just
+// the slide canvas (matches the downloaded PNG). Persisted so the
+// choice sticks across reloads. Default OFF (slides only).
+const CHROME_KEY = 'garage-chrome-on';
+const chromeOn = localStorage.getItem(CHROME_KEY) === '1';  // default false
+stage.classList.toggle('chrome-off', !chromeOn);
+bindSwitch('tChrome', on=>{
+  stage.classList.toggle('chrome-off', !on);
+  try { localStorage.setItem(CHROME_KEY, on ? '1' : '0'); } catch {}
+}, chromeOn);
 bindSwitch('tBorders', on=>{
   document.querySelectorAll('.slot.poly').forEach(s=>{
     s.style.padding = on ? '' : '0';
