@@ -1468,7 +1468,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v48 · slides-only mode</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v49 · download scale fix</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
@@ -3405,6 +3405,18 @@ async function captureSlide(slideIdx, scale) {
   const wasEditMode = editMode;
   if (editMode) document.body.classList.remove('edit-mode');
 
+  // CRITICAL: the fit() routine scales the whole .stage down to fit the
+  // window (transform: scale(s), s<1 on phones/small windows). The
+  // capture libraries read the SCALED bounding-box of #viewport and bake
+  // it in, so the exported PNG comes out zoomed + cropped whenever s<1
+  // (i.e. always on a phone). Reset the stage to scale(1) for the
+  // duration of the capture so the viewport is measured at its true
+  // 412×515, then restore. This is what made downloads not match the
+  // on-screen preview.
+  const stageEl = document.getElementById('stage');
+  const prevStageTransform = stageEl ? stageEl.style.transform : '';
+  if (stageEl) stageEl.style.transform = 'none';
+
   // Native-resolution swap is OFF by default. At 1080p / 1440p / 4K the
   // cached 2800px slot backgrounds already match or exceed the target
   // canvas width, so html2canvas downsamples — no upscale, plenty sharp,
@@ -3492,6 +3504,7 @@ async function captureSlide(slideIdx, scale) {
   } finally {
     CanvasRenderingContext2D.prototype.createPattern = origCreatePattern;
     restoreSlotBackgrounds(swaps);
+    if (stageEl) stageEl.style.transform = prevStageTransform;
     hides.forEach((el, i) => { el.style.display = prev[i]; });
     if (wasEditMode) document.body.classList.add('edit-mode');
     if (wasIdx !== slideIdx) go(wasIdx);
