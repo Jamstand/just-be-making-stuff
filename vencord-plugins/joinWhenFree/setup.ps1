@@ -33,17 +33,24 @@ Write-Host ""
 Require-Command git  "Install it:  winget install Git.Git          then open a NEW PowerShell window and re-run this."
 Require-Command node "Install it:  winget install OpenJS.NodeJS.LTS  then open a NEW PowerShell window and re-run this."
 
-# 2. pnpm, via corepack (ships with Node); fall back to a global npm install
+# 2. pnpm. Try corepack (ships with Node) first; if that needs admin rights we
+#    don't have (Node installed in C:\Program Files), fall back to pnpm's
+#    admin-free standalone installer and make it usable in this session.
 if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
     Write-Host "Setting up pnpm..." -ForegroundColor Cyan
-    try {
-        corepack enable
-        corepack prepare pnpm@latest --activate
-    } catch {
-        npm install -g pnpm
+
+    corepack enable 2>$null
+    corepack prepare pnpm@latest --activate 2>$null
+
+    if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+        Write-Host "corepack needs admin; using pnpm's standalone installer instead (no admin needed)..." -ForegroundColor Cyan
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest https://get.pnpm.io/install.ps1 -UseBasicParsing | Invoke-Expression
+        if (-not $env:PNPM_HOME) { $env:PNPM_HOME = Join-Path $env:LOCALAPPDATA "pnpm" }
+        $env:Path = "$($env:PNPM_HOME);$($env:Path)"
     }
 }
-Require-Command pnpm "Setup failed. Try manually:  npm install -g pnpm  then re-run this."
+Require-Command pnpm "Could not set up pnpm. Install it from https://pnpm.io/installation then re-run this."
 
 # 3. Clone Vencord (reused if it already exists)
 $vencord = Join-Path $HOME "Vencord"
