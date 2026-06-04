@@ -62,11 +62,21 @@ if (Test-Path $vencord) {
     git clone https://github.com/Vendicated/Vencord $vencord
 }
 
-# 4. Copy this plugin in ($PSScriptRoot is the folder this script lives in)
-$dest = Join-Path $vencord "src\userplugins\joinWhenFree"
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
-Copy-Item -Path (Join-Path $PSScriptRoot "index.tsx") -Destination $dest -Force
-Write-Host "Copied plugin -> $dest" -ForegroundColor Green
+# 4. Copy every plugin in this repo's vencord-plugins folder into Vencord.
+#    $PSScriptRoot is .../vencord-plugins/joinWhenFree, so its parent holds them all.
+$pluginsRoot = Split-Path $PSScriptRoot -Parent
+$installed = 0
+foreach ($dir in Get-ChildItem -Path $pluginsRoot -Directory) {
+    $src = Join-Path $dir.FullName "index.tsx"
+    if (Test-Path $src) {
+        $dest = Join-Path $vencord "src\userplugins\$($dir.Name)"
+        New-Item -ItemType Directory -Force -Path $dest | Out-Null
+        Copy-Item -Path $src -Destination $dest -Force
+        Write-Host "  + $($dir.Name)" -ForegroundColor Green
+        $installed++
+    }
+}
+Write-Host "Installed $installed plugin(s) into $vencord\src\userplugins" -ForegroundColor Green
 
 # 5. Build + inject
 Set-Location $vencord
@@ -80,5 +90,7 @@ pnpm inject
 Write-Host ""
 Write-Host "=== Done! ===" -ForegroundColor Green
 Write-Host "Fully QUIT Discord (right-click the tray icon -> Quit), reopen it," -ForegroundColor Green
-Write-Host "then enable JoinWhenFree in:  Settings -> Vencord -> Plugins" -ForegroundColor Green
+Write-Host "then enable the plugins in:  Settings -> Vencord -> Plugins" -ForegroundColor Green
+Write-Host "  - JoinWhenFree      (auto-join a full voice channel when a spot opens)" -ForegroundColor Green
+Write-Host "  - RingUntilAnswer   (keep calling someone in DMs until they pick up)" -ForegroundColor Green
 Write-Host ""
