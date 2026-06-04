@@ -36,17 +36,22 @@ const PrivateChannelActions = findByPropsLazy("openPrivateChannel");
 const settings = definePluginSettings({
     intervalSeconds: {
         type: OptionType.SLIDER,
-        description: "How often to ring again while you wait for them to answer (seconds). Kept at 15s+ to stay under Discord's rate limits.",
-        markers: [15, 20, 30, 45, 60, 90],
+        description: "How often to ring again while you wait for them to answer (seconds). Lower = rings faster, but very short intervals can hit Discord's rate limits.",
+        markers: [3, 5, 10, 15, 30, 45, 60, 90],
         default: 30,
         stickToMarkers: true
     },
     maxAttempts: {
         type: OptionType.SLIDER,
-        description: "Give up after this many rings if they never answer (safety cap so you don't ring forever by accident)",
+        description: "Give up after this many rings if they never answer (ignored when \"Ring forever\" is on below)",
         markers: [5, 10, 15, 25, 50, 100],
         default: 15,
         stickToMarkers: true
+    },
+    neverGiveUp: {
+        type: OptionType.BOOLEAN,
+        description: "Ring forever — never give up, keep calling until they answer or you press Stop Calling (ignores Max Attempts)",
+        default: false
     },
     desktopNotification: {
         type: OptionType.BOOLEAN,
@@ -139,7 +144,8 @@ function makeAttempt() {
 
     attempts++;
 
-    const cap = settings.store.maxAttempts;
+    // "Ring forever" disables the cap entirely; otherwise honour Max Attempts.
+    const cap = settings.store.neverGiveUp ? 0 : settings.store.maxAttempts;
     if (cap > 0 && attempts > cap) {
         giveUp();
         return;
@@ -152,12 +158,15 @@ function ring() {
     if (!target) return;
 
     // If we're connected to the call, just re-ring; otherwise (re)start the
-    // call, which rings them on its own.
-    if (inTargetCall()) {
-        CallActions.ring(target.channelId);
-    } else {
-        VoiceActions.selectVoiceChannel(target.channelId);
-    }
+    // call, which rings them on its own. Wrapped because fast intervals can
+    // trip Discord's rate limit, which we just skip and retry next tick.
+    try {
+        if (inTargetCall()) {
+            CallActions.ring(target.channelId);
+        } else {
+            VoiceActions.selectVoiceChannel(target.channelId);
+        }
+    } catch { /* rate-limited or transient; try again next interval */ }
 }
 
 function onAnswered() {

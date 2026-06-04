@@ -18,8 +18,9 @@ then it stops the instant they join the call.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Ring interval | 30 s | How often it re-rings while waiting (kept ≥ 15 s to stay under Discord's rate limits) |
+| Ring interval | 30 s | How often it re-rings while waiting. Goes as low as **3 s** — shorter rings faster but can hit Discord's rate limits |
 | Max attempts | 15 | Give up after this many rings if there's no answer |
+| Ring forever | off | Ignore Max Attempts and keep ringing until they answer or you hit Stop |
 | Desktop notification | on | OS notification when they answer (or when it gives up) |
 
 ## Installation
