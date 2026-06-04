@@ -21,15 +21,48 @@ This plugin waits in line for you. The moment someone leaves, **you're in.**
 ## Installation
 
 Custom plugins ("userplugins") can't be installed from Discord's settings UI — they require
-building Vencord from source. It only takes a few minutes:
+building Vencord from source. There's no way around that, but it's a one-time setup.
 
-### 1. Get the tools
+### Windows: the easy way (automated script)
+
+This repo ships a PowerShell script that does everything for you.
+
+**1. Install the two prerequisites** (skip either if you already have it). Open PowerShell and run
+each line on its own — **Windows PowerShell doesn't support `&&`, so don't chain commands**:
+
+```powershell
+winget install Git.Git
+winget install OpenJS.NodeJS.LTS
+```
+
+**Then close PowerShell and open a fresh window** (so it picks up the newly installed tools).
+
+**2. Download this plugin and run the installer:**
+
+```powershell
+cd ~
+git clone -b claude/elegant-wright-d4HFh https://github.com/Jamstand/just-be-making-stuff
+cd just-be-making-stuff\vencord-plugins\joinWhenFree
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+The script clones Vencord, installs pnpm, drops the plugin in, builds, and injects into Discord.
+When it finishes, fully quit Discord (right-click the tray icon → Quit), reopen it, then enable
+**JoinWhenFree** in **Settings → Vencord → Plugins**.
+
+> `pnpm inject` will ask which Discord install to patch — pick your normal one (Stable).
+
+### Manual install (any OS)
+
+Custom plugins require building Vencord from source. It only takes a few minutes:
+
+#### 1. Get the tools
 
 - [Node.js 18+](https://nodejs.org)
 - pnpm — after installing Node, run: `corepack enable` (or `npm i -g pnpm`)
 - [Git](https://git-scm.com)
 
-### 2. Clone Vencord
+#### 2. Clone Vencord
 
 ```bash
 git clone https://github.com/Vendicated/Vencord
@@ -37,7 +70,7 @@ cd Vencord
 pnpm install --frozen-lockfile
 ```
 
-### 3. Add this plugin
+#### 3. Add this plugin
 
 Copy this folder into Vencord's `src/userplugins` directory so you end up with:
 
@@ -52,7 +85,7 @@ mkdir -p path/to/Vencord/src/userplugins
 cp -r vencord-plugins/joinWhenFree path/to/Vencord/src/userplugins/joinWhenFree
 ```
 
-### 4. Build and inject
+#### 4. Build and inject
 
 ```bash
 pnpm build
@@ -66,7 +99,7 @@ Pick your Discord installation when prompted, then **fully restart Discord**
 > Skip `pnpm inject` and instead point Vesktop at your build:
 > Vesktop Settings → Vencord Location → select your `Vencord/dist` folder.
 
-### 5. Enable it
+#### 5. Enable it
 
 Discord → User Settings → Vencord → Plugins → enable **JoinWhenFree**.
 
