@@ -47,7 +47,8 @@ if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest https://get.pnpm.io/install.ps1 -UseBasicParsing | Invoke-Expression
         if (-not $env:PNPM_HOME) { $env:PNPM_HOME = Join-Path $env:LOCALAPPDATA "pnpm" }
-        $env:Path = "$($env:PNPM_HOME);$($env:Path)"
+        # the pnpm.exe location varies by version (PNPM_HOME or PNPM_HOME\bin) - add both
+        $env:Path = "$($env:PNPM_HOME)\bin;$($env:PNPM_HOME);$($env:Path)"
     }
 }
 Require-Command pnpm "Could not set up pnpm. Install it from https://pnpm.io/installation then re-run this."
