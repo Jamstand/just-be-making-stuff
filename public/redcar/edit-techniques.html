@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adding Stills · Technique Examples</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d0f12;--panel:#181c22;--panel2:#1e232b;--line:#2a303a;--line2:#363d49;
+    --ink:#eef1f4;--ink2:#aeb6c2;--ink3:#727c8a;--accent:#e0533a;--warm:#e8a85a;--teal:#3fb6b6;
+    --mono:'IBM Plex Mono',monospace;--sans:'Archivo',system-ui,sans-serif;--serif:'Instrument Serif',Georgia,serif;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;padding-bottom:90px}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 28px}
+  header{padding:64px 0 38px;border-bottom:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.26em;text-transform:uppercase;color:var(--accent);margin-bottom:18px}
+  h1{font-family:var(--serif);font-weight:400;font-size:clamp(40px,6vw,64px);line-height:1;letter-spacing:-.01em}
+  .lede{max-width:640px;margin-top:20px;color:var(--ink2);font-size:16px}
+  .lede b{color:var(--ink);font-weight:600}
+  .note{display:inline-flex;align-items:center;gap:8px;background:rgba(63,182,182,.08);border:1px solid rgba(63,182,182,.28);color:var(--teal);font-family:var(--mono);font-size:11.5px;padding:7px 12px;border-radius:8px;margin-top:18px}
+
+  section{padding:46px 0}
+  .ed{display:flex;align-items:baseline;gap:14px;margin-bottom:8px}
+  .ed .n{font-family:var(--mono);font-size:13px;color:var(--accent)}
+  .ed h2{font-family:var(--serif);font-weight:400;font-size:30px}
+  .ed .tagn{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-left:auto;text-transform:uppercase;letter-spacing:.12em}
+  .sub{color:var(--ink2);max-width:680px;margin-bottom:20px;font-size:14.5px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .stage{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#000}
+  .stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  /* persistent watermark */
+  .wm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:30;pointer-events:none}
+  .wm span{font-family:var(--sans);font-weight:500;font-size:clamp(15px,2.1vw,24px);letter-spacing:.04em;color:rgba(255,255,255,.82);text-shadow:0 1px 14px rgba(0,0,0,.5)}
+  /* HUD readout */
+  .hud{position:absolute;left:12px;bottom:12px;z-index:31;display:flex;gap:6px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;letter-spacing:.05em}
+  .hud b{background:rgba(13,15,18,.74);border:1px solid rgba(255,255,255,.12);color:var(--ink);padding:4px 8px;border-radius:6px;font-weight:500}
+  .hud b.r{color:var(--accent);border-color:rgba(224,83,58,.4)}
+  .hud b.t{color:var(--teal);border-color:rgba(63,182,182,.4)}
+  .hud b.warmb{color:var(--warm);border-color:rgba(232,168,90,.4)}
+  .topr{position:absolute;right:12px;top:12px;z-index:31;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#fff;background:rgba(224,83,58,.85);padding:4px 9px;border-radius:6px}
+
+  .cap{padding:18px 20px 20px}
+  .cap .how{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+  .cap p{color:var(--ink2);font-size:13.5px;max-width:760px}
+  .cap p b{color:var(--ink);font-weight:600}
+  .steps{margin-top:14px;display:grid;gap:7px}
+  .steps div{display:flex;gap:10px;font-size:13px;color:var(--ink2);align-items:baseline}
+  .steps div b{font-family:var(--mono);font-size:10.5px;color:var(--ink3);min-width:74px;text-transform:uppercase;letter-spacing:.06em;flex-shrink:0;padding-top:1px}
+  .steps div span b{color:var(--warm);font-family:var(--sans);font-size:13px;letter-spacing:0;text-transform:none;min-width:0;display:inline}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line)}
+  .pair .lab{position:absolute;left:12px;top:12px;z-index:31;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 8px;border-radius:6px;background:rgba(13,15,18,.74);color:var(--ink2)}
+
+  /* ===== Demo 1 — Dynamic Zoom (seamless Ken Burns) ===== */
+  .kb .lyr{position:absolute;inset:0;will-change:transform,opacity}
+  .kb .l1{animation:ken 11s linear infinite}
+  .kb .l2{animation:ken 11s linear infinite;animation-delay:-5.5s}
+  @keyframes ken{
+    0%{opacity:0;transform:scale(1)}
+    12%{opacity:1}
+    50%{opacity:1}
+    62%{opacity:0;transform:scale(1.12)}
+    100%{opacity:0;transform:scale(1.12)}
+  }
+  .arrow{position:absolute;z-index:29;pointer-events:none}
+
+  /* ===== Demo 2 — Rack-focus / defocus transition ===== */
+  .rf .a,.rf .b{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;will-change:filter,opacity}
+  .rf .a{animation:rfa 6s ease-in-out infinite}
+  .rf .b{animation:rfb 6s ease-in-out infinite}
+  @keyframes rfa{0%{filter:blur(0);opacity:1}22%{filter:blur(20px);opacity:0}78%{filter:blur(20px);opacity:0}100%{filter:blur(0);opacity:1}}
+  @keyframes rfb{0%{filter:blur(20px);opacity:0}22%{filter:blur(0);opacity:1}78%{filter:blur(0);opacity:1}100%{filter:blur(20px);opacity:0}}
+
+  /* ===== Demo 3 — Fade from black ===== */
+  .fb .blk{position:absolute;inset:0;z-index:20;background:#000;animation:fblk 5.5s ease-in-out infinite}
+  .fb img{animation:fbz 5.5s ease-in-out infinite}
+  @keyframes fblk{0%{opacity:1}30%{opacity:0}80%{opacity:0}100%{opacity:1}}
+  @keyframes fbz{0%{transform:scale(1.06)}80%{transform:scale(1.0)}100%{transform:scale(1.0)}}
+
+  /* ===== Demo 4 — Detail montage rhythm ===== */
+  .mt .f{position:absolute;inset:0;opacity:0;will-change:opacity,transform}
+  .mt .f1{animation:mont 3.2s steps(1,end) infinite}
+  .mt .f2{animation:mont 3.2s steps(1,end) infinite;animation-delay:.8s}
+  .mt .f3{animation:mont 3.2s steps(1,end) infinite;animation-delay:1.6s}
+  .mt .f4{animation:mont 3.2s steps(1,end) infinite;animation-delay:2.4s}
+  @keyframes mont{0%{opacity:1}25%{opacity:1}25.01%{opacity:0}100%{opacity:0}}
+  .mt .f img{animation:mpush 3.2s linear infinite}
+  .mt .f2 img{animation-delay:.8s}.mt .f3 img{animation-delay:1.6s}.mt .f4 img{animation-delay:2.4s}
+  @keyframes mpush{0%{transform:scale(1.03)}25%{transform:scale(1.09)}25.01%{transform:scale(1.03)}100%{transform:scale(1.03)}}
+  .beat{position:absolute;right:14px;bottom:14px;z-index:31;width:14px;height:14px;border-radius:50%;background:var(--accent);animation:beat .8s ease-out infinite}
+  @keyframes beat{0%{transform:scale(1);box-shadow:0 0 0 0 rgba(224,83,58,.6)}60%{transform:scale(.78);box-shadow:0 0 0 12px rgba(224,83,58,0)}100%{transform:scale(1)}}
+
+  /* ===== Demo 5 — Grade + grain ===== */
+  .gr img{animation:grimg 6.5s ease-in-out infinite}
+  @keyframes grimg{0%,14%{filter:none}40%,60%{filter:contrast(1.16) saturate(.82) brightness(.97)}86%,100%{filter:none}}
+  .gr .fx{position:absolute;inset:0;z-index:18;opacity:0;mix-blend-mode:soft-light;
+    background:linear-gradient(180deg,rgba(232,168,90,.28) 0%,rgba(13,15,18,0) 38%,rgba(13,15,18,0) 60%,rgba(20,60,72,.5) 100%);
+    animation:grfx 6.5s ease-in-out infinite}
+  .gr .vig{position:absolute;inset:0;z-index:19;opacity:0;background:radial-gradient(120% 90% at 50% 46%,rgba(0,0,0,0) 52%,rgba(0,0,0,.55) 100%);animation:grfx 6.5s ease-in-out infinite}
+  .gr .grain{position:absolute;inset:0;z-index:21;opacity:0;mix-blend-mode:overlay;animation:grgrain 6.5s ease-in-out infinite;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:170px}
+  @keyframes grfx{0%,14%{opacity:0}40%,60%{opacity:1}86%,100%{opacity:0}}
+  @keyframes grgrain{0%,14%{opacity:0}40%,60%{opacity:.5}86%,100%{opacity:0}}
+  .gr .glab{position:absolute;left:12px;top:12px;z-index:31;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border-radius:6px}
+  .gr .raw{background:rgba(13,15,18,.74);color:var(--ink2);animation:grfx 6.5s ease-in-out infinite reverse}
+  .gr .gd{background:rgba(63,182,182,.16);border:1px solid rgba(63,182,182,.4);color:var(--teal);opacity:0;animation:grfx 6.5s ease-in-out infinite}
+
+  /* group divider */
+  .grp{display:flex;align-items:center;gap:16px;padding:40px 0 2px}
+  .grp .tg{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.2em;text-transform:uppercase;white-space:nowrap}
+  .grp h3{font-family:var(--serif);font-weight:400;font-size:23px;color:var(--ink);white-space:nowrap}
+  .grp .ln{flex:1;height:1px;background:var(--line)}
+
+  /* ===== 06 Speed whip ===== */
+  .whip .a,.whip .b{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;will-change:transform,opacity,filter}
+  .whip .a{z-index:5;animation:whipA 3.8s ease-in-out infinite}
+  .whip .b{animation:whipB 3.8s ease-in-out infinite}
+  @keyframes whipA{0%{opacity:1;transform:translateX(0) scale(1.02);filter:blur(0)}16%{opacity:0;transform:translateX(-55%) scale(1.07);filter:blur(15px)}84%{opacity:0;transform:translateX(-55%) scale(1.07);filter:blur(15px)}100%{opacity:1;transform:translateX(0) scale(1.02);filter:blur(0)}}
+  @keyframes whipB{0%{opacity:0;transform:translateX(55%) scale(1.07);filter:blur(15px)}16%{opacity:1;transform:translateX(0) scale(1.02);filter:blur(0)}84%{opacity:1;transform:translateX(0) scale(1.02);filter:blur(0)}100%{opacity:0;transform:translateX(55%) scale(1.07);filter:blur(15px)}}
+
+  /* ===== 07 Headlight streak ===== */
+  .streak .a,.streak .b{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .streak .a{z-index:5;animation:strA 4s ease-in-out infinite}
+  @keyframes strA{0%{clip-path:inset(0 0 0 0%)}26%{clip-path:inset(0 0 0 100%)}74%{clip-path:inset(0 0 0 100%)}100%{clip-path:inset(0 0 0 0%)}}
+  .streak .bar{position:absolute;top:-4%;bottom:-4%;width:5px;z-index:9;left:0;border-radius:4px;
+    background:linear-gradient(180deg,rgba(255,255,255,.15),#fff 45%,#eafcff 55%,rgba(255,255,255,.15));
+    box-shadow:0 0 22px 8px rgba(180,240,255,.78),0 0 64px 20px rgba(110,205,255,.42);
+    animation:strBar 4s ease-in-out infinite}
+  @keyframes strBar{0%{left:0%;opacity:0}6%{opacity:1}26%{left:100%;opacity:1}30%{opacity:0}70%{left:100%;opacity:0}74%{left:100%;opacity:1}94%{left:0%;opacity:1}100%{left:0%;opacity:0}}
+
+  /* ===== 08 Glass flip ===== */
+  .glass .a,.glass .b{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backface-visibility:hidden}
+  .glass .a{z-index:5;animation:glA 4.6s ease-in-out infinite}
+  .glass .b{animation:glB 4.6s ease-in-out infinite}
+  @keyframes glA{0%{opacity:1;transform:scaleY(1);filter:saturate(1) hue-rotate(0deg)}18%{opacity:0;transform:scaleY(-1);filter:saturate(1.6) hue-rotate(135deg) brightness(.72)}82%{opacity:0;transform:scaleY(-1)}100%{opacity:1;transform:scaleY(1)}}
+  @keyframes glB{0%{opacity:0;transform:scaleY(-1);filter:saturate(1.6) hue-rotate(135deg) brightness(.72)}18%{opacity:1;transform:scaleY(1);filter:none}82%{opacity:1;transform:scaleY(1)}100%{opacity:0;transform:scaleY(-1)}}
+  .glass .sheen{position:absolute;inset:0;z-index:9;pointer-events:none;opacity:0;mix-blend-mode:screen;
+    background:linear-gradient(115deg,transparent 30%,rgba(63,182,182,.5) 48%,rgba(190,255,255,.65) 52%,transparent 70%);
+    animation:glSheen 4.6s ease-in-out infinite}
+  @keyframes glSheen{0%,9%{opacity:0;transform:translateX(-26%)}18%{opacity:1}27%{opacity:0;transform:translateX(26%)}100%{opacity:0;transform:translateX(26%)}}
+
+  /* ===== 09 Wheel spin ===== */
+  .spin .a,.spin .b{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;will-change:transform,opacity,filter}
+  .spin .a{z-index:5;animation:spA 4s ease-in-out infinite}
+  .spin .b{animation:spB 4s ease-in-out infinite}
+  @keyframes spA{0%{opacity:1;transform:rotate(0deg) scale(1);filter:blur(0)}18%{opacity:0;transform:rotate(26deg) scale(1.5);filter:blur(15px)}82%{opacity:0;transform:rotate(26deg) scale(1.5);filter:blur(15px)}100%{opacity:1;transform:rotate(0deg) scale(1);filter:blur(0)}}
+  @keyframes spB{0%{opacity:0;transform:rotate(-26deg) scale(1.5);filter:blur(15px)}18%{opacity:1;transform:rotate(0deg) scale(1);filter:blur(0)}82%{opacity:1;transform:rotate(0deg) scale(1);filter:blur(0)}100%{opacity:0;transform:rotate(-26deg) scale(1.5);filter:blur(15px)}}
+
+  /* ===== 10 Cinemascope still ===== */
+  .scope img.base{animation:scz 8s ease-in-out infinite}
+  @keyframes scz{0%{transform:scale(1.0)}50%{transform:scale(1.07)}100%{transform:scale(1.0)}}
+  .scope .lb{position:absolute;left:0;right:0;height:12.5%;background:#000;z-index:25}
+  .scope .lbt{top:0;animation:lbt 8s ease-in-out infinite}
+  .scope .lbb{bottom:0;animation:lbb 8s ease-in-out infinite}
+  @keyframes lbt{0%{transform:translateY(-100%)}13%{transform:translateY(0)}87%{transform:translateY(0)}100%{transform:translateY(-100%)}}
+  @keyframes lbb{0%{transform:translateY(100%)}13%{transform:translateY(0)}87%{transform:translateY(0)}100%{transform:translateY(100%)}}
+  .scope .gui{position:absolute;inset:0;z-index:26;opacity:0;pointer-events:none;animation:scgui 8s ease-in-out infinite}
+  @keyframes scgui{0%,13%{opacity:0}26%{opacity:1}80%{opacity:1}90%{opacity:0}100%{opacity:0}}
+  .scope .tc{position:absolute;right:13px;top:16%;font-family:var(--mono);font-size:11px;color:var(--warm);letter-spacing:.08em}
+  .scope .crn{position:absolute;width:24px;height:24px;border:2px solid rgba(255,255,255,.72)}
+  .scope .c1{left:6%;top:19%;border-right:none;border-bottom:none}
+  .scope .c2{right:6%;top:19%;border-left:none;border-bottom:none}
+  .scope .c3{left:6%;bottom:19%;border-right:none;border-top:none}
+  .scope .c4{right:6%;bottom:19%;border-left:none;border-top:none}
+
+  /* ===== 11 Triptych ===== */
+  .trip{display:flex;gap:3px;background:var(--teal)}
+  .trip .sl{position:relative;flex:1;overflow:hidden}
+  .trip .sl img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .trip .s1 img{animation:tsl 5.5s ease-in-out infinite}
+  .trip .s2 img{animation:tsl 5.5s ease-in-out infinite;animation-delay:.2s}
+  .trip .s3 img{animation:tsl 5.5s ease-in-out infinite;animation-delay:.4s}
+  @keyframes tsl{0%{transform:translateY(106%)}16%{transform:translateY(0)}84%{transform:translateY(0)}100%{transform:translateY(106%)}}
+
+  /* ===== 12 Contact sheet ===== */
+  .sheet{background:#0a0c0f}
+  .sheet .grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:6px;padding:6px;z-index:10}
+  .sheet .cell{position:relative;overflow:hidden;background:#000}
+  .sheet .cell img{width:100%;height:100%;object-fit:cover;opacity:.88}
+  .sheet .ring{position:absolute;inset:0;z-index:3;pointer-events:none}
+  .sheet .ring ellipse{stroke-dasharray:280;stroke-dashoffset:280;animation:draw 7s ease-in-out infinite}
+  @keyframes draw{0%,12%{stroke-dashoffset:280}28%{stroke-dashoffset:0}80%{stroke-dashoffset:0}90%{stroke-dashoffset:280}100%{stroke-dashoffset:280}}
+  .sheet .pickfull{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:20;opacity:0;transform:scale(.33);transform-origin:50% 25%;animation:pickz 7s ease-in-out infinite}
+  @keyframes pickz{0%,30%{opacity:0;transform:scale(.33)}33%{opacity:1}47%{opacity:1;transform:scale(1)}80%{opacity:1;transform:scale(1)}88%{opacity:0;transform:scale(.33)}100%{opacity:0;transform:scale(.33)}}
+
+  /* ===== 13 Reflection composite ===== */
+  .refl .base{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .refl .panel{position:absolute;left:7%;top:9%;width:42%;height:54%;overflow:hidden;z-index:8;
+    transform:skewY(-5deg);box-shadow:0 14px 44px rgba(0,0,0,.55);border:1px solid rgba(140,225,235,.3);opacity:0;animation:rflp 6s ease-in-out infinite}
+  .refl .panel img{width:100%;height:100%;object-fit:cover;filter:saturate(.72) brightness(.82)}
+  .refl .panel .tint{position:absolute;inset:0;background:linear-gradient(160deg,rgba(63,182,182,.5),rgba(15,42,50,.5))}
+  .refl .panel .gl{position:absolute;inset:0;background:linear-gradient(120deg,transparent 35%,rgba(255,255,255,.28) 50%,transparent 63%);animation:rflgl 6s ease-in-out infinite}
+  @keyframes rflp{0%,8%{opacity:0;transform:skewY(-5deg) translateY(12px)}30%{opacity:.94;transform:skewY(-5deg) translateY(0)}80%{opacity:.94;transform:skewY(-5deg) translateY(0)}94%{opacity:0;transform:skewY(-5deg) translateY(12px)}100%{opacity:0}}
+  @keyframes rflgl{0%,20%{transform:translateX(-70%)}48%{transform:translateX(70%)}100%{transform:translateX(70%)}}
+
+  /* ===== Sequence timeline ===== */
+  .timeline{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 22px 24px}
+  .track{display:flex;gap:0;align-items:stretch;border-radius:10px;overflow:hidden;border:1px solid var(--line2)}
+  .clip{position:relative;height:96px;background:#000;flex:var(--g,1);min-width:0;overflow:hidden}
+  .clip img{width:100%;height:100%;object-fit:cover;opacity:.92}
+  .clip .cl{position:absolute;left:7px;bottom:6px;font-family:var(--mono);font-size:9.5px;color:#fff;text-shadow:0 1px 4px #000;letter-spacing:.04em}
+  .clip .dur{position:absolute;right:7px;top:6px;font-family:var(--mono);font-size:9px;color:rgba(255,255,255,.8);background:rgba(0,0,0,.45);padding:2px 5px;border-radius:4px}
+  .clip.black{background:#000;flex:.35}
+  .tr{position:relative;flex:.0001;z-index:5}
+  .tr i{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;background:var(--accent);border:2px solid var(--bg);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;color:#fff}
+  .trleg{display:flex;gap:18px;flex-wrap:wrap;margin-top:16px;font-family:var(--mono);font-size:11px;color:var(--ink2)}
+  .trleg span{display:inline-flex;align-items:center;gap:7px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);flex-shrink:0}
+  .ruler{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink3);margin-top:9px;letter-spacing:.06em}
+
+  footer{border-top:1px solid var(--line);padding:34px 0 0;color:var(--ink3);font-size:13px;margin-top:8px}
+  footer b{color:var(--ink2);font-weight:600}
+  @media (max-width:640px){.pair{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+
+<header><div class="wrap">
+  <div class="kicker">Adding stills · @prj.alex</div>
+  <h1>Ways to fold the photos<br>into the cut.</h1>
+  <p class="lede">Each example below is a <b>live loop running on your own frames</b> — the move you'd build in DaVinci, with the exact settings underneath. The goal: stills that read as <b>film</b>, not slides, and a transition out of the intro that uses the rack-focus language you already established.</p>
+  <div class="note">▶ Everything loops automatically · watermark pinned on top, like your timeline</div>
+</div></header>
+
+<!-- 01 — DYNAMIC ZOOM -->
+<section><div class="wrap">
+  <div class="ed"><span class="n">01</span><h2>Dynamic Zoom — never let a still sit still</h2><span class="tagn">DSC00087</span></div>
+  <p class="sub">A slow, eased push keeps the photo alive next to your moving footage. Match the <b>direction</b> to the shot before it so the cut feels continuous.</p>
+  <div class="card">
+    <div class="stage kb">
+      <div class="lyr l1"><img src="web/DSC00087.JPG" alt=""></div>
+      <div class="lyr l2"><img src="web/DSC00087.JPG" alt=""></div>
+      <svg class="arrow" width="120" height="120" viewBox="0 0 120 120" style="left:50%;top:50%;transform:translate(-50%,-50%)">
+        <rect x="14" y="14" width="92" height="92" rx="4" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="1.5" stroke-dasharray="4 4"/>
+        <rect x="38" y="38" width="44" height="44" rx="3" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <path d="M60 50 L60 70 M52 62 L60 70 L68 62" stroke="var(--accent)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="r">ZOOM 1.000 → 1.080</b><b>EASE IN/OUT</b><b>~4s hold</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Select the still → <b>Inspector ▸ Dynamic Zoom (toggle on)</b>. Drag the green start box wide and the red end box tight for a push-in. Then ease it so it doesn't feel mechanical.</p>
+      <div class="steps">
+        <div><b>Toggle</b><span>Inspector ▸ <b>Dynamic Zoom → On</b></span></div>
+        <div><b>Curve</b><span>Right-click the clip ▸ <b>Dynamic Zoom Ease ▸ Ease In and Out</b></span></div>
+        <div><b>Direction</b><span>Match the prior shot — if the intro pushes in, keep pushing in</span></div>
+        <div><b>Length</b><span>3–4s per still — long enough to breathe</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 02 — RACK FOCUS / DEFOCUS TRANSITION -->
+<section style="padding-top:0"><div class="wrap">
+  <div class="ed"><span class="n">02</span><h2>Defocus transition — the rack-focus handoff</h2><span class="tagn">DSC00087 → DSC00103</span></div>
+  <p class="sub">This is the <b>best match for your intro</b>: the opener is all rack-focus, so transitioning on a blur feels intentional rather than generic. Outgoing shot blurs out, incoming snaps into focus.</p>
+  <div class="card">
+    <div class="stage rf">
+      <img class="a" src="web/DSC00087.JPG" alt="">
+      <img class="b" src="retouched/DSC00103.JPG" alt="">
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="r">BLUR 0 → 20 → 0</b><b>per-clip keyframes</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Add <b>Gaussian Blur</b> to the tail of the outgoing clip and the head of the incoming one, keyframed in opposite directions — or drop the <b>Blur Dissolve</b> transition between them for the same effect in one move.</p>
+      <div class="steps">
+        <div><b>Effect</b><span>Effects ▸ <b>ResolveFX Blur ▸ Gaussian</b> (or the <b>Blur Dissolve</b> transition)</span></div>
+        <div><b>Keys</b><span>Out clip: sharp → blur on its last ~12 frames · In clip: blur → sharp on its first ~12</span></div>
+        <div><b>Why</b><span>Echoes the rack-focus DNA of your opener — reads as one continuous lens move</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 03 — FADE FROM BLACK -->
+<section style="padding-top:0"><div class="wrap">
+  <div class="ed"><span class="n">03</span><h2>Emerge from black — lean into your fade</h2><span class="tagn">DSC00121</span></div>
+  <p class="sub">Your intro already ends on a fade to black (11–12s). Don't fight it — let the first still <b>rise out of that black</b>. Cleanest, most cinematic way in, and it pairs with a quiet audio swell.</p>
+  <div class="card">
+    <div class="stage fb">
+      <img src="web/DSC00121.JPG" alt="">
+      <div class="blk"></div>
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b>DIP TO COLOR · BLACK</b><b class="t">+ slow push</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Use a <b>Cross Dissolve from the black</b>, or the <b>Dip to Color</b> transition set to black. Stack a slow Dynamic Zoom on the still so it drifts in as it appears.</p>
+      <div class="steps">
+        <div><b>Transition</b><span>Video Transitions ▸ <b>Dip to Color</b> (Color = Black) · ~20 frames</span></div>
+        <div><b>Pair with</b><span>Dynamic Zoom 1.06 → 1.00 so the frame settles as it brightens</span></div>
+        <div><b>Audio</b><span>Drop the bed, let a swell rise with the image for the reveal beat</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 04 — DETAIL MONTAGE -->
+<section style="padding-top:0"><div class="wrap">
+  <div class="ed"><span class="n">04</span><h2>Detail montage — fast cuts on the beat</h2><span class="tagn">badge · windshield · wheel · stance</span></div>
+  <p class="sub">After the wide reveal, cut a quick run of detail stills — each held under a second with a tiny push, hard-cut <b>on the beat</b>. This is where the retouched close-ups (badge, the cross on the mirror) earn their place.</p>
+  <div class="card">
+    <div class="stage mt">
+      <div class="f f1"><img src="retouched/DSC00103.JPG" alt=""></div>
+      <div class="f f2"><img src="retouched/DSC00096.JPG" alt=""></div>
+      <div class="f f3"><img src="web/DSC00121.JPG" alt=""></div>
+      <div class="f f4"><img src="web/DSC00087.JPG" alt=""></div>
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="r">0.7s / CUT</b><b>hard cut · on beat</b></div>
+      <div class="beat"></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Trim each still to the same short length, give each a small Dynamic Zoom, and <b>snap the cut points to your music markers</b> so the rhythm is locked to the track.</p>
+      <div class="steps">
+        <div><b>Length</b><span>~0.6–1.0s each — consistent so it feels rhythmic</span></div>
+        <div><b>Markers</b><span>Tap markers on beats during playback, then snap cuts to them</span></div>
+        <div><b>Motion</b><span>Tiny push (1.03 → 1.09) on each so even fast cuts have life</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 05 — GRADE + GRAIN -->
+<section style="padding-top:0"><div class="wrap">
+  <div class="ed"><span class="n">05</span><h2>Match the grade, then dirty it up</h2><span class="tagn">DSC00087 · raw ↔ graded</span></div>
+  <p class="sub">The #1 fix for the "slideshow" look: stills are <b>too clean</b> next to compressed video. Apply your teal-and-red grade, then add film grain + a soft vignette so the sharpness falls off like a lens. Watch it toggle:</p>
+  <div class="card">
+    <div class="stage gr">
+      <img src="web/DSC00087.JPG" alt="">
+      <div class="fx"></div>
+      <div class="vig"></div>
+      <div class="grain"></div>
+      <div class="glab raw">Raw still</div>
+      <div class="glab gd">Graded + 35mm grain</div>
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="t">TEAL SHADOWS</b><b class="r">LIFTED REDS</b><b>+ GRAIN · VIGNETTE</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Copy your timeline grade onto every still so they live in the same world, then add grain and a touch of edge blur — this single step is what kills the pasted-photo feel.</p>
+      <div class="steps">
+        <div><b>Grade</b><span>Color page → right-click your hero node ▸ copy, paste onto each still</span></div>
+        <div><b>Grain</b><span>Effects ▸ <b>ResolveFX ▸ Film Grain</b> — a light 35mm preset</span></div>
+        <div><b>Falloff</b><span>Subtle <b>Vignette</b> + a hair of edge blur to mimic shallow DOF</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ============ MORE TRANSITIONS ============ -->
+<div class="wrap"><div class="grp"><span class="tg">More transitions</span><h3>Tuned to the build</h3><div class="ln"></div></div></div>
+
+<!-- 06 — SPEED WHIP -->
+<section style="padding-top:18px"><div class="wrap">
+  <div class="ed"><span class="n">06</span><h2>Speed whip — the drive-by blur</h2><span class="tagn">DSC00087 ⇄ DSC00121</span></div>
+  <p class="sub">A hard horizontal motion-blur snap, like the car blurring past camera. Best when you want <b>energy between two stance angles</b> — punchy without a cheesy preset.</p>
+  <div class="card">
+    <div class="stage whip">
+      <img class="b" src="web/DSC00121.JPG" alt="">
+      <img class="a" src="web/DSC00087.JPG" alt="">
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="r">DIRECTIONAL BLUR</b><b>2–4 frames</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Two clips touching. Add <b>Directional Blur</b> (angle 0°) keyframed up on the out-clip's tail and down on the in-clip's head, with a quick position slide — or use the <b>Smooth Cut / whip</b> blur transition.</p>
+      <div class="steps">
+        <div><b>Effect</b><span>ResolveFX ▸ <b>Directional Blur</b> (horizontal) + a 2–4 frame X-position slide</span></div>
+        <div><b>Speed</b><span>Keep it 4–6 frames total — the blur is the whole point</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 07 — HEADLIGHT STREAK -->
+<section style="padding-top:0"><div class="wrap">
+  <div class="ed"><span class="n">07</span><h2>Light-bar sweep — the LED signature</h2><span class="tagn">DSC00087 → DSC00103</span></div>
+  <p class="sub">A bright streak rakes across and wipes to the next shot — built off the Accord's <b>full-width LED light bar</b>. Reads as a signature move tied to the actual car, not a stock wipe.</p>
+  <div class="card">
+    <div class="stage streak">
+      <img class="b" src="retouched/DSC00103.JPG" alt="">
+      <img class="a" src="web/DSC00087.JPG" alt="">
+      <div class="bar"></div>
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="t">LUMA / LIGHT WIPE</b><b>+ glow bloom</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Use a thin white <b>Generator solid</b> with heavy <b>Glow</b> as a wipe matte, or a <b>Luma Wipe</b> keyed to a soft-edge ramp. Time the sweep so it crosses on a headlight glint in the footage.</p>
+      <div class="steps">
+        <div><b>Effect</b><span>White solid + <b>ResolveFX Glow</b> as a moving wipe, or <b>Luma Wipe</b> (soft edge)</span></div>
+        <div><b>Color</b><span>White core, faint cyan bloom — match the LED, not warm halogen</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 08 — GLASS FLIP -->
+<section style="padding-top:0"><div class="wrap">
+  <div class="ed"><span class="n">08</span><h2>Reflection flip — into the teal glass</h2><span class="tagn">DSC00121 → DSC00110</span></div>
+  <p class="sub">The frame mirror-flips through a teal sheen, like falling into the building's tinted glass and out the other side. Pure Miami — uses the <b>teal-and-red palette as a transition</b>, not just a grade.</p>
+  <div class="card">
+    <div class="stage glass">
+      <img class="b" src="web/DSC00110.JPG" alt="">
+      <img class="a" src="web/DSC00121.JPG" alt="">
+      <div class="sheen"></div>
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="t">MIRROR + TEAL TINT</b><b>flip dissolve</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>In Fusion: a <b>Transform flip (Flip Vert)</b> crossfading the two shots, with a teal <b>color-correct push</b> and a quick <b>specular streak</b> at the midpoint. Or fake it on the Edit page with a flipped clip + Dip to Color (teal).</p>
+      <div class="steps">
+        <div><b>Move</b><span>Flip Vertical + crossfade, teal CC spike at the handoff frame</span></div>
+        <div><b>Accent</b><span>One diagonal sheen sweep sells the "glass" read</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 09 — WHEEL SPIN -->
+<section style="padding-top:0"><div class="wrap">
+  <div class="ed"><span class="n">09</span><h2>Spin blur — off the mesh wheel</h2><span class="tagn">DSC00121 ⇄ DSC00087</span></div>
+  <p class="sub">A rotational blur whip, motivated by the <b>multi-spoke mesh wheels</b>. Drop it coming out of a tight wheel detail and the whole cut feels like it spins into the next angle.</p>
+  <div class="card">
+    <div class="stage spin">
+      <img class="b" src="web/DSC00087.JPG" alt="">
+      <img class="a" src="web/DSC00121.JPG" alt="">
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="r">RADIAL / SPIN BLUR</b><b>cut on a wheel</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Add <b>Radial Blur (set to Spin)</b> centered on the hub, keyframed up then down across the cut, with a small rotation on the Transform. Strongest exiting a wheel close-up.</p>
+      <div class="steps">
+        <div><b>Effect</b><span>ResolveFX ▸ <b>Radial Blur → Spin</b>, center on the hub + slight rotate</span></div>
+        <div><b>Motivation</b><span>Cut into it from a wheel detail so the spin reads as intentional</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ============ MORE WAYS IN ============ -->
+<div class="wrap"><div class="grp"><span class="tg">More ways in</span><h3>Stand-out treatments</h3><div class="ln"></div></div></div>
+
+<!-- 10 — CINEMASCOPE -->
+<section style="padding-top:18px"><div class="wrap">
+  <div class="ed"><span class="n">10</span><h2>Film-still punch — anamorphic bars</h2><span class="tagn">DSC00087</span></div>
+  <p class="sub">Snap to a 2.39:1 letterbox with a <b>timecode + focus brackets</b> burned in, so a still reads as a deliberate <b>cinema frame</b>, not a photo dropped on the timeline. Great for the hero hold.</p>
+  <div class="card">
+    <div class="stage scope">
+      <img class="base" src="web/DSC00087.JPG" alt="">
+      <div class="lb lbt"></div><div class="lb lbb"></div>
+      <div class="gui">
+        <span class="crn c1"></span><span class="crn c2"></span><span class="crn c3"></span><span class="crn c4"></span>
+        <span class="tc">TC 01:00:14:08</span>
+      </div>
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b>2.39:1 CROP</b><b class="warmb">TIMECODE BURN</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Animate two black <b>solids sliding in</b> to a 2.39:1 frame, add a small <b>Dynamic Zoom</b>, and overlay a <b>Text+ timecode</b> with corner brackets. The bars in/out act as the transition too.</p>
+      <div class="steps">
+        <div><b>Bars</b><span>Two black solids on a top track, keyframed in over ~12 frames</span></div>
+        <div><b>Overlay</b><span>Text+ timecode + bracket graphic — keep it small and white</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 11 — TRIPTYCH -->
+<section style="padding-top:0"><div class="wrap">
+  <div class="ed"><span class="n">11</span><h2>Triptych slices — the stance grid</h2><span class="tagn">three angles, one frame</span></div>
+  <p class="sub">Three vertical slices drop in one after another, split by thin teal seams. It's the <b>@canibeat / stancenation editorial grid</b> made motion — shows three details at once and feels like the scene.</p>
+  <div class="card">
+    <div class="stage trip">
+      <div class="sl s1"><img src="web/DSC00121.JPG" style="object-position:left" alt=""></div>
+      <div class="sl s2"><img src="retouched/DSC00096.JPG" style="object-position:center" alt=""></div>
+      <div class="sl s3"><img src="web/DSC00087.JPG" style="object-position:right" alt=""></div>
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="t">3 SLICES · TEAL SEAMS</b><b>staggered in</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Three stills on stacked tracks, each <b>cropped to a third</b> and positioned side by side, with staggered <b>position keyframes</b> sliding each up. A thin teal solid behind shows through as seams.</p>
+      <div class="steps">
+        <div><b>Layout</b><span>Crop each still to 1/3 width, offset X to tile them</span></div>
+        <div><b>Reveal</b><span>Stagger the slide-in ~6 frames apart for rhythm</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 12 — CONTACT SHEET -->
+<section style="padding-top:0"><div class="wrap">
+  <div class="ed"><span class="n">12</span><h2>Proof sheet — circle the keeper</h2><span class="tagn">grid → hero punch-in</span></div>
+  <p class="sub">A contact sheet of frames, a <b>red grease-pencil circle</b> marks the keeper, then it punches to full screen. Straight out of the <b>Larry Chen / Ted7 photographer lineage</b> — pays homage while it transitions.</p>
+  <div class="card">
+    <div class="stage sheet">
+      <div class="grid">
+        <div class="cell"><img src="web/DSC00110.JPG" alt=""></div>
+        <div class="cell"><img src="web/DSC00087.JPG" alt="">
+          <svg class="ring" viewBox="0 0 100 100" preserveAspectRatio="none"><ellipse cx="50" cy="50" rx="43" ry="40" fill="none" stroke="var(--accent)" stroke-width="3.4"/></svg>
+        </div>
+        <div class="cell"><img src="retouched/DSC00103.JPG" alt=""></div>
+        <div class="cell"><img src="web/DSC00121.JPG" alt=""></div>
+        <div class="cell"><img src="retouched/DSC00096.JPG" alt=""></div>
+        <div class="cell"><img src="web/DSC00110.JPG" style="object-position:bottom" alt=""></div>
+      </div>
+      <img class="pickfull" src="web/DSC00087.JPG" alt="">
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="r">SELECT → PUNCH IN</b><b>grease-pencil mark</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>Lay stills in a grid (scaled-down on one frame), draw the circle with an animated <b>Paint / stroke</b> in Fusion, then <b>scale up from that cell</b> to full. The zoom doubles as the cut into the hero.</p>
+      <div class="steps">
+        <div><b>Grid</b><span>6 stills scaled + positioned on one comp</span></div>
+        <div><b>Mark + punch</b><span>Animate the circle stroke, then scale the keeper to full</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 13 — REFLECTION COMPOSITE -->
+<section style="padding-top:0"><div class="wrap">
+  <div class="ed"><span class="n">13</span><h2>Composite into the glass — a reflected inset</h2><span class="tagn">DSC00110 + DSC00103</span></div>
+  <p class="sub">Drop a detail still <b>inside the building's reflection</b> — tinted teal, skewed to the glass, with a sheen passing over. Lets you show a close-up without ever leaving the wide, and leans hard on the <b>signature backdrop</b>.</p>
+  <div class="card">
+    <div class="stage refl">
+      <img class="base" src="web/DSC00110.JPG" alt="">
+      <div class="panel">
+        <img src="retouched/DSC00103.JPG" alt="">
+        <div class="tint"></div>
+        <div class="gl"></div>
+      </div>
+      <div class="wm"><span>@prj.alex</span></div>
+      <div class="hud"><b class="t">INSET IN REFLECTION</b><b>teal tint + sheen</b></div>
+    </div>
+    <div class="cap">
+      <div class="how">In DaVinci Resolve</div>
+      <p>In Fusion, place the detail still on a <b>corner-pinned / skewed plane</b> over the glass, knock its opacity back, push it teal, and run a <b>specular sweep</b> across so it sits in the reflection instead of on top of it.</p>
+      <div class="steps">
+        <div><b>Place</b><span>Corner Pin the still onto a window panel, ~85% opacity</span></div>
+        <div><b>Sell it</b><span>Teal CC + a moving highlight = glass, not a sticker</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- RECOMMENDED SEQUENCE -->
+<section style="padding-top:6px"><div class="wrap">
+  <div class="ed"><span class="n">▸</span><h2>Putting it together — recommended cut</h2><span class="tagn">after the 12s intro</span></div>
+  <p class="sub">One way to order it: emerge from black on the hero, defocus into a tight detail run, then settle back wide before the final fade. The watermark stays pinned the whole way.</p>
+  <div class="timeline">
+    <div class="track">
+      <div class="clip black" style="flex:.4"><span class="cl" style="color:var(--ink3)">fade</span></div>
+      <div class="tr"><i>◑</i></div>
+      <div class="clip" style="--g:2.6"><img src="web/DSC00121.JPG" alt=""><span class="cl">Hero · push in</span><span class="dur">4.0s</span></div>
+      <div class="tr"><i>◐</i></div>
+      <div class="clip" style="--g:1"><img src="retouched/DSC00103.JPG" alt=""><span class="cl">Badge</span><span class="dur">0.8s</span></div>
+      <div class="clip" style="--g:1"><img src="retouched/DSC00096.JPG" alt=""><span class="cl">Cross</span><span class="dur">0.8s</span></div>
+      <div class="clip" style="--g:1"><img src="web/DSC00087.JPG" alt=""><span class="cl">Wheel</span><span class="dur">0.8s</span></div>
+      <div class="tr"><i>◐</i></div>
+      <div class="clip" style="--g:2.4"><img src="web/DSC00110.JPG" alt=""><span class="cl">Wide settle</span><span class="dur">3.5s</span></div>
+      <div class="tr"><i>◑</i></div>
+      <div class="clip black" style="flex:.4"><span class="cl" style="color:var(--ink3)">fade</span></div>
+    </div>
+    <div class="ruler"><span>12.0s</span><span>14s</span><span>16s</span><span>18s</span><span>20s</span><span>~23s</span></div>
+    <div class="trleg">
+      <span><i style="font-family:var(--mono);color:var(--accent)">◑</i> Dip to / from black</span>
+      <span><i style="font-family:var(--mono);color:var(--accent)">◐</i> Defocus / blur dissolve</span>
+      <span><span class="dot"></span> All stills carry Dynamic Zoom + matched grade</span>
+    </div>
+  </div>
+</div></section>
+
+<footer><div class="wrap"><p>Examples run on your frames in <b>/web</b> and <b>/retouched</b>. Tell me which transition feel you want and I can tune the timing, swap the hero frame, or storyboard the full 12s intro into this same cut.</p></div></footer>
+
+</body>
+</html>
