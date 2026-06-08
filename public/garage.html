@@ -883,10 +883,11 @@
     pointer-events:none;z-index:3;
   }
 
-  /* PORSCHE BADGE — stylized shield, wordmark-based (not the trademarked crest) */
+  /* PORSCHE BADGE — removed per request. The .crest SVGs stay in the
+     markup but never render (no theme re-enables display). Restore by
+     adding e.g. `.stage[data-theme="tide"] .crest{display:block}`. */
   .crest{position:absolute;pointer-events:none;display:none;
     filter:drop-shadow(0 8px 24px rgba(8,35,61,.35)) drop-shadow(0 2px 4px rgba(8,35,61,.25))}
-  .stage[data-theme="tide"] .crest{display:block}
 
   /* phone chrome */
   .stage[data-theme="tide"] .phone{
@@ -1468,7 +1469,7 @@
   <span class="hint-short">edit mode · hover for help · <kbd>Esc</kbd> exit</span>
   <span class="hint-full">drag anything to move · double-click text to edit · right-click text to revert · <kbd>Esc</kbd> exit</span>
 </div>
-<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v49 · download scale fix</div>
+<div id="versionStamp" style="position:fixed;right:24px;bottom:18px;z-index:999;background:rgba(8,35,61,0.85);color:#d4a04a;padding:5px 10px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;letter-spacing:0.5px">garage v50 · badge removed</div>
 
 <!-- Tools panel — appears at top-right when a slot is the active selection -->
 <div id="toolsPanel" class="tools-panel" hidden>
