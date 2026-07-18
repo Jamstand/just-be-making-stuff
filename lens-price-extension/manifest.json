@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Lens Price Peek",
+  "version": "1.0.0",
+  "description": "See real-world new & used market prices for camera lenses on rental sites like Helix Rentals — with live eBay sold-price lookups.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["lib/matcher.js", "background.js"]
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Lens Price Peek",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.helixrentals.com/*"],
+      "js": ["lib/matcher.js", "content/content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["storage", "contextMenus", "activeTab", "scripting"],
+  "host_permissions": ["*://*.ebay.com/*"],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "lens-price-peek@jamstand.dev",
+      "strict_min_version": "121.0"
+    }
+  }
+}

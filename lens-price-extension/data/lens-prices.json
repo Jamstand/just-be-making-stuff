@@ -1,0 +1,18 @@
+{
+  "asOf": "2026-07-18",
+  "currency": "USD",
+  "note": "PROVISIONAL — replaced by researched data via scripts/build-db.mjs",
+  "lenses": [
+    { "id": "sigma-16-f14-dc-dn", "brand": "Sigma", "model": "Sigma 16mm f/1.4 DC DN Contemporary", "mounts": ["Sony E"], "new": 449, "usedLow": 250, "usedHigh": 350, "discontinued": false, "notes": "", "sources": [] },
+    { "id": "sony-fe-12-24-f28-gm", "brand": "Sony", "model": "Sony FE 12-24mm f/2.8 GM", "mounts": ["Sony E"], "new": 2998, "usedLow": 1900, "usedHigh": 2400, "discontinued": false, "notes": "", "sources": [] },
+    { "id": "sony-fe-24-70-f28-gm", "brand": "Sony", "model": "Sony FE 24-70mm f/2.8 GM", "mounts": ["Sony E"], "new": 1898, "usedLow": 900, "usedHigh": 1300, "discontinued": false, "notes": "", "sources": [] },
+    { "id": "sony-fe-24-105-f4-g", "brand": "Sony", "model": "Sony FE 24-105mm f/4 G OSS", "mounts": ["Sony E"], "new": 1398, "usedLow": 750, "usedHigh": 950, "discontinued": false, "notes": "", "sources": [] },
+    { "id": "sony-fe-50-f14-gm", "brand": "Sony", "model": "Sony FE 50mm f/1.4 GM", "mounts": ["Sony E"], "new": 1298, "usedLow": 950, "usedHigh": 1150, "discontinued": false, "notes": "", "sources": [] },
+    { "id": "tamron-11-20-f28", "brand": "Tamron", "model": "Tamron 11-20mm f/2.8 Di III-A RXD", "mounts": ["Sony E"], "new": 829, "usedLow": 500, "usedHigh": 650, "discontinued": false, "notes": "", "sources": [] },
+    { "id": "tamron-17-70-f28", "brand": "Tamron", "model": "Tamron 17-70mm f/2.8 Di III-A VC RXD", "mounts": ["Sony E"], "new": 799, "usedLow": 450, "usedHigh": 600, "discontinued": false, "notes": "", "sources": [] },
+    { "id": "tamron-18-300", "brand": "Tamron", "model": "Tamron 18-300mm f/3.5-6.3 Di III-A VC VXD", "mounts": ["Sony E"], "new": 699, "usedLow": 450, "usedHigh": 550, "discontinued": false, "notes": "", "sources": [] },
+    { "id": "tamron-35-f28-osd", "brand": "Tamron", "model": "Tamron 35mm f/2.8 Di III OSD M 1:2", "mounts": ["Sony E"], "new": 349, "usedLow": 150, "usedHigh": 250, "discontinued": false, "notes": "", "sources": [] },
+    { "id": "tamron-70-300", "brand": "Tamron", "model": "Tamron 70-300mm f/4.5-6.3 Di III RXD", "mounts": ["Sony E"], "new": 549, "usedLow": 300, "usedHigh": 400, "discontinued": false, "notes": "", "sources": [] },
+    { "id": "tamron-150-500", "brand": "Tamron", "model": "Tamron 150-500mm f/5-6.7 Di III VC VXD", "mounts": ["Sony E"], "new": 1399, "usedLow": 800, "usedHigh": 1100, "discontinued": false, "notes": "", "sources": [] }
+  ]
+}
