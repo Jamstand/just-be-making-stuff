@@ -1,18 +1,1071 @@
 {
   "asOf": "2026-07-18",
   "currency": "USD",
-  "note": "PROVISIONAL — replaced by researched data via scripts/build-db.mjs",
+  "note": "Street/new prices from major US retailers; used ranges from MPB/KEH/eBay sold listings. Estimates only.",
   "lenses": [
-    { "id": "sigma-16-f14-dc-dn", "brand": "Sigma", "model": "Sigma 16mm f/1.4 DC DN Contemporary", "mounts": ["Sony E"], "new": 449, "usedLow": 250, "usedHigh": 350, "discontinued": false, "notes": "", "sources": [] },
-    { "id": "sony-fe-12-24-f28-gm", "brand": "Sony", "model": "Sony FE 12-24mm f/2.8 GM", "mounts": ["Sony E"], "new": 2998, "usedLow": 1900, "usedHigh": 2400, "discontinued": false, "notes": "", "sources": [] },
-    { "id": "sony-fe-24-70-f28-gm", "brand": "Sony", "model": "Sony FE 24-70mm f/2.8 GM", "mounts": ["Sony E"], "new": 1898, "usedLow": 900, "usedHigh": 1300, "discontinued": false, "notes": "", "sources": [] },
-    { "id": "sony-fe-24-105-f4-g", "brand": "Sony", "model": "Sony FE 24-105mm f/4 G OSS", "mounts": ["Sony E"], "new": 1398, "usedLow": 750, "usedHigh": 950, "discontinued": false, "notes": "", "sources": [] },
-    { "id": "sony-fe-50-f14-gm", "brand": "Sony", "model": "Sony FE 50mm f/1.4 GM", "mounts": ["Sony E"], "new": 1298, "usedLow": 950, "usedHigh": 1150, "discontinued": false, "notes": "", "sources": [] },
-    { "id": "tamron-11-20-f28", "brand": "Tamron", "model": "Tamron 11-20mm f/2.8 Di III-A RXD", "mounts": ["Sony E"], "new": 829, "usedLow": 500, "usedHigh": 650, "discontinued": false, "notes": "", "sources": [] },
-    { "id": "tamron-17-70-f28", "brand": "Tamron", "model": "Tamron 17-70mm f/2.8 Di III-A VC RXD", "mounts": ["Sony E"], "new": 799, "usedLow": 450, "usedHigh": 600, "discontinued": false, "notes": "", "sources": [] },
-    { "id": "tamron-18-300", "brand": "Tamron", "model": "Tamron 18-300mm f/3.5-6.3 Di III-A VC VXD", "mounts": ["Sony E"], "new": 699, "usedLow": 450, "usedHigh": 550, "discontinued": false, "notes": "", "sources": [] },
-    { "id": "tamron-35-f28-osd", "brand": "Tamron", "model": "Tamron 35mm f/2.8 Di III OSD M 1:2", "mounts": ["Sony E"], "new": 349, "usedLow": 150, "usedHigh": 250, "discontinued": false, "notes": "", "sources": [] },
-    { "id": "tamron-70-300", "brand": "Tamron", "model": "Tamron 70-300mm f/4.5-6.3 Di III RXD", "mounts": ["Sony E"], "new": 549, "usedLow": 300, "usedHigh": 400, "discontinued": false, "notes": "", "sources": [] },
-    { "id": "tamron-150-500", "brand": "Tamron", "model": "Tamron 150-500mm f/5-6.7 Di III VC VXD", "mounts": ["Sony E"], "new": 1399, "usedLow": 800, "usedHigh": 1100, "discontinued": false, "notes": "", "sources": [] }
+    {
+      "id": "canon-ef-100-400mm-f-4.5-5.6l-is-ii-usm",
+      "brand": "Canon",
+      "model": "Canon EF 100-400mm f/4.5-5.6L IS II USM",
+      "mounts": [
+        "Canon EF"
+      ],
+      "new": 2699,
+      "usedLow": 1350,
+      "usedHigh": 1750,
+      "discontinued": true,
+      "notes": "Officially discontinued April 2026 (Canon Japan; confirmed by Canon Rumors and Digital Camera World). Used: dealer listings from ~$1,749 (bestvaluecamera, Jul 2026); good-condition eBay/private-sale copies run lower, ~$1,350-1,500. Range reflects good ($1,350) to mint dealer-grade ($1,750). [Audit 2026-07-18: CORRECTED new_price_usd from $2,283 to $2,699 - the $2,283 authorized-dealer figure is stale; Jul 2026 aggregator data (bestvaluecamera) shows the current new price is $2,699 (Amazon), and Adorama shows the lens on backorder until ~09/2026, so no authorized-dealer stock at the lower price is currently purchasable. Used range verified against the same Jul 2026 data and kept.]",
+      "sources": [
+        "https://www.canonrumors.com/a-classic-ef-lens-reaches-the-end-of-production/",
+        "https://www.digitalcameraworld.com/cameras/lenses/canon-japan-has-now-marked-this-classic-white-telephoto-lens-as-discontinued-as-dslr-lens-numbers-continue-to-dwindle",
+        "https://bestvaluecamera.com/lenses/canon-ef-100-400mm-f4-5-5-6l-is-ii-usm",
+        "https://www.amazon.com/Canon-100-400mm-4-5-5-6L-USM-Lens/dp/B00PF39PEY"
+      ]
+    },
+    {
+      "id": "canon-ef-100mm-f-2.8l-macro-is-usm",
+      "brand": "Canon",
+      "model": "Canon EF 100mm f/2.8L Macro IS USM",
+      "mounts": [
+        "Canon EF"
+      ],
+      "new": 1299,
+      "usedLow": 530,
+      "usedHigh": 670,
+      "discontinued": false,
+      "notes": "Winding down but still orderable new: B&H sold it at a $1,234 street-price deal in spring 2026 against its long-time $1,299 common price; Adorama shows it backordered (est. 09/2026) and Canon's own store no longer lists it. Used market is much cheaper: MPB has 37 copies at $534-$669. AUDIT: verified unchanged — Canon Price Watch confirms the $1,234.05 B&H street price (April 2026); MPB used range $534-$669 independently confirmed; Sweetwater still takes orders, so discontinued=false stands.",
+      "sources": [
+        "https://www.cpricewatch.com/product/02855/Canon-EF-100mm-f2.8L-Macro-IS-USM-price.html",
+        "https://www.cpricewatch.com/blog/tag/canon-ef-100mm-f2-8l-macro-is-usm/",
+        "https://www.mpb.com/en-us/product/canon-ef-100mm-f-2-8-l-macro-is-usm",
+        "https://www.adorama.com/canon-ef-100-mm-f-2-8l-macro-is-usm-lens/p/ca10028isu"
+      ]
+    },
+    {
+      "id": "canon-ef-16-35mm-f-2.8l-iii-usm",
+      "brand": "Canon",
+      "model": "Canon EF 16-35mm f/2.8L III USM",
+      "mounts": [
+        "Canon EF"
+      ],
+      "new": null,
+      "usedLow": 850,
+      "usedHigh": 1300,
+      "discontinued": true,
+      "notes": "No longer available new from Canon USA; B&H/Adorama new pages exist but no confirmed new stock in 2026. Canon refurb sold for $1,399 (April 2026 sale), capping used values; an Adorama used listing surfaced around $823. MPB was out of stock at time of research. Estimate: ~$850 good to ~$1,300 mint. Retailer sites blocked direct fetching, so used range is partly interpolated from refurb and used-listing data points. [Audit 2026-07-18: spot-checked; range bounded by real data points ($823 used listing, $1,399 refurb) and correctly excludes cheap Mark II prices ($204-599) seen in listings; no changes.]",
+      "sources": [
+        "https://www.cpricewatch.com/blog/2026/04/april-canon-store-refurbished-sale-hot-deals-on-cameras-and-lenses/",
+        "https://www.adorama.com/used-canon-ef-16-35mm-f-28l-iii-usm-ultra-wide-angle-zoom-lens/p/eoz16353",
+        "https://www.usa.canon.com/shop/p/ef-16-35mm-f-2-8l-iii-usm",
+        "https://www.mpb.com/en-us/product/canon-ef-16-35mm-f-2-8-l-iii-usm"
+      ]
+    },
+    {
+      "id": "canon-ef-24-105mm-f-4l-is-ii-usm",
+      "brand": "Canon",
+      "model": "Canon EF 24-105mm f/4L IS II USM",
+      "mounts": [
+        "Canon EF"
+      ],
+      "new": 1377,
+      "usedLow": 600,
+      "usedHigh": 900,
+      "discontinued": true,
+      "notes": "Discontinued by Canon (gone from Canon USA store, new and refurb), but remaining new stock was listed at B&H for $1,376.55 as of a May 28, 2026 report - the only lens of this set still verifiably purchasable new. Used range is an estimate from partial data: no direct used quotes surfaced; benchmarked against MPB's RF 24-105 f/4L used range ($924-$1,079) and historical EF II used values. Good ~$600, mint ~$900. [Audit 2026-07-18: independently re-confirmed the $1,376.55 B&H price via web search; used range plausible and below new price; no changes.]",
+      "sources": [
+        "https://www.cpricewatch.com/product/06123/Canon-EF-24-105mm-f4L-IS-II-USM-price.html",
+        "https://www.usa.canon.com/shop/p/ef-24-105mm-f-4l-is-ii-usm",
+        "https://www.mpb.com/en-us/product/canon-ef-24-105mm-f-4-l-is-ii-usm",
+        "https://www.adorama.com/used-canon-ef-24-105mm-f-4l-is-ii-usm-autofocus-wide-angle-telephoto-zoom-lens/p/eoz241052"
+      ]
+    },
+    {
+      "id": "canon-ef-24-70mm-f-2.8l-ii-usm",
+      "brand": "Canon",
+      "model": "Canon EF 24-70mm f/2.8L II USM",
+      "mounts": [
+        "Canon EF"
+      ],
+      "new": null,
+      "usedLow": 700,
+      "usedHigh": 1250,
+      "discontinued": true,
+      "notes": "Discontinued (reported May 2026; no longer on Canon USA store; MAP Camera marked it finished). Sold ~$1,899-2,100 new before discontinuation. MPB showed 68 used copies spanning $664-$1,589; typical good-to-excellent copies run ~$700-$1,250, with like-new topping out near $1,589. Replaced by RF 24-70mm f/2.8L IS. [Audit 2026-07-18: verified as internally consistent and the best-sourced entry of the set; no changes.]",
+      "sources": [
+        "https://www.mpb.com/en-us/product/canon-ef-24-70mm-f-2-8-l-ii-usm",
+        "https://www.thephoblographer.com/2026/05/01/canon-discontinues-a-fan-favorite-zoom-lens/",
+        "https://www.usa.canon.com/shop/p/ef-24-70mm-f-2-8l-ii-usm",
+        "https://www.cpricewatch.com/product/03850/Canon-EF-24-70mm-f2.8L-II-USM-price.html"
+      ]
+    },
+    {
+      "id": "canon-ef-50mm-f-1.4-usm",
+      "brand": "Canon",
+      "model": "Canon EF 50mm f/1.4 USM",
+      "mounts": [
+        "Canon EF"
+      ],
+      "new": 350,
+      "usedLow": 150,
+      "usedHigh": 240,
+      "discontinued": true,
+      "notes": "Production ended (Canon UK listed it as production-ended in 2025), but remaining new stock is still sold at major US retailers. Used copies are plentiful: US used typically $150-240 depending on condition. AUDIT CORRECTION: replaced the speculative $449 (back-derived from a B&H payment plan, never confirmed) with the confirmed retail price — Best Buy $349.99 and Crutchfield $349.00; Klarna's 13-store comparison shows authorized retailers clustered at ~$349 with gray-market sellers as low as ~$269.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/12140-USA/Canon_2515A003_50mm_f_1_4_USM_Autofocus.html",
+        "https://canonaddict.com/2025/04/04/canon-ef-50mm-f1-4-usm-discontinued/",
+        "https://www.canonrumors.com/canon-ef-50mm-f1-4-ef-50mm-f2-5-compact-macro-listed-as-production-ended/",
+        "https://www.mpb.com/en-eu/product/canon-ef-50mm-f-1-4-usm"
+      ]
+    },
+    {
+      "id": "canon-ef-50mm-f-1.8-stm",
+      "brand": "Canon",
+      "model": "Canon EF 50mm f/1.8 STM",
+      "mounts": [
+        "Canon EF"
+      ],
+      "new": 169,
+      "usedLow": 75,
+      "usedHigh": 120,
+      "discontinued": false,
+      "notes": "Still sold new and in stock at B&H at $169 (price rose from the classic $125 after 2025 tariff hikes). Canon's own store no longer lists it. KEH sells used copies around $97; B&H open-box $149. AUDIT: verified unchanged — $169 confirmed at multiple retailers (Samy's $169.00, Best Buy $169.99, Reef Photo $169.99).",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1143786-REG/canon_0570c002_ef_50mm_f_1_8_stm.html",
+        "https://www.keh.com/shop/lenses/canon_prime-fixed-focal-length_50mm_f-1-8.html",
+        "https://www.adorama.com/canon-ef-50-mm-f-1-8-stm-lens/p/ca5018stm",
+        "https://www.mpb.com/en-us/product/canon-ef-50mm-f-1-8-stm"
+      ]
+    },
+    {
+      "id": "canon-ef-70-200mm-f-2.8l-is-iii-usm",
+      "brand": "Canon",
+      "model": "Canon EF 70-200mm f/2.8L IS III USM",
+      "mounts": [
+        "Canon EF"
+      ],
+      "new": null,
+      "usedLow": 1250,
+      "usedHigh": 1600,
+      "discontinued": true,
+      "notes": "No longer sold new at Canon USA store as of 2026; no verified new stock at B&H/Adorama (only marketplace remnants). Canon refurb was $2,159 (Apr 2026) and dropped to $1,299 in the June 2026 refurb sale, which anchors used pricing. 2026 community discussions peg used copies at roughly $1,500; MSRP had been $2,099. Do not confuse with the cheaper IS II (~$1,100 used). [Audit 2026-07-18: spot-checked; range consistent with KEH's $1,619 EX+ (2022) plus subsequent EF-market decline and the $1,299 refurb anchor; no changes.]",
+      "sources": [
+        "https://www.cpricewatch.com/blog/2026/06/more-refurb-sale-rf-28-70-f2-2499-ef-70-200-iii-1299-ef-50-89/",
+        "https://www.cpricewatch.com/blog/2026/04/more-refurb-restock-rf-100-500l-15-30-ef-70-200-iii-more/",
+        "https://www.usa.canon.com/shop/p/ef-70-200mm-f-2-8l-is-iii-usm",
+        "https://www.mpb.com/en-us/product/canon-ef-70-200mm-f-2-8-l-is-iii-usm"
+      ]
+    },
+    {
+      "id": "canon-ef-85mm-f-1.8-usm",
+      "brand": "Canon",
+      "model": "Canon EF 85mm f/1.8 USM",
+      "mounts": [
+        "Canon EF"
+      ],
+      "new": null,
+      "usedLow": 220,
+      "usedHigh": 330,
+      "discontinued": true,
+      "notes": "Discontinued after 30+ years in production; no longer sold new at major US retailers, and Canon's refurbished store no longer stocks it. MPB currently shows used copies at $229-$329. AUDIT: verified unchanged — KEH currently lists $216-$292, consistent with the stated range.",
+      "sources": [
+        "https://thenewcamera.com/canon-ef-85mm-f1-8-discontinued/",
+        "https://www.mpb.com/en-us/product/canon-ef-85mm-f-1-8-usm",
+        "https://www.usa.canon.com/shop/p/ef-85mm-f-1-8-usm-refurbished-1",
+        "https://www.keh.com/shop/canon-ef-85mm-f-1-8-usm-standard-medium-telephoto-lens-119097.html"
+      ]
+    },
+    {
+      "id": "canon-rf-100-500mm-f-4.5-7.1-l-is-usm",
+      "brand": "Canon",
+      "model": "Canon RF 100-500mm f/4.5-7.1 L IS USM",
+      "mounts": [
+        "Canon RF"
+      ],
+      "new": 2899,
+      "usedLow": 2150,
+      "usedHigh": 2500,
+      "discontinued": false,
+      "notes": "Current street price $2,899 at major retailers (recommended/list $3,099 after 2025 price increases, with a recurring $200 instant rebate). Off Canon's own store but sold new at B&H/Best Buy/Adorama; Canon refurbished $2,339. Used: MPB listings start around $2,184; range anchored between MPB low and mint-copy asking prices near the refurb/new gap. [Audit correction: new price changed $2,849 -> $2,899 — July 2026 checks show $2,899 (from $3,099 list) consistently at Adorama, GigaParts, Camera Exchange, and Arts Cameras; no retailer found at $2,849. Used range verified consistent with MPB floor and refurb price, unchanged.]",
+      "sources": [
+        "https://www.adorama.com/car100500.html",
+        "https://www.gigaparts.com/canon-rf-100-500-mirrorless-lens-4112c002.html",
+        "https://www.camerax.com/product/canon-rf-100-500mm-f-4-5-7-1l-is-usm-lens/",
+        "https://www.bhphotovideo.com/c/product/1547011-REG/canon_rf_100_500mm_f_4_6_3l_is.html"
+      ]
+    },
+    {
+      "id": "canon-rf-100mm-f-2.8-l-macro-is-usm",
+      "brand": "Canon",
+      "model": "Canon RF 100mm f/2.8 L Macro IS USM",
+      "mounts": [
+        "Canon RF"
+      ],
+      "new": 1149,
+      "usedLow": 940,
+      "usedHigh": 1050,
+      "discontinued": false,
+      "notes": "Canon Price Watch street-price data: $999 (June 2025 sale), $1,119 (Nov 2025), $1,149 (June 2026), so ~$1,149 is the current common selling price at authorized dealers (list is higher, ~$1,399+ after the 2025 increases; Hot Rod Cameras showed $1,349). Canon USA's own store shows it unavailable but it remains current and sold at B&H/Amazon. MPB has 13 used copies at $944-1,019. [Audit 2026-07: spot-checked, no change — B&H listed it at $1,186.55 in April 2026, consistent with the June 2026 CPW street price of $1,149; stated value sits inside the verified range. Confirmed this is the RF version, not the cheaper EF 100mm f/2.8L Macro IS USM.]",
+      "sources": [
+        "https://www.cpricewatch.com/product/07434/Canon-RF-100mm-f2.8L-Macro-IS-USM-price.html",
+        "https://www.cpricewatch.com/blog/2026/06/street-prices-are-back-eos-r1-rf-200-800-rf-100-400-more/",
+        "https://www.mpb.com/en-us/product/canon-rf-100mm-f-2-8-l-macro-is-usm",
+        "https://www.bhphotovideo.com/c/product/1634483-REG/canon_4514c002_rf_100mm_f_2_8l_macro.html"
+      ]
+    },
+    {
+      "id": "canon-rf-15-35mm-f-2.8-l-is-usm",
+      "brand": "Canon",
+      "model": "Canon RF 15-35mm f/2.8 L IS USM",
+      "mounts": [
+        "Canon RF"
+      ],
+      "new": 2399,
+      "usedLow": 1589,
+      "usedHigh": 1859,
+      "discontinued": false,
+      "notes": "Regular street price ~$2,399 after Canon's 2025 price increases; it dropped to ~$2,099 during a $300 rebate that ended 06/28/2026, and similar sales recur regularly. Off Canon's own store but still sold new at B&H/Adorama/Amazon. Used range is MPB's actual listed spread (31 units, $1,589-$1,859) as of July 2026.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1502499-REG/canon_3682c002_rf_15_35mm_f_2_8l_is.html",
+        "https://www.mpb.com/en-us/product/canon-rf-15-35mm-f2-8-l-is-usm",
+        "https://www.cpricewatch.com/product/06960/Canon-RF-15-35mm-f2.8L-IS-USM-price.html",
+        "https://www.adorama.com/used-canon-rf-15-35mm-f-28-l-is-usm-lens/p/eoz1535"
+      ]
+    },
+    {
+      "id": "canon-rf-24-105mm-f-4-l-is-usm",
+      "brand": "Canon",
+      "model": "Canon RF 24-105mm f/4 L IS USM",
+      "mounts": [
+        "Canon RF"
+      ],
+      "new": 1179,
+      "usedLow": 924,
+      "usedHigh": 1079,
+      "discontinued": false,
+      "notes": "Canon Price Watch showed a $1,179 authorized-dealer street price in June 2026 (list ~$1,299); Canon refurbished was $899. Off Canon's own store but still stocked new at B&H/Adorama. Used range $924-$1,079 is the actual spread reported for MPB/third-party used listings.",
+      "sources": [
+        "https://www.cpricewatch.com/product/06708/Canon-RF-24-105mm-F4-L-IS-USM-price.html",
+        "https://www.bhphotovideo.com/c/product/1433712-REG/canon_rf_24_105mm_f_4l_is.html",
+        "https://www.adorama.com/car241054.html",
+        "https://www.mpb.com/en-us/product/canon-rf-24-105mm-f-4-l-is-usm"
+      ]
+    },
+    {
+      "id": "canon-rf-24-70mm-f-2.8-l-is-usm",
+      "brand": "Canon",
+      "model": "Canon RF 24-70mm f/2.8 L IS USM",
+      "mounts": [
+        "Canon RF"
+      ],
+      "new": 2299,
+      "usedLow": 1700,
+      "usedHigh": 2050,
+      "discontinued": false,
+      "notes": "B&H sale price $2,299 (down from ~$2,699 regular after Canon's 2025 price increases); Canon Price Watch showed authorized-dealer street price of $2,249 in April 2026. No longer listed on Canon's own store but still sold new at B&H/Adorama. Exact used quotes were not visible in search snippets, so the used range is an estimate anchored to typical MPB/KEH/Adorama-used listings for this lens (comparable RF L zooms on MPB run ~75-85% of street). [Audit: verified unchanged — new price confirmed at B&H/CPW; used-high of $2,050 sits plausibly just under Canon refurb prices of $2,069 (Jan 2026) and $2,159 (June 2026).]",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1502500-REG/canon_3680c002_rf_24_70mm_f_2_8l_is.html",
+        "https://www.cpricewatch.com/blog/2026/04/street-price-in-stock-rf-24-70mm-f-2-8l-for-2249/",
+        "https://www.cpricewatch.com/blog/2026/01/refurb-restock-r6-mark-ii-1799-rf-24-70mm-2069-and-more/",
+        "https://www.mpb.com/en-us/product/canon-rf-24-70mm-f-2-8-l-is-usm"
+      ]
+    },
+    {
+      "id": "canon-rf-35mm-f-1.8-macro-is-stm",
+      "brand": "Canon",
+      "model": "Canon RF 35mm f/1.8 Macro IS STM",
+      "mounts": [
+        "Canon RF"
+      ],
+      "new": 499,
+      "usedLow": 370,
+      "usedHigh": 450,
+      "discontinued": false,
+      "notes": "Regular price $499 at B&H with recurring $449 sales. Canon USA's store lists both new and refurbished as 'no longer available' and a version 2 is rumored (patents filed), so it may be nearing end of life, but it is still sold new at B&H/Adorama/Best Buy and smaller dealers. MPB used stock currently $384-429. [Audit 2026-07: spot-checked, price confirmed — Samy's shows $589 list with $90 instant rebate = $499 (temporarily out of stock); Tuttle Cameras has 1 in stock; Mike's Camera has suspended orders. New stock is clearly drying up mid-2026 but no official discontinuation and still purchasable new, so kept $499 and discontinued=false. Watch this one — flag may need to flip soon.]",
+      "sources": [
+        "https://www.cpricewatch.com/product/06709/Canon-RF-35mm-F1.8-MACRO-IS-STM-price.html",
+        "https://www.digitalcameraworld.com/cameras/lenses/this-classic-canon-rf-35mm-f-1-8-is-just-usd449-thats-a-true-prime-lens-bargain",
+        "https://www.samys.com/p/Macro-Lenses/2973C002/Canon-RF-35mm-f/1.8-IS-Macro-STM-Lens/205096.html",
+        "https://www.mpb.com/en-us/product/canon-rf-35-mm-f-1-8-is-stm-macro"
+      ]
+    },
+    {
+      "id": "canon-rf-50mm-f-1.2-l-usm",
+      "brand": "Canon",
+      "model": "Canon RF 50mm f/1.2 L USM",
+      "mounts": [
+        "Canon RF"
+      ],
+      "new": 2299,
+      "usedLow": 1300,
+      "usedHigh": 1900,
+      "discontinued": false,
+      "notes": "Still sold new at B&H/Adorama. List rose from $2,299 to ~$2,339-2,399 after Canon's June 2025 US price increases; Canon Price Watch reported June 2026 street deals around $2,049, so $2,299 is a realistic common selling price. Canon USA's own store shows it unavailable (stock, not discontinuation). MPB used stock spans ~$1,019 (heavily used) to ~$2,159 (like new), typical ~$1,500; used values softened after the RF 50mm f/1.4 L VCM launch. [Audit 2026-07: spot-checked, no change — independent 2026 data points confirm $1,999 (Jan holiday street), $2,049 (June 4 CPW street), $2,299 regular per Photography Talk (Mar 2026, some retailers raised to $2,499); Adorama shows it on backorder into July 2026.]",
+      "sources": [
+        "https://www.cpricewatch.com/product/06706/Canon-RF-50mm-F1.2-L-USM-price.html",
+        "https://www.cpricewatch.com/blog/2026/06/street-prices-are-back-eos-r1-rf-200-800-rf-100-400-more/",
+        "https://www.cpricewatch.com/blog/2026/01/holiday-street-prices-on-rf-cameras-lenses-ending-soon/",
+        "https://www.photographytalk.com/canon-rf-50mm-f-1-2-l-usm-review-best-50mm-prime/"
+      ]
+    },
+    {
+      "id": "canon-rf-50mm-f-1.8-stm",
+      "brand": "Canon",
+      "model": "Canon RF 50mm f/1.8 STM",
+      "mounts": [
+        "Canon RF"
+      ],
+      "new": 219,
+      "usedLow": 145,
+      "usedHigh": 185,
+      "discontinued": false,
+      "notes": "Price rose from $199 to $219 in Canon's June 2025 tariff-driven increase; Sweetwater showed $239 list with $20 off (=$219) in April 2026, so $219 is the common street price. MPB currently lists used copies at $179-184 (used prices have crept up with the new price); good-condition copies at KEH/eBay run cheaper, ~$145-160. [Audit 2026-07: sanity-checked, internally consistent, no change.]",
+      "sources": [
+        "https://www.cpricewatch.com/product/07324/Canon-RF-50mm-f1.8-STM-price.html",
+        "https://www.sweetwater.com/store/detail/4515C002--canon-rf-50mm-f-1.8-stm-lens",
+        "https://www.mpb.com/en-us/product/canon-rf-50mm-f-1-8-stm",
+        "https://www.bhphotovideo.com/c/product/1601517-REG/canon_rf_50mm_f_1_8_lens.html"
+      ]
+    },
+    {
+      "id": "canon-rf-70-200mm-f-2.8-l-is-usm",
+      "brand": "Canon",
+      "model": "Canon RF 70-200mm f/2.8 L IS USM",
+      "mounts": [
+        "Canon RF"
+      ],
+      "new": 2499,
+      "usedLow": 2200,
+      "usedHigh": 2500,
+      "discontinued": true,
+      "notes": "This is the ORIGINAL (non-Z) version, replaced by the RF 70-200mm f/2.8 L IS USM Z (street ~$2,799); Canon USA lists it as no longer available. Remaining new stock persists at a few dealers around $2,499. [Audit corrections: (1) discontinued flag changed false->true — Canon USA marks it 'no longer available' and CPW 2026 street-price posts cover only the Z; (2) used range raised from $2,000-$2,400 to $2,200-$2,500 — MPB's actual asking spread on the non-Z product page is $2,389-$2,539 (41 units) and Canon's July 2026 refurb price rose to $2,429-$2,519 (the $1,999 refurb figure was a stale May anchor); eBay sold prices run below MPB asking, setting the low end. Used high near/above dwindling new-stock price reflects supply constraint on this discontinued lens; (3) note fix: Z version street price is $2,799, not $2,999.]",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1510031-REG/canon_rf_70_200mm_f_2_8l_is.html",
+        "https://www.mpb.com/en-us/product/canon-rf-70-200mm-f-2-8-l-is-usm",
+        "https://www.usa.canon.com/shop/p/rf70-200mm-f2-8-l-is-usm",
+        "https://www.usa.canon.com/shop/p/refurbished-rf70-200mm-f2-8-l-is-usm"
+      ]
+    },
+    {
+      "id": "canon-rf-85mm-f-2-macro-is-stm",
+      "brand": "Canon",
+      "model": "Canon RF 85mm f/2 Macro IS STM",
+      "mounts": [
+        "Canon RF"
+      ],
+      "new": 580,
+      "usedLow": 450,
+      "usedHigh": 530,
+      "discontinued": false,
+      "notes": "Launched at $599; Canon Price Watch data for 2026 shows a street price of $579.99 (list higher after 2025 increases). Canon USA's own store currently shows it unavailable, but B&H/Adorama/Best Buy still list it new. Canon refurbished units sold for $449 in a Feb 2026 restock; MPB used stock currently runs $484-509. [Audit 2026-07: sanity-checked — refurb $449, MPB $484-509 and CPW street $579.99 all bracket the stated values; no change.]",
+      "sources": [
+        "https://www.cpricewatch.com/product/07209/Canon-RF-85mm-F2-Macro-IS-STM-price.html",
+        "https://www.cpricewatch.com/blog/2026/02/refurb-sale-restock-rf-85mm-f-2-macro-is-stm-for-449/",
+        "https://www.mpb.com/en-us/product/canon-rf-85mm-f-2-macro-is-stm",
+        "https://www.bhphotovideo.com/c/product/1547012-REG/canon_rf_85mm_f_2_stm.html"
+      ]
+    },
+    {
+      "id": "nikon-af-s-nikkor-24-70mm-f-2.8e-ed-vr",
+      "brand": "Nikon",
+      "model": "Nikon AF-S NIKKOR 24-70mm f/2.8E ED VR",
+      "mounts": [
+        "Nikon F"
+      ],
+      "new": 1447,
+      "usedLow": 700,
+      "usedHigh": 1140,
+      "discontinued": false,
+      "notes": "Still listed new at Adorama/B&H as of July 2026 (Adorama 0% financing promo valid 07/13-07/26/2026). Regular list $2,246.95, but B&H ($121/mo x12) and Adorama ($61/mo x24) financing quotes both imply a current clearance street price of ~$1,447-$1,465 (Nikon's recurring $800-off promo = $1,446.95); exact price derived from financing math since retailer pages were blocked to direct fetch. MPB shows 20 used copies at $599-$1,139; $700-$1,140 is the realistic good-to-mint band (sub-$650 copies are well-used grade). F-mount line is end-of-life, so expect new stock to dry up. AUDIT: verified unchanged — $1,446.95/12=$120.58 rounds up to the quoted $121/mo and $1,446.95/24=$60.29 rounds up to $61/mo, so both financing quotes are exactly consistent with $1,447.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1175033-REG/nikon_af_s_nikkor_24_70mm_f_2_8e.html",
+        "https://www.adorama.com/nk2470e.html",
+        "https://www.mpb.com/en-us/product/nikon-af-s-nikkor-24-70mm-f-2-8e-ed-vr",
+        "https://www.nikonusa.com/p/af-s-nikkor-24-70mm-f28e-ed-vr/20052"
+      ]
+    },
+    {
+      "id": "nikon-af-s-nikkor-50mm-f-1.8g",
+      "brand": "Nikon",
+      "model": "Nikon AF-S NIKKOR 50mm f/1.8G",
+      "mounts": [
+        "Nikon F"
+      ],
+      "new": 247,
+      "usedLow": 110,
+      "usedHigh": 160,
+      "discontinued": false,
+      "notes": "Still in production and sold new; current street price ~$246.95 after Nikon's 2025 US tariff price increases (was $216.95 for years; retailer listings now run $246.95-$274.99). MPB has 74 used copies at $105-$159, so $110 (good) to $160 (like-new) is the realistic used band. AUDIT: spot-checked, no contradicting data found; sanity and version checks pass — unchanged.",
+      "sources": [
+        "https://www.adorama.com/nk5018gu.html",
+        "https://www.bhphotovideo.com/c/product/766516-USA/Nikon_2199_AF_S_Nikkor_50mm_f_1_8G.html",
+        "https://www.mpb.com/en-us/product/nikon-af-s-nikkor-50mm-f-1-8g",
+        "https://www.amazon.com/Nikon-AF-S-NIKKOR-1-8G-Cameras/dp/B004Y1AYAC"
+      ]
+    },
+    {
+      "id": "nikon-af-s-nikkor-70-200mm-f-2.8e-fl-ed-vr",
+      "brand": "Nikon",
+      "model": "Nikon AF-S NIKKOR 70-200mm f/2.8E FL ED VR",
+      "mounts": [
+        "Nikon F"
+      ],
+      "new": 1847,
+      "usedLow": 1150,
+      "usedHigh": 1620,
+      "discontinued": false,
+      "notes": "Still listed at B&H, Adorama, Amazon, Best Buy and Nikon USA as of mid-2026; NOT on the confirmed discontinued lists (the 'discontinued 70-200' story was about the Z-mount 70-200/2.8 VR S V1). MPB lists used copies at $1,089-$1,619; $1,150-$1,620 is the typical good-to-mint band. Z 70-200mm f/2.8 VR S II is the mirrorless successor. AUDIT CORRECTION: previous new price of $2,070 was sourced from Best Buy's 'comparable value $2,069.95', which is attached to an open-box/previously-owned listing, not a new-item price. Current new street price is ~$1,846.95: B&H Payboo suggested payment $154/mo x12 = $1,848 and Adorama's 0% promo $77/mo x24 (valid 07/13-07/26/2026) = $1,848 independently converge, consistent with $2,796.95 list minus Nikon's $950 instant savings. Corrected new_price_usd from 2070 to 1847.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1292140-REG/nikon_af_s_nikkor_70_200mm_f_2_8e.html",
+        "https://www.adorama.com/nk7020028.html",
+        "https://www.bestbuy.com/product/nikon-af-s-nikkor-70-200mm-f-2-8e-fl-ed-vr-telephoto-zoom-lens-for-dslr-cameras-black/5681600/openbox",
+        "https://www.mpb.com/en-us/product/nikon-af-s-nikkor-70-200mm-f-2-8e-fl-ed-vr"
+      ]
+    },
+    {
+      "id": "nikon-af-s-nikkor-85mm-f-1.8g",
+      "brand": "Nikon",
+      "model": "Nikon AF-S NIKKOR 85mm f/1.8G",
+      "mounts": [
+        "Nikon F"
+      ],
+      "new": 497,
+      "usedLow": 210,
+      "usedHigh": 310,
+      "discontinued": false,
+      "notes": "Still sold new at B&H/Adorama/Amazon and listed by Nikon USA; long-time street price was $476.95, and current sources put it at ~$480-$500 after the June/Sept 2025 US tariff increases, so ~$497 is the best current estimate (exact cent price not directly verifiable through the sandbox proxy). MPB has 39 used copies at $189-$309; $210 (good) to $310 (mint) is the typical band. AUDIT: spot-checked July 2026; independent source corroborates 'about $500' new — unchanged.",
+      "sources": [
+        "https://www.adorama.com/nk8518u.html",
+        "https://www.bhphotovideo.com/c/product/838798-REG/Nikon_2201_AF_S_NIKKOR_85mm_f_1_8G.html",
+        "https://www.mpb.com/en-us/product/nikon-af-s-nikkor-85mm-f-1-8g",
+        "https://www.nikonusa.com/p/af-s-nikkor-85mm-f18g/2201/overview"
+      ]
+    },
+    {
+      "id": "nikon-af-s-vr-micro-nikkor-105mm-f-2.8g-if-ed",
+      "brand": "Nikon",
+      "model": "Nikon AF-S VR Micro-NIKKOR 105mm f/2.8G IF-ED",
+      "mounts": [
+        "Nikon F"
+      ],
+      "new": null,
+      "usedLow": 350,
+      "usedHigh": 480,
+      "discontinued": true,
+      "notes": "Discontinued (confirmed by Backscatter 'discontinued/no longer in stock', Fred Miranda discontinuation threads, and PhotographyLife noting MSRP $900 but discontinued); no new stock at major US retailers, superseded by the Z MC 105mm f/2.8 VR S. MPB lists used copies at $349-$479, so $350 (good) to $480 (mint) is the realistic used band; occasional Nikon USA refurbs appear. AUDIT: re-verified July 2026 — B&H product page confirms discontinued at $900 MSRP with no new stock, and used market ~$350-$500 corroborates the band — unchanged.",
+      "sources": [
+        "https://www.backscatter.com/Nikon-105mm-VR-f2-8-Lens",
+        "https://www.bhphotovideo.com/c/product/424744-USA/Nikon_2160_105mm_f_2_8G_ED_IF_AF_S.html",
+        "https://www.mpb.com/en-us/product/nikon-af-s-micro-nikkor-105mm-f-2-8g-if-ed-vr",
+        "https://www.fredmiranda.com/forum/topic/1736139/0"
+      ]
+    },
+    {
+      "id": "nikon-nikkor-z-100-400mm-f-4.5-5.6-vr-s",
+      "brand": "Nikon",
+      "model": "Nikon NIKKOR Z 100-400mm f/4.5-5.6 VR S",
+      "mounts": [
+        "Nikon Z"
+      ],
+      "new": 2847,
+      "usedLow": 2190,
+      "usedHigh": 2340,
+      "discontinued": false,
+      "notes": "Currently $2,846.95 on sale (ends 7/19/2026, Camera Exchange); regular price $2,996.95 after 2025 price increase (launch MSRP was $2,696.95). Used: MPB listings at $2,189-$2,339. [Audit 2026-07-18: spot-checked and verified — $2,996.95 regular value confirmed at retailer and MPB used range $2,189-$2,339 matched exactly. No changes.]",
+      "sources": [
+        "https://www.camerax.com/product/nikon-nikkor-z-100-400mm-f-4-5-5-6-vr-s-lens/",
+        "https://www.abt.com/Nikon-NIKKOR-Z-100-400mm-f-4.5-5.6-VR-S-Camera-Lens-20106/p/170553.html",
+        "https://www.mpb.com/en-us/product/nikon-nikkor-z-100-400mm-f-4-5-5-6-vr-s",
+        "https://www.keh.com/shop/nikon-nikkor-z-100-400mm-f-4-5-5-6-vr-s-autofocus-fx-lens-for-z-mount-black-77-with-tripod-collar-foot.html"
+      ]
+    },
+    {
+      "id": "nikon-nikkor-z-14-30mm-f-4-s",
+      "brand": "Nikon",
+      "model": "Nikon NIKKOR Z 14-30mm f/4 S",
+      "mounts": [
+        "Nikon Z"
+      ],
+      "new": 1147,
+      "usedLow": 810,
+      "usedHigh": 915,
+      "discontinued": false,
+      "notes": "List price $1,396.95 (raised in 2025), but street price with Nikon instant rebates has been $1,096.95-$1,146.95 through most of 2026 (PetaPixel/B&H at $1,146.95, Camera Exchange sale at $1,096.95). Nikon's spring rebates ended around July 2, so momentary price may bounce toward list between rebate cycles. Used: MPB listed 32 copies at $809-$914.",
+      "sources": [
+        "https://petapixel.com/2026/01/30/the-best-deals-on-nikon-z-cameras-and-lenses/",
+        "https://www.camerax.com/product/nikon-nikkor-z-14-30mm-f-4-s-lens/",
+        "https://www.mpb.com/en-us/product/nikon-nikkor-z-14-30mm-f-4-s",
+        "https://www.bhphotovideo.com/c/product/1452459-REG/nikon_20070_nikkor_z_14_30mm_f_4.html"
+      ]
+    },
+    {
+      "id": "nikon-nikkor-z-20mm-f-1.8-s",
+      "brand": "Nikon",
+      "model": "Nikon NIKKOR Z 20mm f/1.8 S",
+      "mounts": [
+        "Nikon Z"
+      ],
+      "new": 1047,
+      "usedLow": 815,
+      "usedHigh": 975,
+      "discontinued": false,
+      "notes": "Currently $1,046.95 on Amazon (list raised to $1,149.95 in 2025; the $1,046.95 sale price has recurred since Cyber Monday 2025). Used: MPB listings at $814-$974.",
+      "sources": [
+        "https://www.amazon.com/Nikon-20093-NIKON-NIKKOR-20mm/dp/B084QPDT1H",
+        "https://www.imaging-resource.com/deals/nikon-nikkor-z-20mm-big-cyber-monday-deal/",
+        "https://www.mpb.com/en-us/product/nikon-nikkor-z-20mm-f-1-8-s",
+        "https://www.keh.com/shop/nikon-nikkor-z-20mm-f-1-8-s-lens-for-z-mount-mirrorless-77.html"
+      ]
+    },
+    {
+      "id": "nikon-nikkor-z-24-120mm-f-4-s",
+      "brand": "Nikon",
+      "model": "Nikon NIKKOR Z 24-120mm f/4 S",
+      "mounts": [
+        "Nikon Z"
+      ],
+      "new": 1147,
+      "usedLow": 780,
+      "usedHigh": 945,
+      "discontinued": false,
+      "notes": "Regular street price $1,146.95 (Abt/Best Buy comparable value); frequently discounted to $996.95 during Nikon rebate windows (Camera Exchange sale through 5/31/2026). Used: KEH listed 47 copies at $779-$944.",
+      "sources": [
+        "https://www.abt.com/Nikon-NIKKOR-Z-24-120mm-f-4-S-Camera-Lens-20105N/p/170552.html",
+        "https://www.camerax.com/product/nikon-nikkor-z-24-120mm-f-4-s-lens/",
+        "https://www.keh.com/shop/nikon-nikkor-z-24-120mm-f-4-s-autofocus-fx-lens-for-z-mount-black-77.html",
+        "https://www.bhphotovideo.com/c/product/1669886-REG/nikon_niz241204_nikkor_z_24_120mm_f_4.html"
+      ]
+    },
+    {
+      "id": "nikon-nikkor-z-24-70mm-f-2.8-s",
+      "brand": "Nikon",
+      "model": "Nikon NIKKOR Z 24-70mm f/2.8 S",
+      "mounts": [
+        "Nikon Z"
+      ],
+      "new": 1997,
+      "usedLow": 1100,
+      "usedHigh": 1550,
+      "discontinued": true,
+      "notes": "Deprecated by Nikon as of June 2026 after the 24-70mm f/2.8 S II launched Sept 2025 at $2,796.95. Remaining new stock still sells for around $2,000 at some dealers (was $2,096.95 after $300 rebate). Used market softened after the II arrived: MPB/Adorama used listings observed spanning $949-$1,579, with excellent-condition copies around $1,300-$1,350 (UsedPhotoPro EX $1,323). [Audit 2026-07-18: spot-checked and verified — deprecation 6/2026, ~$2,000 clearance stock, and II announced Aug 22 2025 / shipping Sept 2025 at $2,796.95 all confirmed; no version confusion with the II. No changes.]",
+      "sources": [
+        "https://opticallimits.com/nikon/nikon-z/nikkor-z-24-70mm-f-2-8-s-review/",
+        "https://www.mpb.com/en-us/product/nikon-nikkor-z-24-70mm-f-2-8-s",
+        "https://www.adorama.com/used-nikon-nikkor-z-24-70mm-f-28-s-lens/p/nkza2470z",
+        "https://usedphotopro.com/products/usedlenses"
+      ]
+    },
+    {
+      "id": "nikon-nikkor-z-50mm-f-1.8-s",
+      "brand": "Nikon",
+      "model": "Nikon NIKKOR Z 50mm f/1.8 S",
+      "mounts": [
+        "Nikon Z"
+      ],
+      "new": 597,
+      "usedLow": 370,
+      "usedHigh": 415,
+      "discontinued": false,
+      "notes": "Current street price $596.95 per Nikon Price Watch; dipped to $576.95 during January 2026 rebates (list $676.95 after 2025 price increase). Used: MPB had 58 copies at $369-$414 - heavy supply keeps used prices low.",
+      "sources": [
+        "http://www.nikonpricewatch.com/product/06692/Nikon-NIKKOR-Z-50mm-f1.8-S-price.html",
+        "https://petapixel.com/2026/01/30/the-best-deals-on-nikon-z-cameras-and-lenses/",
+        "https://www.mpb.com/en-us/product/nikon-nikkor-z-50mm-f-1-8-s",
+        "https://www.bhphotovideo.com/c/product/1431710-REG/nikon_20083_nikkor_z_50mm_f_1_8.html"
+      ]
+    },
+    {
+      "id": "nikon-nikkor-z-70-200mm-f-2.8-vr-s",
+      "brand": "Nikon",
+      "model": "Nikon NIKKOR Z 70-200mm f/2.8 VR S",
+      "mounts": [
+        "Nikon Z"
+      ],
+      "new": 2397,
+      "usedLow": 1700,
+      "usedHigh": 2100,
+      "discontinued": true,
+      "notes": "Discontinued after the 70-200mm f/2.8 VR S II was announced Feb 2026 ($3,199.95, shipping since late March 2026). Remaining new stock on clearance at Adorama for $2,396.95 ($500 off the $2,896.95 regular price). Used prices dropped after the II announcement: typical eBay sold prices around $1,800, pristine boxed copies up to ~$2,100; occasional sub-$1,000 outliers are suspect listings. [Audit 2026-07-18: spot-checked and verified — II officially announced Feb 23 2026 at $3,199.95 (Nikon USA press release) and $2,396.95 Adorama clearance price confirmed; price is for the Mark I as named. No changes.]",
+      "sources": [
+        "https://www.digitalcameraworld.com/cameras/lenses/probably-the-best-70-200mm-zoom-in-the-world-now-usd500-off-6-free-products-is-this-your-last-chance-to-buy-at-a-record-low-price",
+        "https://www.digitalcameraworld.com/cameras/lenses/two-stellar-nikon-telephoto-lenses-discontinued-including-probably-best-70-200mm-zoom-in-the-world-heres-what-you-need-to-know",
+        "https://bcgforums.com/threads/nikon-z-70-200mm-f-2-8-vr-s-ii-officially-announced.52117/",
+        "https://www.ebay.com/p/13036214402"
+      ]
+    },
+    {
+      "id": "nikon-nikkor-z-85mm-f-1.8-s",
+      "brand": "Nikon",
+      "model": "Nikon NIKKOR Z 85mm f/1.8 S",
+      "mounts": [
+        "Nikon Z"
+      ],
+      "new": 847,
+      "usedLow": 550,
+      "usedHigh": 665,
+      "discontinued": false,
+      "notes": "Regular street price ~$846.95; recurring rebate price of $746.95 at B&H (Imaging Resource deal). Used: MPB had 29 copies at $549-$664.",
+      "sources": [
+        "https://www.imaging-resource.com/deals/nikkor-z-85mm-f-1-8-s-now-746/",
+        "https://www.bestbuy.com/product/nikon-nikkor-z-85mm-f-1-8-s-telephoto-lens-for-z-cameras-black/J7CVR9V4S7",
+        "https://www.mpb.com/en-us/product/nikon-nikkor-z-85mm-f-1-8-s",
+        "https://photographylife.com/reviews/nikon-z-85mm-f1-8-s"
+      ]
+    },
+    {
+      "id": "sigma-16mm-f-1.4-dc-dn-contemporary",
+      "brand": "Sigma",
+      "model": "Sigma 16mm f/1.4 DC DN Contemporary",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 539,
+      "usedLow": 250,
+      "usedHigh": 350,
+      "discontinued": false,
+      "notes": "MSRP raised from $489 to $539 on June 2, 2025 due to US tariffs (Sigma USA announcement); Best Buy currently has it on sale at $414, so watch for frequent discounts. Used Sony E copies typically $250-$350; MPB comps (L-mount) listed at $289-$354. Retailer pages blocked to direct fetch, prices via search data.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1369132-REG/sigma_402965_16mm_f_1_4_dc_dn.html",
+        "https://www.adorama.com/sg1614soe.html",
+        "https://www.bestbuy.com/product/sigma-contemporary-16mm-f-1-4-dc-dn-wide-angle-lens-for-select-sony-e-mount-cameras-black/J76FHFRK83",
+        "https://www.mpb.com/en-us/product/sigma-16mm-f-1-4-dc-dn-contemporary-sony-e-fit"
+      ]
+    },
+    {
+      "id": "sigma-18-50mm-f-2.8-dc-dn-contemporary",
+      "brand": "Sigma",
+      "model": "Sigma 18-50mm f/2.8 DC DN Contemporary",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 599,
+      "usedLow": 460,
+      "usedHigh": 580,
+      "discontinued": false,
+      "notes": "List price rose $599 to $659 with Sigma's June 2, 2025 tariff adjustment, but common street price is ~$599 (Adorama/Abt), with sales as low as ~$527-549 (B&H/Focus per Klarna). Used: MPB has ~20 Sony E copies at $539-$629 (MPB's top asks can exceed discounted new); eBay sold runs lower, so realistic range $460-$580. AUDIT: verified - MPB used range $539-$629 independently confirmed; pricing internally consistent. No changes.",
+      "sources": [
+        "https://www.klarna.com/us/shopping/pl/cl543/3200420337/Camera-Lenses/SIGMA-18-50mm-F2.8-DC-DN-Contemporary-for-Sony-E/",
+        "https://www.mpb.com/en-us/product/sigma-18-50mm-f-2-8-dc-dn-contemporary-sony-e-fit",
+        "https://press.sigmaphoto.com/corporate/05/us-pricing-adjustments-starting-june-2-2025/",
+        "https://www.diyphotography.net/sigma-lens-price-increase-hits-us-market-but-one-lens-escapes-the-hike/"
+      ]
+    },
+    {
+      "id": "sigma-24-70mm-f-2.8-dg-dn-ii-art",
+      "brand": "Sigma",
+      "model": "Sigma 24-70mm f/2.8 DG DN II Art",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 1319,
+      "usedLow": 950,
+      "usedHigh": 1150,
+      "discontinued": false,
+      "notes": "Launched at $1,199; Sigma's June 2, 2025 tariff price adjustment raised US price to $1,319, which is the current regular street price at B&H/Adorama. Periodic $100 instant rebates (most recent ended 5/17/2026) drop it to ~$1,219. Used: MPB had Sony FE copies at $1,089 (L-mount $1,089-$1,179); eBay sold and Adorama used run roughly $950-$1,150. AUDIT: verified - $1,199 launch price confirmed via DPReview announcement and current ~$1,300 street level corroborated; version II pricing correctly matched to the II model. No changes.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1827260-REG/sigma_57a965_24_70mm_f2_8_dg_dn.html",
+        "https://press.sigmaphoto.com/corporate/05/us-pricing-adjustments-starting-june-2-2025/",
+        "https://www.diyphotography.net/sigma-lens-price-increase-hits-us-market-but-one-lens-escapes-the-hike/",
+        "https://www.mpb.com/en-us/product/sigma-24-70mm-f-28-dg-dn-ii-art-sony-e-fit"
+      ]
+    },
+    {
+      "id": "sigma-30mm-f-1.4-dc-dn-contemporary",
+      "brand": "Sigma",
+      "model": "Sigma 30mm f/1.4 DC DN Contemporary",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 289,
+      "usedLow": 190,
+      "usedHigh": 260,
+      "discontinued": false,
+      "notes": "APS-C prime, still current. Klarna comparison shows Adorama $285, Newegg/Focus/Buydig $289, Walmart $312 - common street price ~$289. Used: eBay listings around $236; Sony E copies typically $190-$260 (MPB's cheaper $124-$169 range is for the defunct Canon EF-M fit). AUDIT: spot-checked - MSRP $339 with 2026 street prices in the $235-$300 range confirmed (eBay new at $235.99, B&H in stock); $289 is consistent. No changes to numbers.",
+      "sources": [
+        "https://www.klarna.com/us/shopping/pl/cl543/3143873/Camera-Lenses/SIGMA-30mm-F1.4-DC-DN-C-for-Sony-E/",
+        "https://www.ebay.com/itm/116796886331",
+        "https://www.adorama.com/used-sigma-30mm-f-14-dc-dn-contemporary-lens-for-sony-e-mount-cameras/p/sola3014sge",
+        "https://www.mpb.com/en-us/product/sigma-30mm-f-1-4-dc-dn-contemporary-sony-e-fit"
+      ]
+    },
+    {
+      "id": "sigma-35mm-f-1.4-dg-dn-art",
+      "brand": "Sigma",
+      "model": "Sigma 35mm f/1.4 DG DN Art",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 799,
+      "usedLow": 550,
+      "usedHigh": 680,
+      "discontinued": true,
+      "notes": "Original 2021 DG DN version (not the new 35mm F1.4 DG II Art successor released April 16, 2026 at $1,059). Sold new only as remaining/closeout stock: Klarna comparison shows ~$799 (Walmart ~$861); pre-successor regular price was $989 after the June 2025 tariff hike ($899 launch). Used: MPB L-fit $599-$664; US Sony E used typically $550-$680. AUDIT FIX: changed discontinued false -> true. Sigma quietly discontinued the original 35mm f/1.4 DG DN in early Feb 2026 (The Phoblographer 2/6/2026; sigma-global discontinued list) and replaced it with the 35mm F1.4 DG II Art ($1,059, shipping mid-April 2026, confirmed at B&H). $799 kept as closeout price for remaining new stock.",
+      "sources": [
+        "https://www.klarna.com/us/shopping/pl/cl543/3200146725/Camera-Lenses/SIGMA-35mm-F1.4-DG-DN-Art-for-Sony-E/",
+        "https://www.mpb.com/en-us/product/sigma-35mm-f-1-4-dg-dn-art-sony-e-fit",
+        "https://www.thephoblographer.com/2026/02/06/sigma-quietly-discontinues-some-of-its-most-beloved-lenses/",
+        "https://www.sigma-global.com/en/discontinued/"
+      ]
+    },
+    {
+      "id": "sigma-85mm-f-1.4-dg-dn-art",
+      "brand": "Sigma",
+      "model": "Sigma 85mm f/1.4 DG DN Art",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 1029,
+      "usedLow": 700,
+      "usedHigh": 850,
+      "discontinued": false,
+      "notes": "Klarna price comparison shows B&H at $1,029.99, Walmart $899.99, Newegg $879.95 - heavily discounted from the post-June-2025-tariff list price (launch was $1,199, roughly +10% after the hike); it has repeatedly dipped below $1,000 in promos. Used: UsedPhotoPro Excellent copy $715; eBay sold and MPB/KEH generally $700-$850 for good-to-mint Sony E copies. AUDIT: spot-checked - lens remains current (only the separate 85mm F1.2 DG Art was announced at CP+ 2026, shipping Sept 2026; no DG DN II exists). Usual price $1,199 with promo lows to $974 (Imaging Resource/Amazon), so $1,029 street is within the verified range. No changes.",
+      "sources": [
+        "https://www.klarna.com/us/shopping/pl/cl543/5254580/Camera-Lenses/SIGMA-85mm-F1.4-DG-DN-Art-for-Sony-E/",
+        "https://usedphotopro.com/sigma-85mm-f14-dg-dn-art-020-lens-sony-e-usn-08-1895-3-55553968-6c43df20",
+        "https://www.mpb.com/en-us/product/sigma-85mm-f-1-4-dg-dn-art-sony-fe-fit",
+        "https://www.keh.com/shop/sigma-85mm-f-1-4-dg-dn-a-art-af-lens-for-sony-e-mount-black-77.html"
+      ]
+    },
+    {
+      "id": "sony-fe-12-24mm-f-2.8-gm",
+      "brand": "Sony",
+      "model": "Sony FE 12-24mm f/2.8 GM",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 3148,
+      "usedLow": 1800,
+      "usedHigh": 2340,
+      "discontinued": false,
+      "notes": "B&H at $2,998; Best Buy and KEH list the post-tariff price of $3,148, so $2,998 reflects the common B&H street/promo price. MPB used inventory tops out at $2,339 (like-new); good-condition copies typically ~$1,800-$2,000 (an MPB search summary showed a $1,049 low, but that likely mixes in the 12-24mm f/4 G, so excluded). AUDIT CORRECTION: new price raised from $2,998 to $3,148 - $2,998 is the stale pre-tariff launch MSRP; the prevailing post-tariff street price at major US retailers is $3,148 (Samy's $3,148, Precision Camera $3,149.99, Best Buy and KEH $3,148 per this entry's own sources).",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1573884-REG/sony_sel1224gm_12_24mm_f_2_8_gm_lens.html",
+        "https://www.bestbuy.com/site/sony-fe-12-24mm-f2-8-g-master-full-frame-constant-aperture-ultra-wide-zoom-lens-black/6420926.p?skuId=6420926",
+        "https://www.mpb.com/en-us/product/sony-fe-12-24mm-f-2-8-gm",
+        "https://www.keh.com/shop/sony-12-24mm-f-2-8-gm-black-fe-e-mount-autofocus-lens-sel1224gm.html"
+      ]
+    },
+    {
+      "id": "sony-fe-16-35mm-f-2.8-gm-ii",
+      "brand": "Sony",
+      "model": "Sony FE 16-35mm f/2.8 GM II",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 2298,
+      "usedLow": 1700,
+      "usedHigh": 1900,
+      "discontinued": false,
+      "notes": "New street $2,298 confirmed at B&H/Adorama/Amazon. Used GM II data thinner: CameraMall mint example listed $1,900 on eBay; MPB/KEH/Adorama carry it but exact grades not visible to automated fetch (403), so low end ~$1,700 is an estimate from typical used discount. Do not confuse with original 16-35 GM (used $429-$1,389 at MPB). AUDIT: re-searched July 2026; no data contradicting the estimate surfaced, GM II vs GM I distinction correct; unchanged.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1784822-REG/sony_fe_16_35mm_f_2_8_gm.html",
+        "https://www.lens-rumors.com/sony-fe-16-35mm-f2-8-gm-ii-lens-announced-priced-2298-available-for-pre-order/",
+        "https://cameramall.com/products/used-sony-fe-16-35mm-f2-8-gm-ii-1863015cm",
+        "https://www.mpb.com/en-us/product/sony-fe-16-35mm-f2f28-gm-ii"
+      ]
+    },
+    {
+      "id": "sony-fe-200-600mm-f-5.6-6.3-g-oss",
+      "brand": "Sony",
+      "model": "Sony FE 200-600mm f/5.6-6.3 G OSS",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 1998,
+      "usedLow": 1500,
+      "usedHigh": 1850,
+      "discontinued": false,
+      "notes": "MSRP/standard street $1,998 (still the regular price at B&H/Amazon/Best Buy; occasional promos dip lower). MPB (July 2026) listed 49 used units at $1,699-$1,869; eBay good-condition sales typically run lower, so low end set ~$1,500. AUDIT: sanity-checked, matches long-stable street price and used range is below new; unchanged.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1485540-REG/sony_sel200600g_fe_200_600mm_f_5_6_6_3_g.html",
+        "https://www.mpb.com/en-us/product/sony-fe-200-600mm-f5-6-6-3-g-oss",
+        "https://www.amazon.com/200-600mm-F5-6-6-3-Super-Telephoto-SEL200600G/dp/B07SZXDN9X",
+        "https://camelcamelcamel.com/product/B07SZXDN9X"
+      ]
+    },
+    {
+      "id": "sony-fe-20mm-f-1.8-g",
+      "brand": "Sony",
+      "model": "Sony FE 20mm f/1.8 G",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 898,
+      "usedLow": 620,
+      "usedHigh": 745,
+      "discontinued": false,
+      "notes": "Adorama regular price $898; periodic $50 Sony rebates bring it to $848 (last observed rebate was a holiday promo, so $898 used as current street). AUDIT CORRECTION: original used estimate of $550-$700 was too low — July 2026 search shows MPB US listing 21 used units at $644-$744, corroborated by UK comps (GBP 488-709). Corrected to $620-$745; low end allows eBay good-condition sold slightly below MPB floor, consistent with methodology used for other entries.",
+      "sources": [
+        "https://www.adorama.com/iso2018g.html",
+        "https://www.bhphotovideo.com/c/product/1549627-REG/sony_sel20f18g_fe_20mm_f_1_8_g.html",
+        "https://www.mpb.com/en-us/product/sony-fe-20mm-f-1-8-g",
+        "https://www.keh.com/shop/sony-20mm-f-1-8-g-fe-e-mount-autofocus-lens-black-sel20f18g-67.html"
+      ]
+    },
+    {
+      "id": "sony-fe-24-105mm-f-4-g-oss",
+      "brand": "Sony",
+      "model": "Sony FE 24-105mm f/4 G OSS",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 1398,
+      "usedLow": 650,
+      "usedHigh": 900,
+      "discontinued": false,
+      "notes": "Used market is deep: MPB shows 56 copies from $444 (heavily worn) to $769 (excellent); B&H used dept starts ~$934. Realistic good-to-mint range $650-$900. AUDIT CORRECTION: new price raised from $1,298 to $1,398 - $1,298 is the stale pre-tariff price; $1,398 is now consistently listed across B&H, Best Buy, and Adorama (post-tariff), with periodic $200 promos dipping to ~$1,198.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1369442-REG/sony_sel24105g_fe_24_105mm_f_4_g.html",
+        "https://www.mpb.com/en-us/product/sony-fe-24-105-mm-f-4-g-oss",
+        "https://www.bhphotovideo.com/c/used/1369442/sony_sel24105g_fe_24_105mm_f_4_g.html",
+        "https://www.keh.com/shop/sony-24-105mm-f-4-g-oss-fe-e-mount-autofocus-lens-black-77-1.html"
+      ]
+    },
+    {
+      "id": "sony-fe-24-70mm-f-2.8-gm",
+      "brand": "Sony",
+      "model": "Sony FE 24-70mm f/2.8 GM",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 1598,
+      "usedLow": 1020,
+      "usedHigh": 1290,
+      "discontinued": false,
+      "notes": "Version I is still sold new but winding down: B&H shows $1,798 with a $200 discount ($1,598), Sweetwater lists $1,598 (backordered). Not the GM II - the GM II successor sells new for ~$2,448 post-tariff. Used v1 is plentiful: MPB has 43 copies at $1,019-$1,289. Audit: verified unchanged - Sweetwater $1,598 confirmed via search, and the GM II's July 2025 hike from $2,300 to $2,448 independently confirmed (Digital Camera World), so no v1/v2 version confusion.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1222774-REG/sony_sel2470gm_fe_24_70mm_f_2_8_gm.html",
+        "https://www.sweetwater.com/store/detail/SEL2470GM--sony-sel2470gm-fe-24mm-to-70-mm-f-2.8-gm-full-frame-standard-zoom-g-master-lens",
+        "https://www.mpb.com/en-us/product/sony-fe-24-70mm-f-2-8-gm",
+        "https://www.adorama.com/used-sony-fe-24-70mm-f-28-gm-g-master-e-mount-nex-camera-lens/p/soza2470e"
+      ]
+    },
+    {
+      "id": "sony-fe-35mm-f-1.8",
+      "brand": "Sony",
+      "model": "Sony FE 35mm f/1.8",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 748,
+      "usedLow": 400,
+      "usedHigh": 600,
+      "discontinued": false,
+      "notes": "Standard B&H/Adorama street price $748 (DPReview cites ~$750); Walmart outlier seen at $578. MPB (July 2026) showed 36 used units spanning $334-$659; $400-$600 reflects good-to-excellent condition within that spread. Full-frame FE version, not the APS-C E 35mm f/1.8 OSS. AUDIT: sanity-checked, FE vs APS-C distinction correct, numbers internally consistent; unchanged.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1492866-REG/sony_sel35f18f_35mm_f_1_8_fe_lens.html",
+        "https://www.mpb.com/en-us/product/sony-fe-35mm-f-1-8",
+        "https://www.walmart.com/ip/SONY-FE-35-mm-f-1-8-Standard-Prime-Lens-sel35f18F/776922276",
+        "https://www.dpreview.com/reviews/sony-fe-35mm-f1-8-review"
+      ]
+    },
+    {
+      "id": "sony-fe-50mm-f-1.4-gm",
+      "brand": "Sony",
+      "model": "Sony FE 50mm f/1.4 GM",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 1398,
+      "usedLow": 1050,
+      "usedHigh": 1200,
+      "discontinued": false,
+      "notes": "Price rose from $1,299 to $1,398 on July 1, 2025 (US tariff increase, per PetaPixel/PhotoRumors); B&H financing (~$117/mo x 12) and Best Buy's $1,399.99 confirm $1,398 as the current new price. Used: MPB has 27 copies at $1,089-$1,189; mint copies can approach $1,200. Audit: verified unchanged - Amazon price tracker shows $1,398 regular price as of June 2026 (Prime Day promo at $1,298); the Sept 2025 third hike affected the 50mm f/1.2 GM and 16-35mm f/2.8 GM II, not this lens.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1752166-REG/sony_fe_50mm_f_1_4_gm.html",
+        "https://www.mpb.com/en-us/product/sony-fe-50mm-f2f14-gm",
+        "https://www.bestbuy.com/product/sony-fe-50mm-f1-4-gm-full-frame-large-aperture-g-master-lens-black/J7XSRH52RY",
+        "https://petapixel.com/2025/09/23/sony-cameras-and-lenses-get-another-price-hike-in-the-us/"
+      ]
+    },
+    {
+      "id": "sony-fe-70-200mm-f-2.8-gm-oss-ii",
+      "brand": "Sony",
+      "model": "Sony FE 70-200mm f/2.8 GM OSS II",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 2798,
+      "usedLow": 2250,
+      "usedHigh": 2640,
+      "discontinued": false,
+      "notes": "Best Buy confirmed $2,799 new; B&H/Adorama list at $2,798 standard street. MPB (July 2026) showed 46 used units at $2,339-$2,639; eBay sold in good condition runs somewhat lower, so low end set ~$2,250. AUDIT: sanity-checked, consistent with well-established street price; unchanged.",
+      "sources": [
+        "https://www.bestbuy.com/site/sony-fe-70-200mm-f2-8-gm-oss-ii-full-frame-telephoto-zoom-g-master-e-mount-lens-white/6484729.p",
+        "https://www.bhphotovideo.com/c/product/1666363-REG/sony_fe_70_200mm_f_2_8_gm.html",
+        "https://www.mpb.com/en-us/product/sony-fe-70-200mm-f-2-8-gm-oss-ii",
+        "https://www.adorama.com/sony-fe-70-200-mm-f-2-8-gm-oss-ii-lens/p/iso70200gm2"
+      ]
+    },
+    {
+      "id": "sony-fe-85mm-f-1.4-gm-ii",
+      "brand": "Sony",
+      "model": "Sony FE 85mm f/1.4 GM II",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 1798,
+      "usedLow": 1550,
+      "usedHigh": 1780,
+      "discontinued": false,
+      "notes": "New confirmed $1,798-$1,799 at B&H/Best Buy. Used market is tight to new: MPB listed 25 units at $1,629-$1,859 and Adorama EX+ at $1,779 — MPB's top grade actually exceeds new price, so high end capped at ~$1,780; eBay good-condition copies ~$1,550. This is the GM II (2024), not the original 85mm f/1.4 GM (used $794-$969 at MPB). AUDIT: spot-checked — $1,798 launch/street price confirmed via B&H and announcement coverage; original-GM used comp ($794-$969 at MPB) independently confirmed, so no version confusion; unchanged.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1849952-REG/sony_fe_85mm_f_1_4_gm.html",
+        "https://www.bestbuy.com/site/sony-fe-85mm-f1-4-gm-ii-lens-black/6599464.p",
+        "https://www.mpb.com/en-us/product/sony-fe-85mm-f-1-4-gm-ii",
+        "https://www.adorama.com/used-sony-fe-85mm-f-14-gm-ii-lens/p/sola8514gm2"
+      ]
+    },
+    {
+      "id": "sony-fe-85mm-f-1.8",
+      "brand": "Sony",
+      "model": "Sony FE 85mm f/1.8",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 648,
+      "usedLow": 330,
+      "usedHigh": 450,
+      "discontinued": false,
+      "notes": "B&H new price confirmed $648 (Camera Exchange sale also $648; older MSRP was $598). MPB showed 36 used units with top of range ~$399; mint/boxed eBay copies run to ~$450. Search snippet's $149 low likely reflects heavily-worn grade. AUDIT: spot-checked — Aug 2025 review confirms ~$650 brand new with retailer spread $460-$700, so post-increase $648 holds; numbers unchanged. Caveat: the cited KEH URL mislabels this lens as a 'Carl Zeiss Sonnar' (SEL85F18 is not a Zeiss) — source labeling is sloppy but pricing is for the correct lens.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1317562-REG/sony_sel85f18_fe_85mm_f_1_8_lens.html",
+        "https://www.camerax.com/product/sony-fe-85mm-f-1-8-lens/",
+        "https://www.mpb.com/en-us/product/sony-fe-85mm-f-1-8",
+        "https://www.keh.com/shop/sony-85mm-f-1-8-carl-zeiss-sonnar-t-fe-e-mount-autofocus-lens-67-1.html"
+      ]
+    },
+    {
+      "id": "sony-fe-90mm-f-2.8-macro-g-oss",
+      "brand": "Sony",
+      "model": "Sony FE 90mm f/2.8 Macro G OSS",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 1048,
+      "usedLow": 550,
+      "usedHigh": 720,
+      "discontinued": false,
+      "notes": "B&H showing ~$1,048 new per search results (MSRP $1,098; sale promos toward $998 appear periodically). MPB (July 2026) listed 31 used units at $219-$719; $550-$720 reflects good-to-excellent grades at the top of that spread. AUDIT: spot-checked — July 2026 retailer spread $770-$1,198 with ~$1,100 MSRP brackets the $1,048 figure, and MPB used $219-$719 independently confirmed; unchanged.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1126140-REG/sony_sel90m28g_fe_90mm_f_2_8_macro.html",
+        "https://www.mpb.com/en-us/product/sony-fe-90mm-f-2-8-macro-g-oss",
+        "http://www.sonypricewatch.com/product/05755/Sony-FE-90mm-f2.8-Macro-G-OSS-price.html",
+        "https://www.bestbuy.com/product/sony-fe-90mm-f-2-8-macro-g-oss-full-frame-macro-lens-for-e-mount-cameras-multi/J7XSRHKF34"
+      ]
+    },
+    {
+      "id": "tamron-11-20mm-f-2.8-di-iii-a-rxd",
+      "brand": "Tamron",
+      "model": "Tamron 11-20mm f/2.8 Di III-A RXD",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 599,
+      "usedLow": 500,
+      "usedHigh": 590,
+      "discontinued": false,
+      "notes": "Launched at $829 MSRP in 2021, but Tamron cut the price when the Canon RF/Nikon Z versions arrived at $659; B&H and Best Buy both now show $659 as the regular/comparable value. Periodically dips $40-$100 during Tamron instant-savings events (one running through 7/19/26). Used: MPB currently lists 6 copies at $534-$589; eBay good-condition sold prices run slightly lower, hence $500 low end. AUDIT FIX 7/18/26: corrected current new price from $659 to $599 - the active instant-savings event (through 7/19/26) includes the 11-20mm at $60 off, and Adorama/B&H/PROCAM all currently show $599 (marked down from $659). The original entry inconsistently quoted the regular price here while quoting live promo prices for all other lenses.",
+      "sources": [
+        "https://www.bhphotovideo.com/c/product/1636756-REG/tamron_afb060s_700_11_20mm_f_2_8_di_iii_a.html",
+        "https://www.bestbuy.com/site/tamron-11-20mm-f-2-8-di-iii-a-rxd-wideangle-zoom-lens-for-sony-e-mount/6472523.p",
+        "https://www.mpb.com/en-us/product/tamron-11-20mm-f-2-8-di-iii-a-rxd-sony-fe-fit",
+        "https://www.adorama.com/tm1120soe.html"
+      ]
+    },
+    {
+      "id": "tamron-150-500mm-f-5-6.7-di-iii-vc-vxd",
+      "brand": "Tamron",
+      "model": "Tamron 150-500mm f/5-6.7 Di III VC VXD",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 1299,
+      "usedLow": 950,
+      "usedHigh": 1150,
+      "discontinued": false,
+      "notes": "Regular price $1,399 with a $100 instant rebate making it $1,299 now (rebate ends 7/19/26); it has dipped to $1,199 at Amazon/B&H during holiday promos (Nov 2025). Used: a used eBay listing was seen at ~$1,204 (high); typical MPB/KEH/eBay-sold range for good-to-mint copies is $950-$1,150 - partly estimated since MPB/KEH search snippets did not expose exact figures. Certified-refurbished units also sell on Amazon. Audit 7/18/26: verified unchanged - $1,399 regular and the Nov 2025 $1,199 dip both reconfirmed via Imaging Resource; the deeper $300-off deal in the current promo applies to the Fujifilm X mount, not Sony E, so $1,299 stands for Sony E.",
+      "sources": [
+        "https://kenmorecamera.com/150-500mm-f-5-6-7-di-iii-vc-vxd-sony-fe/",
+        "https://www.imaging-resource.com/deals/tamron-150-500mm-drops-to-1199-for-sony-e-mount-users/",
+        "https://www.bhphotovideo.com/c/product/1636755-REG/tamron_afa057s_700_150_500mm_f_5_6_7_di_iii.html",
+        "https://www.ebay.com/p/8047399254"
+      ]
+    },
+    {
+      "id": "tamron-17-70mm-f-2.8-di-iii-a-vc-rxd",
+      "brand": "Tamron",
+      "model": "Tamron 17-70mm f/2.8 Di III-A VC RXD",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 599,
+      "usedLow": 450,
+      "usedHigh": 570,
+      "discontinued": false,
+      "notes": "Currently $599 at Adorama/B&H ($100 instant savings off the $699 regular street price, promo ends 7/19/26 11:59 PM ET); original MSRP was $799. Used: eBay listings/sales observed in the $500-$650 band (top end is inflated 'mint from Japan' listings); good-to-excellent copies realistically trade $450-$570 at MPB/KEH/eBay sold. Audit 7/18/26: verified unchanged - July 2026 promo coverage confirms the $100-off deal through 7/19; new Canon RF version shipping July 2026 at $749 MSRP is a separate mount and does not affect this Sony E price.",
+      "sources": [
+        "https://petapixel.com/2026/07/17/the-best-deals-on-versatile-zooms-for-nearly-every-mirrorless-camera/",
+        "https://www.adorama.com/tm1770soe.html",
+        "https://www.bhphotovideo.com/c/product/1609642-REG/tamron_afb070s_700_17_70mm_f_2_8_di_iii_a.html",
+        "https://www.ebay.com/b/17-70mm-Focal-Camera-Lenses-for-Sony/3323/bn_120684063"
+      ]
+    },
+    {
+      "id": "tamron-18-300mm-f-3.5-6.3-di-iii-a-vc-vxd",
+      "brand": "Tamron",
+      "model": "Tamron 18-300mm f/3.5-6.3 Di III-A VC VXD",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 599,
+      "usedLow": 470,
+      "usedHigh": 575,
+      "discontinued": false,
+      "notes": "Regular street price $699; currently $599 at multiple retailers with $100 instant savings through 7/19/26 (confirmed via July 2026 deal coverage). Used: KEH lists it at $526-$575 across grades (was out of stock at check); eBay good-condition copies go a bit lower, hence $470 floor. Note a newer 'Di III-A2' version exists for some mounts - prices here are for the original Di III-A VC VXD in Sony E. Audit 7/18/26: verified unchanged - $599 (reg $699) reconfirmed via the 7/17/26 PetaPixel deal roundup; also confirmed the B&H source URL containing 'b016e' is B&H's genuine product page for this exact 18-300mm Di III-A VC VXD Sony E lens (internal SKU string, not a different model).",
+      "sources": [
+        "https://petapixel.com/2026/07/17/the-best-deals-on-versatile-zooms-for-nearly-every-mirrorless-camera/",
+        "https://www.keh.com/shop/tamron-18-300mm (KEH used listing $526-$575)",
+        "https://www.bhphotovideo.com/c/product/1654621-REG/tamron_b016e_18_300mm_f_3_5_6_3_di_iii_a.html",
+        "https://www.digitalcameraworld.com/news/tamrons-first-ever-fuji-x-lens-tamron-18-300mm-f35-63-also-available-for-sony-e"
+      ]
+    },
+    {
+      "id": "tamron-35mm-f-2.8-di-iii-osd-m-1-2",
+      "brand": "Tamron",
+      "model": "Tamron 35mm f/2.8 Di III OSD M 1:2",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 249,
+      "usedLow": 140,
+      "usedHigh": 210,
+      "discontinued": true,
+      "notes": "End-of-life: PetaPixel (Mar 2026) reports the 2019 20/24/35mm f/2.8 OSD primes are no longer in active production; Walmart shows it out of stock at $194.99 and availability is spotty, but remaining stock still appears at B&H/Amazon around the reduced $249 regular price (repeatedly on sale at $199, e.g. June 2025 and Black Friday 2025). Used range is an estimate anchored to those $195-$199 new-sale prices - search results gave no direct MPB/KEH quotes for this lens. Audit 7/18/26: used-range estimate corroborated - MPB shows used copies from $164, inside the stated $140-$210 band; no change.",
+      "sources": [
+        "https://www.thephoblographer.com/2025/11/21/the-best-prime-lenses-from-tamron-under-500/",
+        "https://petapixel.com/2026/03/30/tamron-will-make-new-primes-but-only-if-they-are-unique-and-innovative/",
+        "https://www.walmart.com/ip/Tamron-35mm-f-2-8-Di-III-OSD-Wide-Angle-Prime-Lens-for-Sony-E-Mount/584616989",
+        "https://www.theatomicmarket.com/2025/06/tamron-35mm-f28-di-iii-osd-m12-lens-for.html"
+      ]
+    },
+    {
+      "id": "tamron-70-300mm-f-4.5-6.3-di-iii-rxd",
+      "brand": "Tamron",
+      "model": "Tamron 70-300mm f/4.5-6.3 Di III RXD",
+      "mounts": [
+        "Sony E"
+      ],
+      "new": 399,
+      "usedLow": 310,
+      "usedHigh": 380,
+      "discontinued": false,
+      "notes": "Typical street price $549, but currently $399 at Amazon/Best Buy ($150 off, lowest in six months per Imaging Resource; also tracked at $399 on Dealmoon) during the Tamron promo window ending 7/19/26. Used: MPB has 14 copies at $354-$379; eBay good-condition sales run ~$310-$340. Audit 7/18/26: verified unchanged - $399 confirmed at Amazon/Best Buy/Adorama; B&H and PROCAM snippets even showed $369 at check, so $399 is a slightly conservative current figure.",
+      "sources": [
+        "https://www.imaging-resource.com/news/tamron-70-300mm-for-sony-drops-to-lowest-price-in-six-months/",
+        "https://www.dealmoon.com/en/399-tamron-70-300mm-f-4-5-6-3-di-iii-rxd/5025346.html",
+        "https://www.mpb.com/en-us/product/tamron-70-300mm-f-4-5-6-3-di-iii-rxd-sony-fe-fit",
+        "https://www.bestbuy.com/product/tamron-70-300mm-f-4-5-6-3-di-iii-rxd-telephoto-zoom-lens-for-sony-e-mount-black/JXWZSHYC7R"
+      ]
+    }
   ]
 }

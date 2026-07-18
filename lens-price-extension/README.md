@@ -12,8 +12,8 @@ so you always know how a rental rate compares to just buying the thing.
   like a lens ("Sony FE 24-70mm f/2.8 GM Lens") gets a badge:
   `New $2,198 · Used $950–$1,250 · eBay sold $1,040`
 - **Bundled price guide** — new street prices (B&H/Adorama/Amazon US) and typical used
-  ranges (MPB / KEH / eBay sold) for 60+ popular Sony E, Canon EF/RF, and Nikon F/Z
-  lenses, researched and cross-verified.
+  ranges (MPB / KEH / eBay sold) for 56 popular Sony E, Canon EF/RF, and Nikon F/Z
+  lenses, researched and cross-verified (July 2026).
 - **Live used prices** — optionally queries recent **eBay sold listings** and shows the
   trimmed median of actual completed sales (cached for 24 h). This keeps "used" honest
   even as the market moves.

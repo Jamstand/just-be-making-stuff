@@ -41,7 +41,7 @@ for (const l of input.lenses || []) {
   lenses.push({
     id,
     brand: l.brand,
-    model: l.model.replace(/\s*\((sony e|canon rf|canon ef|nikon f|nikon z)[^)]*\)\s*$/i, '').trim(),
+    model: l.model.replace(/\s*\([^)]*\)/g, '').replace(/\s+/g, ' ').trim(),
     mounts: l.mounts,
     new: nw,
     usedLow: lo,
