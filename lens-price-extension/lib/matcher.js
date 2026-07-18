@@ -50,13 +50,15 @@
     return BRAND_ALIASES[canonical] || canonical;
   }
 
-  // Max aperture: "f/2.8", "f2.8", "f/4.5-5.6". (Ignores macro ratios like "M 1:2".)
-  var APERTURE_RE = /f\s*\/?\s*(\d{1,2}(?:\.\d)?)(?:\s*-\s*(\d{1,2}(?:\.\d)?))?/;
+  // Max aperture: "f/2.8", "f2.8", "f/4.5-5.6". The leading guard keeps the
+  // "f" of mount tokens like "RF 50mm" / "XF 35mm" from being read as an
+  // aperture prefix. (Macro ratios like "M 1:2" are ignored too.)
+  var APERTURE_RE = /(^|[^a-z])f\s*\/?\s*(\d{1,2}(?:\.\d)?)(?:\s*-\s*(\d{1,2}(?:\.\d)?))?/;
 
   function detectAperture(s) {
     var m = s.match(APERTURE_RE);
     if (!m) return null;
-    return { from: parseFloat(m[1]), to: parseFloat(m[2] || m[1]) };
+    return { from: parseFloat(m[2]), to: parseFloat(m[3] || m[2]) };
   }
 
   // Focal length: prefer "12-24mm" / "50mm"; fall back to bare "12-24" / "50"
@@ -68,7 +70,7 @@
     m = s.match(/(\d{1,4}(?:\.\d)?)\s*mm/);
     if (m) return { from: parseFloat(m[1]), to: parseFloat(m[1]) };
 
-    var bare = s.replace(APERTURE_RE, ' ');
+    var bare = s.replace(APERTURE_RE, '$1 ');
     m = bare.match(/(^|\s)(\d{1,4})\s*-\s*(\d{1,4})(?=\s|$)/);
     if (m) return { from: parseFloat(m[2]), to: parseFloat(m[3]) };
     m = bare.match(/(^|\s)(\d{2,4})(?=\s|$)/);

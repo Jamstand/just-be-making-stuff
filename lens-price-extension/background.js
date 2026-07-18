@@ -11,7 +11,9 @@ if (typeof importScripts === 'function' && typeof self.LensMatch === 'undefined'
   importScripts('lib/matcher.js');
 }
 
-var api = typeof browser !== 'undefined' ? browser : chrome;
+// Prefer the callback-style chrome.* namespace, which Firefox also provides;
+// Firefox's browser.* is promise-only and would break the callbacks below.
+var api = typeof chrome !== 'undefined' && chrome.runtime ? chrome : browser;
 
 var LIVE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // refresh eBay sold prices daily
 var dbPromise = null;

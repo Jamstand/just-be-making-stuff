@@ -2,7 +2,8 @@
 (function () {
   'use strict';
 
-  var api = typeof browser !== 'undefined' ? browser : chrome;
+  // chrome.* (also provided by Firefox) supports the callback style used here.
+  var api = typeof chrome !== 'undefined' && chrome.runtime ? chrome : browser;
 
   var $q = document.getElementById('q');
   var $result = document.getElementById('result');

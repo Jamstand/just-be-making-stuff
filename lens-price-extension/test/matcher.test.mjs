@@ -39,8 +39,23 @@ expectMatch('sony 24-105 f4', '24-105');
 expectMatch('tamron 150-500', '150-500');
 
 // Must NOT cross-match
-expectMatch('Sony FE 24-70mm f/2.8 GM II Lens', null); // version II not in provisional DB
+expectMatch('Sony FE 24-70mm f/2.8 GM II Lens', null); // version II not in DB
 expectMatch('Canon RF 999mm f/9.9', null);
+
+// Mount tokens ending in "f" (RF/EF/XF) must not be parsed as apertures
+function expectAperture(query, want) {
+  const a = LM.parse(query).aperture;
+  const got = a ? a.from : null;
+  if (got === want) { pass++; }
+  else { fail++; console.error(`FAIL aperture: "${query}" -> ${got} (expected ${want})`); }
+}
+expectAperture('Canon RF 50mm f/1.8 STM', 1.8);
+expectAperture('Canon EF 50mm f/1.4 USM', 1.4);
+expectAperture('Fujifilm XF 35mm f/1.4 R', 1.4);
+expectAperture('Canon RF 100-500mm f/4.5-7.1 L IS USM', 4.5);
+expectMatch('Canon RF 50mm f/1.8 STM Lens', 'rf-50mm-f-1.8');
+expectMatch('Canon RF 50mm f/1.2 L USM Lens', 'rf-50mm-f-1.2');
+expectMatch('Canon EF 50mm f/1.8 STM', 'ef-50mm-f-1.8');
 
 // looksLikeLens heuristics
 const yes = [

@@ -10,7 +10,8 @@
   if (window.__lensPricePeekLoaded) { window.__lensPricePeekRescan && window.__lensPricePeekRescan(); return; }
   window.__lensPricePeekLoaded = true;
 
-  var api = typeof browser !== 'undefined' ? browser : chrome;
+  // chrome.* (also provided by Firefox) supports the callback style used here.
+  var api = typeof chrome !== 'undefined' && chrome.runtime ? chrome : browser;
   var LM = window.LensMatch;
   if (!LM) return;
 
