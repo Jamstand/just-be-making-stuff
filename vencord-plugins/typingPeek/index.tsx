@@ -59,7 +59,8 @@ export default definePlugin({
 
             const u = UserStore.getUser(userId);
             const who = u?.globalName || u?.username || "Someone";
-            const where = channel?.name ? ` in ${channel.type === DM ? "your DM" : `#${channel.name}`}` : "";
+            // DM channels have an empty name, so branch on type before name
+            const where = channel?.type === DM ? " in your DM" : channel?.name ? ` in #${channel.name}` : "";
             const text = `${who} is typing${where}…`;
 
             showToast(text, Toasts.Type.MESSAGE);

@@ -29,7 +29,8 @@ const settings = definePluginSettings({
         description: "How often to refresh (seconds)",
         markers: [15, 30, 60, 120, 300],
         default: 60,
-        stickToMarkers: true
+        stickToMarkers: true,
+        restartNeeded: true // interval is created in start()
     }
 });
 

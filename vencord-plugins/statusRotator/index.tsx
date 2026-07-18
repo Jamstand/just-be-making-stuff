@@ -22,7 +22,8 @@ const settings = definePluginSettings({
         description: "How long to show each status (seconds)",
         markers: [30, 60, 120, 300, 600],
         default: 120,
-        stickToMarkers: true
+        stickToMarkers: true,
+        restartNeeded: true // interval is created in start()
     }
 });
 

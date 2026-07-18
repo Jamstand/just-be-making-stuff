@@ -16,7 +16,8 @@ const settings = definePluginSettings({
         description: "Send a periodic 'who's online' desktop digest every N minutes (0 = off, command only)",
         markers: [0, 15, 30, 60, 120],
         default: 0,
-        stickToMarkers: true
+        stickToMarkers: true,
+        restartNeeded: true // the digest interval is (re)armed in start()
     }
 });
 

@@ -41,7 +41,8 @@ const settings = definePluginSettings({
         description: "How often to refresh (seconds)",
         markers: [10, 15, 30, 60],
         default: 15,
-        stickToMarkers: true
+        stickToMarkers: true,
+        restartNeeded: true // interval is created in start()
     }
 });
 
@@ -71,7 +72,7 @@ async function poll() {
     }
 
     const url = (settings.store.buttonUrl || data.url || "").trim();
-    const key = `${data.title}::${url}`;
+    const key = `${data.title}::${data.artist ?? ""}::${url}`;
     if (key === lastKey) return;
     lastKey = key;
 

@@ -45,11 +45,10 @@ export default definePlugin({
             if (Date.now() - lastAnnounce < 10_000) return;
             lastAnnounce = Date.now();
 
-            try {
-                MessageActions.sendMessage(channelId, { content: settings.store.message });
-            } catch {
-                showToast("GoLiveAnnouncer: couldn't post (check the channel ID).", Toasts.Type.FAILURE);
-            }
+            // sendMessage is async — a bad/inaccessible channel rejects the
+            // promise, so catch it there rather than in a synchronous try/catch.
+            MessageActions.sendMessage(channelId, { content: settings.store.message })
+                .catch(() => showToast("GoLiveAnnouncer: couldn't post (check the channel ID).", Toasts.Type.FAILURE));
         }
     }
 });

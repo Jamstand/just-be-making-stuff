@@ -32,7 +32,8 @@ const settings = definePluginSettings({
         description: "How often to refresh the current song (seconds)",
         markers: [5, 10, 15, 30, 60],
         default: 15,
-        stickToMarkers: true
+        stickToMarkers: true,
+        restartNeeded: true // interval is created in start()
     },
     clearWhenPaused: {
         type: OptionType.BOOLEAN,
@@ -80,7 +81,7 @@ async function poll() {
         return;
     }
 
-    const key = `${data.title}::${data.artist ?? ""}`;
+    const key = `${data.title}::${data.artist ?? ""}::${data.album ?? ""}`;
     if (key === lastKey) return; // unchanged, avoid redundant dispatches
     lastKey = key;
 
