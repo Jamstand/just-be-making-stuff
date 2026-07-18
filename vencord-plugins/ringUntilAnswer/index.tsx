@@ -157,15 +157,13 @@ function makeAttempt() {
 function ring() {
     if (!target) return;
 
-    // If we're connected to the call, just re-ring; otherwise (re)start the
-    // call, which rings them on its own. Wrapped because fast intervals can
-    // trip Discord's rate limit, which we just skip and retry next tick.
+    // Make sure we're actually in the DM call (this creates/joins it), then
+    // ring explicitly every attempt rather than relying on selectVoiceChannel
+    // to auto-ring. Wrapped because fast intervals can trip Discord's rate
+    // limit, which we just skip and retry next tick.
     try {
-        if (inTargetCall()) {
-            CallActions.ring(target.channelId);
-        } else {
-            VoiceActions.selectVoiceChannel(target.channelId);
-        }
+        if (!inTargetCall()) VoiceActions.selectVoiceChannel(target.channelId);
+        CallActions.ring(target.channelId);
     } catch { /* rate-limited or transient; try again next interval */ }
 }
 

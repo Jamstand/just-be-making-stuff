@@ -95,5 +95,14 @@ export default definePlugin({
     async start() {
         soloIds = (await DataStore.get(STORE_KEY)) ?? [];
         enforce();
+    },
+
+    stop() {
+        // Reopen any channel we'd narrowed to 1 so disabling the plugin doesn't
+        // leave a channel stuck at a 1-person limit.
+        for (const id of [...lowered]) {
+            lowered.delete(id);
+            patchLimit(id, originalLimit[id] ?? 0);
+        }
     }
 });

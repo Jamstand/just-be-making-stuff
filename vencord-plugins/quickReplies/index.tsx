@@ -6,6 +6,7 @@
 
 import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, sendBotMessage } from "@api/Commands";
 import * as DataStore from "@api/DataStore";
+import { sendMessage } from "@utils/discord";
 import definePlugin from "@utils/types";
 
 const STORE_KEY = "QuickReplies_snippets";
@@ -37,7 +38,8 @@ export default definePlugin({
                     sendBotMessage(ctx.channel.id, { content: `No quick reply named "${key}". Use /qr-list to see them.` });
                     return;
                 }
-                return { content: text };
+                // BUILT_IN commands don't auto-send their return value — send it ourselves
+                sendMessage(ctx.channel.id, { content: text });
             }
         },
         {

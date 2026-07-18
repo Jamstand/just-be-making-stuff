@@ -7,7 +7,7 @@
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
 import { findByPropsLazy } from "@webpack";
-import { UserStore } from "@webpack/common";
+import { MediaEngineStore, UserStore } from "@webpack/common";
 
 interface VoiceState {
     userId: string;
@@ -15,7 +15,8 @@ interface VoiceState {
     oldChannelId?: string | null;
 }
 
-const MediaEngineActions = findByPropsLazy("setSelfMute", "setSelfDeaf");
+// The self mute/deafen toggle actions (MediaEngineStore only exposes the isSelf* getters)
+const AudioActions = findByPropsLazy("toggleSelfMute", "toggleSelfDeaf");
 
 const settings = definePluginSettings({
     mode: {
@@ -47,8 +48,12 @@ export default definePlugin({
                 // only when freshly joining voice, so you can still un-deafen afterwards
                 if (!vs.channelId || vs.oldChannelId) continue;
 
-                if (settings.store.mode === "mute") MediaEngineActions.setSelfMute(true);
-                else MediaEngineActions.setSelfDeaf(true);
+                // Check current state via the store, then toggle only if needed
+                if (settings.store.mode === "mute") {
+                    if (!MediaEngineStore.isSelfMute()) AudioActions.toggleSelfMute();
+                } else if (!MediaEngineStore.isSelfDeaf()) {
+                    AudioActions.toggleSelfDeaf();
+                }
             }
         }
     }

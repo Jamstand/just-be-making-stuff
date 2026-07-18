@@ -5,6 +5,7 @@
  */
 
 import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, sendBotMessage } from "@api/Commands";
+import { sendMessage } from "@utils/discord";
 import definePlugin from "@utils/types";
 
 const CLIP_RE = /^https?:\/\/(clips\.twitch\.tv\/|(www\.)?twitch\.tv\/\S+\/clip\/|(www\.)?youtube\.com\/clip\/)\S+/i;
@@ -33,7 +34,8 @@ export default definePlugin({
                     sendBotMessage(ctx.channel.id, { content: "That doesn't look like a Twitch/YouTube clip URL." });
                     return;
                 }
-                return { content: caption ? `${caption}\n${url}` : url };
+                // BUILT_IN commands don't auto-send their return value — send it ourselves
+                sendMessage(ctx.channel.id, { content: caption ? `${caption}\n${url}` : url });
             }
         }
     ]
