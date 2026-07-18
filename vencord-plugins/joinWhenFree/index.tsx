@@ -180,11 +180,12 @@ function checkForOpenSpot() {
         return;
     }
 
-    // We're in! Either our pending join was confirmed or the user got in manually
+    // We're in! You can only be connected to a watched (full) channel because
+    // our join landed, so always report success — even on a slow join where the
+    // watchdog has already cleared joinPending.
     if (amIConnectedTo(channelId)) {
-        const autoJoined = joinPending;
         stopWatching();
-        if (autoJoined) onJoined(channel);
+        onJoined(channel);
         return;
     }
 
@@ -219,7 +220,10 @@ function join(channel: VoiceChannelLike) {
         if (!joinPending || watchedChannelId !== channel.id) return;
         joinPending = false;
 
-        if (!amIConnectedTo(channel.id)) {
+        // Only announce a lost race if the channel actually filled back up; a
+        // slow-but-succeeding join shouldn't trigger a false failure toast (and
+        // a genuine success is reported by checkForOpenSpot when we connect).
+        if (!amIConnectedTo(channel.id) && isFull(channel)) {
             showToast(`Couldn't grab the spot in ${channelLabel(channel)} - someone got there first. Still waiting.`, Toasts.Type.FAILURE);
         }
     }, 5000);

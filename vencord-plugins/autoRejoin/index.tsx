@@ -43,6 +43,14 @@ let pinned: { channelId: string; name: string; } | null = null;
 let tries = 0;
 let windowStart = 0;
 let rejoinPending = false;
+let rejoinTimer: ReturnType<typeof setTimeout> | null = null;
+let confirmTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearTimers() {
+    if (rejoinTimer != null) { clearTimeout(rejoinTimer); rejoinTimer = null; }
+    if (confirmTimer != null) { clearTimeout(confirmTimer); confirmTimer = null; }
+    rejoinPending = false;
+}
 
 function isGuildVoice(channel: ChannelLike | null | undefined): channel is ChannelLike {
     return channel != null && (channel.type === GUILD_VOICE || channel.type === GUILD_STAGE_VOICE);
@@ -53,7 +61,7 @@ function notify(message: string, type: string = Toasts.Type.MESSAGE) {
 }
 
 function enforce() {
-    if (!pinned || rejoinPending) return;
+    if (!pinned || rejoinPending || confirmTimer != null) return;
 
     if (SelectedChannelStore.getVoiceChannelId() === pinned.channelId) {
         tries = 0; // we're where we should be
@@ -84,12 +92,23 @@ function enforce() {
 
     tries++;
     rejoinPending = true;
-    setTimeout(() => {
+    rejoinTimer = setTimeout(() => {
+        rejoinTimer = null;
         rejoinPending = false;
-        if (pinned && SelectedChannelStore.getVoiceChannelId() !== pinned.channelId) {
-            VoiceActions.selectVoiceChannel(pinned.channelId);
-            notify(`Rejoined ${pinned.name}.`, Toasts.Type.SUCCESS);
-        }
+        if (!pinned || SelectedChannelStore.getVoiceChannelId() === pinned.channelId) return;
+
+        const targetId = pinned.channelId;
+        const targetName = pinned.name;
+        VoiceActions.selectVoiceChannel(targetId);
+
+        // Only claim success once the reconnect is actually confirmed, so a
+        // failed join (banned/full) doesn't produce a false "Rejoined!" toast
+        confirmTimer = setTimeout(() => {
+            confirmTimer = null;
+            if (pinned?.channelId === targetId && SelectedChannelStore.getVoiceChannelId() === targetId) {
+                notify(`Rejoined ${targetName}.`, Toasts.Type.SUCCESS);
+            }
+        }, 2000);
     }, 500);
 }
 
@@ -103,9 +122,9 @@ function pin(channel: ChannelLike) {
 }
 
 function unpin() {
+    clearTimers();
     pinned = null;
     tries = 0;
-    rejoinPending = false;
     DataStore.del(STORE_KEY);
 }
 
@@ -163,6 +182,6 @@ export default definePlugin({
     },
 
     stop() {
-        rejoinPending = false;
+        clearTimers();
     }
 });

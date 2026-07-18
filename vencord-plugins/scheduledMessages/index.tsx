@@ -6,8 +6,8 @@
 
 import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, sendBotMessage } from "@api/Commands";
 import * as DataStore from "@api/DataStore";
+import { sendMessage } from "@utils/discord";
 import definePlugin from "@utils/types";
-import { MessageActions } from "@webpack/common";
 
 interface Job {
     id: string;
@@ -17,6 +17,9 @@ interface Job {
 }
 
 const STORE_KEY = "ScheduledMessages_jobs";
+// setTimeout delays are clamped to a signed 32-bit int; anything larger fires
+// immediately, so we re-arm in chunks for schedules further out than ~24 days.
+const MAX_DELAY = 2_147_483_647;
 let jobs: Job[] = [];
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -28,14 +31,18 @@ function fire(job: Job) {
     timers.delete(job.id);
     jobs = jobs.filter(j => j.id !== job.id);
     persist();
-    try {
-        MessageActions.sendMessage(job.channelId, { content: job.content });
-    } catch { /* channel gone */ }
+    // sendMessage is async and fills the message defaults; swallow send errors
+    sendMessage(job.channelId, { content: job.content }).catch(() => { /* channel gone */ });
 }
 
 function arm(job: Job) {
     const delay = Math.max(0, job.fireAt - Date.now());
-    timers.set(job.id, setTimeout(() => fire(job), delay));
+    // Chunk long delays so they don't overflow setTimeout and fire early
+    if (delay > MAX_DELAY) {
+        timers.set(job.id, setTimeout(() => arm(job), MAX_DELAY));
+    } else {
+        timers.set(job.id, setTimeout(() => fire(job), delay));
+    }
 }
 
 function schedule(channelId: string, content: string, minutes: number) {

@@ -19,13 +19,28 @@ interface ChannelLike {
 
 const GUILD_VOICE = 2;
 const STORE_KEY = "SoloChannel_ids";
+// Runtime lock state, persisted so a channel isn't left stuck at limit 1 if
+// Discord is quit while it's locked (and so we never recapture the lowered
+// value as the "original").
+const STATE_KEY = "SoloChannel_state";
 
 let soloIds: string[] = [];
-const originalLimit: Record<string, number> = {};
+let originalLimit: Record<string, number> = {};
 const lowered = new Set<string>();
+
+function persistState() {
+    DataStore.set(STATE_KEY, { originalLimit, lowered: [...lowered] }).catch(() => { /* best effort */ });
+}
 
 function patchLimit(channelId: string, userLimit: number) {
     RestAPI.patch({ url: `/channels/${channelId}`, body: { user_limit: userLimit } }).catch(() => { /* missing perms / transient */ });
+}
+
+function restore(id: string) {
+    lowered.delete(id);
+    const orig = originalLimit[id] ?? 0;
+    delete originalLimit[id];
+    patchLimit(id, orig);
 }
 
 function enforce() {
@@ -39,12 +54,14 @@ function enforce() {
 
         const isMine = myVc === id;
         if (isMine && !lowered.has(id)) {
-            originalLimit[id] = ch.userLimit ?? 0;
+            // Only capture the true original the first time we lower it
+            if (!(id in originalLimit)) originalLimit[id] = ch.userLimit ?? 0;
             lowered.add(id);
+            persistState();
             patchLimit(id, 1);
         } else if (!isMine && lowered.has(id)) {
-            lowered.delete(id);
-            patchLimit(id, originalLimit[id] ?? 0);
+            restore(id);
+            persistState();
         }
     }
 }
@@ -53,8 +70,8 @@ function toggle(channel: ChannelLike) {
     if (soloIds.includes(channel.id)) {
         soloIds = soloIds.filter(id => id !== channel.id);
         if (lowered.has(channel.id)) {
-            lowered.delete(channel.id);
-            patchLimit(channel.id, originalLimit[channel.id] ?? 0);
+            restore(channel.id);
+            persistState();
         }
     } else {
         soloIds.push(channel.id);
@@ -94,15 +111,25 @@ export default definePlugin({
 
     async start() {
         soloIds = (await DataStore.get(STORE_KEY)) ?? [];
+        const state = (await DataStore.get(STATE_KEY)) ?? {};
+        originalLimit = state.originalLimit ?? {};
+        const persistedLowered: string[] = state.lowered ?? [];
+
+        // Reconcile channels we left locked: keep the lock if we're still in the
+        // channel, otherwise reopen it (Discord was quit while it was locked).
+        const myVc = SelectedChannelStore.getVoiceChannelId();
+        for (const id of persistedLowered) {
+            if (myVc === id) lowered.add(id);
+            else restore(id);
+        }
+        persistState();
         enforce();
     },
 
     stop() {
         // Reopen any channel we'd narrowed to 1 so disabling the plugin doesn't
         // leave a channel stuck at a 1-person limit.
-        for (const id of [...lowered]) {
-            lowered.delete(id);
-            patchLimit(id, originalLimit[id] ?? 0);
-        }
+        for (const id of [...lowered]) restore(id);
+        persistState();
     }
 });

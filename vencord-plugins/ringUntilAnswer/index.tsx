@@ -71,6 +71,8 @@ interface Target {
 let target: Target | null = null;
 let attempts = 0;
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
+// Bumped on every start/stop so a pending DM-open retry can tell if it's stale
+let generation = 0;
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -101,8 +103,10 @@ function inTargetCall(): boolean {
 function startCalling(user: UserLike) {
     const userId = user.id;
 
-    // Switching targets: tear down the previous loop first
+    // Switching targets: tear down the previous loop first (also bumps the
+    // generation, invalidating any pending retry from an earlier click)
     if (target) stopCalling({ silent: true });
+    const gen = ++generation;
 
     const channelId = getDMChannelId(userId);
     const name = displayName(user);
@@ -110,6 +114,7 @@ function startCalling(user: UserLike) {
     if (!channelId) {
         // DM is being opened; give it a moment, then try once more
         setTimeout(() => {
+            if (gen !== generation) return; // superseded by a newer start/stop
             const retryId = ChannelStore.getDMFromUserId(userId);
             if (retryId) {
                 beginLoop({ userId, channelId: retryId, name });
@@ -199,6 +204,7 @@ function giveUp() {
  * @param stopRing    also cancel the outgoing ring (default true; false when they already answered)
  */
 function stopCalling({ silent = false, stopRing = true }: { silent?: boolean; stopRing?: boolean; } = {}) {
+    generation++; // cancel any pending DM-open retry
     if (intervalHandle != null) {
         clearInterval(intervalHandle);
         intervalHandle = null;
