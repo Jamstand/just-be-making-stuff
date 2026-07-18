@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Lens Price Peek</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <span class="logo">◉</span>
+    <h1>Lens Price Peek</h1>
+  </header>
+
+  <section class="search">
+    <input id="q" type="search" placeholder="e.g. Sony FE 24-70mm f/2.8 GM" autocomplete="off" autofocus>
+    <div id="result" class="result" hidden></div>
+  </section>
+
+  <section class="actions">
+    <button id="scan">Scan this page for lenses</button>
+    <div id="scan-msg" class="msg"></div>
+  </section>
+
+  <section class="settings">
+    <label><input type="checkbox" id="opt-badges"> Show price badges on pages</label>
+    <label><input type="checkbox" id="opt-live"> Live used prices from eBay sold listings</label>
+  </section>
+
+  <footer id="foot">Loading price data…</footer>
+
+  <script src="../lib/matcher.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

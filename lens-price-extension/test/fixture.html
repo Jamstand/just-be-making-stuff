@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pitman Photo Supply — fixture (mimics helixrentals.com card grid)</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #fff; margin: 40px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 240px); gap: 16px; }
+  .card { background: #f7f7f8; border-radius: 12px; padding: 16px; }
+  .img { height: 140px; background: #eaeaec; border-radius: 8px; margin-bottom: 14px; }
+  .title { font-weight: 700; font-size: 14px; color: #111; }
+  .rates { margin-top: 10px; font-size: 12px; color: #333; }
+  .rates b { font-weight: 700; }
+</style>
+</head>
+<body>
+<h2>Lenses — Sony E</h2>
+<div class="grid">
+  <a class="card" href="#sigma16"><div class="img"></div>
+    <div class="title">Sigma 16mm f/1.4 DC DN Contemporary Lens (Sony E)</div>
+    <div class="rates"><b>$35</b> day, <b>$55</b> 3-day, <b>$125</b> week</div></a>
+  <a class="card" href="#sony1224"><div class="img"></div>
+    <div class="title">Sony FE 12-24mm f/2.8 GM Lens</div>
+    <div class="rates"><b>$45</b> day, <b>$130</b> 3-day, <b>$280</b> week</div></a>
+  <a class="card" href="#sony2470"><div class="img"></div>
+    <div class="title">Sony FE 24-70mm f/2.8 GM Lens</div>
+    <div class="rates"><b>$45</b> day, <b>$130</b> 3-day, <b>$280</b> week</div></a>
+  <a class="card" href="#sony24105"><div class="img"></div>
+    <div class="title">Sony FE 24-105mm f/4 G OSS Lens</div>
+    <div class="rates"><b>$40</b> day, <b>$115</b> 3-day, <b>$250</b> week</div></a>
+  <a class="card" href="#sony50"><div class="img"></div>
+    <div class="title">Sony FE 50mm f/1.4 GM Lens</div>
+    <div class="rates"><b>$40</b> day, <b>$115</b> 3-day, <b>$245</b> week</div></a>
+  <a class="card" href="#tam1120"><div class="img"></div>
+    <div class="title">Tamron 11-20mm f/2.8 Di III-A RXD Lens (Sony E)</div>
+    <div class="rates"><b>$35</b> day, <b>$85</b> 3-day, <b>$165</b> week</div></a>
+  <a class="card" href="#tam1770"><div class="img"></div>
+    <div class="title">Tamron 17-70mm f/2.8 Di III-A VC RXD Lens for Sony E</div>
+    <div class="rates"><b>$35</b> day, <b>$85</b> 3-day, <b>$170</b> week</div></a>
+  <a class="card" href="#tam18300"><div class="img"></div>
+    <div class="title">Tamron 18-300mm f/3.5-6.3 Di III-A VC VXD Lens for Sony E</div>
+    <div class="rates"><b>$35</b> day, <b>$85</b> 3-day, <b>$170</b> week</div></a>
+  <a class="card" href="#tam35"><div class="img"></div>
+    <div class="title">Tamron 35mm f/2.8 Di III OSD M 1:2 Lens for Sony E</div>
+    <div class="rates"><b>$25</b> day, <b>$65</b> 3-day, <b>$130</b> week</div></a>
+  <a class="card" href="#tam70300"><div class="img"></div>
+    <div class="title">Tamron 70-300mm f/4.5-6.3 Di III RXD Lens for Sony E</div>
+    <div class="rates"><b>$35</b> day, <b>$95</b> 3-day, <b>$200</b> week</div></a>
+  <a class="card" href="#tam150500"><div class="img"></div>
+    <div class="title">Tamron 150-500mm f/5-6.7 Di III VC VXD Lens (Sony E)</div>
+    <div class="rates"><b>$50</b> day, <b>$145</b> 3-day, <b>$300</b> week</div></a>
+  <a class="card" href="#unknown"><div class="img"></div>
+    <div class="title">Meike 85mm f/1.8 STF Lens (not in price list)</div>
+    <div class="rates"><b>$10</b> day, <b>$25</b> 3-day, <b>$50</b> week</div></a>
+</div>
+
+<h2 style="margin-top:36px">Late-loaded card (tests MutationObserver)</h2>
+<div id="late"></div>
+<script>
+  setTimeout(function () {
+    document.getElementById('late').innerHTML =
+      '<div class="grid"><a class="card" href="#late1"><div class="img"></div>' +
+      '<div class="title">Canon RF 24-70mm f/2.8 L IS USM Lens</div>' +
+      '<div class="rates"><b>$55</b> day</div></a></div>';
+  }, 800);
+</script>
+</body>
+</html>
