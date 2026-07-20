@@ -44,7 +44,7 @@ from typing import Any
 import numpy as np
 
 from .config import Cfg
-from .models import EDL, ClipInfo, Frame, ScoredSegment, load_clips
+from .models import EDL, ClipInfo, Frame, ScoredSegment, Segment, load_clips
 
 logger = logging.getLogger("autocut.taste")
 
@@ -68,6 +68,14 @@ def _frames_in_window(frames: list[Frame], lo: float, hi: float) -> list[str]:
         return []
     mid = (lo + hi) / 2.0
     return [min(frames, key=lambda f: abs(f.t - mid)).path]
+
+
+def frames_for_segment(clips: list[ClipInfo], segment: Segment) -> list[str]:
+    """Sampled-frame paths representing a segment (thumbnails, embeddings)."""
+    clip = next((c for c in clips if c.id == segment.clip_id), None)
+    if clip is None:
+        return []
+    return _frames_in_window(clip.frames, float(segment.start), float(segment.end))
 
 
 class TasteStore:
@@ -200,6 +208,62 @@ class TasteStore:
         total = len(self._read_feedback())
         logger.info("logged %d feedback rows (%d total on disk)", len(rows), total)
         return total
+
+    def log_segment_feedback(
+        self,
+        decisions: dict[str, bool],
+        segments: list[ScoredSegment],
+        clips: list[ClipInfo],
+    ) -> int:
+        """Append keep/reject decisions keyed by segment id (no EDL involved).
+
+        Same row schema as log_feedback; used by UIs that review the whole
+        scored-segment pool rather than one cut's events. Returns
+        example_count() after the append.
+        """
+        seg_by_id = {s.segment.id: s.segment for s in segments}
+        frames_by_clip = {c.id: c.frames for c in clips}
+
+        rows: list[dict[str, Any]] = []
+        for sid in sorted(decisions):
+            seg = seg_by_id.get(sid)
+            if seg is None:
+                logger.warning("feedback for unknown segment %s ignored", sid)
+                continue
+            frame_paths = _frames_in_window(
+                frames_by_clip.get(seg.clip_id, []), float(seg.start), float(seg.end)
+            )
+            if not frame_paths:
+                logger.warning("no sampled frames found for %s", sid)
+            rows.append(
+                {
+                    "segment_id": seg.id,
+                    "clip_id": seg.clip_id,
+                    "start": float(seg.start),
+                    "end": float(seg.end),
+                    "frame_paths": frame_paths,
+                    "kept": bool(decisions[sid]),
+                    "ts": time.time(),
+                }
+            )
+
+        if rows:
+            self._ensure_dir()
+            with open(self.feedback_path, "a", encoding="utf-8") as fh:
+                for row in rows:
+                    fh.write(json.dumps(row) + "\n")
+        total = self.example_count()
+        logger.info("logged %d segment decision(s) (%d distinct examples)", len(rows), total)
+        return total
+
+    def example_count(self) -> int:
+        """Distinct segments with a logged decision (what train() can use)."""
+        return len(self._latest_by_segment())
+
+    def decisions(self) -> dict[str, bool]:
+        """Latest keep/reject decision per segment_id."""
+        return {sid: bool(row.get("kept", False))
+                for sid, row in self._latest_by_segment().items()}
 
     def _load_clip_frames(self) -> dict[str, list[Frame]]:
         # log_feedback's signature carries no ClipInfo, so frame paths come

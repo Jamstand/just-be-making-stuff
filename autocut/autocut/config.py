@@ -103,3 +103,51 @@ def workdir_for(input_folder: str | Path, cfg: Cfg) -> Path:
     wd = folder / str(cfg["workdir_name"])
     wd.mkdir(parents=True, exist_ok=True)
     return wd
+
+
+def list_style_presets(base_dir: str | Path) -> list[Path]:
+    """Style preset files: <base>/style.yaml plus <base>/styles/*.yaml."""
+    base = Path(base_dir)
+    presets: list[Path] = []
+    root = base / "style.yaml"
+    if root.is_file():
+        presets.append(root)
+    styles = base / "styles"
+    if styles.is_dir():
+        presets.extend(sorted(p for p in styles.glob("*.yaml") if p.is_file()))
+    return presets
+
+
+def save_style_overrides(path: str | Path, updates: dict[str, Any]) -> Path:
+    """Write dotted-key overrides into a user style file (created if missing).
+
+    Only the named file changes - packaged defaults are never touched, and
+    load_style() still deep-merges the file over them. Note: the file is
+    rewritten with yaml.safe_dump, so hand-written comments in it are lost -
+    prefer dedicated preset files (styles/*.yaml) over the commented root
+    style.yaml as a save target.
+    """
+    path = Path(path)
+    data: dict[str, Any] = {}
+    if path.is_file():
+        with open(path, "r", encoding="utf-8") as fh:
+            loaded = yaml.safe_load(fh) or {}
+        if not isinstance(loaded, dict):
+            raise ValueError(f"{path} must contain a YAML mapping")
+        data = loaded
+
+    for dotted, value in updates.items():
+        node = data
+        parts = str(dotted).split(".")
+        for part in parts[:-1]:
+            nxt = node.get(part)
+            if not isinstance(nxt, dict):
+                nxt = {}
+                node[part] = nxt
+            node = nxt
+        node[parts[-1]] = value
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True)
+    return path

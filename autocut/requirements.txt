@@ -9,6 +9,9 @@ scenedetect>=0.6.4
 # AI judge / review (Anthropic API)
 anthropic>=0.40
 
+# Web UI (app.py)
+streamlit>=1.36
+
 # Optional: taste.py preference model (CLIP embeddings + ranker).
 # Heavy install - uncomment when you start using `vanscut feedback` + taste training.
 # torch>=2.2

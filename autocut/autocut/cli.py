@@ -41,6 +41,7 @@ import os
 import re
 import shutil
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -279,6 +280,11 @@ def _cmd_analyze(args: argparse.Namespace, cfg: Cfg) -> int:
     return 0
 
 
+# Stage names emitted through run_cut's on_stage callback, in order. UIs can
+# build progress displays from this; a final "done" is emitted after export.
+CUT_STAGES = ("ingest", "audio", "analyze", "judge", "assemble")
+
+
 def run_cut(
     folder: str | Path,
     song: str | Path,
@@ -287,18 +293,29 @@ def run_cut(
     out: str | Path | None = None,
     use_judge: bool = True,
     fresh: bool = False,
+    on_stage: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-    """Full cut pipeline, shared by the CLI and the GUI.
+    """Full cut pipeline, shared by the CLI and the GUIs.
 
     Returns {render_path, fcpxml_path, duration, events, workdir}. Raises on
     unrecoverable errors (no clips, no segments, render failure); the caller
     presents them. Progress is emitted through the "autocut.*" loggers, so a
-    GUI can attach a logging handler to stream it.
+    GUI can attach a logging handler to stream it; on_stage (when given) is
+    called with each name in CUT_STAGES as that stage begins, then "done".
     """
+
+    def stage(name: str) -> None:
+        if on_stage is not None:
+            try:
+                on_stage(name)
+            except Exception:
+                logger.exception("on_stage callback failed for %r", name)
+
     folder = Path(folder)
     song = Path(song).resolve()
     workdir = config.workdir_for(folder, cfg)
 
+    stage("ingest")
     clips = _cached_clips(workdir, fresh)
     clips_cached = clips is not None
     if clips is None:
@@ -306,16 +323,19 @@ def run_cut(
     if not clips:
         raise RuntimeError(f"no clips found in {folder}")
 
+    stage("audio")
     music = _cached_music(workdir, song, fresh)
     if music is None:
         music = audio.analyze(song, cfg, workdir / "music.json")
 
+    stage("analyze")
     segments = _cached_segments(workdir) if clips_cached else None
     if segments is None:
         segments = analyze.analyze_clips(clips, cfg, workdir)
     if not segments:
         raise RuntimeError("no usable segments found")
 
+    stage("judge")
     if use_judge:
         _run_judge(clips, segments, cfg, workdir)
     else:
@@ -323,6 +343,7 @@ def run_cut(
 
     _blend_taste(segments, clips, cfg, workdir)
 
+    stage("assemble")
     edl = assemble.build_edl(segments, clips, music, cfg, workdir)
     out_path = Path(out) if out else workdir / "renders" / "reel_v1.mp4"
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -335,6 +356,7 @@ def run_cut(
     if str(cfg["assemble.export.resolve_api"]).strip().lower() != "never":
         assemble.export_resolve(edl, clips, cfg)
 
+    stage("done")
     return {
         "render_path": render_path,
         "fcpxml_path": fcpxml_path,

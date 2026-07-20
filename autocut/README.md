@@ -55,6 +55,20 @@ code.
 
 Linux/macOS: same, with `source .venv/bin/activate` and `export ANTHROPIC_API_KEY=...`.
 
+## Use — the web app (recommended)
+
+Double-click **`AUTOCUT-WEB.bat`** (or run `streamlit run app.py`) and the app
+opens in your browser with three pages:
+
+- **New Cut** — drag & drop clips + a song (or point at a local folder), pick a
+  style preset and length, watch per-stage progress, then preview the reel,
+  download it (and the Resolve FCPXML), and inspect the EDL.
+- **Review** — a thumbnail grid of every scored segment with its scores and
+  the judge's rationale; mark keep/reject and your decisions feed the taste
+  ranker, which activates at 30+ examples.
+- **Settings** — edit style presets in a form (judge model, style brief, LUT,
+  pacing) and track estimated judge API spend per project.
+
 ## Use — the point-and-click window (easiest)
 
 Double-click **`AUTOCUT.bat`** in the project folder (or run `vanscut ui`). A

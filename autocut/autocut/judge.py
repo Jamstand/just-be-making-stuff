@@ -42,6 +42,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -116,6 +117,80 @@ SCORE_TOOL: dict[str, Any] = {
         "additionalProperties": False,
     },
 }
+
+
+# Public per-MTok prices (USD) for the cost estimate in cache_stats(); update
+# when pricing changes. Cache reads bill at ~0.1x input, cache writes ~1.25x.
+_PRICING_PER_MTOK: dict[str, tuple[float, float]] = {
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-opus-4-8": (5.0, 25.0),
+    "claude-fable-5": (10.0, 50.0),
+}
+_CACHE_READ_X = 0.1
+_CACHE_WRITE_X = 1.25
+
+
+def cache_stats(cfg: Cfg, workdir: Path) -> dict[str, Any]:
+    """Judge cache + API-spend statistics (for cost trackers / UIs).
+
+    Aggregates the per-call usage log the Judge appends next to its result
+    cache. est_cost_usd covers models present in the pricing table; calls on
+    other models still count tokens and are listed in unknown_models.
+    """
+    cache_dir = Path(workdir) / str(cfg["judge.cache_dir"])
+    stats: dict[str, Any] = {
+        "cached_segments": 0,
+        "api_calls": 0,
+        "segments_scored": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "est_cost_usd": 0.0,
+        "unknown_models": [],
+    }
+    if not cache_dir.is_dir():
+        return stats
+    stats["cached_segments"] = sum(1 for _ in cache_dir.glob("*.json"))
+
+    usage_path = cache_dir / "usage.jsonl"
+    if not usage_path.is_file():
+        return stats
+    unknown: set[str] = set()
+    cost = 0.0
+    with open(usage_path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            stats["api_calls"] += 1
+            stats["segments_scored"] += int(row.get("segments", 0))
+            inp = int(row.get("input_tokens", 0))
+            out = int(row.get("output_tokens", 0))
+            cread = int(row.get("cache_read_input_tokens", 0))
+            cwrite = int(row.get("cache_creation_input_tokens", 0))
+            stats["input_tokens"] += inp
+            stats["output_tokens"] += out
+            stats["cache_read_input_tokens"] += cread
+            stats["cache_creation_input_tokens"] += cwrite
+            prices = _PRICING_PER_MTOK.get(str(row.get("model", "")))
+            if prices is None:
+                unknown.add(str(row.get("model", "")))
+                continue
+            in_p, out_p = prices
+            cost += (
+                inp * in_p
+                + cread * in_p * _CACHE_READ_X
+                + cwrite * in_p * _CACHE_WRITE_X
+                + out * out_p
+            ) / 1_000_000.0
+    stats["est_cost_usd"] = round(cost, 4)
+    stats["unknown_models"] = sorted(unknown)
+    return stats
 
 
 def available(cfg: Cfg) -> bool:
@@ -336,6 +411,8 @@ class Judge:
             )
             return
 
+        self._record_usage(resp, len(batch))
+
         if resp.stop_reason == "refusal":
             logger.warning(
                 "Judge refused a batch of %d segment(s); leaving them unjudged", len(batch)
@@ -366,6 +443,29 @@ class Judge:
                 continue
             ss.judge = scores
             self._cache_store(key, scores)
+
+    def _record_usage(self, resp: Any, n_segments: int) -> None:
+        """Append this call's token usage for cache_stats() (best effort)."""
+        try:
+            u = resp.usage
+            row = {
+                "ts": time.time(),
+                "model": self.model,
+                "segments": int(n_segments),
+                "input_tokens": int(getattr(u, "input_tokens", 0) or 0),
+                "output_tokens": int(getattr(u, "output_tokens", 0) or 0),
+                "cache_creation_input_tokens": int(
+                    getattr(u, "cache_creation_input_tokens", 0) or 0
+                ),
+                "cache_read_input_tokens": int(
+                    getattr(u, "cache_read_input_tokens", 0) or 0
+                ),
+            }
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.cache_dir / "usage.jsonl", "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row) + "\n")
+        except Exception as exc:
+            logger.warning("could not record judge usage: %s", exc)
 
     def _parse_entry(self, entry: dict[str, Any]) -> JudgeScores | None:
         try:

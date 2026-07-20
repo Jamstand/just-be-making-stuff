@@ -16,6 +16,7 @@ dependencies = [
     "opencv-python>=4.9",
     "scenedetect>=0.6.4",
     "anthropic>=0.40",
+    "streamlit>=1.36",
 ]
 
 [project.optional-dependencies]
