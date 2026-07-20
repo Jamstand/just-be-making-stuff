@@ -59,9 +59,16 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def _load_defaults() -> dict[str, Any]:
-    ref = resources.files("autocut").joinpath("default_style.yaml")
-    with ref.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+    # importlib.resources first; fall back to a __file__-relative path, which
+    # also survives the package being shadowed by a same-named directory.
+    try:
+        ref = resources.files("autocut").joinpath("default_style.yaml")
+        with ref.open("r", encoding="utf-8") as fh:
+            return yaml.safe_load(fh) or {}
+    except (FileNotFoundError, ModuleNotFoundError):
+        local = Path(__file__).with_name("default_style.yaml")
+        with open(local, "r", encoding="utf-8") as fh:
+            return yaml.safe_load(fh) or {}
 
 
 def load_style(path: str | Path | None = None) -> Cfg:
