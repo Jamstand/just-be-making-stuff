@@ -55,7 +55,14 @@ code.
 
 Linux/macOS: same, with `source .venv/bin/activate` and `export ANTHROPIC_API_KEY=...`.
 
-## Use
+## Use — the point-and-click window (easiest)
+
+Double-click **`AUTOCUT.bat`** in the project folder (or run `vanscut ui`). A
+window opens: **Browse** to your clips folder, **Browse** to a song, pick a
+length, click **Make Reel**. Progress streams in the window and the finished
+reel opens itself. No terminal needed after the one-time setup above.
+
+## Use — the command line
 
 ```powershell
 # score a folder of clips (writes <folder>\_autocut\)

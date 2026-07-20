@@ -42,6 +42,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 from . import analyze, assemble, audio, config, ingest, judge, review, taste
 from .config import Cfg
@@ -103,6 +104,12 @@ def _build_parser() -> argparse.ArgumentParser:
     pf = sub.add_parser("feedback", help="interactive keep/reject feedback for the taste model")
     _add_common(pf)
     pf.set_defaults(func=_cmd_feedback)
+
+    pu = sub.add_parser("ui", help="open the point-and-click desktop window")
+    pu.add_argument("--style", default=None,
+                    help="style.yaml to merge over the defaults (default: ./style.yaml if present)")
+    # The GUI does its own ffmpeg check and reports it in the window.
+    pu.set_defaults(func=_cmd_ui, needs_tools=False)
     return p
 
 
@@ -126,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
             data = cfg.raw()
             data["assemble"]["target_duration_s"] = float(duration)
             cfg = Cfg(data, source=cfg.source)
-        if not _preflight(cfg):
+        if getattr(args, "needs_tools", True) and not _preflight(cfg):
             return 2
         return int(args.func(args, cfg))
     except Exception as exc:
@@ -272,6 +279,71 @@ def _cmd_analyze(args: argparse.Namespace, cfg: Cfg) -> int:
     return 0
 
 
+def run_cut(
+    folder: str | Path,
+    song: str | Path,
+    cfg: Cfg,
+    *,
+    out: str | Path | None = None,
+    use_judge: bool = True,
+    fresh: bool = False,
+) -> dict[str, Any]:
+    """Full cut pipeline, shared by the CLI and the GUI.
+
+    Returns {render_path, fcpxml_path, duration, events, workdir}. Raises on
+    unrecoverable errors (no clips, no segments, render failure); the caller
+    presents them. Progress is emitted through the "autocut.*" loggers, so a
+    GUI can attach a logging handler to stream it.
+    """
+    folder = Path(folder)
+    song = Path(song).resolve()
+    workdir = config.workdir_for(folder, cfg)
+
+    clips = _cached_clips(workdir, fresh)
+    clips_cached = clips is not None
+    if clips is None:
+        clips = ingest.scan(folder, cfg, workdir)
+    if not clips:
+        raise RuntimeError(f"no clips found in {folder}")
+
+    music = _cached_music(workdir, song, fresh)
+    if music is None:
+        music = audio.analyze(song, cfg, workdir / "music.json")
+
+    segments = _cached_segments(workdir) if clips_cached else None
+    if segments is None:
+        segments = analyze.analyze_clips(clips, cfg, workdir)
+    if not segments:
+        raise RuntimeError("no usable segments found")
+
+    if use_judge:
+        _run_judge(clips, segments, cfg, workdir)
+    else:
+        logger.info("AI judge skipped by request")
+
+    _blend_taste(segments, clips, cfg, workdir)
+
+    edl = assemble.build_edl(segments, clips, music, cfg, workdir)
+    out_path = Path(out) if out else workdir / "renders" / "reel_v1.mp4"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    render_path = Path(assemble.render(edl, clips, cfg, out_path))
+
+    fcpxml_path: Path | None = None
+    if cfg["assemble.export.fcpxml"]:
+        fcpxml_path = Path(assemble.export_fcpxml(edl, clips, cfg,
+                                                  render_path.with_suffix(".fcpxml")))
+    if str(cfg["assemble.export.resolve_api"]).strip().lower() != "never":
+        assemble.export_resolve(edl, clips, cfg)
+
+    return {
+        "render_path": render_path,
+        "fcpxml_path": fcpxml_path,
+        "duration": edl.duration,
+        "events": len(edl.events),
+        "workdir": workdir,
+    }
+
+
 def _cmd_cut(args: argparse.Namespace, cfg: Cfg) -> int:
     folder = Path(args.folder)
     if not folder.is_dir():
@@ -281,53 +353,21 @@ def _cmd_cut(args: argparse.Namespace, cfg: Cfg) -> int:
     if not song.is_file():
         logger.error("song not found: %s", song)
         return 1
-    song = song.resolve()
-    workdir = config.workdir_for(folder, cfg)
 
-    clips = _cached_clips(workdir, args.fresh)
-    clips_cached = clips is not None
-    if clips is None:
-        clips = ingest.scan(folder, cfg, workdir)
-    if not clips:
-        logger.error("no clips found in %s", folder)
-        return 1
-
-    music = _cached_music(workdir, song, args.fresh)
-    if music is None:
-        music = audio.analyze(song, cfg, workdir / "music.json")
-
-    segments = _cached_segments(workdir) if clips_cached else None
-    if segments is None:
-        segments = analyze.analyze_clips(clips, cfg, workdir)
-    if not segments:
-        logger.error("no usable segments found")
-        return 1
-
-    if args.no_judge:
-        logger.info("--no-judge: skipping AI judge")
-    else:
-        _run_judge(clips, segments, cfg, workdir)
-
-    _blend_taste(segments, clips, cfg, workdir)
-
-    edl = assemble.build_edl(segments, clips, music, cfg, workdir)
-    out = Path(args.out) if args.out else workdir / "renders" / "reel_v1.mp4"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    render_path = Path(assemble.render(edl, clips, cfg, out))
-
-    fcpxml_path: Path | None = None
-    if cfg["assemble.export.fcpxml"]:
-        fcpxml_path = Path(assemble.export_fcpxml(edl, clips, cfg,
-                                                  render_path.with_suffix(".fcpxml")))
-    if str(cfg["assemble.export.resolve_api"]).strip().lower() != "never":
-        assemble.export_resolve(edl, clips, cfg)
+    result = run_cut(folder, song, cfg, out=args.out,
+                     use_judge=not args.no_judge, fresh=args.fresh)
 
     print()
     print("Cut complete.")
-    print("  duration : {:.2f}s ({} cut(s))".format(edl.duration, len(edl.events)))
-    print("  render   : {}".format(render_path))
-    print("  fcpxml   : {}".format(fcpxml_path if fcpxml_path else "(disabled)"))
+    print("  duration : {:.2f}s ({} cut(s))".format(result["duration"], result["events"]))
+    print("  render   : {}".format(result["render_path"]))
+    print("  fcpxml   : {}".format(result["fcpxml_path"] or "(disabled)"))
     return 0
+
+
+def _cmd_ui(args: argparse.Namespace, cfg: Cfg) -> int:
+    from . import gui  # lazy: only import tkinter when the UI is actually used
+    return gui.launch(args.style)
 
 
 def _highest(paths: list[Path], pattern: re.Pattern[str]) -> Path | None:
