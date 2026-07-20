@@ -29,6 +29,20 @@ SHOT_TYPES = ("wide", "rolling", "detail", "motion", "interior", "hero", "static
 
 
 # ---------------------------------------------------------------------------
+_IMAGE_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+def image_media_type(path: str | Path) -> str:
+    """MIME type for a sampled frame (API image blocks need the right one)."""
+    return _IMAGE_MEDIA_TYPES.get(Path(path).suffix.lower(), "image/jpeg")
+
+
 @dataclass
 class Frame:
     """A sampled still from a clip. t is seconds from clip start."""

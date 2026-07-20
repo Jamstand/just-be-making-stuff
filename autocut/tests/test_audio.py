@@ -24,7 +24,8 @@ def _click_track() -> np.ndarray:
     burst = np.sin(2 * np.pi * 150.0 * bt) * np.exp(-bt / 0.015)
     for start in np.arange(0.0, DURATION_S, beat_period):
         i = int(round(start * SR))
-        amp = 0.9 if start >= DURATION_S / 2 else 0.4
+        # Keep the halves close enough that beat_track's trim keeps the quiet half.
+        amp = 0.9 if start >= DURATION_S / 2 else 0.5
         j = min(i + burst_n, n)
         y[i:j] += amp * burst[: j - i]
     return y.astype(np.float32)
