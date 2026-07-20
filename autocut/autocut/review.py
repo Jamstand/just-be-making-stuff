@@ -33,6 +33,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -407,7 +408,18 @@ def review_loop(
     if not current.events:
         logger.warning("Review: EDL has no events; nothing to critique")
         return renders
-    save_json(current, workdir / "edl_v1.json")
+
+    # Continue version numbering across runs so nothing is ever overwritten
+    # (v1 is the input render; a second `vanscut review` picks up at v<n+1>).
+    renders_dir = workdir / "renders"
+    existing = [
+        int(m.group(1))
+        for p in (sorted(renders_dir.glob("reel_v*.mp4")) if renders_dir.is_dir() else [])
+        if (m := re.match(r"^reel_v(\d+)\.mp4$", p.name, re.IGNORECASE))
+    ]
+    base = max(existing, default=1)
+    if base == 1:
+        save_json(current, workdir / "edl_v1.json")
 
     seg_by_id = {ss.segment.id: ss for ss in segments}
     clip_by_id = {c.id: c for c in clips}
@@ -484,7 +496,7 @@ def review_loop(
         _repack(current.events)
         current.created_at = datetime.now(timezone.utc).isoformat()
 
-        n = iteration + 1
+        n = base + iteration
         save_json(current, workdir / f"edl_v{n}.json")
         out_path = workdir / "renders" / f"reel_v{n}.mp4"
         out_path.parent.mkdir(parents=True, exist_ok=True)

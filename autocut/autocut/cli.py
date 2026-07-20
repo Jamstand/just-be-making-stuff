@@ -342,9 +342,11 @@ def _cmd_review(args: argparse.Namespace, cfg: Cfg) -> int:
         return 1
     workdir = config.workdir_for(folder, cfg)
 
-    edl_path: Path | None = workdir / "edl.json"
-    if not edl_path.is_file():
-        edl_path = _highest(sorted(workdir.glob("edl_v*.json")), _EDL_V_RE)
+    # Prefer the latest reviewed EDL so a second pass continues from it
+    # (edl_v<n>.json pairs with renders/reel_v<n>.mp4; edl.json is v1).
+    edl_path: Path | None = _highest(sorted(workdir.glob("edl_v*.json")), _EDL_V_RE)
+    if edl_path is None and (workdir / "edl.json").is_file():
+        edl_path = workdir / "edl.json"
     if edl_path is None:
         logger.error("no EDL in %s; run `vanscut cut` first", workdir)
         return 1
