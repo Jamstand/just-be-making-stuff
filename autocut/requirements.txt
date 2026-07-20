@@ -1,0 +1,18 @@
+# Core pipeline
+numpy>=1.26
+PyYAML>=6.0
+librosa>=0.10.2
+soundfile>=0.12
+opencv-python>=4.9
+scenedetect>=0.6.4
+
+# AI judge / review (Anthropic API)
+anthropic>=0.40
+
+# Optional: taste.py preference model (CLIP embeddings + ranker).
+# Heavy install - uncomment when you start using `vanscut feedback` + taste training.
+# torch>=2.2
+# open-clip-torch>=2.24
+
+# Dev
+pytest>=8.0

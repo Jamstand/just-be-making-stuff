@@ -1,0 +1,143 @@
+# ============================================================================
+# AUTOCUT style + pipeline configuration
+# Everything tunable lives here - the code contains no magic numbers.
+# Edit freely; unknown keys are ignored, missing keys fall back to the
+# packaged defaults (autocut/default_style.yaml).
+# ============================================================================
+
+tools:
+  ffmpeg: ffmpeg        # path or command name
+  ffprobe: ffprobe
+
+output:
+  width: 1080
+  height: 1920
+  fps: 30
+  min_duration_s: 15
+  max_duration_s: 45
+
+# Working directory created next to the input folder
+workdir_name: _autocut
+
+# ---------------------------------------------------------------------------
+ingest:
+  extensions: [".mp4", ".mov", ".mxf", ".m4v"]
+  proxy:
+    mode: auto          # auto = transcode only when needed (H.265 / 10-bit / 4:2:2), always, never
+    height: 1080        # proxy vertical resolution
+    vcodec: libx264
+    crf: 20
+    preset: veryfast
+    # pix_fmts that OpenCV usually can't decode reliably -> force a proxy
+    force_pix_fmts: ["yuv422p", "yuv422p10le", "yuv420p10le", "yuv444p", "yuv444p10le"]
+    force_codecs: ["hevc"]
+  frames:
+    per_clip: 12        # uniformly sampled stills per clip (used by judge + taste)
+    format: jpg
+    quality: 3          # ffmpeg -q:v (2 best .. 31 worst)
+    max_height: 768     # stills are downscaled to this height
+
+# ---------------------------------------------------------------------------
+audio:
+  sample_rate: 22050
+  hop_length: 512
+  start_bpm: 120        # prior for beat tracking
+  tightness: 100        # librosa beat_track tightness
+  energy_smooth_s: 0.35 # RMS smoothing window
+  impact:               # "impact points" = drops / big transitions
+    percentile: 88      # onset-strength percentile that counts as an impact
+    min_gap_s: 4.0      # minimum spacing between impact points
+    max_points: 8
+
+# ---------------------------------------------------------------------------
+analyze:
+  scene:
+    threshold: 27.0     # PySceneDetect ContentDetector threshold
+    min_scene_len_s: 0.6
+  segment:
+    min_len_s: 0.8      # drop segments shorter than this
+    max_len_s: 6.0      # split longer scenes into windows of this size
+  metrics:
+    sample_fps: 4.0     # analysed frames per second within a segment
+    max_frames: 24      # hard cap of analysed frames per segment
+    flow_width: 320     # frames are downscaled to this width for optical flow
+    exposure_clip_low: 0.02   # fraction of pixels < low threshold considered crushed
+    exposure_clip_high: 0.98  # fraction of pixels > high threshold considered blown
+  weights:              # heuristic composite score (normalized 0..1 each)
+    sharpness: 0.30
+    motion: 0.30
+    exposure: 0.25
+    tilt: 0.15
+  tilt_max_deg: 10.0    # tilt >= this scores 0 on the tilt component
+
+# ---------------------------------------------------------------------------
+judge:
+  enabled: auto         # auto = on when ANTHROPIC_API_KEY is set; always; never
+  model: claude-sonnet-4-6   # switchable: claude-opus-4-8, claude-fable-5
+  max_tokens: 4096
+  frames_per_segment: 3      # stills sent to the model per segment
+  segments_per_request: 4    # segments batched into one API call
+  weight: 0.6                # final = (1-weight)*heuristic + weight*judge
+  cache_dir: judge_cache     # under the workdir; keyed by frames+brief+model hash
+  # The style brief - this is what the AI judge optimizes for. Edit to taste.
+  style_brief: |
+    You are scoring raw footage for a fast-paced automotive reel
+    (Instagram Reels / TikTok, vertical 9:16, 15-45 seconds, cut to music).
+    What makes a great shot for this style:
+    - The car is the clear subject: clean framing, strong composition
+    - High-energy motion: rolling shots, pans, close fly-bys, wheels turning
+    - Crisp detail shots: wheels, badges, headlights, reflections, paint
+    - Dramatic or golden-hour light beats flat midday light
+    - Depth and leading lines beat flat, centered snapshots
+    Penalize: cluttered backgrounds, bystanders, other parked cars dominating
+    the frame, soft focus, blown-out skies, tilted horizons that look accidental.
+
+# ---------------------------------------------------------------------------
+taste:                  # preference memory (stub in v1)
+  enabled: false
+  min_examples: 30      # feedback examples required before train() will fit
+  weight: 0.3           # blended into final score once trained
+  dir: taste            # under the workdir root (embeddings + feedback log + model)
+  clip_model: ViT-B-32
+  clip_pretrained: laion2b_s34b_b79k
+
+# ---------------------------------------------------------------------------
+assemble:
+  target_duration_s: 30      # clamped to output.min/max_duration_s
+  cut:
+    min_shot_s: 0.5
+    max_shot_s: 4.0
+    # shot length follows the energy curve: at energy<=lo use slow_beats
+    # beats per shot, at energy>=hi use fast_beats, linear in between
+    energy_lo: 0.25
+    energy_hi: 0.75
+    slow_beats: 4
+    fast_beats: 1
+  sequencing:
+    opening: [wide, rolling]  # preferred shot types for the first cut
+    ending: hero              # end on the best hero-potential shot
+    hero_on_impact: true      # place hero shots on impact points
+    avoid_repeat_clip: 2      # don't reuse the same source clip within N shots
+    alternate_types: true     # avoid two same-type shots back to back
+  reframe:
+    mode: subject       # center = dumb center crop; subject = use judge subject_x hint
+    max_offset: 1.0     # 0..1 fraction of the available horizontal slack to use
+  render:
+    vcodec: libx264
+    crf: 17
+    preset: slow
+    pix_fmt: yuv420p
+    audio_bitrate: 320k
+    audio_fade_s: 1.0   # music fade-out at the end
+    lut: null           # optional path to a .cube LUT applied via lut3d
+  export:
+    fcpxml: true
+    resolve_api: auto   # try DaVinci Resolve scripting API when available, else FCPXML only
+
+# ---------------------------------------------------------------------------
+review:                 # agentic self-critique loop (v2 skeleton)
+  enabled: false
+  model: null           # null = reuse judge.model
+  max_iterations: 2
+  frames_per_pass: 12   # stills sampled from the rendered output per critique
+  max_tokens: 4096

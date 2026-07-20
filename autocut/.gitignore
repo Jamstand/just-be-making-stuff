@@ -1,0 +1,5 @@
+_autocut/
+__pycache__/
+*.egg-info/
+.venv/
+testdata/

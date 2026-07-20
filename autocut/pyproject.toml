@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autocut"
+version = "0.1.0"
+description = "AUTOCUT - AI-assisted automatic video editor for car content (vertical reels, cut to the beat)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "PyYAML>=6.0",
+    "librosa>=0.10.2",
+    "soundfile>=0.12",
+    "opencv-python>=4.9",
+    "scenedetect>=0.6.4",
+    "anthropic>=0.40",
+]
+
+[project.optional-dependencies]
+taste = [
+    "torch>=2.2",
+    "open-clip-torch>=2.24",
+]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+vanscut = "autocut.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["autocut*"]
+
+[tool.setuptools.package-data]
+autocut = ["default_style.yaml"]
