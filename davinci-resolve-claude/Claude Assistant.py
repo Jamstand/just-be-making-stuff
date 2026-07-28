@@ -140,6 +140,37 @@ def _add_module_paths():
                     sys.path.append(p)
 
 
+_FUSIONSCRIPT_LIBS = [
+    os.environ.get("RESOLVE_SCRIPT_LIB") or "",
+    "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
+    r"C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll",
+    "/opt/resolve/libs/Fusion/fusionscript.so",
+]
+
+
+def _load_fusionscript():
+    """Import the fusionscript module (provides scriptapp + UIDispatcher),
+    falling back to loading the native library directly (external runs)."""
+    try:
+        import fusionscript
+        return fusionscript
+    except ImportError:
+        pass
+    import importlib.machinery
+    import importlib.util
+    for lib in _FUSIONSCRIPT_LIBS:
+        if lib and os.path.isfile(lib):
+            try:
+                loader = importlib.machinery.ExtensionFileLoader("fusionscript", lib)
+                spec = importlib.util.spec_from_loader("fusionscript", loader)
+                module = importlib.util.module_from_spec(spec)
+                loader.exec_module(module)
+                return module
+            except Exception:
+                continue
+    return None
+
+
 def get_resolve_bmd_fusion():
     """Return (resolve, bmd_module, fusion) whether we run inside Resolve's
     Scripts menu (globals provided) or externally (Studio only)."""
@@ -149,20 +180,22 @@ def get_resolve_bmd_fusion():
     fu = g.get("fusion")
     if res is None:
         _add_module_paths()
-        import DaVinciResolveScript as dvr  # noqa: N813
-        res = dvr.scriptapp("Resolve")
+        try:
+            import DaVinciResolveScript as dvr  # noqa: N813
+            res = dvr.scriptapp("Resolve")
+        except ImportError:
+            fs = _load_fusionscript()
+            res = fs.scriptapp("Resolve") if fs else None
     if res is None:
         raise RuntimeError(
             "Could not connect to DaVinci Resolve. Run this script from "
             "Workspace > Scripts inside Resolve, or enable external scripting "
-            "(Preferences > System > General > External scripting using: Local).")
+            "(Preferences > System > General > External scripting using: Local; "
+            "Studio only).")
     if fu is None:
         fu = res.Fusion()
     if bmd_mod is None:
-        try:
-            import fusionscript as bmd_mod  # type: ignore
-        except ImportError:
-            bmd_mod = None
+        bmd_mod = _load_fusionscript()
     return res, bmd_mod, fu
 
 
@@ -293,6 +326,16 @@ class ResolveApp(object):
         return "%02d:%02d:%02d:%02d" % (
             total_s // 3600, (total_s % 3600) // 60, total_s % 60, f)
 
+    def start_timecode(self, tl):
+        """Timeline start as timecode; Resolve's own value when available."""
+        try:
+            tc = tl.GetStartTimecode()
+            if tc:
+                return tc
+        except Exception:
+            pass
+        return self.abs_frame_to_tc(int(tl.GetStartFrame()), self.timeline_fps(tl))
+
     def position_to_marker_frame(self, position):
         """Accept 'HH:MM:SS:FF' or an int/str frame offset from timeline start;
         return the frame offset from timeline start that AddMarker expects."""
@@ -372,7 +415,7 @@ def t_overview(app):
         out["current_timeline"] = {
             "name": current_tl.GetName(),
             "fps": fps,
-            "start_timecode": app.abs_frame_to_tc(current_tl.GetStartFrame(), fps),
+            "start_timecode": app.start_timecode(current_tl),
             "duration_frames": int(current_tl.GetEndFrame()) - int(current_tl.GetStartFrame()),
             "video_tracks": int(current_tl.GetTrackCount("video")),
             "audio_tracks": int(current_tl.GetTrackCount("audio")),
@@ -409,7 +452,15 @@ def t_open_page(app, page):
 def t_get_setting(app, name=None):
     if name:
         return {name: app.project.GetSetting(name)}
-    return app.project.GetSetting("") or app.project.GetSetting()
+    settings = None
+    for arg in ("", None):
+        try:
+            settings = app.project.GetSetting(arg) if arg == "" else app.project.GetSetting()
+        except Exception:
+            settings = None
+        if isinstance(settings, dict):
+            return settings
+    raise ResolveError("Could not read the full settings dict; ask for a specific setting name.")
 
 
 @tool(
@@ -458,7 +509,7 @@ def t_get_timeline(app, name=None):
     return {
         "name": tl.GetName(),
         "fps": fps,
-        "start_timecode": app.abs_frame_to_tc(tl.GetStartFrame(), fps),
+        "start_timecode": app.start_timecode(tl),
         "end_timecode": app.abs_frame_to_tc(tl.GetEndFrame(), fps),
         "duration_frames": int(tl.GetEndFrame()) - int(tl.GetStartFrame()),
         "playhead": tl.GetCurrentTimecode() if tl.GetName() == app.timeline.GetName() else None,
@@ -563,7 +614,9 @@ def t_add_marker(app, position, color="Blue", name="Marker", note="", duration_f
     color = color.capitalize() if color else "Blue"
     if color not in MARKER_COLORS:
         raise ResolveError("Unknown marker color %r. Valid: %s" % (color, ", ".join(MARKER_COLORS)))
-    ok = tl.AddMarker(frame, color, name or "Marker", note or "", int(duration_frames) or 1)
+    # Resolve's API is positional-only and wants all six arguments.
+    ok = tl.AddMarker(frame, color, name or "Marker", note or "",
+                      int(duration_frames) or 1, "")
     if not ok:
         raise ResolveError(
             "Resolve refused the marker at frame %s (already a marker there, or out of range)." % frame)
@@ -647,7 +700,8 @@ def t_list_media_pool(app, folder_path="/", include_subfolders=False):
         return {
             "name": clip.GetName(),
             "folder": where,
-            "duration": clip.GetClipProperty("Duration"),
+            "duration_tc": clip.GetClipProperty("Duration"),   # timecode string
+            "frames": clip.GetClipProperty("Frames"),
             "fps": clip.GetClipProperty("FPS"),
             "resolution": clip.GetClipProperty("Resolution"),
             "type": clip.GetClipProperty("Type"),
@@ -778,10 +832,23 @@ def t_apply_lut(app, lut_path, node_index=1):
     item = app.timeline.GetCurrentVideoItem()
     if not item:
         raise ResolveError("No current video item — move the playhead over the clip first.")
-    ok = item.SetLUT(int(node_index), lut_path)
+    ok = False
+    # Current API: LUTs live on the node graph. item.SetLUT is the legacy path.
+    try:
+        graph = item.GetNodeGraph()
+        if graph:
+            ok = graph.SetLUT(int(node_index), lut_path)
+    except Exception:
+        ok = False
+    if not ok:
+        try:
+            ok = item.SetLUT(int(node_index), lut_path)
+        except Exception:
+            ok = False
     if not ok:
         raise ResolveError("SetLUT failed — check the LUT path and node index "
-                           "(LUT may need to be in Resolve's LUT folder).")
+                           "(the LUT may need to be in Resolve's LUT folder; "
+                           "try project.RefreshLUTList via run_python).")
     return {"applied_lut": lut_path, "node": int(node_index), "clip": item.GetName()}
 
 
@@ -1239,7 +1306,9 @@ class ChatWindow(object):
                     ui.HGroup({"Weight": 0}, [
                         ui.LineEdit({"ID": "Input",
                                      "PlaceholderText": "Ask Claude…  (Enter to send)",
-                                     "Weight": 1}),
+                                     "Weight": 1,
+                                     # ReturnPressed is not a default-enabled event
+                                     "Events": {"ReturnPressed": True}}),
                         ui.Button({"ID": "SendBtn", "Text": "Send", "Weight": 0}),
                     ]),
                     ui.Label({"ID": "Status", "Text": "", "Weight": 0}),
@@ -1248,8 +1317,11 @@ class ChatWindow(object):
         self.items = self.win.GetItems()
 
         combo = self.items["ModelCombo"]
-        for m in MODEL_CHOICES:
-            combo.AddItem(m)
+        try:
+            combo.AddItems(MODEL_CHOICES)
+        except Exception:
+            for m in MODEL_CHOICES:
+                combo.AddItem(m)
         saved = cfg.get("model", DEFAULT_MODEL)
         if saved in MODEL_CHOICES:
             combo.CurrentIndex = MODEL_CHOICES.index(saved)
@@ -1266,8 +1338,23 @@ class ChatWindow(object):
         """Poll the event queue so a worker thread can update the transcript.
         If UIManager has no Timer, we fall back to synchronous calls."""
         try:
-            self.timer = self.ui.Timer({"ID": "PollTimer", "Interval": 100})
-            self.win.On.PollTimer.Timeout = lambda ev: self.drain_events()
+            self.timer = self.ui.Timer({"ID": "PollTimer", "Interval": 120})
+            handler = lambda ev: self.drain_events()  # noqa: E731
+            wired = False
+            # Global timeout handler on the dispatcher (verified pattern);
+            # only our timer exists, so any Timeout event is ours.
+            try:
+                self.disp["On"]["Timeout"] = handler
+                wired = True
+            except Exception:
+                pass
+            try:
+                self.win.On.PollTimer.Timeout = handler
+                wired = True
+            except Exception:
+                pass
+            if not wired:
+                raise RuntimeError("no Timeout wiring available")
             self.timer.Start()
         except Exception:
             self.timer = None
@@ -1295,6 +1382,10 @@ class ChatWindow(object):
             chat.Append(html)
         except Exception:
             chat.HTML = "".join(self.html_log)
+        try:
+            chat.EnsureCursorVisible()
+        except Exception:
+            pass
 
     def set_status(self, text):
         try:
@@ -1391,7 +1482,8 @@ def prompt_for_api_key(ui, disp, cfg):
                           "Enter your Anthropic API key (from platform.claude.com).\n"
                           "It is stored only on this machine, in your user config folder."}),
                 ui.LineEdit({"ID": "KeyInput", "PlaceholderText": "sk-ant-…",
-                             "EchoMode": "Password"}),
+                             "EchoMode": "Password",
+                             "Events": {"ReturnPressed": True}}),
                 ui.HGroup({}, [
                     ui.Button({"ID": "KeySave", "Text": "Save & start"}),
                     ui.Button({"ID": "KeyCancel", "Text": "Cancel"}),
