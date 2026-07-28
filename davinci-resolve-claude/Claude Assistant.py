@@ -105,6 +105,13 @@ How to work:
 - view_frame shows you the actual frame as an image; survey_clip shows several frames across a range at once. Whenever the question is about how footage looks — exposure, color, framing, what's in the shot, whether two shots match — look instead of guessing from names and metadata.
 - To get spoken words as text: transcribe_audio on the clips, then auto_caption, then read the subtitle track with list_timeline_items(track_type='subtitle'). The transcript text is not directly retrievable any other way.
 
+Recipes — proven multi-step chains (confirm any destructive step first):
+- Selects reel: find_clips(flag or color) -> create_timeline -> place_clips -> copy_grade from the reference clip onto the rest.
+- Shot match: view_frame both shots -> describe the mismatch -> set_cdl or apply_look on the off shot -> view_frame again to verify your change actually landed.
+- Interview stringout: transcribe_audio -> auto_caption -> read the subtitle track -> add markers or place_clips around the quotes worth keeping.
+- Real re-edit (trims/moves/splits): get_timeline_interchange('edl') -> transform the text -> apply_timeline_interchange as a NEW timeline; never claim you edited in place.
+- New machine or misbehaving tool: run_diagnostics(live=false) and read which capabilities this Resolve version actually has before promising anything.
+
 What Resolve's scripting API cannot do. Say so plainly rather than pretending or quietly failing:
 - No trimming, slipping, rolling, razoring/splitting, moving a clip, or speed changes IN PLACE. Clips can only be ADDED (place_clips) and DELETED (delete_clips). Two workarounds, both with trade-offs to state before using them: (a) delete + re-add at new position/length, which destroys that clip's grade, Fusion comp, transforms and markers; (b) the interchange round-trip — get_timeline_interchange, transform the EDL/XML text yourself, apply_timeline_interchange — which supports arbitrary re-editing but builds a NEW timeline instead of changing the current one.
 - No colour wheels: no lift, gamma, gain, contrast, temperature or tint control exists. set_cdl is the only numeric colour tool; it is write-only and overwrites that node's CDL absolutely, so you can never read the current grade or "nudge" it. Prefer copy_grade, LUTs and colour versions where they fit.
@@ -618,13 +625,26 @@ def t_list_items(app, track_type="video", track_index=1):
     out = []
     for i, item in enumerate(items, 1):
         start, end = int(item.GetStart()), int(item.GetEnd())
-        out.append({
+        entry = {
             "index": i,
             "name": item.GetName(),
             "start_timecode": app.abs_frame_to_tc(start, fps),
             "end_timecode": app.abs_frame_to_tc(end, fps),
             "duration_frames": int(item.GetDuration()),
-        })
+        }
+        # Organisational metadata, where this Resolve exposes it.
+        try:
+            if _supports(item, "GetClipColor"):
+                color = item.GetClipColor()
+                if color:
+                    entry["clip_color"] = color
+            if _supports(item, "GetFlagList"):
+                flags = item.GetFlagList()
+                if flags:
+                    entry["flags"] = list(flags)
+        except Exception:
+            pass
+        out.append(entry)
     return {"track": "%s %s" % (track_type, track_index), "items": out}
 
 
@@ -2617,6 +2637,300 @@ def t_generate_speech(app, settings, timecode=None):
         raise ResolveError("Resolve did not generate speech — check the settings "
                            "keys against Resolve 21's speechGenerationSettings.")
     return {"generated_clip": made.GetName(), "at": tc}
+
+
+# -- search / diagnostics --------------------------------------------------------
+
+@tool(
+    "find_clips",
+    "Search for clips — the glue for multi-step jobs like 'make a selects reel "
+    "from everything flagged green'. Filters: name_contains (case-insensitive), "
+    "clip_color, flag_color. Searches the media pool and/or every video track of "
+    "the current timeline; timeline hits come back with track + index, ready to "
+    "feed straight into delete_clips, copy_grade, label_clip, place_clips...",
+    params={
+        "name_contains": {"type": "string", "description": "Substring of the clip name."},
+        "clip_color": {"type": "string", "description": "Only clips with this clip color."},
+        "flag_color": {"type": "string", "description": "Only timeline clips carrying this flag."},
+        "where": {"type": "string", "description": "media_pool, timeline, or both (default both)."},
+    },
+)
+def t_find_clips(app, name_contains=None, clip_color=None, flag_color=None, where="both"):
+    scope = str(where).strip().lower()
+    if scope not in ("media_pool", "timeline", "both"):
+        raise ResolveError("where must be media_pool, timeline or both.")
+    if not (name_contains or clip_color or flag_color):
+        raise ResolveError("Give at least one filter (name_contains, clip_color, flag_color).")
+    needle = (name_contains or "").lower()
+    want_color = str(clip_color).lower() if clip_color else None
+    want_flag = str(flag_color).lower() if flag_color else None
+
+    result = {}
+
+    if scope in ("media_pool", "both"):
+        pool_hits = []
+
+        def walk(folder, path):
+            for clip in folder.GetClipList() or []:
+                name = clip.GetName() or ""
+                if needle and needle not in name.lower():
+                    continue
+                if want_color:
+                    color = ""
+                    try:
+                        color = clip.GetClipProperty("Clip Color") or ""
+                    except Exception:
+                        pass
+                    if color.lower() != want_color:
+                        continue
+                if want_flag:
+                    continue          # flags live on timeline items, not pool clips
+                pool_hits.append({"name": name, "folder": path or "/"})
+            for sub in folder.GetSubFolderList() or []:
+                walk(sub, path + "/" + sub.GetName())
+
+        walk(app.media_pool.GetRootFolder(), "")
+        result["media_pool"] = pool_hits
+
+    if scope in ("timeline", "both"):
+        tl = app.timeline
+        fps = app.timeline_fps(tl)
+        tl_hits = []
+        for track_index in range(1, int(tl.GetTrackCount("video") or 0) + 1):
+            for i, item in enumerate(tl.GetItemListInTrack("video", track_index) or [], 1):
+                name = item.GetName() or ""
+                if needle and needle not in name.lower():
+                    continue
+                color, flags = "", []
+                try:
+                    if _supports(item, "GetClipColor"):
+                        color = item.GetClipColor() or ""
+                    if _supports(item, "GetFlagList"):
+                        flags = list(item.GetFlagList() or [])
+                except Exception:
+                    pass
+                if want_color and color.lower() != want_color:
+                    continue
+                if want_flag and want_flag not in [f.lower() for f in flags]:
+                    continue
+                hit = {"track_index": track_index, "index": i, "name": name,
+                       "start_timecode": app.abs_frame_to_tc(int(item.GetStart()), fps)}
+                if color:
+                    hit["clip_color"] = color
+                if flags:
+                    hit["flags"] = flags
+                tl_hits.append(hit)
+        result["timeline"] = tl_hits
+
+    result["found"] = sum(len(v) for v in result.values() if isinstance(v, list))
+    return result
+
+
+# Every capability's load-bearing dependencies: (tool, target object, methods).
+DIAG_DEPS = [
+    ("place_clips", "media_pool", ["AppendToTimeline"]),
+    ("delete_clips", "timeline", ["DeleteClips"]),
+    ("add_track", "timeline", ["AddTrack"]),
+    ("set_clip_transform", "item", ["SetProperty", "GetProperty"]),
+    ("add_title", "timeline", ["InsertFusionTitleIntoTimeline", "InsertTitleIntoTimeline"]),
+    ("add_fusion_effect", "item", ["AddFusionComp", "GetFusionCompByIndex"]),
+    ("view_frame / survey_clip / save_look", "timeline", ["GrabStill"]),
+    ("view_frame (thumbnail fallback)", "timeline", ["GetCurrentClipThumbnailImage"]),
+    ("still export", "album", ["ExportStills", "DeleteStills"]),
+    ("copy_grade", "item", ["CopyGrades"]),
+    ("color_version", "item", ["AddVersion", "LoadVersionByName", "GetVersionNameList"]),
+    ("set_cdl", "item", ["SetCDL"]),
+    ("reset_grade / apply_lut", "graph", ["ResetAllGrades", "SetLUT"]),
+    ("apply_look", "graph", ["ApplyGradeFromDRX"]),
+    ("export_grade_as_lut", "item", ["ExportLUT"]),
+    ("color_group", "project", ["AddColorGroup", "GetColorGroupsList", "DeleteColorGroup"]),
+    ("label_clip", "item", ["SetClipColor", "AddFlag", "GetFlagList"]),
+    ("manage_takes", "item", ["GetTakesCount", "AddTake", "SelectTakeByIndex", "FinalizeTake"]),
+    ("set_voice_isolation", "item", ["SetVoiceIsolationState"]),
+    ("transcribe_audio", "clip", ["TranscribeAudio", "ClearTranscription"]),
+    ("auto_caption", "timeline", ["CreateSubtitlesFromAudio"]),
+    ("sync_audio", "media_pool", ["AutoSyncAudio"]),
+    ("manage_proxy", "clip", ["LinkProxyMedia", "UnlinkProxyMedia"]),
+    ("export_timeline / interchange", "timeline", ["Export"]),
+    ("import_timeline / interchange", "media_pool", ["ImportTimelineFromFile"]),
+    ("duplicate_timeline", "timeline", ["DuplicateTimeline"]),
+    ("create_compound_clip", "timeline", ["CreateCompoundClip"]),
+    ("detect_scene_cuts", "timeline", ["DetectSceneCuts"]),
+    ("manage_track", "timeline", ["SetTrackName", "SetTrackLock", "SetTrackEnable"]),
+    ("render_settings", "project", ["GetRenderFormats", "GetRenderCodecs",
+                                    "SetCurrentRenderFormatAndCodec"]),
+    ("render queue", "project", ["AddRenderJob", "StartRendering", "GetRenderJobList"]),
+    ("manage_project", "pm", ["GetProjectListInCurrentFolder", "CreateProject", "LoadProject"]),
+    ("generate_speech", "project", ["GenerateSpeech"]),
+]
+
+DIAG_CONSTANTS = {
+    "export_timeline / interchange": ["EXPORT_EDL", "EXPORT_OTIO", "EXPORT_AAF", "EXPORT_NONE"],
+    "sync_audio": ["AUDIO_SYNC_MODE", "AUDIO_SYNC_WAVEFORM", "AUDIO_SYNC_TIMECODE"],
+    "export_grade_as_lut": ["EXPORT_LUT_33PTCUBE"],
+}
+
+
+@tool(
+    "run_diagnostics",
+    "Map exactly what THIS Resolve installation supports: version, per-capability "
+    "API availability, and (with live=true) real end-to-end exercises — creates a "
+    "scratch timeline, inserts a title, grabs and exports a still, then removes "
+    "the scratch timeline and restores everything. Run this first on a new "
+    "machine, after a Resolve upgrade, or when a tool misbehaves. Ask the user "
+    "before live=true since it briefly creates a scratch timeline.",
+    params={"live": {"type": "boolean",
+                     "description": "Also run mutating end-to-end checks (default false)."}},
+)
+def t_run_diagnostics(app, live=False):
+    report = {"api": {}, "notes": []}
+    try:
+        report["resolve_version"] = app.resolve.GetVersionString()
+    except Exception:
+        report["resolve_version"] = "unknown"
+    try:
+        report["product"] = app.resolve.GetProductName()
+    except Exception:
+        pass
+    report["python"] = "%d.%d.%d" % sys.version_info[:3]
+
+    # Gather live target objects; each may legitimately be unavailable.
+    targets, why = {}, {}
+    targets["resolve"] = app.resolve
+    try:
+        targets["pm"] = app.pm
+    except Exception as exc:
+        targets["pm"] = None; why["pm"] = str(exc)
+    for name, getter in (
+            ("project", lambda: app.project),
+            ("media_pool", lambda: app.media_pool),
+            ("timeline", lambda: app.timeline)):
+        try:
+            targets[name] = getter()
+        except Exception as exc:
+            targets[name] = None
+            why[name] = str(exc)
+    item = None
+    tl = targets.get("timeline")
+    if tl is not None:
+        try:
+            item = tl.GetCurrentVideoItem()
+            if not item:
+                for i in range(1, int(tl.GetTrackCount("video") or 0) + 1):
+                    row = tl.GetItemListInTrack("video", i) or []
+                    if row:
+                        item = row[0]
+                        break
+        except Exception:
+            item = None
+    targets["item"] = item
+    if item is None:
+        why["item"] = "no clip on the timeline to inspect"
+    targets["graph"] = _node_graph(app, item) if item is not None else None
+    if targets["graph"] is None and "graph" not in why:
+        why["graph"] = "node graph API absent (Resolve < 19) or no clip"
+    clip = None
+    project = targets.get("project")
+    if targets.get("media_pool") is not None:
+        try:
+            def first_clip(folder):
+                clips = folder.GetClipList() or []
+                if clips:
+                    return clips[0]
+                for sub in folder.GetSubFolderList() or []:
+                    hit = first_clip(sub)
+                    if hit:
+                        return hit
+                return None
+            clip = first_clip(targets["media_pool"].GetRootFolder())
+        except Exception:
+            clip = None
+    targets["clip"] = clip
+    if clip is None:
+        why["clip"] = "media pool is empty"
+    album = None
+    if project is not None:
+        try:
+            gallery = project.GetGallery()
+            album = gallery.GetCurrentStillAlbum() if gallery else None
+        except Exception:
+            album = None
+    targets["album"] = album
+    if album is None:
+        why["album"] = "gallery album unavailable"
+
+    supported = limited = blocked = 0
+    for feature, target_name, methods in DIAG_DEPS:
+        target = targets.get(target_name)
+        entry = {}
+        if target is None:
+            entry["status"] = "blocked"
+            entry["why"] = "%s: %s" % (target_name, why.get(target_name, "unavailable"))
+            blocked += 1
+        else:
+            missing = [m for m in methods if not _supports(target, m)]
+            missing += ["resolve.%s" % c for c in DIAG_CONSTANTS.get(feature, [])
+                        if not isinstance(getattr(app.resolve, c, None), int)]
+            if not missing:
+                entry["status"] = "ok"
+                supported += 1
+            else:
+                entry["status"] = "missing"
+                entry["missing"] = missing
+                limited += 1
+        report["api"][feature] = entry
+
+    report["summary"] = {"ok": supported, "missing": limited, "blocked": blocked}
+
+    if live:
+        live_results = {}
+        if targets.get("media_pool") is None or project is None:
+            report["live"] = {"skipped": "no project/media pool available"}
+            return report
+        mp = targets["media_pool"]
+        original_tl = targets.get("timeline")
+        scratch_name = "__claude_diagnostic_%d" % os.getpid()
+        scratch = None
+        try:
+            scratch = mp.CreateEmptyTimeline(scratch_name)
+            live_results["create_timeline"] = "ok" if scratch else "failed"
+            if scratch and project.SetCurrentTimeline(scratch):
+                stl = app.timeline
+                try:
+                    made = stl.InsertFusionTitleIntoTimeline("Text+")
+                    live_results["insert_title"] = "ok" if made else "failed (name not in Effects Library?)"
+                except Exception as exc:
+                    live_results["insert_title"] = "error: %s" % exc
+                try:
+                    ok_m = stl.AddMarker(0, "Blue", "diag", "", 1, "")
+                    live_results["add_marker"] = "ok" if ok_m else "failed"
+                except Exception as exc:
+                    live_results["add_marker"] = "error: %s" % exc
+                try:
+                    data, detail = _grab_still_frame(app, stl, project)
+                    live_results["still_capture"] = ("ok (%s, %d bytes)" % (detail, len(data))
+                                                     if data else "failed: %s" % detail)
+                except Exception as exc:
+                    live_results["still_capture"] = "error: %s" % exc
+        finally:
+            try:
+                if original_tl is not None:
+                    project.SetCurrentTimeline(original_tl)
+            except Exception:
+                pass
+            if scratch is not None:
+                if _supports(mp, "DeleteTimelines"):
+                    try:
+                        live_results["cleanup"] = ("ok" if mp.DeleteTimelines([scratch])
+                                                   else "scratch timeline left behind — delete '%s' by hand" % scratch_name)
+                    except Exception as exc:
+                        live_results["cleanup"] = "error: %s" % exc
+                else:
+                    live_results["cleanup"] = ("no DeleteTimelines API — delete '%s' by hand"
+                                               % scratch_name)
+        report["live"] = live_results
+
+    return report
 
 
 # -- deliver / render ---------------------------------------------------------------

@@ -153,6 +153,14 @@ class FakeMediaPool:
         self.imported.extend(items)
         return items
 
+    def DeleteTimelines(self, timelines):
+        for tl in timelines:
+            if tl in PROJECT._timelines:
+                PROJECT._timelines.remove(tl)
+        self.deleted_timelines = getattr(self, "deleted_timelines", [])
+        self.deleted_timelines.extend(timelines)
+        return True
+
     def AutoSyncAudio(self, clips, settings):
         self.synced = (list(clips), dict(settings))
         return True
@@ -352,6 +360,12 @@ class FakeTimelineItem:
     def ClearFlags(self, color):
         self.flags = []
         return True
+
+    def GetClipColor(self):
+        return getattr(self, "clip_color", None)
+
+    def GetFlagList(self):
+        return list(getattr(self, "flags", []))
 
     # -- color groups / LUT export
     def AssignToColorGroup(self, group):
@@ -1603,6 +1617,66 @@ ok, out = run_tool("render_settings", {"action": "set", "format": "avi", "codec"
 check("bad render format refused", not ok and "rejected" in out, out)
 ok, out = run_tool("render_settings", {"action": "save_preset", "preset_name": "Claude 1080p"})
 check("render preset saved", ok and PROJECT.saved_preset == "Claude 1080p", out)
+
+# ------------------------------------------------------ find_clips / diagnostics
+print("== find_clips ==")
+
+_items = _tl.GetItemListInTrack("video", 1)
+_items[0].clip_color = "Teal"
+_items[0].flags = ["Green"]
+
+ok, out = run_tool("find_clips", {"name_contains": "broll"})
+check("find by name in pool", ok and "broll1" in out, out[:200])
+ok, out = run_tool("find_clips", {"clip_color": "teal", "where": "timeline"})
+check("find by clip color", ok and json.loads(out)["found"] >= 1, out[:200])
+_hit = json.loads(out)["timeline"][0]
+check("timeline hit has usable index",
+      _hit["track_index"] == 1 and _hit["index"] == 1, str(_hit))
+ok, out = run_tool("find_clips", {"flag_color": "green", "where": "timeline"})
+check("find by flag", ok and json.loads(out)["found"] >= 1, out[:200])
+ok, out = run_tool("find_clips", {"flag_color": "purple", "where": "timeline"})
+check("no false flag matches", ok and json.loads(out)["found"] == 0, out[:200])
+ok, out = run_tool("find_clips", {})
+check("filterless search refused", not ok and "at least one filter" in out, out)
+ok, out = run_tool("list_timeline_items", {})
+check("listing shows color and flags",
+      '"clip_color": "Teal"' in out and '"Green"' in out, out[:300])
+_items[0].clip_color = None
+_items[0].flags = []
+
+print("== diagnostics ==")
+
+ok, out = run_tool("run_diagnostics", {})
+check("diagnostics ok", ok, out[:200])
+_diag = json.loads(out)
+check("reports version", _diag["resolve_version"] == "20.0.0", str(_diag)[:120])
+check("api map present", len(_diag["api"]) >= 30, str(len(_diag.get("api", {}))))
+check("everything supported on fakes",
+      _diag["summary"]["missing"] == 0 and _diag["summary"]["blocked"] == 0,
+      json.dumps(_diag["summary"]))
+check("no live section without live=true", "live" not in _diag)
+
+_saved_const = FakeResolve.EXPORT_OTIO
+del FakeResolve.EXPORT_OTIO
+ok, out = run_tool("run_diagnostics", {})
+_diag = json.loads(out)
+check("missing constant detected",
+      "resolve.EXPORT_OTIO" in _diag["api"]["export_timeline / interchange"].get("missing", []),
+      json.dumps(_diag["api"]["export_timeline / interchange"]))
+FakeResolve.EXPORT_OTIO = _saved_const
+
+_tl_count = len(PROJECT._timelines)
+_current_before = PROJECT._current
+ok, out = run_tool("run_diagnostics", {"live": True})
+_diag = json.loads(out)
+check("live diagnostics ok", ok and "live" in _diag, out[:200])
+check("live title check ran", _diag["live"]["insert_title"] == "ok", json.dumps(_diag["live"]))
+check("live still capture ran", _diag["live"]["still_capture"].startswith("ok"),
+      json.dumps(_diag["live"]))
+check("scratch timeline cleaned up",
+      _diag["live"]["cleanup"] == "ok" and len(PROJECT._timelines) == _tl_count,
+      "%s / %d vs %d" % (_diag["live"].get("cleanup"), len(PROJECT._timelines), _tl_count))
+check("current timeline restored", PROJECT._current is _current_before)
 
 # ------------------------------------------------------- claude code backend
 print("== claude code backend ==")
