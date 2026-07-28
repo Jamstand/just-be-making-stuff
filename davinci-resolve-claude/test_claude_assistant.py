@@ -84,6 +84,14 @@ class FakeMediaPoolItem:
         self.transcribed = False
         return True
 
+    def LinkProxyMedia(self, path):
+        self.proxy = path
+        return True
+
+    def UnlinkProxyMedia(self):
+        self.proxy = None
+        return True
+
 
 class FakeFolder:
     def __init__(self, name, clips=None, subs=None):
@@ -173,6 +181,10 @@ class FakeGraph:
 
     def ResetAllGrades(self):
         self.reset = True
+        return True
+
+    def ApplyGradeFromDRX(self, path, mode):
+        self.drx_applied = (path, mode)
         return True
 
 
@@ -282,6 +294,44 @@ class FakeTimelineItem:
 
     def GetNodeGraph(self, layer=None):
         return self.graph
+
+    def SetVoiceIsolationState(self, state):
+        self.voice_isolation = dict(state)
+        return True
+
+    def GetVoiceIsolationState(self):
+        return getattr(self, "voice_isolation", {"isEnabled": False, "amount": 0})
+
+    # -- takes
+    def GetTakesCount(self):
+        return len(getattr(self, "takes", []))
+
+    def AddTake(self, mpi, start=None, end=None):
+        self.takes = getattr(self, "takes", [])
+        self.takes.append((mpi, start, end))
+        self.selected_take = len(self.takes)
+        return True
+
+    def SelectTakeByIndex(self, idx):
+        if 1 <= idx <= len(getattr(self, "takes", [])):
+            self.selected_take = idx
+            return True
+        return False
+
+    def GetSelectedTakeIndex(self):
+        return getattr(self, "selected_take", 0)
+
+    def DeleteTakeByIndex(self, idx):
+        takes = getattr(self, "takes", [])
+        if 1 <= idx <= len(takes):
+            takes.pop(idx - 1)
+            self.selected_take = min(getattr(self, "selected_take", 0), len(takes))
+            return True
+        return False
+
+    def FinalizeTake(self):
+        self.finalized = True
+        return True
 
     # -- organisation
     def SetClipColor(self, color):
@@ -475,6 +525,17 @@ class FakeTimeline:
     def Export(self, file_name, export_type, export_subtype=None):
         self.exports = getattr(self, "exports", [])
         self.exports.append((file_name, export_type, export_subtype))
+        try:
+            with open(file_name, "w") as f:
+                f.write("TITLE: %s\n001  AX  V  C  01:00:00:00 01:00:02:00\n" % self._name)
+        except OSError:
+            pass
+        return True
+
+    def DetectSceneCuts(self):
+        items = self._items.setdefault(("video", 1), [])
+        items.append(FakeTimelineItem("cut-piece", 86520, 86560))
+        self.scene_cut_ran = True
         return True
 
     def SetTrackName(self, ttype, idx, name):
@@ -520,6 +581,10 @@ class FakeGalleryStillAlbum:
         if self.export_fail:
             return False
         self.exported.append((list(stills), folder, prefix, fmt))
+        if fmt == "drx":
+            with open(os.path.join(folder, prefix + "_1.1.drx"), "wb") as f:
+                f.write(b"DRXFAKE")
+            return True
         # Resolve names exports like "<prefix>_1.1.jpg"; write real PNG bytes
         # under a .jpg name so media-type sniffing is exercised too.
         with open(os.path.join(folder, prefix + "_1.1.jpg"), "wb") as f:
@@ -610,6 +675,26 @@ class FakeProject:
 
     def GetMediaPool(self):
         return self._pool
+
+    def GetRenderFormats(self):
+        return {"QuickTime": "mov", "MP4": "mp4"}
+
+    def GetRenderCodecs(self, fmt):
+        return {"H.264": "H264"} if fmt in ("mp4", "mov") else {}
+
+    def SetCurrentRenderFormatAndCodec(self, fmt, codec):
+        if fmt not in ("mov", "mp4") or codec != "H264":
+            return False
+        self.render_format = (fmt, codec)
+        return True
+
+    def SaveAsNewRenderPreset(self, name):
+        self.saved_preset = name
+        return True
+
+    def GenerateSpeech(self, settings, tc):
+        self.speech = (dict(settings), tc)
+        return FakeMediaPoolItem("generated speech")
 
     def GetRenderPresetList(self):
         return ["YouTube 1080p", "H.264 Master"]
@@ -1422,6 +1507,102 @@ ok, out, imgs = mod.execute_tool("survey_clip", {"count": 3, "from": "10", "to":
 check("inverted range refused", not ok and "after" in out, out)
 ok, out, imgs = mod.execute_tool("survey_clip", {"count": 99})
 check("count clamped to 6", ok and len(imgs) <= 6, str(len(imgs) if imgs else 0))
+
+# ------------------------------------------- scene cuts / voice / takes / etc
+print("== deeper integration ==")
+
+_items_before = len(_tl.GetItemListInTrack("video", 1))
+ok, out = run_tool("detect_scene_cuts", {})
+check("scene cuts ok", ok, out)
+check("scene cuts added clips",
+      len(_tl.GetItemListInTrack("video", 1)) == _items_before + 1)
+
+_item = _tl.GetCurrentVideoItem()
+ok, out = run_tool("set_voice_isolation", {"enabled": True, "amount": 70})
+check("voice isolation ok", ok, out)
+check("isolation state stored",
+      _item.voice_isolation == {"isEnabled": True, "amount": 70})
+ok, out = run_tool("set_voice_isolation", {"enabled": True, "amount": 500})
+check("isolation amount clamped", ok and _item.voice_isolation["amount"] == 100, out)
+
+ok, out = run_tool("manage_proxy", {"action": "link", "clip_name": "broll1",
+                                    "proxy_path": "/proxies/broll1.mov"})
+check("proxy linked", ok, out)
+ok, out = run_tool("manage_proxy", {"action": "unlink", "clip_name": "broll1"})
+check("proxy unlinked", ok, out)
+ok, out = run_tool("manage_proxy", {"action": "link", "clip_name": "broll1"})
+check("link without path refused", not ok and "proxy_path" in out, out)
+
+ok, out = run_tool("manage_takes", {"action": "add", "clip_name": "clipB"})
+check("take added", ok and '"takes": 1' in out, out)
+ok, out = run_tool("manage_takes", {"action": "select", "take_index": 1})
+check("take selected", ok and '"selected": 1' in out, out)
+ok, out = run_tool("manage_takes", {"action": "select", "take_index": 9})
+check("bad take index refused", not ok and "No take" in out, out)
+ok, out = run_tool("manage_takes", {"action": "finalize"})
+check("take finalized", ok, out)
+
+print("== looks library ==")
+
+import tempfile as _tmp
+_looks_home = _tmp.mkdtemp()
+_real_config_path = mod.config_path
+mod.config_path = lambda: os.path.join(_looks_home, "config.json")
+try:
+    ok, out = run_tool("save_look", {"name": "warm sunset"})
+    check("look saved", ok and "warm sunset" in out, out)
+    ok, out = run_tool("list_looks", {})
+    check("look listed", ok and "warm sunset" in out, out)
+    ok, out = run_tool("apply_look", {"name": "warm sunset"})
+    check("look applied", ok, out)
+    check("drx reached the graph",
+          _tl.GetCurrentVideoItem().graph.drx_applied[0].endswith(".drx"))
+    check("look undo version saved",
+          "before_claude_look" in _tl.GetCurrentVideoItem().versions)
+    ok, out = run_tool("apply_look", {"name": "no such look"})
+    check("missing look refused", not ok and "list_looks" in out, out)
+    ok, out = run_tool("save_look", {"name": "///"})
+    check("unusable look name refused", not ok, out)
+finally:
+    mod.config_path = _real_config_path
+
+print("== interchange round-trip ==")
+
+_real_config_path = mod.config_path
+mod.config_path = lambda: os.path.join(_looks_home, "config.json")
+try:
+    ok, out = run_tool("get_timeline_interchange", {})
+    check("interchange read ok", ok and "TITLE:" in out, out[:200])
+    _doc = json.loads(out)["content"]
+    ok, out = run_tool("apply_timeline_interchange",
+                       {"content": _doc, "format": "edl", "timeline_name": "Rebuilt"})
+    check("interchange apply ok", ok and "Rebuilt" in out, out)
+    ok, out = run_tool("apply_timeline_interchange", {"content": "   "})
+    check("empty interchange refused", not ok and "empty" in out, out)
+    ok, out = run_tool("get_timeline_interchange", {"format": "docx"})
+    check("bad interchange format refused", not ok, out)
+finally:
+    mod.config_path = _real_config_path
+
+print("== speech / render settings ==")
+
+ok, out = run_tool("generate_speech", {"settings": {"text": "hello"}})
+check("speech generated", ok and "generated speech" in out, out)
+check("speech settings passed through", PROJECT.speech[0] == {"text": "hello"})
+ok, out = run_tool("generate_speech", {"settings": {}})
+check("empty speech settings refused", not ok, out)
+
+ok, out = run_tool("render_settings", {"action": "formats"})
+check("render formats listed", ok and "QuickTime" in out, out)
+ok, out = run_tool("render_settings", {"action": "codecs", "format": "mp4"})
+check("render codecs listed", ok and "H264" in out, out)
+ok, out = run_tool("render_settings", {"action": "set", "format": "mp4", "codec": "H264",
+                                       "settings": {"FormatWidth": 1920}})
+check("render set ok", ok and PROJECT.render_format == ("mp4", "H264"), out)
+ok, out = run_tool("render_settings", {"action": "set", "format": "avi", "codec": "H264"})
+check("bad render format refused", not ok and "rejected" in out, out)
+ok, out = run_tool("render_settings", {"action": "save_preset", "preset_name": "Claude 1080p"})
+check("render preset saved", ok and PROJECT.saved_preset == "Claude 1080p", out)
 
 # ------------------------------------------------------- claude code backend
 print("== claude code backend ==")

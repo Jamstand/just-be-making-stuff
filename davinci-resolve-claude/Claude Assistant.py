@@ -106,7 +106,7 @@ How to work:
 - To get spoken words as text: transcribe_audio on the clips, then auto_caption, then read the subtitle track with list_timeline_items(track_type='subtitle'). The transcript text is not directly retrievable any other way.
 
 What Resolve's scripting API cannot do. Say so plainly rather than pretending or quietly failing:
-- No trimming, slipping, rolling, razoring/splitting, moving a clip, or speed changes. Clips can only be ADDED (place_clips) and DELETED (delete_clips). "Move this clip later" or "cut this in half" would mean deleting and re-adding it, which destroys that clip's grade, Fusion comp, transforms and markers — offer that trade-off explicitly, don't just do it.
+- No trimming, slipping, rolling, razoring/splitting, moving a clip, or speed changes IN PLACE. Clips can only be ADDED (place_clips) and DELETED (delete_clips). Two workarounds, both with trade-offs to state before using them: (a) delete + re-add at new position/length, which destroys that clip's grade, Fusion comp, transforms and markers; (b) the interchange round-trip — get_timeline_interchange, transform the EDL/XML text yourself, apply_timeline_interchange — which supports arbitrary re-editing but builds a NEW timeline instead of changing the current one.
 - No colour wheels: no lift, gamma, gain, contrast, temperature or tint control exists. set_cdl is the only numeric colour tool; it is write-only and overwrites that node's CDL absolutely, so you can never read the current grade or "nudge" it. Prefer copy_grade, LUTs and colour versions where they fit.
 - No node creation, power windows, qualifiers, or grade keyframes.
 - No audio mixing whatsoever: no clip volume, fades, EQ, dynamics, or level/loudness readings. Audio tracks can be added and managed; nothing inside them can be adjusted.
@@ -1910,6 +1910,11 @@ EXPORT_FORMATS = {
     "otio": ("EXPORT_OTIO", None),
     "csv": ("EXPORT_TEXT_CSV", None),
     "ale": ("EXPORT_ALE", None),
+    "hdr10a": ("EXPORT_HDR_10_PROFILE_A", None),
+    "hdr10b": ("EXPORT_HDR_10_PROFILE_B", None),
+    "dolbyvision2.9": ("EXPORT_DOLBY_VISION_VER_2_9", None),
+    "dolbyvision4.0": ("EXPORT_DOLBY_VISION_VER_4_0", None),
+    "dolbyvision5.1": ("EXPORT_DOLBY_VISION_VER_5_1", None),
 }
 
 
@@ -2243,7 +2248,433 @@ def t_manage_project(app, action, name=None):
     raise ResolveError("action must be list, create or open.")
 
 
+# -- more editing / media -------------------------------------------------------
+
+@tool(
+    "detect_scene_cuts",
+    "Run Resolve's automatic scene-cut detection on the current timeline — razors "
+    "long recordings into shots at detected cuts. Changes the timeline (adds edits); "
+    "confirm with the user first. Can take a while on long timelines.",
+)
+def t_detect_scene_cuts(app):
+    tl = app.timeline
+    if not _supports(tl, "DetectSceneCuts"):
+        raise ResolveError("This version of Resolve cannot detect scene cuts from a script.")
+    before = sum(len(tl.GetItemListInTrack("video", i) or [])
+                 for i in range(1, int(tl.GetTrackCount("video") or 0) + 1))
+    if not tl.DetectSceneCuts():
+        raise ResolveError("Scene cut detection failed or found nothing to cut.")
+    after = sum(len(tl.GetItemListInTrack("video", i) or [])
+                for i in range(1, int(tl.GetTrackCount("video") or 0) + 1))
+    return {"timeline": tl.GetName(), "clips_before": before, "clips_after": after}
+
+
+@tool(
+    "set_voice_isolation",
+    "Turn Resolve's AI Voice Isolation on/off for clips (cleans dialogue by "
+    "suppressing background noise). Resolve 20.1+, Studio. Applies to the clip "
+    "under the playhead, or to `clip_indices` on an audio/video track.",
+    params={
+        "enabled": {"type": "boolean", "description": "Turn isolation on or off."},
+        "amount": {"type": "integer", "description": "Strength 0-100 (default 50)."},
+        "clip_indices": {"type": "array", "description": "1-based clip positions (optional).",
+                         "items": {"type": "integer"}},
+        "track_type": {"type": "string", "description": "audio or video (default audio)."},
+        "track_index": {"type": "integer", "description": "1-based track (default 1)."},
+    },
+    required=["enabled"],
+)
+def t_set_voice_isolation(app, enabled, amount=50, clip_indices=None,
+                          track_type="audio", track_index=1):
+    amount = max(0, min(100, int(amount)))
+    if clip_indices:
+        items = _track_items(app, track_type, track_index)
+        targets = []
+        for n in clip_indices:
+            n = int(n)
+            if not 1 <= n <= len(items):
+                raise ResolveError("No clip at position %d (track has %d)." % (n, len(items)))
+            targets.append(items[n - 1])
+    else:
+        targets = [_current_item(app, "isolate")]
+
+    state = {"isEnabled": bool(enabled), "amount": amount}
+    done, failed = [], []
+    for item in targets:
+        if _supports(item, "SetVoiceIsolationState") and item.SetVoiceIsolationState(dict(state)):
+            done.append(item.GetName())
+        else:
+            failed.append(item.GetName())
+    if failed and not done:
+        raise ResolveError("Voice Isolation was refused (needs Resolve 20.1+ Studio, "
+                           "and clips with audio). Failed: %s" % ", ".join(failed))
+    out = {"voice_isolation": state, "applied_to": done}
+    if failed:
+        out["failed"] = failed
+    return out
+
+
+@tool(
+    "manage_proxy",
+    "Link or unlink proxy media for a clip. `link` attaches a proxy file to a "
+    "media pool clip; `unlink` detaches it. Refuses cleanly if this Resolve "
+    "version has no proxy API.",
+    params={
+        "action": {"type": "string", "description": "link or unlink."},
+        "clip_name": {"type": "string", "description": "Media pool clip by exact name."},
+        "proxy_path": {"type": "string", "description": "Absolute path to the proxy file (link only)."},
+    },
+    required=["action", "clip_name"],
+)
+def t_manage_proxy(app, action, clip_name, proxy_path=None):
+    clip = app.find_clips_by_name([clip_name])[0]
+    act = str(action).strip().lower()
+    if act == "link":
+        if not proxy_path:
+            raise ResolveError("`proxy_path` is required to link.")
+        if not _supports(clip, "LinkProxyMedia"):
+            raise ResolveError("This version of Resolve has no proxy-linking API.")
+        if not clip.LinkProxyMedia(str(proxy_path)):
+            raise ResolveError("Resolve refused to link that proxy (resolution/codec "
+                               "must be compatible with the original).")
+        return {"linked": clip_name, "proxy": proxy_path}
+    if act == "unlink":
+        if not _supports(clip, "UnlinkProxyMedia"):
+            raise ResolveError("This version of Resolve has no proxy-linking API.")
+        if not clip.UnlinkProxyMedia():
+            raise ResolveError("Resolve refused to unlink the proxy.")
+        return {"unlinked": clip_name}
+    raise ResolveError("action must be link or unlink.")
+
+
+@tool(
+    "manage_takes",
+    "Take selector on the clip under the playhead — audition alternate takes in "
+    "place, the closest thing Resolve's API has to swapping a clip. Actions: 'add' "
+    "(a media pool clip as a take), 'list', 'select' (by 1-based index), "
+    "'finalize' (keep selected take), 'delete' (by index).",
+    params={
+        "action": {"type": "string", "description": "add, list, select, finalize or delete."},
+        "clip_name": {"type": "string", "description": "Media pool clip to add as a take."},
+        "take_index": {"type": "integer", "description": "1-based take (select/delete)."},
+        "start_frame": {"type": "integer", "description": "Source in-point for add."},
+        "end_frame": {"type": "integer", "description": "Source out-point for add."},
+    },
+    required=["action"],
+)
+def t_manage_takes(app, action, clip_name=None, take_index=None,
+                   start_frame=None, end_frame=None):
+    item = _current_item(app, "use takes on")
+    act = str(action).strip().lower()
+    if not _supports(item, "GetTakesCount"):
+        raise ResolveError("This version of Resolve has no take-selector API.")
+
+    if act == "add":
+        if not clip_name:
+            raise ResolveError("`clip_name` is required for add.")
+        mpi = app.find_clips_by_name([clip_name])[0]
+        if start_frame is not None and end_frame is not None:
+            ok = item.AddTake(mpi, int(start_frame), int(end_frame))
+        else:
+            ok = item.AddTake(mpi)
+        if not ok:
+            raise ResolveError("Resolve refused to add %r as a take." % clip_name)
+    elif act == "select":
+        if take_index is None:
+            raise ResolveError("`take_index` is required for select.")
+        if not item.SelectTakeByIndex(int(take_index)):
+            raise ResolveError("No take %s on this clip." % take_index)
+    elif act == "delete":
+        if take_index is None:
+            raise ResolveError("`take_index` is required for delete.")
+        if not item.DeleteTakeByIndex(int(take_index)):
+            raise ResolveError("Could not delete take %s." % take_index)
+    elif act == "finalize":
+        if not item.FinalizeTake():
+            raise ResolveError("Could not finalize the take.")
+    elif act != "list":
+        raise ResolveError("action must be add, list, select, finalize or delete.")
+
+    return {"clip": item.GetName(),
+            "takes": int(item.GetTakesCount() or 0),
+            "selected": int(item.GetSelectedTakeIndex() or 0)}
+
+
+# -- looks library ---------------------------------------------------------------
+
+def _looks_dir():
+    path = os.path.join(os.path.dirname(config_path()), "looks")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+@tool(
+    "save_look",
+    "Save the grade of the clip under the playhead into the plugin's looks library "
+    "as a named .drx file — building a reusable palette of looks that apply_look "
+    "can put on any clip later.",
+    params={"name": {"type": "string", "description": "Name for the look, e.g. 'warm sunset'."}},
+    required=["name"],
+)
+def t_save_look(app, name):
+    safe = re.sub(r"[^\w\- ]", "", str(name)).strip()
+    if not safe:
+        raise ResolveError("Give the look a usable name.")
+    tl = app.timeline
+    project = app.pm.GetCurrentProject()
+
+    page_before = None
+    try:
+        page_before = app.resolve.GetCurrentPage()
+        if page_before != "color":
+            app.resolve.OpenPage("color")
+    except Exception:
+        page_before = None
+
+    still, album = None, None
+    try:
+        for _ in range(3):
+            still = tl.GrabStill()
+            if still:
+                break
+            time.sleep(0.25)
+        if not still:
+            raise ResolveError("Could not grab the grade (no clip under the playhead?).")
+        gallery = project.GetGallery()
+        album = gallery.GetCurrentStillAlbum() if gallery else None
+        if not album:
+            raise ResolveError("Could not access the Gallery.")
+        if not album.ExportStills([still], _looks_dir(), safe, "drx"):
+            raise ResolveError("Resolve refused to export the grade (is the Gallery "
+                               "panel open?).")
+        made = [f for f in os.listdir(_looks_dir())
+                if f.startswith(safe) and f.lower().endswith(".drx")]
+        if not made:
+            raise ResolveError("The export produced no .drx file.")
+        return {"saved_look": safe, "file": os.path.join(_looks_dir(), sorted(made)[-1]),
+                "library": _looks_dir()}
+    finally:
+        if still is not None and album is not None:
+            try:
+                album.DeleteStills([still])
+            except Exception:
+                pass
+        if page_before and page_before != "color":
+            try:
+                app.resolve.OpenPage(page_before)
+            except Exception:
+                pass
+
+
+@tool(
+    "list_looks",
+    "List the saved looks in the plugin's looks library (built with save_look; "
+    "you can also drop .drx files into the folder by hand).",
+)
+def t_list_looks(app):
+    looks = sorted(f for f in os.listdir(_looks_dir()) if f.lower().endswith(".drx"))
+    return {"looks": looks, "library": _looks_dir()}
+
+
+@tool(
+    "apply_look",
+    "Apply a saved look (.drx from the looks library) to the grade of the clip "
+    "under the playhead. Resolve 19.1+. Overwrites the clip's current grade — a "
+    "colour version is saved first as an undo net.",
+    params={"name": {"type": "string", "description": "Look name or filename from list_looks."}},
+    required=["name"],
+)
+def t_apply_look(app, name):
+    item = _current_item(app, "apply a look to")
+    graph = _node_graph(app, item)
+    if graph is None or not _supports(graph, "ApplyGradeFromDRX"):
+        raise ResolveError("Applying .drx grades needs Resolve 19.1 or newer.")
+
+    wanted = str(name).lower()
+    matches = [f for f in os.listdir(_looks_dir()) if f.lower().endswith(".drx")
+               and (wanted in f.lower() or f.lower() == wanted)]
+    if not matches:
+        raise ResolveError("No look matching %r — see list_looks." % name)
+    path = os.path.join(_looks_dir(), sorted(matches)[0])
+
+    saved = False
+    try:
+        saved = bool(item.AddVersion("before_claude_look", 0))
+    except Exception:
+        pass
+    if not graph.ApplyGradeFromDRX(path, 0):
+        raise ResolveError("Resolve refused to apply the look.")
+    return {"applied_look": os.path.basename(path), "clip": item.GetName(),
+            "undo_version": "before_claude_look" if saved else None}
+
+
+# -- timeline interchange (the round-trip editing escape hatch) -------------------
+
+INTERCHANGE_MAX_BYTES = 192 * 1024
+
+
+@tool(
+    "get_timeline_interchange",
+    "Read the current timeline as interchange TEXT (edl, fcp7xml, fcpxml or otio) "
+    "so you can inspect or transform the edit itself. Combined with "
+    "apply_timeline_interchange this is the ONLY route to trims/moves/splits: "
+    "read, modify the text, apply as a new timeline. EDL is the most compact.",
+    params={"format": {"type": "string", "description": "edl, fcp7xml, fcpxml or otio (default edl)."}},
+)
+def t_get_timeline_interchange(app, format="edl"):
+    fmt = str(format).strip().lower()
+    if fmt not in ("edl", "fcp7xml", "fcpxml", "otio"):
+        raise ResolveError("format must be edl, fcp7xml, fcpxml or otio.")
+    type_name, sub_name = EXPORT_FORMATS[fmt]
+    tl = app.timeline
+    out_dir = os.path.join(os.path.dirname(config_path()), "interchange-%d" % os.getpid())
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "timeline." + fmt)
+    try:
+        export_type = _resolve_const(app, type_name)
+        if sub_name is not None:
+            ok = tl.Export(path, export_type, _resolve_const(app, sub_name))
+        else:
+            ok = tl.Export(path, export_type)
+        if not ok or not os.path.exists(path):
+            raise ResolveError("Resolve refused the %s export." % fmt)
+        size = os.path.getsize(path)
+        if size > INTERCHANGE_MAX_BYTES:
+            raise ResolveError("The %s is %.0fKB — too large to hand over. Try "
+                               "format='edl', which is far more compact." % (fmt, size / 1024.0))
+        with open(path, "r", errors="replace") as f:
+            content = f.read()
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+    return {"timeline": tl.GetName(), "format": fmt, "content": content}
+
+
+@tool(
+    "apply_timeline_interchange",
+    "Create a NEW timeline from interchange text you provide (the write half of "
+    "the round-trip: get_timeline_interchange -> modify -> apply). The original "
+    "timeline is untouched; the result appears as a separate timeline.",
+    params={
+        "content": {"type": "string", "description": "The interchange document text."},
+        "format": {"type": "string", "description": "edl, fcp7xml, fcpxml or otio (default edl)."},
+        "timeline_name": {"type": "string", "description": "Name for the new timeline."},
+    },
+    required=["content"],
+)
+def t_apply_timeline_interchange(app, content, format="edl", timeline_name=None):
+    fmt = str(format).strip().lower()
+    ext = {"edl": ".edl", "fcp7xml": ".xml", "fcpxml": ".fcpxml", "otio": ".otio"}.get(fmt)
+    if ext is None:
+        raise ResolveError("format must be edl, fcp7xml, fcpxml or otio.")
+    if not str(content).strip():
+        raise ResolveError("`content` is empty.")
+    if len(content) > INTERCHANGE_MAX_BYTES:
+        raise ResolveError("Content is too large (%.0fKB)." % (len(content) / 1024.0))
+
+    out_dir = os.path.join(os.path.dirname(config_path()), "interchange-%d" % os.getpid())
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "incoming" + ext)
+    try:
+        with open(path, "w") as f:
+            f.write(content)
+        options = {"timelineName": str(timeline_name)} if timeline_name else {}
+        tl = app.media_pool.ImportTimelineFromFile(path, options)
+        if not tl:
+            raise ResolveError("Resolve could not build a timeline from that %s — "
+                               "check the document is valid and its media exists "
+                               "in the project." % fmt)
+        return {"created_timeline": tl.GetName(), "format": fmt}
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
+# -- speech generation (Resolve 21+) ----------------------------------------------
+
+@tool(
+    "generate_speech",
+    "Generate AI speech into the media pool (Resolve 21+ with the AI Speech "
+    "Generator extra installed). `settings` is passed straight to Resolve's "
+    "speechGenerationSettings — its keys follow Resolve 21's documentation, e.g. "
+    "the text and voice selection. Refuses cleanly on older Resolves.",
+    params={
+        "settings": {"type": "object", "description":
+                     "Resolve speechGenerationSettings dict, passed through as-is."},
+        "timecode": {"type": "string", "description":
+                     "Timeline timecode for the generated clip (default: playhead)."},
+    },
+    required=["settings"],
+)
+def t_generate_speech(app, settings, timecode=None):
+    project = app.project
+    if not _supports(project, "GenerateSpeech"):
+        raise ResolveError("Speech generation needs Resolve 21+ with the AI Speech "
+                           "Generator extra installed.")
+    if not isinstance(settings, dict) or not settings:
+        raise ResolveError("`settings` must be a non-empty object.")
+    tc = str(timecode) if timecode else app.timeline.GetCurrentTimecode()
+    made = project.GenerateSpeech(dict(settings), tc)
+    if not made:
+        raise ResolveError("Resolve did not generate speech — check the settings "
+                           "keys against Resolve 21's speechGenerationSettings.")
+    return {"generated_clip": made.GetName(), "at": tc}
+
+
 # -- deliver / render ---------------------------------------------------------------
+
+@tool(
+    "render_settings",
+    "Inspect or change the Deliver page's render format/codec and settings. "
+    "Actions: 'formats' (list), 'codecs' (for a format), 'set' (format/codec "
+    "and/or a settings dict: FormatWidth, FormatHeight, FrameRate, ExportVideo, "
+    "ExportAudio, AudioCodec, AudioBitDepth, AudioSampleRate, MarkIn, MarkOut, "
+    "TargetDir, CustomName...), 'save_preset' (store current setup under a name).",
+    params={
+        "action": {"type": "string", "description": "formats, codecs, set or save_preset."},
+        "format": {"type": "string", "description": "Render format key (codecs/set)."},
+        "codec": {"type": "string", "description": "Codec name (set)."},
+        "settings": {"type": "object", "description": "SetRenderSettings dict (set)."},
+        "preset_name": {"type": "string", "description": "Name (save_preset)."},
+    },
+    required=["action"],
+)
+def t_render_settings(app, action, format=None, codec=None, settings=None, preset_name=None):
+    project = app.project
+    act = str(action).strip().lower()
+    if act == "formats":
+        return {"formats": project.GetRenderFormats() or {}}
+    if act == "codecs":
+        if not format:
+            raise ResolveError("`format` is required for codecs.")
+        return {"format": format, "codecs": project.GetRenderCodecs(str(format)) or {}}
+    if act == "set":
+        out = {}
+        if format or codec:
+            if not (format and codec):
+                raise ResolveError("Setting format/codec needs both `format` and `codec`.")
+            if not project.SetCurrentRenderFormatAndCodec(str(format), str(codec)):
+                raise ResolveError("Resolve rejected format %r / codec %r — check "
+                                   "them against the 'formats' and 'codecs' actions."
+                                   % (format, codec))
+            out["format"] = format
+            out["codec"] = codec
+        if settings:
+            if not isinstance(settings, dict):
+                raise ResolveError("`settings` must be an object.")
+            if not project.SetRenderSettings(dict(settings)):
+                raise ResolveError("Resolve rejected those render settings.")
+            out["settings"] = settings
+        if not out:
+            raise ResolveError("Give format+codec and/or settings.")
+        return out
+    if act == "save_preset":
+        if not preset_name:
+            raise ResolveError("`preset_name` is required.")
+        if not (_supports(project, "SaveAsNewRenderPreset")
+                and project.SaveAsNewRenderPreset(str(preset_name))):
+            raise ResolveError("Could not save render preset %r." % preset_name)
+        return {"saved_preset": preset_name}
+    raise ResolveError("action must be formats, codecs, set or save_preset.")
+
 
 @tool(
     "list_render_presets",

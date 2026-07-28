@@ -11,7 +11,7 @@ Resolve for you — not just answer questions. Ask it things like:
 - *"Why does my 23.976 footage stutter on a 25fps timeline?"* (plain advice — no tools needed)
 
 Claude sees a live snapshot of your session (current page, project, timeline,
-playhead) with every message, and works through **49 purpose-built tools**
+playhead) with every message, and works through **60 purpose-built tools**
 covering markers, timelines, the media pool, clip properties, project settings,
 color (current clip / LUTs), and the render queue — plus an optional
 `run_python` escape hatch for anything the tools don't cover.
@@ -73,7 +73,7 @@ only the in-Resolve panel holds that connection. The panel therefore starts a
 loopback tool server (random port, random token, `127.0.0.1` only) and hands
 Claude Code a small MCP server that forwards tool calls back to it. Claude Code
 is launched with `--strict-mcp-config`, `--tools ""` and
-`--allowedTools mcp__resolve__*`, so it gets **the 49 Resolve tools and nothing
+`--allowedTools mcp__resolve__*`, so it gets **the 60 Resolve tools and nothing
 else** — no filesystem access, no shell, and none of your other MCP servers.
 
 Note that `ANTHROPIC_API_KEY` is deliberately **removed** from the CLI's
@@ -124,7 +124,10 @@ avoid that.
 | Audio | transcribe clips/bins, auto-caption the timeline (read the text via the subtitle track), auto-sync audio to camera clips (19.1+) |
 | Timeline ops | export/import AAF·EDL·XML·FCPXML·OTIO·DRT·CSV·ALE, duplicate timeline, compound clips, rename/lock/enable tracks |
 | Organisation | clip colors and flags on any clips |
-| Colour extras | colour groups (19+), bake a grade to a .cube LUT (19+) |
+| Colour extras | colour groups (19+), bake a grade to a .cube LUT (19+), **looks library** — save any clip's grade as a named look, apply it to other clips later |
+| Deeper editing | automatic scene-cut detection, take selectors (audition alternates in place), **interchange round-trip** — read the timeline as EDL/XML text, transform it, apply as a new timeline (the only route to trims/moves/splits) |
+| Audio extras | AI Voice Isolation per clip (20.1+ Studio), proxy link/unlink, AI speech generation (21+) |
+| Render setup | list formats/codecs, set format/codec and any render setting, save render presets |
 | Projects | list/create/open projects |
 | Deliver | list presets, queue render jobs (preset/target/filename), start, status |
 | Project | read/change project settings, save project |
@@ -141,7 +144,7 @@ about them so it says so plainly instead of failing silently:
 
 | Not possible | Detail |
 |---|---|
-| Trim / slip / roll / razor / move a clip / speed changes | Clips can only be **added** and **deleted**. There is exactly one edit mode (append). Simulating a move means delete + re-add, which loses that clip's grade, Fusion comp and transforms. |
+| Trim / slip / roll / razor / move a clip / speed changes **in place** | Clips can only be **added** and **deleted**. Simulating a move means delete + re-add, which loses that clip's grade, Fusion comp and transforms. The interchange round-trip (EDL/XML out → transform → import) supports arbitrary re-editing, but always as a **new** timeline. |
 | Colour wheels — lift/gamma/gain/contrast/temp/tint | No API exists in any version. `set_cdl` (ASC CDL slope/offset/power) is the only numeric colour control, and it's **write-only** — no read-back, so every call is an absolute overwrite, never a nudge. A colour version is auto-saved first as an undo net. |
 | Create/reorder nodes, power windows, qualifiers, grade keyframes | No API surface at all. |
 | Audio mixing — clip volume, fades, EQ, dynamics, LUFS/levels | Nothing exists in any version. Audio *tracks* can be added and managed; nothing inside them can be adjusted. |
