@@ -116,7 +116,10 @@ avoid that.
 | Markers | add / list / delete (by position or color), timecode or frame positions |
 | Timelines | create, switch, move playhead, append clips |
 | Media pool | browse folders, clip properties, create bins, import media from disk |
-| Color | current clip info + grade versions, apply LUT to a node |
+| Editing | place clips at exact frame/track with in/out points, delete (with ripple), add tracks |
+| Transforms | zoom/punch-in, pan, tilt, rotation, crop, opacity, flip on any clip |
+| Titles & Fusion | insert a title and set its text, add Fusion effect nodes with parameters |
+| Color | current clip info, copy a grade to other clips, colour versions, LUT on a node, reset, ASC CDL |
 | **Vision** | `view_frame` — Claude looks at the actual frame (playhead or any timecode) as an image: exposure, color balance, framing, shot content, comparing shots |
 | Deliver | list presets, queue render jobs (preset/target/filename), start, status |
 | Project | read/change project settings, save project |
@@ -125,6 +128,24 @@ avoid that.
 Claude is instructed to **ask before destructive things** — bulk-deleting
 markers, changing timeline resolution mid-project, starting renders you didn't
 ask for, or any `run_python` that touches files on disk.
+
+### What Resolve's API genuinely cannot do
+
+These are limits of Blackmagic's scripting API, not of the plugin. Claude is told
+about them so it says so plainly instead of failing silently:
+
+| Not possible | Detail |
+|---|---|
+| Trim / slip / roll / razor / move a clip / speed changes | Clips can only be **added** and **deleted**. There is exactly one edit mode (append). Simulating a move means delete + re-add, which loses that clip's grade, Fusion comp and transforms. |
+| Colour wheels — lift/gamma/gain/contrast/temp/tint | No API exists in any version. `set_cdl` (ASC CDL slope/offset/power) is the only numeric colour control, and it's **write-only** — no read-back, so every call is an absolute overwrite, never a nudge. A colour version is auto-saved first as an undo net. |
+| Create/reorder nodes, power windows, qualifiers, grade keyframes | No API surface at all. |
+| Audio mixing — clip volume, fades, EQ, dynamics, LUFS/levels | Nothing exists in any version. Audio *tracks* can be added and managed; nothing inside them can be adjusted. |
+| Choose a title's track or duration at insert | Titles land on the lowest video track. |
+
+> Beware third-party Resolve integrations advertising clip-volume or colour-wheel
+> control — the API methods they call don't exist, and Resolve returns failure
+> silently. This plugin only ships tools built on methods verified against
+> Blackmagic's own scripting README.
 
 ### Timecode notes
 

@@ -103,6 +103,13 @@ Environment facts:
 How to work:
 - Prefer the purpose-built tools. Use run_python only when no tool covers the request; keep snippets short and explain what they do. The `resolve` object and current `project`/`timeline` are available inside run_python.
 - view_frame shows you the actual frame as an image. Whenever the question is about how footage looks — exposure, color, framing, what's in the shot, whether two shots match — look with view_frame instead of guessing from names and metadata. You can call it at several positions to compare.
+
+What Resolve's scripting API cannot do. Say so plainly rather than pretending or quietly failing:
+- No trimming, slipping, rolling, razoring/splitting, moving a clip, or speed changes. Clips can only be ADDED (place_clips) and DELETED (delete_clips). "Move this clip later" or "cut this in half" would mean deleting and re-adding it, which destroys that clip's grade, Fusion comp, transforms and markers — offer that trade-off explicitly, don't just do it.
+- No colour wheels: no lift, gamma, gain, contrast, temperature or tint control exists. set_cdl is the only numeric colour tool; it is write-only and overwrites that node's CDL absolutely, so you can never read the current grade or "nudge" it. Prefer copy_grade, LUTs and colour versions where they fit.
+- No node creation, power windows, qualifiers, or grade keyframes.
+- No audio mixing whatsoever: no clip volume, fades, EQ, dynamics, or level/loudness readings. Audio tracks can be added and managed; nothing inside them can be adjusted.
+- Titles land on the lowest video track and their duration cannot be set at insert.
 - For actions that are destructive or hard to undo (deleting many markers, overwriting project settings, starting long renders, anything via run_python that modifies media on disk), state what you are about to do and get the user's OK in chat first, unless they just explicitly asked for exactly that action.
 - After changing something in Resolve, briefly confirm what changed. If a tool errors, read the error, adjust, and retry once before reporting back.
 - Be concise. Editors are mid-task; lead with the answer or the result, keep explanations short, and don't pad with caveats.
@@ -863,6 +870,382 @@ def t_append(app, clip_names):
     return {"appended": clip_names, "timeline": app.timeline.GetName()}
 
 
+# -- editing -----------------------------------------------------------------
+
+# Verbatim from Resolve's "Looking up Timeline item properties". Values are
+# floats unless noted; ranges that depend on frame size are checked by Resolve.
+TRANSFORM_KEYS = {
+    "Pan": "pixels, -4x..4x width", "Tilt": "pixels, -4x..4x height",
+    "ZoomX": "0.0-100.0 (1.0 = original size)", "ZoomY": "0.0-100.0",
+    "ZoomGang": "bool - link ZoomX/ZoomY",
+    "RotationAngle": "-360.0..360.0 degrees",
+    "AnchorPointX": "pixels", "AnchorPointY": "pixels",
+    "Pitch": "-1.5..1.5", "Yaw": "-1.5..1.5",
+    "FlipX": "bool - flip horizontally", "FlipY": "bool - flip vertically",
+    "CropLeft": "pixels", "CropRight": "pixels",
+    "CropTop": "pixels", "CropBottom": "pixels",
+    "CropSoftness": "-100.0..100.0", "CropRetain": "bool",
+    "Opacity": "0.0-100.0", "Distortion": "-1.0..1.0",
+}
+
+
+def _supports(obj, method):
+    """Feature-detect a Resolve API method.
+
+    NOT hasattr(): Resolve's Python bridge fabricates a callable for ANY
+    attribute name, so hasattr is always True and getattr never raises. Only
+    dir() lists the real methods.
+    """
+    try:
+        return method in dir(obj)
+    except Exception:
+        return False
+
+
+def _track_items(app, track_type, track_index):
+    tl = app.timeline
+    count = int(tl.GetTrackCount(track_type) or 0)
+    if not 1 <= int(track_index) <= count:
+        raise ResolveError("%s track %s does not exist (timeline has %d)."
+                           % (track_type, track_index, count))
+    return list(tl.GetItemListInTrack(track_type, int(track_index)) or [])
+
+
+def _describe_item(app, item, fps, index=None):
+    out = {
+        "index": index,
+        "name": item.GetName(),
+        "start_timecode": app.abs_frame_to_tc(int(item.GetStart()), fps),
+        "duration_frames": int(item.GetDuration()),
+    }
+    return out
+
+
+@tool(
+    "place_clips",
+    "Place media pool clips onto the current timeline at exact positions — the "
+    "way to build an assembly or drop a clip at a specific spot. Each entry needs "
+    "`clip_name`; optionally `start_frame`/`end_frame` (in/out within the SOURCE "
+    "clip), `track_index` (default 1), and `at` (timeline position as timecode or "
+    "frames from timeline start; default: butt-joined after the previous entry). "
+    "Note Resolve can only ADD clips — it cannot move or trim them afterwards.",
+    params={
+        "clips": {"type": "array", "description":
+                  "List of {clip_name, start_frame?, end_frame?, track_index?, at?}.",
+                  "items": {"type": "object"}},
+        "audio_only": {"type": "boolean", "description": "Place audio only (default false)."},
+        "video_only": {"type": "boolean", "description": "Place video only (default false)."},
+    },
+    required=["clips"],
+)
+def t_place_clips(app, clips, audio_only=False, video_only=False):
+    if not isinstance(clips, list) or not clips:
+        raise ResolveError("`clips` must be a non-empty list.")
+    tl = app.timeline
+    fps = app.timeline_fps(tl)
+    timeline_start = int(tl.GetStartFrame())
+
+    names = [c.get("clip_name") for c in clips if isinstance(c, dict)]
+    if len(names) != len(clips) or not all(names):
+        raise ResolveError("Every entry needs a `clip_name`.")
+    found = dict(zip(names, app.find_clips_by_name(names)))
+
+    infos = []
+    cursor = timeline_start
+    for entry in clips:
+        mpi = found[entry["clip_name"]]
+        info = {"mediaPoolItem": mpi}
+
+        src_in = entry.get("start_frame")
+        src_out = entry.get("end_frame")
+        if src_in is not None:
+            info["startFrame"] = int(src_in)
+        if src_out is not None:
+            info["endFrame"] = int(src_out)
+
+        track_index = int(entry.get("track_index") or 1)
+        info["trackIndex"] = track_index
+        if audio_only:
+            info["mediaType"] = 2
+        elif video_only:
+            info["mediaType"] = 1
+
+        at = entry.get("at")
+        if at is None:
+            record = cursor
+        elif isinstance(at, str) and (":" in at or ";" in at):
+            record = app.tc_to_abs_frame(at, fps)
+        else:
+            # recordFrame is ABSOLUTE, and timelines usually start at 01:00:00:00 —
+            # a bare frame number means "frames from timeline start".
+            record = timeline_start + int(at)
+        if record < timeline_start:
+            raise ResolveError("Position %r is before the timeline start." % (at,))
+        info["recordFrame"] = record
+
+        if src_in is not None and src_out is not None:
+            cursor = record + (int(src_out) - int(src_in) + 1)
+        else:
+            cursor = record + int(mpi.GetClipProperty("Frames") or 0)
+        infos.append(info)
+
+    placed = app.media_pool.AppendToTimeline(infos)
+    if not placed:
+        raise ResolveError(
+            "Resolve refused to place the clips. Common causes: the target track "
+            "doesn't exist (add it first), the source in/out range is outside the "
+            "clip, or another clip already occupies that spot.")
+    return {"placed": len(placed), "timeline": tl.GetName(),
+            "clips": [c["clip_name"] for c in clips]}
+
+
+@tool(
+    "delete_clips",
+    "Delete clips from a track of the current timeline, by their position in the "
+    "track (1 = first clip). Set `ripple` to close the gap and pull later clips "
+    "back. Destructive — confirm with the user first unless they asked for exactly "
+    "this. Use list_timeline_items first to see what's on the track.",
+    params={
+        "clip_indices": {"type": "array", "description":
+                         "1-based positions of clips within the track, e.g. [3] or [2,4].",
+                         "items": {"type": "integer"}},
+        "track_type": {"type": "string", "description": "video, audio or subtitle (default video)."},
+        "track_index": {"type": "integer", "description": "1-based track number (default 1)."},
+        "ripple": {"type": "boolean", "description":
+                   "Close the gap and shift later clips earlier (default false)."},
+    },
+    required=["clip_indices"],
+)
+def t_delete_clips(app, clip_indices, track_type="video", track_index=1, ripple=False):
+    tl = app.timeline
+    if not _supports(tl, "DeleteClips"):
+        raise ResolveError("This version of Resolve has no DeleteClips API (needs 18.5+).")
+    items = _track_items(app, track_type, track_index)
+    if not items:
+        raise ResolveError("%s track %s is empty." % (track_type, track_index))
+
+    picked, bad = [], []
+    for n in clip_indices:
+        n = int(n)
+        if 1 <= n <= len(items):
+            picked.append(items[n - 1])
+        else:
+            bad.append(n)
+    if bad:
+        raise ResolveError("No clip at position %s on %s track %s (track has %d)."
+                           % (", ".join(map(str, bad)), track_type, track_index, len(items)))
+
+    names = [i.GetName() for i in picked]
+    if not tl.DeleteClips(picked, bool(ripple)):
+        raise ResolveError("Resolve refused to delete those clips (is the track locked?).")
+    return {"deleted": names, "ripple": bool(ripple),
+            "remaining_on_track": len(_track_items(app, track_type, track_index))}
+
+
+@tool(
+    "set_clip_transform",
+    "Change size/position/crop/opacity of a clip — punch in, reframe, crop, fade a "
+    "clip's opacity, flip it. Applies to the clip under the playhead unless you give "
+    "`track_type`/`track_index`/`clip_index`. Keys: " + ", ".join(sorted(TRANSFORM_KEYS)) +
+    ". ZoomX/ZoomY are multipliers where 1.0 is original size (1.2 = 20% punch in).",
+    params={
+        "properties": {"type": "object", "description":
+                       "Map of property name to value, e.g. {\"ZoomX\": 1.2, \"ZoomY\": 1.2}."},
+        "track_type": {"type": "string", "description": "video/audio (default: clip under playhead)."},
+        "track_index": {"type": "integer", "description": "1-based track number."},
+        "clip_index": {"type": "integer", "description": "1-based clip position within the track."},
+    },
+    required=["properties"],
+)
+def t_set_clip_transform(app, properties, track_type=None, track_index=None, clip_index=None):
+    if not isinstance(properties, dict) or not properties:
+        raise ResolveError("`properties` must be a non-empty object.")
+    unknown = [k for k in properties if k not in TRANSFORM_KEYS]
+    if unknown:
+        raise ResolveError("Unknown transform %s. Valid keys: %s"
+                           % (", ".join(unknown), ", ".join(sorted(TRANSFORM_KEYS))))
+
+    if clip_index is not None:
+        items = _track_items(app, track_type or "video", track_index or 1)
+        if not 1 <= int(clip_index) <= len(items):
+            raise ResolveError("No clip at position %s (track has %d)." % (clip_index, len(items)))
+        item = items[int(clip_index) - 1]
+    else:
+        item = app.timeline.GetCurrentVideoItem()
+        if not item:
+            raise ResolveError("No clip under the playhead — move the playhead over one, "
+                               "or pass track_index/clip_index.")
+
+    applied, refused = {}, []
+    for key, value in properties.items():
+        if isinstance(value, bool):
+            send = value
+        elif isinstance(value, (int, float)):
+            send = float(value)
+        else:
+            try:
+                send = float(value)
+            except (TypeError, ValueError):
+                send = value
+        if item.SetProperty(key, send):
+            applied[key] = send
+        else:
+            refused.append(key)
+    if refused and not applied:
+        raise ResolveError("Resolve refused to set %s on %r (value out of range?)."
+                           % (", ".join(refused), item.GetName()))
+    out = {"clip": item.GetName(), "applied": applied}
+    if refused:
+        out["refused"] = refused
+    return out
+
+
+@tool(
+    "add_track",
+    "Add a track to the current timeline. Needed before placing clips on a track "
+    "that doesn't exist yet. Audio tracks take a sub-type (mono, stereo, 5.1, 7.1).",
+    params={
+        "track_type": {"type": "string", "description": "video, audio or subtitle."},
+        "sub_type": {"type": "string", "description":
+                     "Audio only: mono, stereo, 5.1, 7.1, adaptive1..adaptive24 (default stereo)."},
+    },
+    required=["track_type"],
+)
+def t_add_track(app, track_type, sub_type=None):
+    tl = app.timeline
+    ttype = str(track_type).strip().lower()
+    if ttype not in ("video", "audio", "subtitle"):
+        raise ResolveError("track_type must be video, audio or subtitle.")
+    if ttype == "audio":
+        ok = tl.AddTrack("audio", str(sub_type or "stereo"))
+    else:
+        ok = tl.AddTrack(ttype)
+    if not ok:
+        raise ResolveError("Resolve refused to add the %s track." % ttype)
+    return {"track_type": ttype, "total_%s_tracks" % ttype: int(tl.GetTrackCount(ttype))}
+
+
+# -- titles / fusion ---------------------------------------------------------
+
+@tool(
+    "add_title",
+    "Insert a title at the playhead and set its text. `title_name` is the effect's "
+    "name in Resolve's Effects Library — 'Text+' is the standard Fusion title. "
+    "Note: Resolve always inserts on the lowest available video track and the API "
+    "cannot choose a track or set the duration.",
+    params={
+        "text": {"type": "string", "description": "The words the title should show."},
+        "title_name": {"type": "string", "description": "Effects Library name (default 'Text+')."},
+        "at": {"type": "string", "description":
+               "Optional timecode or frames from timeline start to insert at (default: playhead)."},
+    },
+    required=["text"],
+)
+def t_add_title(app, text, title_name="Text+", at=None):
+    tl = app.timeline
+    fps = app.timeline_fps(tl)
+    if at is not None:
+        target = at if (":" in str(at) or ";" in str(at)) else \
+            app.abs_frame_to_tc(int(tl.GetStartFrame()) + int(at), fps)
+        if not tl.SetCurrentTimecode(str(target)):
+            raise ResolveError("Could not move the playhead to %r." % (at,))
+        time.sleep(0.2)                     # Resolve needs a moment to settle
+
+    item = tl.InsertFusionTitleIntoTimeline(str(title_name))
+    if not item:
+        item = tl.InsertTitleIntoTimeline(str(title_name))
+    if not item:
+        raise ResolveError(
+            "Resolve would not insert a title named %r. The name must match the "
+            "Effects Library exactly (e.g. 'Text+')." % title_name)
+
+    detail = "inserted"
+    try:
+        comp = item.GetFusionCompByIndex(1)
+        tools = comp.GetToolList(False, "TextPlus") if comp else None
+        node = tools[1] if tools else None
+        if node is not None:
+            node.StyledText = str(text)
+            detail = "text set"
+        else:
+            detail = ("inserted, but this title has no Text+ node to write into — "
+                      "set the text by hand")
+    except Exception as exc:
+        detail = "inserted, but setting the text failed: %s" % exc
+
+    return {"title": title_name, "text": text, "timecode": tl.GetCurrentTimecode(),
+            "status": detail}
+
+
+@tool(
+    "add_fusion_effect",
+    "Add a Fusion effect node (e.g. Blur, Glow, TransformCanvas) to the clip under "
+    "the playhead, wired between the clip and the output. `settings` sets the node's "
+    "inputs, e.g. {\"XBlurSize\": 5.0}. Use for effects the Color page can't do.",
+    params={
+        "effect": {"type": "string", "description":
+                   "Fusion tool ID, e.g. Blur, Glow, DirectionalBlur, ColorCorrector."},
+        "settings": {"type": "object", "description": "Optional input name -> value map."},
+    },
+    required=["effect"],
+)
+def t_add_fusion_effect(app, effect, settings=None):
+    item = app.timeline.GetCurrentVideoItem()
+    if not item:
+        raise ResolveError("No clip under the playhead — move the playhead over one first.")
+
+    comp = None
+    try:
+        if int(item.GetFusionCompCount() or 0) == 0:
+            item.AddFusionComp()
+        comp = item.GetFusionCompByIndex(1)
+    except Exception as exc:
+        raise ResolveError("Could not open a Fusion composition on this clip: %s" % exc)
+    if not comp:
+        raise ResolveError("Could not open a Fusion composition on this clip.")
+
+    try:
+        comp.Lock()
+        comp.StartUndo("Claude: add %s" % effect)
+        try:
+            node = comp.AddTool(str(effect), -32768, -32768)
+            if not node:
+                raise ResolveError(
+                    "Fusion has no tool called %r. Use the tool's ID, e.g. Blur, "
+                    "Glow, DirectionalBlur." % effect)
+
+            media_out = (comp.GetToolList(False, "MediaOut") or {}).get(1)
+            media_in = (comp.GetToolList(False, "MediaIn") or {}).get(1)
+            wired = False
+            if media_out is not None and media_in is not None:
+                try:
+                    node.FindMainInput(1).ConnectTo(media_in.FindMainOutput(1))
+                    media_out.FindMainInput(1).ConnectTo(node.FindMainOutput(1))
+                    wired = True
+                except Exception:
+                    wired = False
+
+            applied = {}
+            for key, value in (settings or {}).items():
+                try:
+                    node.SetInput(str(key), value)
+                    applied[key] = value
+                except Exception:
+                    pass
+        finally:
+            comp.EndUndo(True)
+            comp.Unlock()
+    except ResolveError:
+        raise
+    except Exception as exc:
+        raise ResolveError("Fusion refused the edit: %s" % exc)
+
+    return {"clip": item.GetName(), "effect": effect, "applied": applied,
+            "wired_into_chain": wired,
+            "note": ("" if wired else
+                     "Node added but not auto-connected — connect it in the Fusion page.")}
+
+
 # -- color ------------------------------------------------------------------------
 
 MAX_FRAME_BYTES = 4 * 1024 * 1024   # Messages API caps one image at ~5MB; stay clear
@@ -1080,6 +1463,197 @@ def t_current_item(app):
     except Exception:
         pass
     return out
+
+
+def _current_item(app, what="grade"):
+    item = app.timeline.GetCurrentVideoItem()
+    if not item:
+        raise ResolveError("No clip under the playhead — move the playhead over the "
+                           "clip you want to %s (Color or Edit page)." % what)
+    return item
+
+
+def _node_graph(app, item):
+    """The Graph object for a clip, or None on Resolve < 19."""
+    if not _supports(item, "GetNodeGraph"):
+        return None
+    try:
+        return item.GetNodeGraph()
+    except Exception:
+        return None
+
+
+@tool(
+    "copy_grade",
+    "Copy the grade from one clip to others — the reliable way to match a look "
+    "across shots. Source is the clip under the playhead unless `from_clip_index` "
+    "is given. Targets are 1-based clip positions on the track.",
+    params={
+        "to_clip_indices": {"type": "array", "description":
+                            "1-based clip positions to copy the grade ONTO, e.g. [4,5,6].",
+                            "items": {"type": "integer"}},
+        "from_clip_index": {"type": "integer", "description":
+                            "1-based source clip position (default: clip under playhead)."},
+        "track_index": {"type": "integer", "description": "1-based video track (default 1)."},
+    },
+    required=["to_clip_indices"],
+)
+def t_copy_grade(app, to_clip_indices, from_clip_index=None, track_index=1):
+    items = _track_items(app, "video", track_index)
+    if not items:
+        raise ResolveError("Video track %s is empty." % track_index)
+
+    if from_clip_index is not None:
+        if not 1 <= int(from_clip_index) <= len(items):
+            raise ResolveError("No clip at position %s (track has %d)."
+                               % (from_clip_index, len(items)))
+        source = items[int(from_clip_index) - 1]
+    else:
+        source = _current_item(app, "copy from")
+
+    targets, bad = [], []
+    for n in to_clip_indices:
+        n = int(n)
+        if 1 <= n <= len(items):
+            targets.append(items[n - 1])
+        else:
+            bad.append(n)
+    if bad:
+        raise ResolveError("No clip at position %s (track has %d)."
+                           % (", ".join(map(str, bad)), len(items)))
+    if not targets:
+        raise ResolveError("No target clips given.")
+
+    if not source.CopyGrades(targets):
+        raise ResolveError("Resolve refused to copy the grade.")
+    return {"from": source.GetName(), "to": [t.GetName() for t in targets],
+            "count": len(targets)}
+
+
+@tool(
+    "color_version",
+    "Manage colour versions on the clip under the playhead — snapshots of a grade "
+    "you can return to. Actions: 'list', 'add' (save current grade under `name`), "
+    "'load' (switch to a saved version), 'delete'. Adding a version before "
+    "experimenting gives the user a way back.",
+    params={
+        "action": {"type": "string", "description": "list, add, load or delete."},
+        "name": {"type": "string", "description": "Version name (required except for 'list')."},
+    },
+    required=["action"],
+)
+def t_color_version(app, action, name=None):
+    item = _current_item(app, "version")
+    act = str(action).strip().lower()
+    if act == "list":
+        return {"clip": item.GetName(),
+                "versions": list(item.GetVersionNameList(0) or []),
+                "current": item.GetCurrentVersion() or {}}
+    if not name:
+        raise ResolveError("`name` is required for action %r." % act)
+    if act == "add":
+        if not item.AddVersion(str(name), 0):
+            raise ResolveError("Could not add version %r (does it already exist?)." % name)
+    elif act == "load":
+        if not item.LoadVersionByName(str(name), 0):
+            raise ResolveError("No colour version named %r on this clip." % name)
+    elif act == "delete":
+        if not item.DeleteVersionByName(str(name), 0):
+            raise ResolveError("Could not delete version %r." % name)
+    else:
+        raise ResolveError("action must be list, add, load or delete.")
+    return {"clip": item.GetName(), "action": act, "version": name,
+            "versions": list(item.GetVersionNameList(0) or [])}
+
+
+@tool(
+    "reset_grade",
+    "Reset ALL grades on the clip under the playhead back to neutral. Destructive "
+    "and not undoable through this tool — confirm with the user, and consider "
+    "saving a colour version first.",
+)
+def t_reset_grade(app):
+    item = _current_item(app, "reset")
+    graph = _node_graph(app, item)
+    if graph is None:
+        raise ResolveError("This version of Resolve has no node graph API (needs 19.0+).")
+    if not graph.ResetAllGrades():
+        raise ResolveError("Resolve refused to reset the grade.")
+    return {"clip": item.GetName(), "reset": True}
+
+
+@tool(
+    "set_cdl",
+    "Set colour on the clip under the playhead using ASC CDL — the ONLY way to "
+    "change colour numerically. Slope multiplies (gain), offset adds (lift), power "
+    "is gamma; each takes three numbers for R G B, neutral is slope 1/offset 0/"
+    "power 1. Warmer = more red slope, less blue. IMPORTANT: this is write-only — "
+    "you cannot read the clip's current values, so every call OVERWRITES that "
+    "node's CDL absolutely rather than nudging it. A colour version is saved first "
+    "so the user can get back. Tell the user what you're applying and why.",
+    params={
+        "slope": {"type": "array", "description": "R G B gain, neutral [1,1,1].",
+                  "items": {"type": "number"}},
+        "offset": {"type": "array", "description": "R G B lift, neutral [0,0,0].",
+                   "items": {"type": "number"}},
+        "power": {"type": "array", "description": "R G B gamma, neutral [1,1,1].",
+                  "items": {"type": "number"}},
+        "saturation": {"type": "number", "description": "Saturation, neutral 1.0."},
+        "node_index": {"type": "integer", "description": "1-based node to write to (default 1)."},
+    },
+)
+def t_set_cdl(app, slope=None, offset=None, power=None, saturation=None, node_index=1):
+    item = _current_item(app, "grade")
+    if slope is None and offset is None and power is None and saturation is None:
+        raise ResolveError("Give at least one of slope, offset, power or saturation.")
+
+    def triplet(values, default, label):
+        if values is None:
+            return default
+        if not isinstance(values, (list, tuple)) or len(values) != 3:
+            raise ResolveError("%s must be three numbers, e.g. [1.05, 1.0, 0.95]." % label)
+        try:
+            return " ".join("%.6g" % float(v) for v in values)
+        except (TypeError, ValueError):
+            raise ResolveError("%s must be three numbers." % label)
+
+    graph = _node_graph(app, item)
+    total = None
+    if graph is not None:
+        try:
+            total = int(graph.GetNumNodes() or 0)
+        except Exception:
+            total = None
+    if total and not 1 <= int(node_index) <= total:
+        raise ResolveError("Node %s does not exist — this clip has %d node(s)."
+                           % (node_index, total))
+
+    # Blind absolute write, so leave the user a way back before touching anything.
+    undo_version = "before_claude_cdl"
+    saved = False
+    try:
+        saved = bool(item.AddVersion(undo_version, 0))
+    except Exception:
+        saved = False
+
+    cdl = {
+        "NodeIndex": str(int(node_index)),
+        "Slope": triplet(slope, "1 1 1", "slope"),
+        "Offset": triplet(offset, "0 0 0", "offset"),
+        "Power": triplet(power, "1 1 1", "power"),
+        "Saturation": "%.6g" % float(saturation if saturation is not None else 1.0),
+    }
+    if not item.SetCDL(cdl):
+        raise ResolveError("Resolve refused the CDL values (check the node index and ranges).")
+
+    return {
+        "clip": item.GetName(),
+        "applied": cdl,
+        "undo_version": undo_version if saved else None,
+        "note": ("Saved colour version %r first — load it with color_version to undo."
+                 % undo_version if saved else
+                 "Could not save an undo version first (one may already exist)."),
+    }
 
 
 @tool(

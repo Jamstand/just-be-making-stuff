@@ -115,6 +115,12 @@ class FakeMediaPool:
         return tl
 
     def AppendToTimeline(self, clips):
+        # Mirror Resolve: a clipInfo naming a track that doesn't exist fails.
+        for c in clips:
+            if isinstance(c, dict) and c.get("trackIndex"):
+                tl = PROJECT._current
+                if int(c["trackIndex"]) > tl.GetTrackCount("video"):
+                    return None
         self.appended.extend(clips)
         return [object()] * len(clips)
 
@@ -127,10 +133,73 @@ class FakeMediaPool:
 class FakeGraph:
     def __init__(self):
         self.lut_calls = []
+        self.reset = False
+        self.copied_from = None
+        self.num_nodes = 3
 
     def SetLUT(self, node, path):
         self.lut_calls.append((node, path))
         return True
+
+    def GetNumNodes(self):
+        return self.num_nodes
+
+    def ResetAllGrades(self):
+        self.reset = True
+        return True
+
+
+class FakeFusionTool:
+    def __init__(self, tid):
+        self.ID = tid
+        self.inputs = {}
+        self.connected_to = None
+        self.StyledText = None
+
+    def SetInput(self, key, value):
+        self.inputs[key] = value
+        return True
+
+    def FindMainInput(self, n):
+        return self
+
+    def FindMainOutput(self, n):
+        return self
+
+    def ConnectTo(self, other):
+        self.connected_to = other
+        return True
+
+
+class FakeComp:
+    def __init__(self):
+        self.tools = [FakeFusionTool("MediaIn"), FakeFusionTool("MediaOut")]
+        self.locked = False
+        self.undo_stack = []
+        self.reject = None
+
+    def Lock(self):
+        self.locked = True
+
+    def Unlock(self):
+        self.locked = False
+
+    def StartUndo(self, name):
+        self.undo_stack.append(name)
+
+    def EndUndo(self, keep):
+        return True
+
+    def AddTool(self, tid, x=0, y=0):
+        if self.reject == tid:
+            return None
+        t = FakeFusionTool(tid)
+        self.tools.append(t)
+        return t
+
+    def GetToolList(self, selected=False, regid=None):
+        matches = [t for t in self.tools if regid is None or t.ID == regid]
+        return {i + 1: t for i, t in enumerate(matches)}   # Fusion is 1-indexed
 
 
 class FakeTimelineItem:
@@ -138,6 +207,66 @@ class FakeTimelineItem:
         self._name, self._start, self._end = name, start, end
         self.lut_calls = []
         self.graph = FakeGraph()
+        self.props = {}
+        self.cdl = None
+        self.versions = ["Version 1"]
+        self.copied_to = None
+        self.comps = []
+        self.refuse_props = set()
+
+    # -- transforms
+    def SetProperty(self, key, value):
+        if key in self.refuse_props:
+            return False
+        self.props[key] = value
+        return True
+
+    def GetProperty(self, key=None):
+        return dict(self.props) if key is None else self.props.get(key)
+
+    # -- grading
+    def SetCDL(self, cdl):
+        self.cdl = dict(cdl)
+        return True
+
+    def CopyGrades(self, targets):
+        self.copied_to = list(targets)
+        for t in targets:
+            t.graph.copied_from = self._name
+        return True
+
+    def AddVersion(self, name, vtype):
+        if name in self.versions:
+            return False
+        self.versions.append(name)
+        return True
+
+    def LoadVersionByName(self, name, vtype):
+        return name in self.versions
+
+    def DeleteVersionByName(self, name, vtype):
+        if name in self.versions:
+            self.versions.remove(name)
+            return True
+        return False
+
+    def GetCurrentVersion(self):
+        return {"versionName": self.versions[-1], "versionType": 0}
+
+    def GetNodeGraph(self, layer=None):
+        return self.graph
+
+    # -- fusion
+    def GetFusionCompCount(self):
+        return len(self.comps)
+
+    def AddFusionComp(self):
+        c = FakeComp()
+        self.comps.append(c)
+        return c
+
+    def GetFusionCompByIndex(self, i):
+        return self.comps[i - 1] if 0 < i <= len(self.comps) else None
 
     def GetNodeGraph(self):
         return self.graph
@@ -173,6 +302,11 @@ class FakeTimeline:
         self._items = {("video", 1): [FakeTimelineItem("clipA", 86400, 86448),
                                       FakeTimelineItem("clipB", 86448, 86520)],
                        ("audio", 1): []}
+        self._track_counts = {"video": 1, "audio": 1, "subtitle": 0}
+        self.added_tracks = []
+        self.deleted_clips = []
+        self.inserted_titles = []
+        self._bad_titles = {"NoSuchTitle"}
 
     def GetName(self):
         return self._name
@@ -190,7 +324,7 @@ class FakeTimeline:
         return self._end
 
     def GetTrackCount(self, ttype):
-        return {"video": 1, "audio": 1, "subtitle": 0}[ttype]
+        return self._track_counts.get(ttype, 0)
 
     def GetItemListInTrack(self, ttype, idx):
         return self._items.get((ttype, idx), [])
@@ -232,6 +366,31 @@ class FakeTimeline:
         if getattr(self, "_grab_fail", False):
             return None
         return FakeGalleryStill(self._tc)
+
+    def AddTrack(self, ttype, subtype=None):
+        self._track_counts[ttype] = self._track_counts.get(ttype, 0) + 1
+        self._items.setdefault((ttype, self._track_counts[ttype]), [])
+        self.added_tracks.append((ttype, subtype))
+        return True
+
+    def DeleteClips(self, items, ripple=False):
+        self.deleted_clips.append((list(items), ripple))
+        for key, lst in self._items.items():
+            self._items[key] = [i for i in lst if i not in items]
+        return True
+
+    def InsertFusionTitleIntoTimeline(self, name):
+        if name in self._bad_titles:
+            return None
+        item = FakeTimelineItem(name, self._start, self._start + 120)
+        item.comps.append(FakeComp())
+        item.comps[0].tools.append(FakeFusionTool("TextPlus"))
+        self._items.setdefault(("video", 1), []).append(item)
+        self.inserted_titles.append(name)
+        return item
+
+    def InsertTitleIntoTimeline(self, name):
+        return None
 
     def GetCurrentClipThumbnailImage(self):
         return getattr(self, "_thumb", None)
@@ -743,6 +902,154 @@ with tempfile.TemporaryDirectory() as td:
     check("env key wins", mod.get_api_key(cfg) == "sk-env")
 os.environ.clear()
 os.environ.update(old_env)
+
+# --------------------------------------------------------- editing / transform
+print("== editing ==")
+
+PROJECT._current = PROJECT._timelines[0]
+_tl = PROJECT._current
+_pool = PROJECT._pool
+
+# hasattr() is a trap on Resolve proxies; _supports must use dir()
+class _FakeProxy:
+    def __getattr__(self, name):        # fabricates any attribute, like Resolve
+        return lambda *a, **k: None
+    def __dir__(self):
+        return ["RealMethod"]
+
+_proxy = _FakeProxy()
+check("hasattr trap avoided", hasattr(_proxy, "Invented") and
+      not mod._supports(_proxy, "Invented"))
+check("_supports finds real methods", mod._supports(_proxy, "RealMethod"))
+
+_pool.appended = []
+ok, out = run_tool("place_clips", {"clips": [
+    {"clip_name": "clipA", "start_frame": 0, "end_frame": 47},
+    {"clip_name": "broll1", "start_frame": 10, "end_frame": 59},
+]})
+check("place_clips ok", ok, out)
+_a, _b = _pool.appended[0], _pool.appended[1]
+check("recordFrame anchored to timeline start",
+      _a["recordFrame"] == _tl.GetStartFrame(), str(_a))
+check("clips butt-joined by default",
+      _b["recordFrame"] == _tl.GetStartFrame() + 48, str(_b))
+check("source in/out passed through",
+      _a["startFrame"] == 0 and _a["endFrame"] == 47, str(_a))
+check("defaults to track 1", _a["trackIndex"] == 1, str(_a))
+
+_pool.appended = []
+ok, out = run_tool("place_clips", {"clips": [
+    {"clip_name": "clipA", "start_frame": 0, "end_frame": 23, "at": "01:00:10:00"}]})
+check("explicit timecode position", ok and
+      _pool.appended[0]["recordFrame"] == 86400 + 240, out)
+
+ok, out = run_tool("place_clips", {"clips": [{"clip_name": "ghost"}]})
+check("unknown clip is a clean error", not ok and "not found" in out, out)
+ok, out = run_tool("place_clips", {"clips": [
+    {"clip_name": "clipA", "at": -5}]})
+check("position before timeline start refused",
+      not ok and "before the timeline start" in out, out)
+ok, out = run_tool("place_clips", {"clips": [
+    {"clip_name": "clipA", "track_index": 9}]})
+check("missing track surfaces Resolve's refusal", not ok and "track" in out.lower(), out)
+
+ok, out = run_tool("add_track", {"track_type": "audio", "sub_type": "5.1"})
+check("add_track ok", ok and _tl.added_tracks[-1] == ("audio", "5.1"), out)
+ok, out = run_tool("add_track", {"track_type": "hologram"})
+check("bad track type refused", not ok and "video, audio" in out, out)
+
+_before = len(_tl.GetItemListInTrack("video", 1))
+ok, out = run_tool("delete_clips", {"clip_indices": [1], "ripple": True})
+check("delete_clips ok", ok, out)
+check("ripple flag forwarded", _tl.deleted_clips[-1][1] is True)
+check("clip actually removed",
+      len(_tl.GetItemListInTrack("video", 1)) == _before - 1)
+ok, out = run_tool("delete_clips", {"clip_indices": [99]})
+check("out-of-range clip index refused", not ok and "No clip at position" in out, out)
+
+_item = _tl.GetCurrentVideoItem()
+ok, out = run_tool("set_clip_transform", {"properties": {"ZoomX": 1.2, "ZoomY": 1.2}})
+check("transform applied", ok and _item.props["ZoomX"] == 1.2, out)
+ok, out = run_tool("set_clip_transform", {"properties": {"Bogus": 1}})
+check("unknown transform key refused", not ok and "Unknown transform" in out, out)
+ok, out = run_tool("set_clip_transform", {"properties": {"FlipX": True}})
+check("boolean transform stays boolean", ok and _item.props["FlipX"] is True, out)
+_item.refuse_props = {"Opacity"}
+ok, out = run_tool("set_clip_transform", {"properties": {"Opacity": 500}})
+check("Resolve's refusal surfaces", not ok and "refused" in out, out)
+_item.refuse_props = set()
+
+# ------------------------------------------------------------ titles / fusion
+print("== titles / fusion ==")
+
+ok, out = run_tool("add_title", {"text": "Chapter One"})
+check("add_title ok", ok, out)
+check("title text written to Text+ node",
+      any(t.StyledText == "Chapter One"
+          for it in _tl.GetItemListInTrack("video", 1)
+          for c in it.comps for t in c.tools), out)
+check("reports text was set", '"status": "text set"' in out, out)
+ok, out = run_tool("add_title", {"text": "x", "title_name": "NoSuchTitle"})
+check("unknown title name refused", not ok and "Effects Library" in out, out)
+
+_item = _tl.GetCurrentVideoItem()
+_item.comps = []
+ok, out = run_tool("add_fusion_effect", {"effect": "Blur", "settings": {"XBlurSize": 5.0}})
+check("fusion effect added", ok, out)
+_comp = _item.comps[0]
+_blur = [t for t in _comp.tools if t.ID == "Blur"][0]
+check("effect settings applied", _blur.inputs.get("XBlurSize") == 5.0)
+check("wired into the chain", '"wired_into_chain": true' in out.lower(), out)
+check("comp unlocked afterwards", _comp.locked is False)
+check("undo block opened", _comp.undo_stack and "Blur" in _comp.undo_stack[-1])
+_item.comps = []
+_c = _item.AddFusionComp(); _c.reject = "NotATool"
+ok, out = run_tool("add_fusion_effect", {"effect": "NotATool"})
+check("unknown fusion tool refused", not ok and "no tool called" in out.lower(), out)
+check("comp unlocked after failure", _c.locked is False)
+
+# ------------------------------------------------------------------- grading
+print("== grading ==")
+
+_items = _tl.GetItemListInTrack("video", 1)
+ok, out = run_tool("copy_grade", {"to_clip_indices": [1], "from_clip_index": 2})
+check("copy_grade ok", ok, out)
+check("grade landed on target", _items[0].graph.copied_from == _items[1].GetName())
+ok, out = run_tool("copy_grade", {"to_clip_indices": [99]})
+check("bad target index refused", not ok and "No clip at position" in out, out)
+
+ok, out = run_tool("color_version", {"action": "add", "name": "look A"})
+check("version added", ok and "look A" in _tl.GetCurrentVideoItem().versions, out)
+ok, out = run_tool("color_version", {"action": "list"})
+check("versions listed", ok and "look A" in out, out)
+ok, out = run_tool("color_version", {"action": "load", "name": "look A"})
+check("version loaded", ok, out)
+ok, out = run_tool("color_version", {"action": "load", "name": "nope"})
+check("missing version refused", not ok and "No colour version" in out, out)
+ok, out = run_tool("color_version", {"action": "add"})
+check("add without name refused", not ok and "required" in out, out)
+
+ok, out = run_tool("reset_grade", {})
+check("reset_grade ok", ok and _tl.GetCurrentVideoItem().graph.reset, out)
+
+_item = _tl.GetCurrentVideoItem()
+_item.versions = ["Version 1"]
+ok, out = run_tool("set_cdl", {"slope": [1.05, 1.0, 0.95]})
+check("set_cdl ok", ok, out)
+check("cdl written as space-separated strings",
+      _item.cdl["Slope"] == "1.05 1 0.95", str(_item.cdl))
+check("unspecified channels default to neutral",
+      _item.cdl["Offset"] == "0 0 0" and _item.cdl["Power"] == "1 1 1", str(_item.cdl))
+check("NodeIndex is a string", _item.cdl["NodeIndex"] == "1", str(_item.cdl))
+check("undo version saved before the blind write",
+      "before_claude_cdl" in _item.versions, str(_item.versions))
+check("undo version reported to the model", "before_claude_cdl" in out, out)
+ok, out = run_tool("set_cdl", {"slope": [1, 2]})
+check("malformed triplet refused", not ok and "three numbers" in out, out)
+ok, out = run_tool("set_cdl", {})
+check("empty cdl call refused", not ok and "at least one" in out, out)
+ok, out = run_tool("set_cdl", {"slope": [1, 1, 1], "node_index": 99})
+check("node index bounds checked", not ok and "does not exist" in out, out)
 
 # ------------------------------------------------------------------ view_frame
 print("== view_frame ==")
