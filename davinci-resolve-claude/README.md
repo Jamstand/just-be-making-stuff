@@ -5,6 +5,7 @@ Resolve for you — not just answer questions. Ask it things like:
 
 - *"Add a red marker at every cut on V1 with a note saying 'review color'."*
 - *"What's in my media pool? Make a bin called Selects and tell me what you'd put in it."*
+- *"Look at the frame I'm parked on — is it overexposed?"* (Claude actually **sees** the frame)
 - *"Queue a YouTube 1080p render of this timeline to ~/Renders and start it."*
 - *"Switch to the color page and tell me which clip I'm parked on."*
 - *"Why does my 23.976 footage stutter on a 25fps timeline?"* (plain advice — no tools needed)
@@ -116,6 +117,7 @@ avoid that.
 | Timelines | create, switch, move playhead, append clips |
 | Media pool | browse folders, clip properties, create bins, import media from disk |
 | Color | current clip info + grade versions, apply LUT to a node |
+| **Vision** | `view_frame` — Claude looks at the actual frame (playhead or any timecode) as an image: exposure, color balance, framing, shot content, comparing shots |
 | Deliver | list presets, queue render jobs (preset/target/filename), start, status |
 | Project | read/change project settings, save project |
 | Anything else | `run_python` (optional, shown in transcript, toggleable) |
@@ -136,8 +138,14 @@ when moving the playhead the timecode string is passed to Resolve unmodified.
 ## Privacy & safety
 
 - Your prompts, the tool results Claude requests (timeline/clip metadata,
-  settings), and the session snapshot are sent to the Anthropic API. Media
-  itself is never uploaded.
+  settings), and the session snapshot are sent to the Anthropic API. Your media
+  files are never uploaded — with one deliberate exception: when Claude uses
+  `view_frame` (because you asked about how something looks), that single
+  grabbed frame is sent as an image so Claude can see it.
+- `view_frame` briefly flips to the Color page to grab the still (Resolve
+  requirement) and flips back; the grabbed still is deleted from your Gallery
+  and the temp file from disk immediately after export. If the full-resolution
+  grab fails, it falls back to the Color-page thumbnail.
 - The API key is stored with `0600` permissions in your user config folder and
   never leaves your machine except as the auth header to `api.anthropic.com`.
 - On the Claude Code backend there's no key to store — the CLI uses your own

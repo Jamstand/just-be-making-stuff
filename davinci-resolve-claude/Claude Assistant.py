@@ -37,6 +37,7 @@ client, agent loop, chat UI.
 """
 
 import io
+import base64
 import binascii
 import io
 import json
@@ -101,6 +102,7 @@ Environment facts:
 
 How to work:
 - Prefer the purpose-built tools. Use run_python only when no tool covers the request; keep snippets short and explain what they do. The `resolve` object and current `project`/`timeline` are available inside run_python.
+- view_frame shows you the actual frame as an image. Whenever the question is about how footage looks — exposure, color, framing, what's in the shot, whether two shots match — look with view_frame instead of guessing from names and metadata. You can call it at several positions to compare.
 - For actions that are destructive or hard to undo (deleting many markers, overwriting project settings, starting long renders, anything via run_python that modifies media on disk), state what you are about to do and get the user's OK in chat first, unless they just explicitly asked for exactly that action.
 - After changing something in Resolve, briefly confirm what changed. If a tool errors, read the error, adjust, and retry once before reporting back.
 - Be concise. Editors are mid-task; lead with the answer or the result, keep explanations short, and don't pad with caveats.
@@ -863,6 +865,199 @@ def t_append(app, clip_names):
 
 # -- color ------------------------------------------------------------------------
 
+MAX_FRAME_BYTES = 4 * 1024 * 1024   # Messages API caps one image at ~5MB; stay clear
+
+
+def _sniff_image_media_type(data):
+    """Trust the bytes, not the file extension Resolve happened to write."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    return None
+
+
+def _encode_png_rgb(width, height, rgb):
+    """Raw packed RGB888 -> PNG, pure stdlib (for the thumbnail fallback)."""
+    import struct
+    import zlib
+
+    def chunk(tag, payload):
+        c = struct.pack(">I", len(payload)) + tag + payload
+        return c + struct.pack(">I", zlib.crc32(tag + payload) & 0xffffffff)
+
+    stride = width * 3
+    raw = b"".join(b"\x00" + rgb[y * stride:(y + 1) * stride] for y in range(height))
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 6))
+            + chunk(b"IEND", b""))
+
+
+def _frame_export_dir():
+    """A scratch dir Resolve can definitely write stills into.
+
+    Not tempfile.mkdtemp(): on macOS that lands in /var/folders, which Resolve's
+    process cannot write to — ExportStills just returns False. The user config
+    dir is home-based on every OS.
+    """
+    path = os.path.join(os.path.dirname(config_path()), "frame-%d" % os.getpid())
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _grab_still_frame(app, tl, project):
+    """Full-resolution route: GrabStill -> ExportStills(jpg) -> read -> DeleteStills.
+
+    Returns (data, detail) or (None, why_it_failed).
+    """
+    still = None
+    for _ in range(3):                     # GrabStill is intermittently falsy
+        still = tl.GrabStill()
+        if still:
+            break
+        time.sleep(0.25)
+    if not still:
+        return None, "GrabStill returned nothing (no clip under the playhead?)"
+
+    gallery = project.GetGallery()
+    album = gallery.GetCurrentStillAlbum() if gallery else None
+    if not album:
+        return None, "could not access the Gallery's current still album"
+
+    export_dir = _frame_export_dir()
+    try:
+        if not album.ExportStills([still], export_dir, "claude_frame", "jpg"):
+            return None, ("ExportStills failed — if this keeps happening, make sure "
+                          "the Gallery panel is open (Workspace > Gallery)")
+        names = sorted(n for n in os.listdir(export_dir)
+                       if n.lower().endswith((".jpg", ".jpeg", ".png")))
+        if not names:                      # a .drx grade sidecar is always written; ignore it
+            return None, "the still export produced no image file"
+        with open(os.path.join(export_dir, names[0]), "rb") as f:
+            return f.read(), "full-resolution still"
+    finally:
+        try:
+            album.DeleteStills([still])    # leave the user's Gallery untouched
+        except Exception:
+            pass
+        shutil.rmtree(export_dir, ignore_errors=True)
+
+
+def _thumbnail_frame(app, tl):
+    """Fallback route: the Color page thumbnail, in memory, no disk or Gallery.
+
+    Returns (png_bytes, detail) or (None, why_it_failed).
+    """
+    thumb = None
+    try:
+        thumb = tl.GetCurrentClipThumbnailImage()
+        if not thumb:
+            tl.GrabStill()                 # known priming quirk on Resolve 17.3+
+            thumb = tl.GetCurrentClipThumbnailImage()
+    except Exception as exc:
+        return None, "thumbnail call failed: %s" % exc
+    if not isinstance(thumb, dict) or not thumb.get("data"):
+        return None, "no thumbnail available"
+    try:
+        width, height = int(thumb["width"]), int(thumb["height"])
+        rgb = base64.b64decode(thumb["data"])
+        if len(rgb) != width * height * 3:
+            return None, ("thumbnail is not raw RGB888 (%d bytes for %dx%d)"
+                          % (len(rgb), width, height))
+        return _encode_png_rgb(width, height, rgb), "thumbnail (%dx%d)" % (width, height)
+    except Exception as exc:
+        return None, "could not decode thumbnail: %s" % exc
+
+
+@tool(
+    "view_frame",
+    "SEE a frame of the current timeline with your own eyes, as an actual image. "
+    "Grabs a still at the playhead (or at `position`) and returns the picture, so "
+    "use this whenever the question is about how footage LOOKS: exposure, color "
+    "balance, framing, shot content, comparing shots. Grabbed stills are cleaned "
+    "out of the Gallery automatically.",
+    params={
+        "position": {"type": "string",
+                     "description": "Optional: 'HH:MM:SS:FF' timecode or integer frames from "
+                                    "timeline start. Default: current playhead. The playhead "
+                                    "is restored afterwards if moved."},
+    },
+)
+def t_view_frame(app, position=None):
+    tl = app.timeline
+    project = app.pm.GetCurrentProject()
+    fps = app.timeline_fps(tl)
+
+    original_tc = None
+    text = str(position).strip() if position is not None else ""
+    if text and text.lower() != "playhead":
+        original_tc = tl.GetCurrentTimecode()
+        if ":" in text or ";" in text:
+            target = text
+        else:
+            try:
+                offset = int(text)
+            except ValueError:
+                raise ResolveError("Position %r is neither a timecode nor a frame number." % position)
+            target = app.abs_frame_to_tc(int(tl.GetStartFrame()) + offset, fps)
+        if not tl.SetCurrentTimecode(target):
+            raise ResolveError("Could not move playhead to %r to grab the frame." % position)
+
+    # Both grab routes only work reliably on the Color page. The playhead
+    # survives the page round-trip, so this is a flicker, not a navigation loss.
+    page_before = None
+    try:
+        page_before = app.resolve.GetCurrentPage()
+        if page_before != "color":
+            app.resolve.OpenPage("color")
+    except Exception:
+        page_before = None
+
+    try:
+        grab_tc = tl.GetCurrentTimecode()
+        data, detail = _grab_still_frame(app, tl, project)
+        if data is None:
+            first_error = detail
+            data, detail = _thumbnail_frame(app, tl)
+            if data is None:
+                raise ResolveError(
+                    "Could not capture the frame. Full-res grab: %s. "
+                    "Thumbnail fallback: %s." % (first_error, detail))
+
+        media_type = _sniff_image_media_type(data)
+        if media_type is None:
+            raise ResolveError("The captured frame is not a readable JPEG/PNG.")
+        if len(data) > MAX_FRAME_BYTES:
+            raise ResolveError(
+                "The captured frame is %.1f MB — too large to attach. This can happen "
+                "on very high resolution timelines." % (len(data) / 1048576.0))
+
+        return {
+            "frame": {
+                "timeline": tl.GetName(),
+                "timecode": grab_tc,
+                "source": detail,
+                "file_size_bytes": len(data),
+                "note": "The image of this frame is attached to this tool result.",
+            },
+            "_image_b64": base64.b64encode(data).decode("ascii"),
+            "_image_media_type": media_type,
+        }
+    finally:
+        # Leave the user's session exactly as we found it, whatever happened.
+        if original_tc:
+            try:
+                tl.SetCurrentTimecode(original_tc)
+            except Exception:
+                pass
+        if page_before and page_before != "color":
+            try:
+                app.resolve.OpenPage(page_before)
+            except Exception:
+                pass
+
+
 @tool(
     "get_current_video_item",
     "Get info about the clip under the playhead on the current timeline (the clip a "
@@ -1375,8 +1570,11 @@ class ToolBridge(object):
             if not isinstance(args, dict):
                 args = {}
             with self._call_lock:
-                ok, text = execute_tool(name, args)
-            return {"ok": ok, "content": text}
+                ok, text, image = execute_tool(name, args)
+            reply = {"ok": ok, "content": text}
+            if image:
+                reply["image"] = image
+            return reply
         return {"ok": False, "content": "bridge: unknown op %r" % (op,)}
 
     def close(self):
@@ -1512,8 +1710,15 @@ def run_mcp_bridge():
             text = reply.get("content")
             if not isinstance(text, str):
                 text = json.dumps(text, default=str)
-            return ok(rid, {"content": [{"type": "text", "text": text}],
-                            "isError": not reply.get("ok")})
+            content = []
+            image = reply.get("image")
+            if isinstance(image, dict) and image.get("data"):
+                # MCP ImageContent — verified end-to-end that Claude Code
+                # forwards this to the model as real vision input.
+                content.append({"type": "image", "data": image["data"],
+                                "mimeType": image.get("media_type", "image/jpeg")})
+            content.append({"type": "text", "text": text})
+            return ok(rid, {"content": content, "isError": not reply.get("ok")})
 
         return fail(rid, -32601, "Method not found: %s" % method)
 
@@ -1574,18 +1779,28 @@ def resolve_context_block():
 
 
 def execute_tool(name, tool_input):
+    """Run one tool. Returns (ok, text, image).
+
+    `image` is None, or {"data": <base64 str>, "media_type": ...} when the tool
+    produced a picture (view_frame): tools smuggle it out via _image_b64 /
+    _image_media_type keys, which are stripped from the JSON text.
+    """
     entry = TOOL_INDEX.get(name)
     if entry is None:
-        return False, "Unknown tool: %s" % name
+        return False, "Unknown tool: %s" % name, None
     try:
         result = entry["fn"](STATE["app"], **(tool_input or {}))
-        return True, json.dumps(result, default=str)
+        image = None
+        if isinstance(result, dict) and "_image_b64" in result:
+            image = {"data": result.pop("_image_b64"),
+                     "media_type": result.pop("_image_media_type", "image/jpeg")}
+        return True, json.dumps(result, default=str), image
     except ResolveError as exc:
-        return False, str(exc)
+        return False, str(exc), None
     except TypeError as exc:
-        return False, "Bad arguments for %s: %s" % (name, exc)
+        return False, "Bad arguments for %s: %s" % (name, exc), None
     except Exception:
-        return False, "Tool %s crashed:\n%s" % (name, traceback.format_exc(limit=4))
+        return False, "Tool %s crashed:\n%s" % (name, traceback.format_exc(limit=4)), None
 
 
 def run_agent_turn(cfg, model, user_text, emit):
@@ -1811,11 +2026,22 @@ def run_agent_turn_api(api_key, model, user_text, emit):
                 if name == "run_python" and isinstance(block.get("input"), dict):
                     code = block["input"].get("code", "")
                     emit("tool", "```python\n%s\n```" % code)
-                ok, text = execute_tool(name, block.get("input") or {})
+                ok, text, image = execute_tool(name, block.get("input") or {})
                 if not ok:
                     emit("tool", "error: %s" % text)
-                entry = {"type": "tool_result", "tool_use_id": block.get("id"),
-                         "content": text}
+                entry = {"type": "tool_result", "tool_use_id": block.get("id")}
+                if image:
+                    # Image first, then the JSON summary — Claude sees the frame.
+                    entry["content"] = [
+                        {"type": "image",
+                         "source": {"type": "base64",
+                                    "media_type": image["media_type"],
+                                    "data": image["data"]}},
+                        {"type": "text", "text": text},
+                    ]
+                    emit("tool", "(frame attached, %s)" % image["media_type"])
+                else:
+                    entry["content"] = text
                 if not ok:
                     entry["is_error"] = True
                 results.append(entry)
@@ -2110,6 +2336,7 @@ class ChatWindow(object):
         self.append_chat("notice",
                          "Connected to Resolve. Ask me anything — e.g. "
                          "\"add a red marker at every cut on V1\", "
+                         "\"look at this frame — is it overexposed?\", "
                          "\"what's in my media pool?\", "
                          "\"queue a YouTube 1080p render to ~/Renders\".")
 

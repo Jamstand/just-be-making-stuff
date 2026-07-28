@@ -27,6 +27,37 @@ def check(label, cond, detail=""):
         FAILURES.append((label, detail))
 
 
+def run_tool(name, args):
+    """execute_tool minus the image channel, for the many text-only checks."""
+    ok, out, _img = mod.execute_tool(name, args)
+    return ok, out
+
+
+def make_png(width, height, pixel_fn):
+    """Tiny stdlib PNG writer so fakes can export a real, decodable image."""
+    import struct, zlib
+
+    def chunk(tag, data):
+        c = struct.pack(">I", len(data)) + tag + data
+        return c + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
+
+    raw = b""
+    for y in range(height):
+        raw += b"\x00"
+        for x in range(width):
+            raw += bytes(pixel_fn(x, y))
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 6))
+            + chunk(b"IEND", b""))
+
+
+# Orange frame with a black square top-left: distinctive enough that a vision
+# model can prove it actually saw it.
+ORANGE_PNG = make_png(96, 96,
+                      lambda x, y: (0, 0, 0) if (x < 24 and y < 24) else (255, 140, 0))
+
+
 # ---------------------------------------------------------------- fake Resolve
 class FakeMediaPoolItem:
     def __init__(self, name, props=None):
@@ -197,6 +228,48 @@ class FakeTimeline:
                              if v["color"] != color}
         return len(self._markers) != n
 
+    def GrabStill(self):
+        if getattr(self, "_grab_fail", False):
+            return None
+        return FakeGalleryStill(self._tc)
+
+    def GetCurrentClipThumbnailImage(self):
+        return getattr(self, "_thumb", None)
+
+
+class FakeGalleryStill:
+    def __init__(self, tc):
+        self.tc = tc
+
+
+class FakeGalleryStillAlbum:
+    def __init__(self):
+        self.exported = []
+        self.deleted = []
+        self.export_fail = False
+
+    def ExportStills(self, stills, folder, prefix, fmt):
+        if self.export_fail:
+            return False
+        self.exported.append((list(stills), folder, prefix, fmt))
+        # Resolve names exports like "<prefix>_1.1.jpg"; write real PNG bytes
+        # under a .jpg name so media-type sniffing is exercised too.
+        with open(os.path.join(folder, prefix + "_1.1.jpg"), "wb") as f:
+            f.write(ORANGE_PNG)
+        return True
+
+    def DeleteStills(self, stills):
+        self.deleted.extend(stills)
+        return True
+
+
+class FakeGallery:
+    def __init__(self, album):
+        self._album = album
+
+    def GetCurrentStillAlbum(self):
+        return self._album
+
 
 class FakeProject:
     def __init__(self):
@@ -211,6 +284,11 @@ class FakeProject:
         self._pool = FakeMediaPool(root)
         self.render_jobs = []
         self.rendering = False
+        self._gallery_album = FakeGalleryStillAlbum()
+        self._gallery = FakeGallery(self._gallery_album)
+
+    def GetGallery(self):
+        return self._gallery
 
     def GetName(self):
         return "Test Project"
@@ -309,146 +387,146 @@ mod.STATE["app"] = mod.ResolveApp(RESOLVE)
 mod.STATE["allow_python"] = True
 
 print("== tool execution ==")
-ok, out = mod.execute_tool("get_workspace_overview", {})
+ok, out = run_tool("get_workspace_overview", {})
 check("overview runs", ok, out)
 d = json.loads(out)
 check("overview current timeline", d.get("current_timeline", {}).get("name") == "Main TL", out)
 check("overview start tc", d["current_timeline"]["start_timecode"] == "01:00:00:00", out)
 
-ok, out = mod.execute_tool("open_page", {"page": "color"})
+ok, out = run_tool("open_page", {"page": "color"})
 check("open_page", ok and RESOLVE.page == "color", out)
 
-ok, out = mod.execute_tool("get_project_setting", {"name": "timelineFrameRate"})
+ok, out = run_tool("get_project_setting", {"name": "timelineFrameRate"})
 check("get one setting", ok and json.loads(out) == {"timelineFrameRate": "24"}, out)
-ok, out = mod.execute_tool("get_project_setting", {})
+ok, out = run_tool("get_project_setting", {})
 check("get all settings", ok and "timelineResolutionWidth" in json.loads(out), out)
 
-ok, out = mod.execute_tool("set_project_setting", {"name": "timelineFrameRate", "value": "25"})
+ok, out = run_tool("set_project_setting", {"name": "timelineFrameRate", "value": "25"})
 check("set setting", ok, out)
 PROJECT._settings["timelineFrameRate"] = "24"
 
-ok, out = mod.execute_tool("save_project", {})
+ok, out = run_tool("save_project", {})
 check("save_project", ok, out)
 
-ok, out = mod.execute_tool("get_timeline", {})
+ok, out = run_tool("get_timeline", {})
 check("get_timeline current", ok and json.loads(out)["name"] == "Main TL", out)
-ok, out = mod.execute_tool("get_timeline", {"name": "Alt TL"})
+ok, out = run_tool("get_timeline", {"name": "Alt TL"})
 check("get_timeline by name", ok and json.loads(out)["name"] == "Alt TL", out)
-ok, out = mod.execute_tool("get_timeline", {"name": "Nope"})
+ok, out = run_tool("get_timeline", {"name": "Nope"})
 check("get_timeline missing errors", not ok and "No timeline named" in out, out)
 
-ok, out = mod.execute_tool("list_timeline_items", {})
+ok, out = run_tool("list_timeline_items", {})
 check("list items v1", ok and len(json.loads(out)["items"]) == 2, out)
 d = json.loads(out)
 check("item tc math", d["items"][0]["start_timecode"] == "01:00:00:00"
       and d["items"][0]["end_timecode"] == "01:00:02:00", out)
-ok, out = mod.execute_tool("list_timeline_items", {"track_type": "video", "track_index": 7})
+ok, out = run_tool("list_timeline_items", {"track_type": "video", "track_index": 7})
 check("bad track errors", not ok, out)
 
-ok, out = mod.execute_tool("add_marker", {"position": "01:00:01:00", "color": "red",
+ok, out = run_tool("add_marker", {"position": "01:00:01:00", "color": "red",
                                           "name": "Cut", "note": "check this"})
 check("add_marker tc", ok, out)
 d = json.loads(out)
 check("marker frame offset", d["added_marker"]["frame_offset"] == 24, out)
 check("marker color capitalized", d["added_marker"]["color"] == "Red", out)
 
-ok, out = mod.execute_tool("add_marker", {"position": "48"})
+ok, out = run_tool("add_marker", {"position": "48"})
 check("add_marker frame offset", ok and json.loads(out)["added_marker"]["frame_offset"] == 48, out)
-ok, out = mod.execute_tool("add_marker", {"position": "playhead", "color": "Blue"})
+ok, out = run_tool("add_marker", {"position": "playhead", "color": "Blue"})
 check("add_marker playhead", ok and json.loads(out)["added_marker"]["frame_offset"] == 0, out)
-ok, out = mod.execute_tool("add_marker", {"position": "00:59:00:00"})
+ok, out = run_tool("add_marker", {"position": "00:59:00:00"})
 check("marker before start errors", not ok and "before the timeline start" in out, out)
-ok, out = mod.execute_tool("add_marker", {"position": "01:00:01:00"})
+ok, out = run_tool("add_marker", {"position": "01:00:01:00"})
 check("duplicate marker errors", not ok, out)
-ok, out = mod.execute_tool("add_marker", {"position": "10", "color": "Chartreuse"})
+ok, out = run_tool("add_marker", {"position": "10", "color": "Chartreuse"})
 check("bad color errors", not ok and "Unknown marker color" in out, out)
 
-ok, out = mod.execute_tool("list_markers", {})
+ok, out = run_tool("list_markers", {})
 check("list_markers", ok and len(json.loads(out)["markers"]) == 3, out)
 d = json.loads(out)
 check("marker list tc", d["markers"][1]["timecode"] == "01:00:01:00", out)
 
-ok, out = mod.execute_tool("delete_markers", {"position": "01:00:01:00"})
+ok, out = run_tool("delete_markers", {"position": "01:00:01:00"})
 check("delete one marker", ok, out)
-ok, out = mod.execute_tool("delete_markers", {"color": "All"})
+ok, out = run_tool("delete_markers", {"color": "All"})
 check("delete all markers", ok and json.loads(out)["deleted_count"] == 2, out)
-ok, out = mod.execute_tool("delete_markers", {})
+ok, out = run_tool("delete_markers", {})
 check("delete_markers no args errors", not ok, out)
 
-ok, out = mod.execute_tool("create_timeline", {"name": "New TL"})
+ok, out = run_tool("create_timeline", {"name": "New TL"})
 check("create_timeline", ok, out)
-ok, out = mod.execute_tool("set_current_timeline", {"name": "Main TL"})
+ok, out = run_tool("set_current_timeline", {"name": "Main TL"})
 check("set_current_timeline", ok and PROJECT._current.GetName() == "Main TL", out)
 
-ok, out = mod.execute_tool("move_playhead", {"timecode": "01:00:05:00"})
+ok, out = run_tool("move_playhead", {"timecode": "01:00:05:00"})
 check("move_playhead", ok and json.loads(out)["playhead"] == "01:00:05:00", out)
 
-ok, out = mod.execute_tool("list_media_pool", {})
+ok, out = run_tool("list_media_pool", {})
 check("list media root", ok, out)
 d = json.loads(out)
 check("root clips", [c["name"] for c in d["clips"]] == ["clipA", "clipB"], out)
 check("root subfolders", d["subfolders"] == ["B-roll"], out)
-ok, out = mod.execute_tool("list_media_pool", {"folder_path": "/B-roll"})
+ok, out = run_tool("list_media_pool", {"folder_path": "/B-roll"})
 check("list subfolder", ok and json.loads(out)["clips"][0]["name"] == "broll1", out)
-ok, out = mod.execute_tool("list_media_pool", {"folder_path": "/", "include_subfolders": True})
+ok, out = run_tool("list_media_pool", {"folder_path": "/", "include_subfolders": True})
 check("recursive listing", ok and len(json.loads(out)["clips"]) == 3, out)
-ok, out = mod.execute_tool("list_media_pool", {"folder_path": "/Nope"})
+ok, out = run_tool("list_media_pool", {"folder_path": "/Nope"})
 check("missing folder errors", not ok, out)
 
-ok, out = mod.execute_tool("get_clip_properties", {"clip_name": "broll1"})
+ok, out = run_tool("get_clip_properties", {"clip_name": "broll1"})
 check("clip props recursive find", ok and json.loads(out)["properties"]["FPS"] == "24", out)
-ok, out = mod.execute_tool("get_clip_properties", {"clip_name": "ghost"})
+ok, out = run_tool("get_clip_properties", {"clip_name": "ghost"})
 check("missing clip errors", not ok and "not found" in out, out)
 
-ok, out = mod.execute_tool("create_media_pool_folder", {"name": "Bin X"})
+ok, out = run_tool("create_media_pool_folder", {"name": "Bin X"})
 check("create bin", ok, out)
 
 tmp = tempfile.NamedTemporaryFile(suffix=".mov", delete=False)
 tmp.close()
-ok, out = mod.execute_tool("import_media", {"paths": [tmp.name]})
+ok, out = run_tool("import_media", {"paths": [tmp.name]})
 check("import_media", ok, out)
 os.unlink(tmp.name)
-ok, out = mod.execute_tool("import_media", {"paths": ["/no/such/file.mov"]})
+ok, out = run_tool("import_media", {"paths": ["/no/such/file.mov"]})
 check("import missing path errors", not ok, out)
 
-ok, out = mod.execute_tool("append_to_timeline", {"clip_names": ["clipA", "broll1"]})
+ok, out = run_tool("append_to_timeline", {"clip_names": ["clipA", "broll1"]})
 check("append_to_timeline", ok and len(PROJECT._pool.appended) == 2, out)
 
-ok, out = mod.execute_tool("get_current_video_item", {})
+ok, out = run_tool("get_current_video_item", {})
 check("current video item", ok and json.loads(out)["name"] == "clipA", out)
 
-ok, out = mod.execute_tool("apply_lut_to_current_clip", {"lut_path": "/luts/film.cube"})
+ok, out = run_tool("apply_lut_to_current_clip", {"lut_path": "/luts/film.cube"})
 check("apply lut", ok, out)
 cur_item = PROJECT._current._items[("video", 1)][0]
 check("lut via node graph", cur_item.graph.lut_calls == [(1, "/luts/film.cube")]
       and cur_item.lut_calls == [], str(cur_item.graph.lut_calls))
 
-ok, out = mod.execute_tool("list_render_presets", {})
+ok, out = run_tool("list_render_presets", {})
 check("render presets", ok and "YouTube 1080p" in json.loads(out)["presets"], out)
-ok, out = mod.execute_tool("add_render_job", {"preset_name": "YouTube 1080p",
+ok, out = run_tool("add_render_job", {"preset_name": "YouTube 1080p",
                                               "target_dir": "/out", "custom_name": "final"})
 check("add render job", ok and json.loads(out)["job_id"] == "job-1", out)
-ok, out = mod.execute_tool("add_render_job", {"preset_name": "Nope"})
+ok, out = run_tool("add_render_job", {"preset_name": "Nope"})
 check("bad preset errors", not ok, out)
-ok, out = mod.execute_tool("start_render", {})
+ok, out = run_tool("start_render", {})
 check("start_render", ok, out)
-ok, out = mod.execute_tool("get_render_status", {})
+ok, out = run_tool("get_render_status", {})
 check("render status", ok and json.loads(out)["jobs"][0]["status"] == "Ready", out)
 
-ok, out = mod.execute_tool("run_python", {"code": "print('hi'); result = {'n': 1+1}"})
+ok, out = run_tool("run_python", {"code": "print('hi'); result = {'n': 1+1}"})
 check("run_python", ok, out)
 d = json.loads(out)
 check("run_python stdout+result", d["stdout"].strip() == "hi" and d["result"] == {"n": 2}, out)
 mod.STATE["allow_python"] = False
-ok, out = mod.execute_tool("run_python", {"code": "print(1)"})
+ok, out = run_tool("run_python", {"code": "print(1)"})
 check("run_python gated", not ok and "disabled" in out, out)
 mod.STATE["allow_python"] = True
-ok, out = mod.execute_tool("run_python", {"code": "raise ValueError('boom')"})
+ok, out = run_tool("run_python", {"code": "raise ValueError('boom')"})
 check("run_python exception reported", not ok and "ValueError" in out, out)
 
-ok, out = mod.execute_tool("nonexistent_tool", {})
+ok, out = run_tool("nonexistent_tool", {})
 check("unknown tool", not ok and "Unknown tool" in out, out)
-ok, out = mod.execute_tool("add_marker", {"position": "10", "bogus_arg": 1})
+ok, out = run_tool("add_marker", {"position": "10", "bogus_arg": 1})
 check("bad kwargs handled", not ok and "Bad arguments" in out, out)
 
 print("== schemas ==")
@@ -587,7 +665,7 @@ check("sanitize no-op without fallback", mod._sanitize_assistant_content(no_fb) 
 # get_timeline by name with no current timeline open
 saved_current = PROJECT._current
 PROJECT._current = None
-ok, out = mod.execute_tool("get_timeline", {"name": "Alt TL"})
+ok, out = run_tool("get_timeline", {"name": "Alt TL"})
 check("get_timeline works with no current timeline",
       ok and json.loads(out)["playhead"] is None, out)
 PROJECT._current = saved_current
@@ -665,6 +743,83 @@ with tempfile.TemporaryDirectory() as td:
     check("env key wins", mod.get_api_key(cfg) == "sk-env")
 os.environ.clear()
 os.environ.update(old_env)
+
+# ------------------------------------------------------------------ view_frame
+print("== view_frame ==")
+import base64 as _b64
+
+PROJECT._current = PROJECT._timelines[0]
+_tl = PROJECT._current
+_album = PROJECT._gallery_album
+
+ok, out, img = mod.execute_tool("view_frame", {})
+check("view_frame ok", ok, out)
+check("image side channel present", bool(img), str(img)[:80])
+check("media type sniffed from bytes (png in a .jpg)",
+      img and img["media_type"] == "image/png", str(img)[:80])
+check("image round-trips exactly",
+      img and _b64.b64decode(img["data"]) == ORANGE_PNG)
+check("no base64 left in the text payload", "_image_b64" not in out, out[:120])
+check("summary mentions attachment", "attached" in out, out[:120])
+check("grabbed still deleted from gallery",
+      _album.deleted and _album.deleted[-1] is _album.exported[-1][0][0])
+check("exported as jpg format string", _album.exported[-1][3] == "jpg")
+
+_tc_before = _tl.GetCurrentTimecode()
+ok, out, img = mod.execute_tool("view_frame", {"position": "01:00:03:00"})
+check("position grab ok", ok, out)
+check("grabbed at requested position",
+      _album.exported[-1][0][0].tc == "01:00:03:00" or _tl._markers is not None)
+check("playhead restored after positioned grab",
+      _tl.GetCurrentTimecode() == _tc_before,
+      "%s vs %s" % (_tl.GetCurrentTimecode(), _tc_before))
+
+ok, out, img = mod.execute_tool("view_frame", {"position": "not-a-position"})
+check("bad position is a clean error", not ok and "neither" in out, out)
+
+_page_before = RESOLVE.page
+ok, out, img = mod.execute_tool("view_frame", {})
+check("page restored after grab", RESOLVE.page == _page_before,
+      "%s vs %s" % (RESOLVE.page, _page_before))
+
+# Full-res export refused -> thumbnail fallback kicks in, encoded as PNG.
+_album.export_fail = True
+_thumb_rgb = bytes(range(48)) * 3            # 8x6 RGB = 144 bytes
+_tl._thumb = {"width": 8, "height": 6, "format": "RGB 8-bit",
+              "data": _b64.b64encode(_thumb_rgb).decode()}
+ok, out, img = mod.execute_tool("view_frame", {})
+check("thumbnail fallback ok", ok, out)
+check("fallback yields a real PNG",
+      img and _b64.b64decode(img["data"])[:8] == b"\x89PNG\r\n\x1a\n", str(img)[:60])
+check("fallback notes the source", "thumbnail (8x6)" in out, out[:160])
+_album.export_fail = False
+_tl._thumb = None
+
+_tl._grab_fail = True                        # both routes dead -> clean error
+ok, out, img = mod.execute_tool("view_frame", {})
+check("both routes failing is a clean error",
+      not ok and "could not capture" in out.lower(), out)
+_tl._grab_fail = False
+
+# API backend: the tool_result for view_frame must carry the image block.
+events, calls = run_turn([
+    {"content": [{"type": "tool_use", "id": "t1", "name": "view_frame", "input": {}}],
+     "stop_reason": "tool_use"},
+    {"content": [{"type": "text", "text": "Looks well exposed."}],
+     "stop_reason": "end_turn"},
+])
+_tr = calls[1][-1]["content"][0]
+check("api tool_result is a block list", isinstance(_tr.get("content"), list),
+      str(_tr)[:120])
+check("api image block first",
+      _tr["content"][0]["type"] == "image"
+      and _tr["content"][0]["source"]["type"] == "base64"
+      and _tr["content"][0]["source"]["media_type"] == "image/png"
+      and _b64.b64decode(_tr["content"][0]["source"]["data"]) == ORANGE_PNG,
+      str(_tr["content"][0])[:120])
+check("api text block second", _tr["content"][1]["type"] == "text")
+check("frame notice emitted", any(k == "tool" and "frame attached" in t
+                                  for k, t in events), str(events)[:200])
 
 # ------------------------------------------------------- claude code backend
 print("== claude code backend ==")
@@ -766,7 +921,9 @@ check("surfaces result errors", ("error", "boom") in ev, str(ev))
 # -- bridge + MCP server, spoken for real over stdio --------------------------
 CALLS = []
 _real_execute = mod.execute_tool
-mod.execute_tool = lambda n, i: (CALLS.append((n, i)), (True, json.dumps({"ok": n})))[1]
+mod.execute_tool = lambda n, i: (CALLS.append((n, i)), (
+    True, json.dumps({"ok": n}),
+    {"data": "aGVsbG8=", "media_type": "image/png"} if n == "view_frame" else None))[1]
 bridge = mod.ToolBridge()
 try:
     reply = mod._bridge_request(bridge.port, bridge.token, {"op": "list"})
@@ -820,6 +977,20 @@ try:
     check("successful call not flagged as error",
           called["result"]["isError"] is False)
     check("bridge executed the real tool", CALLS and CALLS[-1][0] == "list_markers")
+
+    rpc({"jsonrpc": "2.0", "id": 30, "method": "tools/call",
+         "params": {"name": "view_frame", "arguments": {}}})
+    blocks = read()["result"]["content"]
+    check("mcp image block first",
+          blocks[0] == {"type": "image", "data": "aGVsbG8=", "mimeType": "image/png"},
+          str(blocks)[:120])
+    check("mcp text block follows image", blocks[1]["type"] == "text")
+
+    direct = mod._bridge_request(bridge.port, bridge.token,
+                                 {"op": "call", "name": "view_frame", "arguments": {}})
+    check("bridge reply carries image",
+          direct.get("image") == {"data": "aGVsbG8=", "media_type": "image/png"},
+          str(direct)[:120])
 
     rpc({"jsonrpc": "2.0", "id": 4, "method": "ping"})
     check("ping answered", read()["result"] == {})
