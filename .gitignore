@@ -3,3 +3,6 @@ node_modules/
 .tokens.json
 .plaid-tokens.json
 .twitch-tokens.json
+
+__pycache__/
+*.pyc
