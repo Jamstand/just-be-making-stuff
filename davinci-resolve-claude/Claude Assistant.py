@@ -37,10 +37,15 @@ client, agent loop, chat UI.
 """
 
 import io
+import binascii
+import io
 import json
 import os
 import re
+import shutil
+import socket
 import ssl
+import subprocess
 import sys
 import time
 import threading
@@ -63,6 +68,23 @@ MAX_AGENT_ITERATIONS = 30
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
 REQUEST_TIMEOUT_S = 600
+
+# Two ways to reach a model. "claude-code" shells out to the Claude Code CLI and
+# rides the user's Pro/Max subscription (no API key, no per-token billing);
+# "api" talks to the Messages API directly with a key.
+BACKEND_API = "api"
+BACKEND_CLAUDE_CODE = "claude-code"
+
+# The MCP server name we expose the Resolve tools under. Claude Code namespaces
+# MCP tools as mcp__<server>__<tool>, so this is also the allowlist prefix.
+MCP_SERVER_NAME = "resolve"
+# Protocol versions we can speak, newest first, plus what to answer with when
+# the client asks for something we don't recognise.
+MCP_PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+MCP_FALLBACK_VERSION = "2025-06-18"
+BRIDGE_ENV_PORT = "CLAUDE_RESOLVE_BRIDGE_PORT"
+BRIDGE_ENV_TOKEN = "CLAUDE_RESOLVE_BRIDGE_TOKEN"
+MCP_BRIDGE_FLAG = "--mcp-bridge"
 
 MARKER_COLORS = [
     "Blue", "Cyan", "Green", "Yellow", "Red", "Pink", "Purple", "Fuchsia",
@@ -116,6 +138,44 @@ def save_config(cfg):
 
 def get_api_key(cfg):
     return os.environ.get("ANTHROPIC_API_KEY") or cfg.get("api_key") or ""
+
+
+def get_backend(cfg):
+    """Which brain the panel talks to: BACKEND_CLAUDE_CODE or BACKEND_API."""
+    choice = (os.environ.get("CLAUDE_RESOLVE_BACKEND") or cfg.get("backend") or "").strip().lower()
+    if choice in (BACKEND_CLAUDE_CODE, BACKEND_API):
+        return choice
+    # Unconfigured: prefer the subscription route when the CLI is present, so a
+    # fresh install with Claude Code already set up needs no API key at all.
+    return BACKEND_CLAUDE_CODE if find_claude_binary(cfg) else BACKEND_API
+
+
+_ready_cache = {}
+
+
+def backend_ready(cfg, recheck=False):
+    """(ok, message) — can we actually talk to a model right now?
+
+    The sign-in probe spawns a process, so a success is cached; it only needs to
+    be true once per session.
+    """
+    backend = get_backend(cfg)
+    if backend == BACKEND_CLAUDE_CODE:
+        if _ready_cache.get(backend) and not recheck:
+            return True, ""
+        binary = find_claude_binary(cfg)
+        if not binary:
+            return False, ("Claude Code CLI not found. Install it with "
+                           "`npm install -g @anthropic-ai/claude-code`, or switch this "
+                           "panel to the API-key backend.")
+        ok, detail = claude_code_auth_status(binary)
+        if not ok:
+            return False, detail
+        _ready_cache[backend] = True
+        return True, ""
+    if not get_api_key(cfg):
+        return False, "No API key configured — restart the script to enter one."
+    return True, ""
 
 
 # ----------------------------------------------------------------------------
@@ -1125,6 +1185,351 @@ def call_claude(api_key, model, messages):
 
 
 # ----------------------------------------------------------------------------
+# Claude Code backend — locating the CLI and a usable Python
+# ----------------------------------------------------------------------------
+
+_binary_cache = {}
+
+
+def _spawn_kwargs():
+    """Keep Windows from flashing a console window for every child process."""
+    kwargs = {}
+    if sys.platform == "win32":
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if flags:
+            kwargs["creationflags"] = flags
+        else:                                     # Python < 3.7
+            info = subprocess.STARTUPINFO()
+            info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            kwargs["startupinfo"] = info
+    return kwargs
+
+
+def _first_existing(candidates):
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return ""
+
+
+def find_claude_binary(cfg=None):
+    """Absolute path to the Claude Code CLI, or "" if we can't find it.
+
+    Resolve launches scripts with a trimmed PATH, so `shutil.which` alone misses
+    npm-global and native installs often enough to be worth probing for.
+    """
+    explicit = ((cfg or {}).get("claude_code_bin")
+                or os.environ.get("CLAUDE_CODE_BIN") or "").strip()
+    if explicit:
+        return explicit if os.path.isfile(explicit) else (shutil.which(explicit) or "")
+
+    if "claude" in _binary_cache:
+        return _binary_cache["claude"]
+
+    found = shutil.which("claude") or ""
+    if not found:
+        home = os.path.expanduser("~")
+        if sys.platform == "win32":
+            appdata = os.environ.get("APPDATA", "")
+            localapp = os.environ.get("LOCALAPPDATA", "")
+            found = _first_existing([
+                os.path.join(appdata, "npm", "claude.cmd") if appdata else "",
+                os.path.join(appdata, "npm", "claude.exe") if appdata else "",
+                os.path.join(localapp, "Programs", "claude", "claude.exe") if localapp else "",
+                os.path.join(home, ".local", "bin", "claude.exe"),
+                os.path.join(home, ".local", "bin", "claude"),
+            ])
+        else:
+            found = _first_existing([
+                os.path.join(home, ".local", "bin", "claude"),
+                os.path.join(home, ".claude", "local", "claude"),
+                "/usr/local/bin/claude",
+                "/opt/homebrew/bin/claude",
+            ])
+    _binary_cache["claude"] = found
+    return found
+
+
+def find_python_binary():
+    """A real python interpreter we can spawn the MCP bridge with.
+
+    Inside Resolve, `sys.executable` is often Resolve itself rather than a
+    python binary, so it can only be trusted when it actually looks like one.
+    """
+    if "python" in _binary_cache:
+        return _binary_cache["python"]
+
+    exe = sys.executable or ""
+    if exe and "python" in os.path.basename(exe).lower():
+        _binary_cache["python"] = exe
+        return exe
+
+    found = shutil.which("python3") or shutil.which("python") or ""
+    if not found and sys.platform == "win32":
+        localapp = os.environ.get("LOCALAPPDATA", "")
+        globs = []
+        if localapp:
+            base = os.path.join(localapp, "Programs", "Python")
+            try:
+                globs = [os.path.join(base, d, "python.exe") for d in sorted(os.listdir(base), reverse=True)]
+            except Exception:
+                globs = []
+        found = _first_existing(globs)
+    _binary_cache["python"] = found
+    return found
+
+
+def claude_code_auth_status(binary):
+    """(ok, detail) — `claude auth status` exits 0 only when signed in."""
+    try:
+        proc = subprocess.Popen([binary, "auth", "status"],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                **_spawn_kwargs())
+        try:
+            out, _ = proc.communicate(timeout=30)
+        except Exception:
+            proc.kill()
+            return False, "Timed out asking Claude Code for its sign-in status."
+    except Exception as exc:
+        return False, "Could not run Claude Code (%s): %s" % (binary, exc)
+
+    if proc.returncode == 0:
+        return True, ""
+    detail = (out or b"").decode("utf-8", "replace").strip()
+    return False, ("Claude Code is installed but not signed in.\n"
+                   "Open a terminal, run `claude`, sign in with your Claude "
+                   "account, then reopen this panel."
+                   + ("\n\n%s" % detail if detail else ""))
+
+
+# ----------------------------------------------------------------------------
+# Tool bridge — lets the out-of-process MCP server reach this Resolve session
+# ----------------------------------------------------------------------------
+
+class ToolBridge(object):
+    """Loopback JSON-line server that executes Resolve tools on request.
+
+    Claude Code spawns MCP servers as separate processes, and a separate process
+    has no handle on this Resolve session. So the MCP server we hand it is a thin
+    client that forwards every tools/list and tools/call back here, to the
+    process that actually owns the `resolve` object.
+
+    Bound to 127.0.0.1 on an ephemeral port and gated by a random token, so only
+    a child we handed the token to can drive Resolve.
+    """
+
+    def __init__(self):
+        self.token = binascii.hexlify(os.urandom(24)).decode("ascii")
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.bind(("127.0.0.1", 0))
+        self._sock.listen(8)
+        self.port = self._sock.getsockname()[1]
+        self._call_lock = threading.Lock()   # Resolve's API is not thread-safe
+        self._closed = False
+        self._thread = threading.Thread(target=self._serve, name="claude-tool-bridge")
+        self._thread.daemon = True
+        self._thread.start()
+
+    def _serve(self):
+        while not self._closed:
+            try:
+                conn, _ = self._sock.accept()
+            except Exception:
+                return                       # socket closed, or shutting down
+            worker = threading.Thread(target=self._handle, args=(conn,))
+            worker.daemon = True
+            worker.start()
+
+    def _handle(self, conn):
+        try:
+            stream = conn.makefile("rwb")
+            for raw in stream:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line:
+                    continue
+                try:
+                    reply = self._dispatch(json.loads(line))
+                except ValueError:
+                    reply = {"ok": False, "content": "bridge: malformed request"}
+                stream.write((json.dumps(reply, default=str) + "\n").encode("utf-8"))
+                stream.flush()
+        except Exception:
+            pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _dispatch(self, req):
+        if not isinstance(req, dict) or req.get("token") != self.token:
+            return {"ok": False, "content": "bridge: unauthorized"}
+
+        op = req.get("op")
+        if op == "list":
+            return {"ok": True, "tools": mcp_tool_schemas()}
+        if op == "call":
+            name = req.get("name")
+            args = req.get("arguments")
+            if not isinstance(args, dict):
+                args = {}
+            with self._call_lock:
+                ok, text = execute_tool(name, args)
+            return {"ok": ok, "content": text}
+        return {"ok": False, "content": "bridge: unknown op %r" % (op,)}
+
+    def close(self):
+        self._closed = True
+        try:
+            self._sock.close()
+        except Exception:
+            pass
+
+
+def mcp_tool_schemas():
+    """The tool catalogue in MCP shape (`inputSchema`, not `input_schema`)."""
+    tools = []
+    for schema in tool_schemas():
+        tools.append({
+            "name": schema["name"],
+            "description": schema["description"],
+            "inputSchema": schema["input_schema"],
+        })
+    return tools
+
+
+# ----------------------------------------------------------------------------
+# MCP server — runs as a subprocess of Claude Code, talks JSON-RPC over stdio
+# ----------------------------------------------------------------------------
+
+def _bridge_request(port, token, payload):
+    """One request/response round-trip against the in-Resolve ToolBridge."""
+    conn = socket.create_connection(("127.0.0.1", port), timeout=600)
+    try:
+        stream = conn.makefile("rwb")
+        payload = dict(payload)
+        payload["token"] = token
+        stream.write((json.dumps(payload) + "\n").encode("utf-8"))
+        stream.flush()
+        line = stream.readline()
+        if not line:
+            raise IOError("bridge closed the connection")
+        return json.loads(line.decode("utf-8", "replace"))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def run_mcp_bridge():
+    """Entry point for `Claude Assistant.py --mcp-bridge`.
+
+    Speaks newline-delimited JSON-RPC on stdin/stdout — nothing else may ever be
+    written to stdout, or the transport is corrupted.
+    """
+    stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", newline="")
+    stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="\n")
+
+    port = int(os.environ.get(BRIDGE_ENV_PORT) or 0)
+    token = os.environ.get(BRIDGE_ENV_TOKEN) or ""
+
+    def log(msg):
+        sys.stderr.write("[claude-resolve-mcp] %s\n" % msg)
+        sys.stderr.flush()
+
+    def send(obj):
+        stdout.write(json.dumps(obj, separators=(",", ":")) + "\n")
+        stdout.flush()
+
+    def ok(rid, payload):
+        send({"jsonrpc": "2.0", "id": rid, "result": payload})
+
+    def fail(rid, code, message):
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": message}})
+
+    def handle(msg):
+        if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
+            return fail(None, -32600, "Invalid Request")
+
+        method = msg.get("method")
+        params = msg.get("params") or {}          # may be absent entirely
+        rid = msg.get("id")
+        # id 0 is a legitimate request id, so test for presence, not truthiness.
+        is_request = "id" in msg and msg["id"] is not None
+
+        if method is None:
+            return                                 # a response; we send no requests
+        if not is_request:
+            return                                 # notifications never get a reply
+
+        if method == "initialize":
+            requested = params.get("protocolVersion")
+            version = requested if requested in MCP_PROTOCOL_VERSIONS else MCP_FALLBACK_VERSION
+            return ok(rid, {
+                "protocolVersion": version,
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {"name": MCP_SERVER_NAME, "version": "1.0.0"},
+            })
+
+        if method == "ping":
+            return ok(rid, {})
+
+        if method == "tools/list":
+            try:
+                reply = _bridge_request(port, token, {"op": "list"})
+            except Exception as exc:
+                return fail(rid, -32603, "Resolve bridge unreachable: %s" % exc)
+            if not reply.get("ok"):
+                return fail(rid, -32603, reply.get("content") or "bridge error")
+            return ok(rid, {"tools": reply.get("tools") or []})
+
+        if method == "tools/call":
+            name = params.get("name")
+            args = params.get("arguments") or {}
+            if not isinstance(name, str):
+                return fail(rid, -32602, "Invalid params: 'name' must be a string")
+            if not isinstance(args, dict):
+                return fail(rid, -32602, "Invalid params: 'arguments' must be an object")
+            try:
+                reply = _bridge_request(port, token, {"op": "call", "name": name,
+                                                      "arguments": args})
+            except Exception as exc:
+                # Transport failure is a tool error, not a protocol error, so the
+                # model can report it instead of the whole session dying.
+                return ok(rid, {"content": [{"type": "text",
+                                             "text": "Resolve bridge unreachable: %s" % exc}],
+                                "isError": True})
+            text = reply.get("content")
+            if not isinstance(text, str):
+                text = json.dumps(text, default=str)
+            return ok(rid, {"content": [{"type": "text", "text": text}],
+                            "isError": not reply.get("ok")})
+
+        return fail(rid, -32601, "Method not found: %s" % method)
+
+    log("started (bridge port %s)" % port)
+    for raw in stdin:
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            fail(None, -32700, "Parse error")
+            continue
+        try:
+            handle(msg)
+        except Exception as exc:
+            log("internal error: %r" % exc)
+            rid = msg.get("id") if isinstance(msg, dict) else None
+            if rid is not None:
+                fail(rid, -32603, "Internal error")
+    log("stdin closed, exiting")
+
+
+# ----------------------------------------------------------------------------
 # Agent loop
 # ----------------------------------------------------------------------------
 
@@ -1133,6 +1538,8 @@ STATE = {
     "allow_python": True,
     "fusion": None,
     "app": None,             # ResolveApp
+    "bridge": None,          # ToolBridge, lazily started for the CLI backend
+    "cc_session_id": None,   # Claude Code session to --resume, for continuity
 }
 
 
@@ -1173,12 +1580,188 @@ def execute_tool(name, tool_input):
         return False, "Tool %s crashed:\n%s" % (name, traceback.format_exc(limit=4))
 
 
-def run_agent_turn(api_key, model, user_text, emit):
-    """Run one full user turn (which may involve many tool round-trips).
+def run_agent_turn(cfg, model, user_text, emit):
+    """Run one user turn against whichever backend is configured.
 
     `emit(kind, text)` is called with transcript events:
       kind in {assistant, tool, error, notice}.
     """
+    if get_backend(cfg) == BACKEND_CLAUDE_CODE:
+        return run_agent_turn_claude_code(cfg, model, user_text, emit)
+    return run_agent_turn_api(get_api_key(cfg), model, user_text, emit)
+
+
+def get_tool_bridge():
+    bridge = STATE.get("bridge")
+    if bridge is None:
+        bridge = ToolBridge()
+        STATE["bridge"] = bridge
+    return bridge
+
+
+def build_claude_code_argv(cfg, model, prompt, bridge, resume_session=None):
+    """The full `claude` command line for one turn. Split out so it's testable."""
+    python_bin = find_python_binary()
+    if not python_bin:
+        raise ApiError("Could not find a Python interpreter to run the Resolve "
+                       "tool bridge. Install Python 3 and make sure it's on PATH.")
+
+    mcp_config = json.dumps({
+        "mcpServers": {
+            MCP_SERVER_NAME: {
+                "type": "stdio",
+                "command": python_bin,
+                "args": [os.path.abspath(__file__), MCP_BRIDGE_FLAG],
+                # MCP subprocesses are spawned with a whitelisted environment,
+                # so the bridge coordinates have to be passed explicitly here.
+                "env": {
+                    BRIDGE_ENV_PORT: str(bridge.port),
+                    BRIDGE_ENV_TOKEN: bridge.token,
+                },
+            },
+        },
+    }, separators=(",", ":"))
+
+    argv = [
+        find_claude_binary(cfg),
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        # Ignore whatever MCP servers the user has configured globally; this
+        # panel's tool surface should be exactly the Resolve tools.
+        "--strict-mcp-config",
+        "--mcp-config", mcp_config,
+        "--allowedTools", "mcp__%s__*" % MCP_SERVER_NAME,
+        # No filesystem, no shell — Claude gets the Resolve tools and nothing else.
+        "--tools", "",
+        "--append-system-prompt", SYSTEM_PROMPT,
+        "--model", model,
+    ]
+    if resume_session:
+        argv += ["--resume", resume_session]
+    return argv
+
+
+def claude_code_env():
+    """Child environment for the CLI, scrubbed of anything that would bypass
+    the user's subscription.
+
+    In `-p` mode an ANTHROPIC_API_KEY is used silently, with no approval prompt
+    — inheriting one would quietly bill API credits to someone who chose this
+    backend precisely to avoid that.
+    """
+    env = dict(os.environ)
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("ANTHROPIC_AUTH_TOKEN", None)
+    return env
+
+
+def run_agent_turn_claude_code(cfg, model, user_text, emit):
+    """Drive one turn through the Claude Code CLI (uses the user's subscription).
+
+    Conversation state lives in Claude Code's own session store rather than in
+    STATE["messages"]; we just carry the session id forward with --resume.
+    """
+    binary = find_claude_binary(cfg)
+    if not binary:
+        emit("error", "Claude Code CLI not found. Install it with "
+                      "`npm install -g @anthropic-ai/claude-code`.")
+        return
+
+    prompt = "%s\n\n%s" % (user_text, resolve_context_block())
+    try:
+        argv = build_claude_code_argv(cfg, model, prompt, get_tool_bridge(),
+                                      STATE.get("cc_session_id"))
+    except ApiError as exc:
+        emit("error", str(exc))
+        return
+
+    try:
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                env=claude_code_env(), **_spawn_kwargs())
+    except Exception as exc:
+        emit("error", "Could not start Claude Code: %s" % exc)
+        return
+
+    saw_output = False
+    try:
+        for raw in proc.stdout:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue                       # non-JSON noise on stdout
+            if _handle_claude_code_event(event, emit):
+                saw_output = True
+    finally:
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
+        stderr = b""
+        try:
+            stderr = proc.stderr.read() or b""
+            proc.stderr.close()
+        except Exception:
+            pass
+        proc.wait()
+
+    if proc.returncode != 0 and not saw_output:
+        detail = stderr.decode("utf-8", "replace").strip()
+        emit("error", "Claude Code exited with status %d.%s"
+             % (proc.returncode, "\n\n%s" % detail if detail else ""))
+
+
+def _handle_claude_code_event(event, emit):
+    """Translate one stream-json line into panel events. True if it showed something."""
+    if not isinstance(event, dict):
+        return False
+    kind = event.get("type")
+
+    if kind == "system" and event.get("subtype") == "init":
+        if event.get("session_id"):
+            STATE["cc_session_id"] = event["session_id"]
+        # A server that failed to connect means no Resolve tools this turn.
+        for server in event.get("mcp_servers") or []:
+            if server.get("name") == MCP_SERVER_NAME and server.get("status") in ("failed", "needs-auth"):
+                emit("notice", "The Resolve tool bridge did not connect (%s) — "
+                               "Claude can still talk, but can't drive Resolve this turn."
+                     % server.get("status"))
+        return False
+
+    if kind == "assistant":
+        shown = False
+        for block in ((event.get("message") or {}).get("content") or []):
+            btype = block.get("type")
+            if btype == "text" and block.get("text", "").strip():
+                emit("assistant", block["text"])
+                shown = True
+            elif btype == "tool_use":
+                name = block.get("name") or ""
+                short = name.split("__")[-1] or name
+                emit("tool", "%s(%s)" % (short, _short_json(block.get("input"))))
+                if short == "run_python" and isinstance(block.get("input"), dict):
+                    emit("tool", "```python\n%s\n```" % block["input"].get("code", ""))
+                shown = True
+        return shown
+
+    if kind == "result":
+        if event.get("session_id"):
+            STATE["cc_session_id"] = event["session_id"]
+        if event.get("is_error") or event.get("subtype") == "error":
+            emit("error", str(event.get("result") or "Claude Code reported an error."))
+            return True
+        if event.get("subtype") == "error_max_turns":
+            emit("notice", "Stopped after the maximum number of tool rounds — "
+                           "ask me to continue if needed.")
+            return True
+    return False
+
+
+def run_agent_turn_api(api_key, model, user_text, emit):
+    """Run one full user turn against the Messages API (many tool round-trips)."""
     messages = STATE["messages"]
     messages.append({
         "role": "user",
@@ -1462,9 +2045,9 @@ class ChatWindow(object):
         self.cfg["allow_python"] = STATE["allow_python"]
         save_config(self.cfg)
 
-        api_key = get_api_key(self.cfg)
-        if not api_key:
-            self.append_chat("error", "No API key configured — restart the script to enter one.")
+        ready, why = backend_ready(self.cfg)
+        if not ready:
+            self.append_chat("error", why)
             return
 
         self.append_chat("you", text)
@@ -1472,20 +2055,20 @@ class ChatWindow(object):
         if self.timer is not None:
             self.set_busy(True)
             worker = threading.Thread(
-                target=self._worker, args=(api_key, model, text), daemon=True)
+                target=self._worker, args=(self.cfg, model, text), daemon=True)
             worker.start()
         else:
             # Synchronous fallback: UI freezes during the call but stays correct.
             self.set_busy(True)
             try:
-                run_agent_turn(api_key, model, text,
+                run_agent_turn(self.cfg, model, text,
                                lambda kind, t: self.append_chat(kind, t))
             finally:
                 self.set_busy(False)
 
-    def _worker(self, api_key, model, text):
+    def _worker(self, cfg, model, text):
         try:
-            run_agent_turn(api_key, model, text,
+            run_agent_turn(cfg, model, text,
                            lambda kind, t: self.events.put((kind, t)))
         except Exception:
             self.events.put(("error", "Unexpected failure:\n" + traceback.format_exc(limit=6)))
@@ -1504,6 +2087,7 @@ class ChatWindow(object):
         if self.busy:
             return
         STATE["messages"] = []
+        STATE["cc_session_id"] = None   # start a fresh Claude Code session too
         self.html_log = []
         try:
             self.items["Chat"].Clear()
@@ -1522,43 +2106,83 @@ class ChatWindow(object):
                          "\"queue a YouTube 1080p render to ~/Renders\".")
 
 
-def prompt_for_api_key(ui, disp, cfg):
-    """Small one-shot window shown when no API key is configured."""
+SETUP_CHOICES = [BACKEND_CLAUDE_CODE, BACKEND_API]
+SETUP_LABELS = [
+    "Claude Code — use my Claude subscription (no API key)",
+    "Anthropic API key — pay per use",
+]
+
+
+def prompt_for_setup(ui, disp, cfg):
+    """One-shot window to pick a backend the first time the panel runs."""
     result = {"saved": False}
+    binary = find_claude_binary(cfg)
+    if binary:
+        signed_in, _ = claude_code_auth_status(binary)
+        cli_status = ("Claude Code detected and signed in — you're ready to go."
+                      if signed_in else
+                      "Claude Code detected, but not signed in yet. Open a terminal, "
+                      "run `claude`, and sign in with your Claude account.")
+    else:
+        cli_status = ("Claude Code not found. To use your subscription instead of an "
+                      "API key, install it with:  npm install -g @anthropic-ai/claude-code")
+
     win = disp.AddWindow(
-        {"ID": "KeyWin", "WindowTitle": "Claude Assistant — API key",
-         "Geometry": [300, 300, 560, 150]},
+        {"ID": "SetupWin", "WindowTitle": "Claude Assistant — setup",
+         "Geometry": [300, 300, 640, 260]},
         [
             ui.VGroup({"Spacing": 8}, [
-                ui.Label({"ID": "KeyInfo", "WordWrap": True, "Text":
-                          "Enter your Anthropic API key (from platform.claude.com).\n"
-                          "It is stored only on this machine, in your user config folder."}),
+                ui.Label({"ID": "SetupInfo", "WordWrap": True, "Text":
+                          "How should this panel reach Claude?"}),
+                ui.ComboBox({"ID": "BackendCombo"}),
+                ui.Label({"ID": "CliStatus", "WordWrap": True, "Text": cli_status}),
+                ui.Label({"ID": "KeyLabel", "WordWrap": True, "Text":
+                          "API key (only needed for the second option). Stored on this "
+                          "machine only, in your user config folder."}),
                 ui.LineEdit({"ID": "KeyInput", "PlaceholderText": "sk-ant-…",
                              "EchoMode": "Password",
                              "Events": {"ReturnPressed": True}}),
                 ui.HGroup({}, [
-                    ui.Button({"ID": "KeySave", "Text": "Save & start"}),
-                    ui.Button({"ID": "KeyCancel", "Text": "Cancel"}),
+                    ui.Button({"ID": "SetupSave", "Text": "Save & start"}),
+                    ui.Button({"ID": "SetupCancel", "Text": "Cancel"}),
                 ]),
             ]),
         ])
     items = win.GetItems()
 
+    combo = items["BackendCombo"]
+    try:
+        combo.AddItems(SETUP_LABELS)
+    except Exception:
+        for label in SETUP_LABELS:
+            combo.AddItem(label)
+    # Default to whichever option can actually work right now.
+    combo.CurrentIndex = 0 if binary else 1
+
     def on_save(ev):
+        backend = SETUP_CHOICES[int(combo.CurrentIndex)]
         key = (items["KeyInput"].Text or "").strip()
+        if backend == BACKEND_API and not key and not get_api_key(cfg):
+            items["CliStatus"].Text = "Enter an API key, or pick the Claude Code option."
+            return
+        if backend == BACKEND_CLAUDE_CODE and not find_claude_binary(cfg):
+            items["CliStatus"].Text = ("Claude Code isn't installed yet — install it, or "
+                                       "pick the API key option.")
+            return
+        cfg["backend"] = backend
         if key:
             cfg["api_key"] = key
-            save_config(cfg)
-            result["saved"] = True
+        save_config(cfg)
+        result["saved"] = True
         disp.ExitLoop()
 
     def on_cancel(ev):
         disp.ExitLoop()
 
-    win.On.KeySave.Clicked = on_save
+    win.On.SetupSave.Clicked = on_save
     win.On.KeyInput.ReturnPressed = on_save
-    win.On.KeyCancel.Clicked = on_cancel
-    win.On.KeyWin.Close = on_cancel
+    win.On.SetupCancel.Clicked = on_cancel
+    win.On.SetupWin.Close = on_cancel
     win.Show()
     disp.RunLoop()
     win.Hide()
@@ -1584,17 +2208,29 @@ def main():
     ui = fusion_obj.UIManager
     disp = bmd_mod.UIDispatcher(ui)
 
-    if not get_api_key(cfg):
-        if not prompt_for_api_key(ui, disp, cfg):
-            print("[%s] No API key entered — exiting." % APP_NAME)
+    # Only interrupt when neither backend could work; otherwise get_backend()
+    # picks the CLI if it's installed and falls back to the API key.
+    if not get_api_key(cfg) and not find_claude_binary(cfg):
+        if not prompt_for_setup(ui, disp, cfg):
+            print("[%s] Setup cancelled — exiting." % APP_NAME)
             return
 
-    window = ChatWindow(ui, disp, cfg)
-    window.greet()
-    window.win.Show()
-    disp.RunLoop()
-    window.win.Hide()
+    try:
+        window = ChatWindow(ui, disp, cfg)
+        window.greet()
+        window.win.Show()
+        disp.RunLoop()
+        window.win.Hide()
+    finally:
+        bridge = STATE.get("bridge")
+        if bridge is not None:
+            bridge.close()
 
 
 if __name__ == "__main__":
-    main()
+    # Claude Code spawns this same file as its MCP server; that mode must not
+    # touch Resolve or open a window.
+    if MCP_BRIDGE_FLAG in sys.argv[1:]:
+        run_mcp_bridge()
+    else:
+        main()

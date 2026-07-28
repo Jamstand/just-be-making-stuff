@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import sys
+import subprocess
 import tempfile
 
 PLUGIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Claude Assistant.py")
@@ -492,8 +493,8 @@ def run_turn(responses, text="do things"):
     real = mod.call_claude
     mod.call_claude = scripted_api(responses)
     try:
-        mod.run_agent_turn("key", "claude-opus-5", text,
-                           lambda kind, t: events.append((kind, t)))
+        mod.run_agent_turn_api("key", "claude-opus-5", text,
+                               lambda kind, t: events.append((kind, t)))
     finally:
         fake = mod.call_claude
         mod.call_claude = real
@@ -556,7 +557,7 @@ real = mod.call_claude
 mod.call_claude = scripted_api([{"content": [{"type": "text", "text": "later"}],
                                  "stop_reason": "end_turn"}])
 ev2 = []
-mod.run_agent_turn("key", "claude-opus-5", "next question", lambda k, t: ev2.append((k, t)))
+mod.run_agent_turn_api("key", "claude-opus-5", "next question", lambda k, t: ev2.append((k, t)))
 sent = mod.call_claude.calls[0]
 mod.call_claude = real
 check("post-refusal history valid",
@@ -615,7 +616,7 @@ def boom(*a):
 
 mod.call_claude = boom
 ev = []
-mod.run_agent_turn("key", "claude-opus-5", "x", lambda k, t: ev.append((k, t)))
+mod.run_agent_turn_api("key", "claude-opus-5", "x", lambda k, t: ev.append((k, t)))
 mod.call_claude = real
 check("api error emitted", ("error", "HTTP 500: nope") in ev, str(ev))
 
@@ -662,6 +663,177 @@ with tempfile.TemporaryDirectory() as td:
     check("get_api_key from cfg", mod.get_api_key(cfg) == "sk-test")
     os.environ["ANTHROPIC_API_KEY"] = "sk-env"
     check("env key wins", mod.get_api_key(cfg) == "sk-env")
+os.environ.clear()
+os.environ.update(old_env)
+
+# ------------------------------------------------------- claude code backend
+print("== claude code backend ==")
+
+# -- backend selection --------------------------------------------------------
+os.environ.pop("CLAUDE_RESOLVE_BACKEND", None)
+mod._binary_cache.clear()
+check("explicit cfg backend wins",
+      mod.get_backend({"backend": "api"}) == mod.BACKEND_API)
+os.environ["CLAUDE_RESOLVE_BACKEND"] = "claude-code"
+check("env backend overrides cfg",
+      mod.get_backend({"backend": "api"}) == mod.BACKEND_CLAUDE_CODE)
+os.environ.pop("CLAUDE_RESOLVE_BACKEND", None)
+
+mod._binary_cache["claude"] = "/fake/claude"
+check("auto-detect prefers CLI when present",
+      mod.get_backend({}) == mod.BACKEND_CLAUDE_CODE)
+mod._binary_cache["claude"] = ""
+check("falls back to api without CLI", mod.get_backend({}) == mod.BACKEND_API)
+
+# -- the subscription guarantee ----------------------------------------------
+os.environ["ANTHROPIC_API_KEY"] = "sk-should-not-leak"
+os.environ["ANTHROPIC_AUTH_TOKEN"] = "tok-should-not-leak"
+child_env = mod.claude_code_env()
+check("API key stripped from CLI env", "ANTHROPIC_API_KEY" not in child_env)
+check("auth token stripped from CLI env", "ANTHROPIC_AUTH_TOKEN" not in child_env)
+os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+
+# -- command line -------------------------------------------------------------
+mod._binary_cache["claude"] = "/fake/claude"
+mod._binary_cache["python"] = "/fake/python3"
+
+
+class StubBridge:
+    port = 51234
+    token = "stub-token"
+
+
+argv = mod.build_claude_code_argv({}, "claude-opus-5", "hello", StubBridge())
+check("uses print mode", "-p" in argv and "hello" in argv)
+check("streams json", argv[argv.index("--output-format") + 1] == "stream-json")
+check("ignores user MCP config", "--strict-mcp-config" in argv)
+check("allowlists only resolve tools",
+      argv[argv.index("--allowedTools") + 1] == "mcp__resolve__*")
+check("disables built-in tools", argv[argv.index("--tools") + 1] == "")
+check("never passes --bare", "--bare" not in argv)
+check("no resume on first turn", "--resume" not in argv)
+
+resumed = mod.build_claude_code_argv({}, "claude-opus-5", "hi", StubBridge(), "sess-1")
+check("resumes a session", resumed[resumed.index("--resume") + 1] == "sess-1")
+
+mcp_cfg = json.loads(argv[argv.index("--mcp-config") + 1])
+server = mcp_cfg["mcpServers"]["resolve"]
+check("mcp server is stdio", server["type"] == "stdio")
+check("bridge runs this plugin", server["args"][-1] == mod.MCP_BRIDGE_FLAG)
+check("bridge path absolute", os.path.isabs(server["args"][0]))
+check("bridge port passed explicitly",
+      server["env"][mod.BRIDGE_ENV_PORT] == "51234")
+check("bridge token passed explicitly",
+      server["env"][mod.BRIDGE_ENV_TOKEN] == "stub-token")
+
+# -- MCP tool catalogue -------------------------------------------------------
+schemas = mod.mcp_tool_schemas()
+check("mcp catalogue complete", len(schemas) == len(mod.TOOLS))
+check("mcp uses inputSchema key", all("inputSchema" in s for s in schemas))
+check("mcp schemas are objects",
+      all(s["inputSchema"].get("type") == "object" for s in schemas))
+
+# -- stream event translation -------------------------------------------------
+mod.STATE["cc_session_id"] = None
+mod._handle_claude_code_event(
+    {"type": "system", "subtype": "init", "session_id": "abc",
+     "mcp_servers": [{"name": "resolve", "status": "connected"}]}, lambda k, t: None)
+check("captures session id", mod.STATE["cc_session_id"] == "abc")
+
+ev = []
+mod._handle_claude_code_event(
+    {"type": "system", "subtype": "init", "session_id": "abc",
+     "mcp_servers": [{"name": "resolve", "status": "failed"}]},
+    lambda k, t: ev.append((k, t)))
+check("warns when bridge fails to connect",
+      any(k == "notice" for k, _ in ev), str(ev))
+
+ev = []
+mod._handle_claude_code_event(
+    {"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "done"},
+        {"type": "tool_use", "name": "mcp__resolve__add_marker", "input": {"color": "Red"}},
+    ]}}, lambda k, t: ev.append((k, t)))
+check("emits assistant text", ("assistant", "done") in ev, str(ev))
+check("strips mcp prefix in tool label",
+      any(k == "tool" and t.startswith("add_marker(") for k, t in ev), str(ev))
+
+ev = []
+mod._handle_claude_code_event({"type": "result", "is_error": True, "result": "boom"},
+                              lambda k, t: ev.append((k, t)))
+check("surfaces result errors", ("error", "boom") in ev, str(ev))
+
+# -- bridge + MCP server, spoken for real over stdio --------------------------
+CALLS = []
+_real_execute = mod.execute_tool
+mod.execute_tool = lambda n, i: (CALLS.append((n, i)), (True, json.dumps({"ok": n})))[1]
+bridge = mod.ToolBridge()
+try:
+    reply = mod._bridge_request(bridge.port, bridge.token, {"op": "list"})
+    check("bridge lists tools", reply["ok"] and len(reply["tools"]) == len(mod.TOOLS))
+    denied = mod._bridge_request(bridge.port, "wrong", {"op": "list"})
+    check("bridge rejects bad token", denied["ok"] is False, str(denied))
+
+    proc = subprocess.Popen(
+        [sys.executable, PLUGIN, mod.MCP_BRIDGE_FLAG],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env=dict(os.environ, **{mod.BRIDGE_ENV_PORT: str(bridge.port),
+                                mod.BRIDGE_ENV_TOKEN: bridge.token}))
+
+    def rpc(obj):
+        proc.stdin.write((json.dumps(obj) + "\n").encode())
+        proc.stdin.flush()
+
+    def read():
+        return json.loads(proc.stdout.readline().decode())
+
+    # id 0 is a real request id, not a notification — the classic hang.
+    rpc({"jsonrpc": "2.0", "id": 0, "method": "initialize",
+         "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1"}}})
+    init = read()
+    check("initialize answers id 0", init.get("id") == 0, str(init))
+    check("echoes protocol version",
+          init["result"]["protocolVersion"] == "2025-06-18", str(init))
+    check("declares tools capability", "tools" in init["result"]["capabilities"])
+
+    rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+         "params": {"protocolVersion": "1999-01-01", "capabilities": {}}})
+    check("falls back on unknown protocol version",
+          read()["result"]["protocolVersion"] == mod.MCP_FALLBACK_VERSION)
+
+    # A notification must draw no reply at all; prove it by pipelining a request
+    # behind it and checking the next line answers the request.
+    rpc({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})   # note: no "params"
+    listed = read()
+    check("notification draws no reply", listed.get("id") == 2, str(listed))
+    check("tools/list works without params",
+          len(listed["result"]["tools"]) == len(mod.TOOLS), str(listed)[:200])
+
+    rpc({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+         "params": {"name": "list_markers", "arguments": {}}})
+    called = read()
+    check("tools/call round-trips through the bridge",
+          called["result"]["content"][0]["text"] == json.dumps({"ok": "list_markers"}),
+          str(called))
+    check("successful call not flagged as error",
+          called["result"]["isError"] is False)
+    check("bridge executed the real tool", CALLS and CALLS[-1][0] == "list_markers")
+
+    rpc({"jsonrpc": "2.0", "id": 4, "method": "ping"})
+    check("ping answered", read()["result"] == {})
+
+    rpc({"jsonrpc": "2.0", "id": 5, "method": "no/such/method"})
+    check("unknown method -> -32601", read()["error"]["code"] == -32601)
+
+    proc.stdin.close()
+    proc.wait(timeout=10)
+    check("exits cleanly on EOF", proc.returncode == 0, str(proc.returncode))
+finally:
+    mod.execute_tool = _real_execute
+    bridge.close()
+
 os.environ.clear()
 os.environ.update(old_env)
 

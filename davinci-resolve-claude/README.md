@@ -37,14 +37,48 @@ Or run the installer from this folder:
 .\install.ps1
 ```
 
-**2. Get an Anthropic API key** from
+**2. Choose how the panel reaches Claude** — either works:
+
+| Backend | What it uses | Cost |
+|---|---|---|
+| **Claude Code** *(default when detected)* | Your existing Claude **Pro/Max subscription** | Included in your plan — no API key |
+| **API key** | The Anthropic Messages API | Billed per token |
+
+*For the Claude Code backend*, install the CLI and sign in once:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude          # sign in with your Claude account, then /exit
+```
+
+*For the API-key backend*, get a key from
 [platform.claude.com](https://platform.claude.com) (Console → API keys).
 
 **3. Launch Resolve → `Workspace` → `Scripts` → `Claude Assistant`.**
-The first launch asks for your API key and stores it in a private config file
+
+If the Claude Code CLI is installed, the panel uses it automatically and never
+asks for a key. Otherwise the first launch offers both options and stores your
+choice in a private config file
 (`~/.config/claude-resolve-assistant/config.json`, or
-`%APPDATA%\ClaudeResolveAssistant\config.json` on Windows). Setting the
-`ANTHROPIC_API_KEY` environment variable works too and takes precedence.
+`%APPDATA%\ClaudeResolveAssistant\config.json` on Windows).
+
+To force a backend, set `backend` to `claude-code` or `api` in that config file,
+or set the `CLAUDE_RESOLVE_BACKEND` environment variable.
+
+### How the Claude Code backend works
+
+Claude Code runs as a separate process, so it can't touch Resolve directly —
+only the in-Resolve panel holds that connection. The panel therefore starts a
+loopback tool server (random port, random token, `127.0.0.1` only) and hands
+Claude Code a small MCP server that forwards tool calls back to it. Claude Code
+is launched with `--strict-mcp-config`, `--tools ""` and
+`--allowedTools mcp__resolve__*`, so it gets **the 25 Resolve tools and nothing
+else** — no filesystem access, no shell, and none of your other MCP servers.
+
+Note that `ANTHROPIC_API_KEY` is deliberately **removed** from the CLI's
+environment. In headless mode an API key silently overrides subscription auth,
+which would bill API credits to someone who picked this backend precisely to
+avoid that.
 
 ### Requirements
 
@@ -55,6 +89,9 @@ The first launch asks for your API key and stores it in a private config file
   plugin speaks to the Anthropic API with Python's standard library. If the
   official `anthropic` SDK happens to be installed, it's used automatically.
 - Internet access to `api.anthropic.com`.
+- For the Claude Code backend: the `claude` CLI on PATH (or set
+  `claude_code_bin` in the config / `CLAUDE_CODE_BIN` in the environment), plus
+  an active Claude subscription.
 
 ---
 
@@ -103,6 +140,9 @@ when moving the playhead the timecode string is passed to Resolve unmodified.
   itself is never uploaded.
 - The API key is stored with `0600` permissions in your user config folder and
   never leaves your machine except as the auth header to `api.anthropic.com`.
+- On the Claude Code backend there's no key to store — the CLI uses your own
+  signed-in session. The tool bridge listens on `127.0.0.1` only, on an
+  ephemeral port, and rejects any request without the per-session random token.
 - `run_python` executes with the same permissions as Resolve. Leave it enabled
   for maximum capability, or uncheck it for a strictly-curated toolset.
 - On `claude-opus-5`, server-side refusal fallbacks are enabled so a
@@ -116,6 +156,9 @@ when moving the playhead the timecode string is passed to Resolve unmodified.
 | Script doesn't appear in Workspace → Scripts | Wrong folder — double-check the path table above (note `Fusion/Scripts/Utility`), then restart Resolve. |
 | "Could not connect to DaVinci Resolve" | Run it from the Scripts menu inside Resolve. For external runs: Preferences → System → General → *External scripting using* → **Local** (Studio only). |
 | Window opens but nothing sends / "Invalid API key" | Re-check the key; delete the config file to be re-prompted. |
+| "Claude Code CLI not found" | Install it (`npm install -g @anthropic-ai/claude-code`). If it *is* installed, Resolve may be launching with a trimmed PATH — set `claude_code_bin` in the config file to the CLI's full path. |
+| "Claude Code is installed but not signed in" | Run `claude` in a terminal, sign in, then reopen the panel. |
+| "The Resolve tool bridge did not connect" | Usually no Python on PATH for the bridge subprocess — install Python 3, or set `CLAUDE_CODE_BIN`/PATH so Resolve can see it. Claude will still chat but can't drive Resolve. |
 | TLS certificate error (macOS) | Run `Install Certificates.command` inside your `/Applications/Python 3.x/` folder, or `pip3 install certifi`, then restart Resolve. |
 | UI freezes while Claude works | Your Resolve build lacks UI timers, so the plugin falls back to synchronous calls — it will unfreeze when the answer arrives. |
 | No Python found by Resolve | Install Python 3 from python.org (macOS/Windows) and restart Resolve. |
