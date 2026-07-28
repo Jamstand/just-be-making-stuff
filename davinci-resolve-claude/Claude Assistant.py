@@ -489,6 +489,15 @@ def t_save(app):
 
 # -- timelines -----------------------------------------------------------------
 
+def _playhead_if_current(app, tl):
+    try:
+        if tl.GetName() == app.timeline.GetName():
+            return tl.GetCurrentTimecode()
+    except ResolveError:
+        pass
+    return None
+
+
 @tool(
     "get_timeline",
     "Get details for one timeline (default: the current one): tracks, duration, "
@@ -512,7 +521,7 @@ def t_get_timeline(app, name=None):
         "start_timecode": app.start_timecode(tl),
         "end_timecode": app.abs_frame_to_tc(tl.GetEndFrame(), fps),
         "duration_frames": int(tl.GetEndFrame()) - int(tl.GetStartFrame()),
-        "playhead": tl.GetCurrentTimecode() if tl.GetName() == app.timeline.GetName() else None,
+        "playhead": _playhead_if_current(app, tl),
         "tracks": tracks,
         "marker_count": len(tl.GetMarkers() or {}),
     }
@@ -982,6 +991,8 @@ def t_run_python(app, code):
 
 try:
     import anthropic as _anthropic_sdk  # optional
+    if not hasattr(_anthropic_sdk, "Anthropic"):
+        _anthropic_sdk = None  # ancient/broken install — use the stdlib client
 except ImportError:
     _anthropic_sdk = None
 
@@ -1193,7 +1204,11 @@ def run_agent_turn(api_key, model, user_text, emit):
             if block.get("type") == "text" and block.get("text", "").strip():
                 emit("assistant", block["text"])
 
-        messages.append({"role": "assistant", "content": content})
+        # Never store an empty assistant message (e.g. a pre-output refusal) —
+        # the API rejects empty content on subsequent requests.
+        if content:
+            messages.append({"role": "assistant",
+                             "content": _sanitize_assistant_content(content)})
 
         if stop_reason == "tool_use":
             results = []
@@ -1217,6 +1232,9 @@ def run_agent_turn(api_key, model, user_text, emit):
             continue
 
         if stop_reason == "pause_turn":
+            if not content:
+                emit("notice", "The API paused without output — please try again.")
+                return
             continue  # assistant turn already appended; just call again
 
         if stop_reason == "refusal":
@@ -1230,6 +1248,29 @@ def run_agent_turn(api_key, model, user_text, emit):
 
     emit("notice", "Stopped after %d tool rounds — ask me to continue if needed."
          % MAX_AGENT_ITERATIONS)
+
+
+def _sanitize_assistant_content(content):
+    """Prepare assistant content for echoing back to the API.
+
+    After a mid-output refusal fallback, the response contains a 'fallback'
+    boundary block; thinking/tool_use blocks BEFORE the last boundary must be
+    omitted when replaying history (per the fallbacks API contract). Content
+    without fallback blocks is returned unchanged.
+    """
+    last_fb = -1
+    for i, block in enumerate(content):
+        if block.get("type") == "fallback":
+            last_fb = i
+    if last_fb < 0:
+        return content
+    kept = []
+    for i, block in enumerate(content):
+        if i < last_fb and block.get("type") in ("thinking", "redacted_thinking",
+                                                 "tool_use", "server_tool_use"):
+            continue
+        kept.append(block)
+    return kept
 
 
 def _short_json(obj, limit=160):
@@ -1360,15 +1401,18 @@ class ChatWindow(object):
             self.timer = None
 
     def drain_events(self):
-        try:
-            while True:
+        while True:
+            try:
                 kind, text = self.events.get_nowait()
+            except _queue.Empty:
+                return
+            try:
                 if kind == "__done__":
                     self.set_busy(False)
                 else:
                     self.append_chat(kind, text)
-        except _queue.Empty:
-            pass
+            except Exception:
+                pass  # window may be tearing down; never lose the queue loop
 
     # -- transcript -----------------------------------------------------------
     def append_chat(self, kind, text):
@@ -1447,6 +1491,14 @@ class ChatWindow(object):
             self.events.put(("error", "Unexpected failure:\n" + traceback.format_exc(limit=6)))
         finally:
             self.events.put(("__done__", ""))
+            # Safety net: if the timer's Timeout never fires on this Resolve
+            # build, drain from here so the window can't get stuck "busy".
+            time.sleep(2.0)
+            if not self.events.empty():
+                try:
+                    self.drain_events()
+                except Exception:
+                    pass
 
     def on_new_chat(self, ev):
         if self.busy:
