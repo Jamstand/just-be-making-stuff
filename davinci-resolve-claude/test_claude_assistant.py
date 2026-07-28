@@ -76,6 +76,14 @@ class FakeMediaPoolItem:
             return "240"
         return self._props.get(key, "")
 
+    def TranscribeAudio(self):
+        self.transcribed = True
+        return True
+
+    def ClearTranscription(self):
+        self.transcribed = False
+        return True
+
 
 class FakeFolder:
     def __init__(self, name, clips=None, subs=None):
@@ -91,6 +99,14 @@ class FakeFolder:
 
     def GetSubFolderList(self):
         return list(self._subs)
+
+    def TranscribeAudio(self):
+        self.transcribed = True
+        return True
+
+    def ClearTranscription(self):
+        self.transcribed = False
+        return True
 
 
 class FakeMediaPool:
@@ -128,6 +144,17 @@ class FakeMediaPool:
         items = [FakeMediaPoolItem(os.path.basename(p)) for p in paths]
         self.imported.extend(items)
         return items
+
+    def AutoSyncAudio(self, clips, settings):
+        self.synced = (list(clips), dict(settings))
+        return True
+
+    def ImportTimelineFromFile(self, path, options=None):
+        tl = FakeTimeline((options or {}).get("timelineName") or "Imported TL")
+        PROJECT._timelines.append(tl)
+        self.timeline_imports = getattr(self, "timeline_imports", [])
+        self.timeline_imports.append((path, dict(options or {})))
+        return tl
 
 
 class FakeGraph:
@@ -255,6 +282,43 @@ class FakeTimelineItem:
 
     def GetNodeGraph(self, layer=None):
         return self.graph
+
+    # -- organisation
+    def SetClipColor(self, color):
+        if color == "NotAColor":
+            return False
+        self.clip_color = color
+        return True
+
+    def ClearClipColor(self):
+        self.clip_color = None
+        return True
+
+    def AddFlag(self, color):
+        self.flags = getattr(self, "flags", [])
+        self.flags.append(color)
+        return True
+
+    def ClearFlags(self, color):
+        self.flags = []
+        return True
+
+    # -- color groups / LUT export
+    def AssignToColorGroup(self, group):
+        self.color_group = group
+        return True
+
+    def RemoveFromColorGroup(self):
+        self.color_group = None
+        return True
+
+    def GetColorGroup(self):
+        return getattr(self, "color_group", None)
+
+    def ExportLUT(self, export_type, path):
+        self.lut_exports = getattr(self, "lut_exports", [])
+        self.lut_exports.append((export_type, path))
+        return True
 
     # -- fusion
     def GetFusionCompCount(self):
@@ -392,6 +456,51 @@ class FakeTimeline:
     def InsertTitleIntoTimeline(self, name):
         return None
 
+    def CreateSubtitlesFromAudio(self, settings=None):
+        self.captioned = True
+        self._track_counts["subtitle"] = self._track_counts.get("subtitle", 0) + 1
+        return True
+
+    def DuplicateTimeline(self, name=None):
+        tl = FakeTimeline(name or (self._name + " copy"))
+        PROJECT._timelines.append(tl)
+        return tl
+
+    def CreateCompoundClip(self, items, info=None):
+        made = FakeTimelineItem((info or {}).get("name") or "Compound Clip 1",
+                                86400, 86520)
+        self.compound = (list(items), dict(info or {}))
+        return made
+
+    def Export(self, file_name, export_type, export_subtype=None):
+        self.exports = getattr(self, "exports", [])
+        self.exports.append((file_name, export_type, export_subtype))
+        return True
+
+    def SetTrackName(self, ttype, idx, name):
+        self._track_names = getattr(self, "_track_names", {})
+        self._track_names[(ttype, idx)] = name
+        return True
+
+    def GetTrackName(self, ttype, idx):
+        return getattr(self, "_track_names", {}).get((ttype, idx), "%s %d" % (ttype, idx))
+
+    def SetTrackLock(self, ttype, idx, locked):
+        self._track_locks = getattr(self, "_track_locks", {})
+        self._track_locks[(ttype, idx)] = locked
+        return True
+
+    def GetIsTrackLocked(self, ttype, idx):
+        return getattr(self, "_track_locks", {}).get((ttype, idx), False)
+
+    def SetTrackEnable(self, ttype, idx, enabled):
+        self._track_enables = getattr(self, "_track_enables", {})
+        self._track_enables[(ttype, idx)] = enabled
+        return True
+
+    def GetIsTrackEnabled(self, ttype, idx):
+        return getattr(self, "_track_enables", {}).get((ttype, idx), True)
+
     def GetCurrentClipThumbnailImage(self):
         return getattr(self, "_thumb", None)
 
@@ -430,6 +539,14 @@ class FakeGallery:
         return self._album
 
 
+class FakeColorGroup:
+    def __init__(self, name):
+        self._name = name
+
+    def GetName(self):
+        return self._name
+
+
 class FakeProject:
     def __init__(self):
         self._timelines = [FakeTimeline("Main TL"), FakeTimeline("Alt TL")]
@@ -445,9 +562,26 @@ class FakeProject:
         self.rendering = False
         self._gallery_album = FakeGalleryStillAlbum()
         self._gallery = FakeGallery(self._gallery_album)
+        self._color_groups = []
 
     def GetGallery(self):
         return self._gallery
+
+    def AddColorGroup(self, name):
+        if any(g.GetName() == name for g in self._color_groups):
+            return None
+        g = FakeColorGroup(name)
+        self._color_groups.append(g)
+        return g
+
+    def GetColorGroupsList(self):
+        return list(self._color_groups)
+
+    def DeleteColorGroup(self, group):
+        if group in self._color_groups:
+            self._color_groups.remove(group)
+            return True
+        return False
 
     def GetName(self):
         return "Test Project"
@@ -510,6 +644,8 @@ class FakeProject:
 class FakePM:
     def __init__(self, project):
         self._project = project
+        self.projects = ["Test Project", "Other Project"]
+        self.loaded = None
 
     def GetCurrentProject(self):
         return self._project
@@ -517,8 +653,33 @@ class FakePM:
     def SaveProject(self):
         return True
 
+    def GetProjectListInCurrentFolder(self):
+        return list(self.projects)
+
+    def CreateProject(self, name):
+        if name in self.projects:
+            return None
+        self.projects.append(name)
+        return object()
+
+    def LoadProject(self, name):
+        if name not in self.projects:
+            return None
+        self.loaded = name
+        return object()
+
 
 class FakeResolve:
+    # resolve.* constants must be real ints — _resolve_const rejects anything
+    # else to defend against the fabricated-attribute trap.
+    EXPORT_AAF = 10; EXPORT_AAF_NEW = 11; EXPORT_NONE = 0
+    EXPORT_DRT = 12; EXPORT_EDL = 13; EXPORT_OTIO = 14
+    EXPORT_FCP_7_XML = 15; EXPORT_FCPXML_1_10 = 16
+    EXPORT_TEXT_CSV = 17; EXPORT_ALE = 18
+    AUDIO_SYNC_MODE = 20; AUDIO_SYNC_WAVEFORM = 21; AUDIO_SYNC_TIMECODE = 22
+    EXPORT_LUT_17PTCUBE = 30; EXPORT_LUT_33PTCUBE = 31
+    EXPORT_LUT_65PTCUBE = 32; EXPORT_LUT_PANASONICVLUT = 33
+
     def __init__(self, pm):
         self._pm = pm
         self.page = "edit"
@@ -1063,9 +1224,9 @@ ok, out, img = mod.execute_tool("view_frame", {})
 check("view_frame ok", ok, out)
 check("image side channel present", bool(img), str(img)[:80])
 check("media type sniffed from bytes (png in a .jpg)",
-      img and img["media_type"] == "image/png", str(img)[:80])
+      img and img[0]["media_type"] == "image/png", str(img)[:80])
 check("image round-trips exactly",
-      img and _b64.b64decode(img["data"]) == ORANGE_PNG)
+      img and _b64.b64decode(img[0]["data"]) == ORANGE_PNG)
 check("no base64 left in the text payload", "_image_b64" not in out, out[:120])
 check("summary mentions attachment", "attached" in out, out[:120])
 check("grabbed still deleted from gallery",
@@ -1097,7 +1258,7 @@ _tl._thumb = {"width": 8, "height": 6, "format": "RGB 8-bit",
 ok, out, img = mod.execute_tool("view_frame", {})
 check("thumbnail fallback ok", ok, out)
 check("fallback yields a real PNG",
-      img and _b64.b64decode(img["data"])[:8] == b"\x89PNG\r\n\x1a\n", str(img)[:60])
+      img and _b64.b64decode(img[0]["data"])[:8] == b"\x89PNG\r\n\x1a\n", str(img)[:60])
 check("fallback notes the source", "thumbnail (8x6)" in out, out[:160])
 _album.export_fail = False
 _tl._thumb = None
@@ -1127,6 +1288,140 @@ check("api image block first",
 check("api text block second", _tr["content"][1]["type"] == "text")
 check("frame notice emitted", any(k == "tool" and "frame attached" in t
                                   for k, t in events), str(events)[:200])
+
+# ------------------------------------------------- audio / timeline ops / etc
+print("== audio & transcription ==")
+
+PROJECT._current = PROJECT._timelines[0]
+_tl = PROJECT._current
+
+ok, out = run_tool("transcribe_audio", {"clip_name": "broll1"})
+check("transcribe clip ok", ok, out)
+ok, out = run_tool("transcribe_audio", {"folder_path": "/B-roll"})
+check("transcribe folder ok", ok, out)
+ok, out = run_tool("transcribe_audio", {"clip_name": "broll1", "folder_path": "/"})
+check("both targets refused", not ok and "exactly one" in out, out)
+ok, out = run_tool("transcribe_audio", {"clip_name": "broll1", "action": "clear"})
+check("clear transcription ok", ok, out)
+
+_subs_before = _tl.GetTrackCount("subtitle")
+ok, out = run_tool("auto_caption", {})
+check("auto_caption ok", ok, out)
+check("subtitle track appeared", _tl.GetTrackCount("subtitle") == _subs_before + 1)
+check("points at subtitle reader", "list_timeline_items" in out, out)
+
+ok, out = run_tool("sync_audio", {"clip_names": ["clipA", "broll1"]})
+check("sync_audio ok", ok, out)
+_clips, _settings = PROJECT._pool.synced
+check("waveform mode by default", _settings == {20: 21}, str(_settings))
+ok, out = run_tool("sync_audio", {"clip_names": ["clipA", "broll1"], "mode": "timecode"})
+check("timecode mode", PROJECT._pool.synced[1] == {20: 22}, out)
+ok, out = run_tool("sync_audio", {"clip_names": ["clipA"]})
+check("needs two clips", not ok and "at least two" in out, out)
+
+print("== timeline ops ==")
+
+ok, out = run_tool("export_timeline", {"file_path": "/tmp/x.otio", "format": "otio"})
+check("otio export ok", ok, out)
+check("otio needs no subtype", _tl.exports[-1] == ("/tmp/x.otio", 14, None), str(_tl.exports[-1]))
+ok, out = run_tool("export_timeline", {"file_path": "/tmp/x.aaf", "format": "aaf"})
+check("aaf export carries subtype", _tl.exports[-1] == ("/tmp/x.aaf", 10, 11), str(_tl.exports[-1]))
+ok, out = run_tool("export_timeline", {"file_path": "/tmp/x.foo", "format": "foo"})
+check("unknown export format refused", not ok and "Unknown format" in out, out)
+
+with tempfile.NamedTemporaryFile(suffix=".otio", delete=False) as _tf:
+    _tf.write(b"{}")
+ok, out = run_tool("import_timeline", {"file_path": _tf.name, "timeline_name": "Round Trip"})
+check("import_timeline ok", ok and "Round Trip" in out, out)
+os.unlink(_tf.name)
+ok, out = run_tool("import_timeline", {"file_path": "/no/such/file.otio"})
+check("missing import file refused", not ok and "No file" in out, out)
+
+_count_before = len(PROJECT._timelines)
+ok, out = run_tool("duplicate_timeline", {"new_name": "Backup TL"})
+check("duplicate_timeline ok", ok and "Backup TL" in out, out)
+check("duplicate exists", len(PROJECT._timelines) == _count_before + 1)
+
+ok, out = run_tool("create_compound_clip", {"clip_indices": [1], "name": "Nested"})
+check("compound clip ok", ok and "Nested" in out, out)
+check("compound got the items", len(_tl.compound[0]) == 1)
+ok, out = run_tool("create_compound_clip", {"clip_indices": [99]})
+check("compound bad index refused", not ok and "No clip at position" in out, out)
+
+ok, out = run_tool("manage_track", {"action": "rename", "track_type": "video",
+                                    "track_index": 1, "name": "Main Cam"})
+check("track rename ok", ok and "Main Cam" in out, out)
+ok, out = run_tool("manage_track", {"action": "lock", "track_type": "video", "track_index": 1})
+check("track lock ok", ok and '"locked": true' in out, out)
+ok, out = run_tool("manage_track", {"action": "info", "track_type": "video", "track_index": 1})
+check("track info ok", ok and '"clips":' in out, out)
+ok, out = run_tool("manage_track", {"action": "rename", "track_type": "video",
+                                    "track_index": 9, "name": "x"})
+check("track bounds checked", not ok and "does not exist" in out, out)
+
+_item = _tl.GetCurrentVideoItem()
+ok, out = run_tool("label_clip", {"clip_color": "Teal"})
+check("clip color set", ok and _item.clip_color == "Teal", out)
+ok, out = run_tool("label_clip", {"flag_color": "Red"})
+check("flag added", ok and _item.flags == ["Red"], out)
+ok, out = run_tool("label_clip", {"clip_color": "clear", "flag_color": "clear"})
+check("labels cleared", ok and _item.clip_color is None and _item.flags == [], out)
+ok, out = run_tool("label_clip", {"clip_color": "NotAColor"})
+check("bad clip color surfaces refusal", not ok and "rejected" in out, out)
+ok, out = run_tool("label_clip", {})
+check("empty label call refused", not ok, out)
+
+print("== color groups / LUT / projects ==")
+
+ok, out = run_tool("color_group", {"action": "create", "group_name": "Interviews"})
+check("group created", ok, out)
+ok, out = run_tool("color_group", {"action": "list"})
+check("group listed", ok and "Interviews" in out, out)
+ok, out = run_tool("color_group", {"action": "assign", "group_name": "Interviews",
+                                   "clip_indices": [1]})
+check("clips assigned to group", ok, out)
+check("assignment landed",
+      _tl.GetItemListInTrack("video", 1)[0].color_group.GetName() == "Interviews")
+ok, out = run_tool("color_group", {"action": "remove", "clip_indices": [1]})
+check("clips removed from group", ok, out)
+ok, out = run_tool("color_group", {"action": "assign", "group_name": "Nope",
+                                   "clip_indices": [1]})
+check("missing group refused", not ok and "No colour group" in out, out)
+ok, out = run_tool("color_group", {"action": "delete", "group_name": "Interviews"})
+check("group deleted", ok, out)
+
+ok, out = run_tool("export_grade_as_lut", {"file_path": "/tmp/look.cube"})
+check("lut export ok", ok, out)
+check("33pt by default",
+      _tl.GetCurrentVideoItem().lut_exports[-1] == (31, "/tmp/look.cube"))
+ok, out = run_tool("export_grade_as_lut", {"file_path": "/tmp/x.cube", "size": "99"})
+check("bad lut size refused", not ok and "size must be" in out, out)
+
+ok, out = run_tool("manage_project", {"action": "list"})
+check("projects listed", ok and "Test Project" in out, out)
+ok, out = run_tool("manage_project", {"action": "create", "name": "Fresh"})
+check("project created", ok, out)
+ok, out = run_tool("manage_project", {"action": "open", "name": "Other Project"})
+check("project opened", ok and RESOLVE._pm.loaded == "Other Project", out)
+ok, out = run_tool("manage_project", {"action": "open", "name": "Ghost"})
+check("missing project refused", not ok and "check the name" in out, out)
+
+print("== survey_clip ==")
+
+_tc_before = _tl.GetCurrentTimecode()
+_page_before = RESOLVE.page
+ok, out, imgs = mod.execute_tool("survey_clip", {"count": 3})
+check("survey ok", ok, out)
+check("three frames attached", imgs is not None and len(imgs) == 3, str(imgs)[:80])
+check("all frames decodable",
+      imgs and all(_b64.b64decode(i["data"]) == ORANGE_PNG for i in imgs))
+check("survey playhead restored", _tl.GetCurrentTimecode() == _tc_before)
+check("survey page restored", RESOLVE.page == _page_before)
+check("frames labeled in order", '"order": 1' in out and '"order": 3' in out, out[:250])
+ok, out, imgs = mod.execute_tool("survey_clip", {"count": 3, "from": "10", "to": "5"})
+check("inverted range refused", not ok and "after" in out, out)
+ok, out, imgs = mod.execute_tool("survey_clip", {"count": 99})
+check("count clamped to 6", ok and len(imgs) <= 6, str(len(imgs) if imgs else 0))
 
 # ------------------------------------------------------- claude code backend
 print("== claude code backend ==")
@@ -1230,7 +1525,7 @@ CALLS = []
 _real_execute = mod.execute_tool
 mod.execute_tool = lambda n, i: (CALLS.append((n, i)), (
     True, json.dumps({"ok": n}),
-    {"data": "aGVsbG8=", "media_type": "image/png"} if n == "view_frame" else None))[1]
+    [{"data": "aGVsbG8=", "media_type": "image/png"}] if n == "view_frame" else None))[1]
 bridge = mod.ToolBridge()
 try:
     reply = mod._bridge_request(bridge.port, bridge.token, {"op": "list"})
@@ -1296,7 +1591,7 @@ try:
     direct = mod._bridge_request(bridge.port, bridge.token,
                                  {"op": "call", "name": "view_frame", "arguments": {}})
     check("bridge reply carries image",
-          direct.get("image") == {"data": "aGVsbG8=", "media_type": "image/png"},
+          direct.get("images") == [{"data": "aGVsbG8=", "media_type": "image/png"}],
           str(direct)[:120])
 
     rpc({"jsonrpc": "2.0", "id": 4, "method": "ping"})

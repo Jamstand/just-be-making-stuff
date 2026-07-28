@@ -102,7 +102,8 @@ Environment facts:
 
 How to work:
 - Prefer the purpose-built tools. Use run_python only when no tool covers the request; keep snippets short and explain what they do. The `resolve` object and current `project`/`timeline` are available inside run_python.
-- view_frame shows you the actual frame as an image. Whenever the question is about how footage looks — exposure, color, framing, what's in the shot, whether two shots match — look with view_frame instead of guessing from names and metadata. You can call it at several positions to compare.
+- view_frame shows you the actual frame as an image; survey_clip shows several frames across a range at once. Whenever the question is about how footage looks — exposure, color, framing, what's in the shot, whether two shots match — look instead of guessing from names and metadata.
+- To get spoken words as text: transcribe_audio on the clips, then auto_caption, then read the subtitle track with list_timeline_items(track_type='subtitle'). The transcript text is not directly retrievable any other way.
 
 What Resolve's scripting API cannot do. Say so plainly rather than pretending or quietly failing:
 - No trimming, slipping, rolling, razoring/splitting, moving a clip, or speed changes. Clips can only be ADDED (place_clips) and DELETED (delete_clips). "Move this clip later" or "cut this in half" would mean deleting and re-adding it, which destroys that clip's grade, Fusion comp, transforms and markers — offer that trade-off explicitly, don't just do it.
@@ -1442,6 +1443,111 @@ def t_view_frame(app, position=None):
 
 
 @tool(
+    "survey_clip",
+    "SEE several frames spread across a range in one go — to scan a clip for "
+    "exposure shifts, check continuity across a scene, or find where something "
+    "changes. Defaults to sampling the clip under the playhead from start to end; "
+    "give `from`/`to` (timecode or frames from timeline start) to survey any range. "
+    "Returns each frame as an image, labeled by timecode.",
+    params={
+        "count": {"type": "integer", "description": "How many frames, 2-6 (default 4)."},
+        "from": {"type": "string", "description": "Range start (default: current clip's start)."},
+        "to": {"type": "string", "description": "Range end (default: current clip's end)."},
+    },
+)
+def t_survey_clip(app, count=4, **kwargs):
+    tl = app.timeline
+    project = app.pm.GetCurrentProject()
+    fps = app.timeline_fps(tl)
+    count = max(2, min(6, int(count)))
+
+    def to_abs(pos, label):
+        text = str(pos).strip()
+        if ":" in text or ";" in text:
+            return app.tc_to_abs_frame(text, fps)
+        try:
+            return int(tl.GetStartFrame()) + int(text)
+        except ValueError:
+            raise ResolveError("%s %r is neither a timecode nor a frame number." % (label, pos))
+
+    start = kwargs.get("from")
+    end = kwargs.get("to")
+    if start is None or end is None:
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            raise ResolveError("No clip under the playhead — move onto a clip, or give "
+                               "`from` and `to`.")
+        first = start if start is not None else int(item.GetStart())
+        last = end if end is not None else int(item.GetEnd()) - 1
+    else:
+        first, last = start, end
+    first = to_abs(first, "from") if not isinstance(first, int) else first
+    last = to_abs(last, "to") if not isinstance(last, int) else last
+    if last <= first:
+        raise ResolveError("`to` must be after `from`.")
+
+    original_tc = tl.GetCurrentTimecode()
+    page_before = None
+    try:
+        page_before = app.resolve.GetCurrentPage()
+        if page_before != "color":
+            app.resolve.OpenPage("color")
+    except Exception:
+        page_before = None
+
+    frames, failures = [], []
+    total_bytes = 0
+    try:
+        for i in range(count):
+            frame = first + (last - first) * i // (count - 1)
+            tc = app.abs_frame_to_tc(frame, fps)
+            if not tl.SetCurrentTimecode(tc):
+                failures.append({"timecode": tc, "why": "could not move playhead"})
+                continue
+            time.sleep(0.2)                    # let Resolve settle before grabbing
+            data, detail = _grab_still_frame(app, tl, project)
+            if data is None:
+                data, detail = _thumbnail_frame(app, tl)
+            if data is None:
+                failures.append({"timecode": tc, "why": detail})
+                continue
+            media_type = _sniff_image_media_type(data)
+            if media_type is None or len(data) > MAX_FRAME_BYTES:
+                failures.append({"timecode": tc, "why": "frame unreadable or too large"})
+                continue
+            if total_bytes + len(data) > 12 * 1024 * 1024:
+                failures.append({"timecode": tc,
+                                 "why": "skipped — total image payload would exceed 12MB"})
+                continue
+            total_bytes += len(data)
+            frames.append({"tc": tc, "b64": base64.b64encode(data).decode("ascii"),
+                           "media_type": media_type, "source": detail})
+    finally:
+        try:
+            tl.SetCurrentTimecode(original_tc)
+        except Exception:
+            pass
+        if page_before and page_before != "color":
+            try:
+                app.resolve.OpenPage(page_before)
+            except Exception:
+                pass
+
+    if not frames:
+        raise ResolveError("Could not capture any frames: %s"
+                           % (failures or "no positions sampled"))
+    out = {
+        "frames": [{"order": i + 1, "timecode": f["tc"], "source": f["source"]}
+                   for i, f in enumerate(frames)],
+        "note": "The images are attached in the same order as this list.",
+        "_images": [{"b64": f["b64"], "media_type": f["media_type"]} for f in frames],
+    }
+    if failures:
+        out["failed_positions"] = failures
+    return out
+
+
+@tool(
     "get_current_video_item",
     "Get info about the clip under the playhead on the current timeline (the clip a "
     "colorist is working on): name, range, grade versions. Works best on the Color page.",
@@ -1688,6 +1794,453 @@ def t_apply_lut(app, lut_path, node_index=1):
                            "(the LUT may need to be in Resolve's LUT folder; "
                            "try project.RefreshLUTList via run_python).")
     return {"applied_lut": lut_path, "node": int(node_index), "clip": item.GetName()}
+
+
+# -- audio / transcription ----------------------------------------------------
+
+def _resolve_const(app, name):
+    """A resolve.* constant, validated as a real int.
+
+    Resolve's bridge fabricates a callable for ANY attribute, so a missing
+    constant comes back as a function, not a number — never pass that through.
+    """
+    value = getattr(app.resolve, name, None)
+    if not isinstance(value, int):
+        raise ResolveError("This version of Resolve does not define %s." % name)
+    return value
+
+
+@tool(
+    "transcribe_audio",
+    "Transcribe a clip's (or a whole bin's) audio with Resolve's built-in speech "
+    "recognition. The text powers Resolve's text-based search and auto captions — "
+    "to read the words, run auto_caption afterwards and list the subtitle track. "
+    "Actions: 'transcribe' or 'clear'.",
+    params={
+        "clip_name": {"type": "string", "description": "One clip by exact name."},
+        "folder_path": {"type": "string", "description":
+                        "Or a media pool folder like '/Interviews' (whole bin, recursive)."},
+        "action": {"type": "string", "description": "transcribe (default) or clear."},
+    },
+)
+def t_transcribe_audio(app, clip_name=None, folder_path=None, action="transcribe"):
+    act = str(action).strip().lower()
+    if act not in ("transcribe", "clear"):
+        raise ResolveError("action must be transcribe or clear.")
+    if bool(clip_name) == bool(folder_path):
+        raise ResolveError("Give exactly one of clip_name or folder_path.")
+
+    target = (app.find_clips_by_name([clip_name])[0] if clip_name
+              else app.folder_by_path(folder_path))
+    label = clip_name or folder_path
+    method = "TranscribeAudio" if act == "transcribe" else "ClearTranscription"
+    if not _supports(target, method):
+        raise ResolveError("This version of Resolve cannot %s %s from a script."
+                           % (act, "folders" if folder_path else "clips"))
+    if not getattr(target, method)():
+        raise ResolveError("Resolve reported failure %sing %r — transcription needs "
+                           "audio in the clip and may need the language pack installed."
+                           % (act.rstrip('e'), label))
+    return {"action": act, "target": label,
+            "note": ("Transcription runs in the background; captions and text search "
+                     "use it once it finishes." if act == "transcribe" else "cleared")}
+
+
+@tool(
+    "auto_caption",
+    "Generate a subtitle track for the current timeline from its audio (Resolve's "
+    "auto-captions). Read the resulting text with list_timeline_items on "
+    "track_type='subtitle'. Takes a while on long timelines.",
+)
+def t_auto_caption(app):
+    tl = app.timeline
+    if not _supports(tl, "CreateSubtitlesFromAudio"):
+        raise ResolveError("This version of Resolve cannot create captions from a script.")
+    try:
+        ok = tl.CreateSubtitlesFromAudio()
+    except TypeError:
+        ok = tl.CreateSubtitlesFromAudio({})
+    if not ok:
+        raise ResolveError("Resolve could not generate captions (is there audible "
+                           "speech on an enabled audio track?).")
+    return {"timeline": tl.GetName(),
+            "subtitle_tracks": int(tl.GetTrackCount("subtitle") or 0),
+            "note": "Read the text with list_timeline_items(track_type='subtitle')."}
+
+
+@tool(
+    "sync_audio",
+    "Auto-sync separately recorded audio to camera clips (waveform or timecode "
+    "match), like right-click > Auto Sync Audio. Give at least one video clip and "
+    "one audio clip by name. Requires Resolve 19.1+.",
+    params={
+        "clip_names": {"type": "array", "description":
+                       "Media pool clip names — at least one video and one audio.",
+                       "items": {"type": "string"}},
+        "mode": {"type": "string", "description": "waveform (default) or timecode."},
+    },
+    required=["clip_names"],
+)
+def t_sync_audio(app, clip_names, mode="waveform"):
+    if not isinstance(clip_names, list) or len(clip_names) < 2:
+        raise ResolveError("Need at least two clips (one video + one audio).")
+    mp = app.media_pool
+    if not _supports(mp, "AutoSyncAudio"):
+        raise ResolveError("AutoSyncAudio needs Resolve 19.1 or newer.")
+    clips = app.find_clips_by_name(clip_names)
+    mode_const = _resolve_const(app, "AUDIO_SYNC_WAVEFORM"
+                                if str(mode).lower() != "timecode" else "AUDIO_SYNC_TIMECODE")
+    settings = {_resolve_const(app, "AUDIO_SYNC_MODE"): mode_const}
+    if not mp.AutoSyncAudio(clips, settings):
+        raise ResolveError("Resolve could not sync these clips — check there's at "
+                           "least one video and one audio clip, with overlapping "
+                           "%s." % ("waveforms" if mode != "timecode" else "timecode"))
+    return {"synced": clip_names, "mode": mode}
+
+
+# -- timeline operations -------------------------------------------------------
+
+EXPORT_FORMATS = {
+    # format -> (exportType const, exportSubtype const or None)
+    "aaf": ("EXPORT_AAF", "EXPORT_AAF_NEW"),
+    "drt": ("EXPORT_DRT", None),
+    "edl": ("EXPORT_EDL", "EXPORT_NONE"),
+    "fcp7xml": ("EXPORT_FCP_7_XML", None),
+    "fcpxml": ("EXPORT_FCPXML_1_10", None),
+    "otio": ("EXPORT_OTIO", None),
+    "csv": ("EXPORT_TEXT_CSV", None),
+    "ale": ("EXPORT_ALE", None),
+}
+
+
+@tool(
+    "export_timeline",
+    "Export the current timeline to an interchange file for other apps: formats "
+    + ", ".join(sorted(EXPORT_FORMATS)) +
+    ". `file_path` is the absolute output path including filename.",
+    params={
+        "file_path": {"type": "string", "description": "Absolute path to write."},
+        "format": {"type": "string", "description": "One of: " + ", ".join(sorted(EXPORT_FORMATS))},
+    },
+    required=["file_path", "format"],
+)
+def t_export_timeline(app, file_path, format):
+    fmt = str(format).strip().lower()
+    if fmt not in EXPORT_FORMATS:
+        raise ResolveError("Unknown format %r. Choose from: %s"
+                           % (format, ", ".join(sorted(EXPORT_FORMATS))))
+    type_name, sub_name = EXPORT_FORMATS[fmt]
+    tl = app.timeline
+    export_type = _resolve_const(app, type_name)
+    if sub_name is not None:
+        ok = tl.Export(str(file_path), export_type, _resolve_const(app, sub_name))
+    else:
+        ok = tl.Export(str(file_path), export_type)
+    if not ok:
+        raise ResolveError("Resolve refused the export — check the directory exists "
+                           "and is writable.")
+    return {"exported": tl.GetName(), "format": fmt, "file": file_path}
+
+
+@tool(
+    "import_timeline",
+    "Create a NEW timeline from an interchange file (AAF/EDL/XML/FCPXML/DRT/OTIO). "
+    "This is also the escape hatch for edits the API can't do directly: export, "
+    "modify the file, re-import as a new timeline.",
+    params={
+        "file_path": {"type": "string", "description": "Absolute path of the file."},
+        "timeline_name": {"type": "string", "description": "Name for the new timeline."},
+    },
+    required=["file_path"],
+)
+def t_import_timeline(app, file_path, timeline_name=None):
+    if not os.path.exists(str(file_path)):
+        raise ResolveError("No file at %r." % file_path)
+    mp = app.media_pool
+    options = {"timelineName": str(timeline_name)} if timeline_name else {}
+    tl = mp.ImportTimelineFromFile(str(file_path), options)
+    if not tl:
+        raise ResolveError("Resolve could not import %r — unsupported contents, or "
+                           "source media unavailable." % file_path)
+    return {"imported": tl.GetName(), "from": file_path}
+
+
+@tool(
+    "duplicate_timeline",
+    "Duplicate the current timeline — a safe snapshot before big changes.",
+    params={"new_name": {"type": "string", "description": "Name for the copy."}},
+)
+def t_duplicate_timeline(app, new_name=None):
+    tl = app.timeline
+    if not _supports(tl, "DuplicateTimeline"):
+        raise ResolveError("This version of Resolve cannot duplicate timelines from a script.")
+    copy = tl.DuplicateTimeline(str(new_name)) if new_name else tl.DuplicateTimeline()
+    if not copy:
+        raise ResolveError("Resolve refused to duplicate the timeline.")
+    return {"duplicated": tl.GetName(), "copy": copy.GetName()}
+
+
+@tool(
+    "create_compound_clip",
+    "Collapse clips on the current timeline into one compound clip. Pick the clips "
+    "by their 1-based positions on a track (see list_timeline_items).",
+    params={
+        "clip_indices": {"type": "array", "description": "1-based positions, e.g. [2,3,4].",
+                         "items": {"type": "integer"}},
+        "track_type": {"type": "string", "description": "video or audio (default video)."},
+        "track_index": {"type": "integer", "description": "1-based track (default 1)."},
+        "name": {"type": "string", "description": "Name for the compound clip."},
+    },
+    required=["clip_indices"],
+)
+def t_create_compound_clip(app, clip_indices, track_type="video", track_index=1, name=None):
+    tl = app.timeline
+    if not _supports(tl, "CreateCompoundClip"):
+        raise ResolveError("This version of Resolve cannot create compound clips from a script.")
+    items = _track_items(app, track_type, track_index)
+    picked = []
+    for n in clip_indices:
+        n = int(n)
+        if not 1 <= n <= len(items):
+            raise ResolveError("No clip at position %d (track has %d)." % (n, len(items)))
+        picked.append(items[n - 1])
+    info = {"name": str(name)} if name else {}
+    made = tl.CreateCompoundClip(picked, info)
+    if not made:
+        raise ResolveError("Resolve refused to create the compound clip.")
+    return {"compound_clip": made.GetName(), "from_clips": [i.GetName() for i in picked]}
+
+
+@tool(
+    "manage_track",
+    "Rename, lock/unlock, or enable/disable a track of the current timeline. "
+    "Actions: rename, lock, unlock, enable, disable, info.",
+    params={
+        "action": {"type": "string", "description": "rename, lock, unlock, enable, disable or info."},
+        "track_type": {"type": "string", "description": "video, audio or subtitle."},
+        "track_index": {"type": "integer", "description": "1-based track number."},
+        "name": {"type": "string", "description": "New name (rename only)."},
+    },
+    required=["action", "track_type", "track_index"],
+)
+def t_manage_track(app, action, track_type, track_index, name=None):
+    tl = app.timeline
+    ttype = str(track_type).strip().lower()
+    idx = int(track_index)
+    count = int(tl.GetTrackCount(ttype) or 0)
+    if not 1 <= idx <= count:
+        raise ResolveError("%s track %d does not exist (timeline has %d)." % (ttype, idx, count))
+    act = str(action).strip().lower()
+
+    if act == "rename":
+        if not name:
+            raise ResolveError("`name` is required for rename.")
+        if not tl.SetTrackName(ttype, idx, str(name)):
+            raise ResolveError("Resolve refused to rename the track.")
+    elif act in ("lock", "unlock"):
+        if not tl.SetTrackLock(ttype, idx, act == "lock"):
+            raise ResolveError("Resolve refused to change the track lock.")
+    elif act in ("enable", "disable"):
+        if not tl.SetTrackEnable(ttype, idx, act == "enable"):
+            raise ResolveError("Resolve refused to change the track enable state.")
+    elif act != "info":
+        raise ResolveError("action must be rename, lock, unlock, enable, disable or info.")
+
+    return {"track": "%s %d" % (ttype, idx),
+            "name": tl.GetTrackName(ttype, idx),
+            "enabled": bool(tl.GetIsTrackEnabled(ttype, idx)),
+            "locked": bool(tl.GetIsTrackLocked(ttype, idx)),
+            "clips": len(tl.GetItemListInTrack(ttype, idx) or [])}
+
+
+@tool(
+    "label_clip",
+    "Color-code clips for organisation: set or clear a clip's color, or add/clear "
+    "flags. Targets clips by 1-based position on a track, or the clip under the "
+    "playhead if no position given.",
+    params={
+        "clip_color": {"type": "string", "description":
+                       "Clip color name (e.g. Orange, Teal, Purple), or 'clear'."},
+        "flag_color": {"type": "string", "description":
+                       "Flag color to add (e.g. Red, Blue), or 'clear' to remove all flags."},
+        "clip_indices": {"type": "array", "description":
+                         "1-based clip positions (default: clip under playhead).",
+                         "items": {"type": "integer"}},
+        "track_type": {"type": "string", "description": "Track type (default video)."},
+        "track_index": {"type": "integer", "description": "1-based track (default 1)."},
+    },
+)
+def t_label_clip(app, clip_color=None, flag_color=None, clip_indices=None,
+                 track_type="video", track_index=1):
+    if clip_color is None and flag_color is None:
+        raise ResolveError("Give clip_color and/or flag_color.")
+
+    if clip_indices:
+        items = _track_items(app, track_type, track_index)
+        targets = []
+        for n in clip_indices:
+            n = int(n)
+            if not 1 <= n <= len(items):
+                raise ResolveError("No clip at position %d (track has %d)." % (n, len(items)))
+            targets.append(items[n - 1])
+    else:
+        targets = [_current_item(app, "label")]
+
+    done = []
+    for item in targets:
+        result = {"clip": item.GetName()}
+        if clip_color is not None:
+            if str(clip_color).lower() == "clear":
+                if not (_supports(item, "ClearClipColor") and item.ClearClipColor()):
+                    raise ResolveError("Could not clear the clip color on %r." % item.GetName())
+                result["clip_color"] = "cleared"
+            else:
+                if not item.SetClipColor(str(clip_color)):
+                    raise ResolveError("Resolve rejected clip color %r — use a name from "
+                                       "the clip-color menu (Orange, Teal, ...)." % clip_color)
+                result["clip_color"] = clip_color
+        if flag_color is not None:
+            if str(flag_color).lower() == "clear":
+                if not (_supports(item, "ClearFlags") and item.ClearFlags("All")):
+                    raise ResolveError("Could not clear flags on %r." % item.GetName())
+                result["flags"] = "cleared"
+            else:
+                if not (_supports(item, "AddFlag") and item.AddFlag(str(flag_color))):
+                    raise ResolveError("Resolve rejected flag color %r." % flag_color)
+                result["flag_added"] = flag_color
+        done.append(result)
+    return {"labeled": done}
+
+
+# -- grading extras ------------------------------------------------------------
+
+@tool(
+    "color_group",
+    "Manage colour groups (grade many shots as one unit, Resolve 19+). Actions: "
+    "'create' a group, 'list' groups, 'assign' clips to a group by track position, "
+    "'remove' clips from their group, 'delete' a group.",
+    params={
+        "action": {"type": "string", "description": "create, list, assign, remove or delete."},
+        "group_name": {"type": "string", "description": "Group name (create/assign/delete)."},
+        "clip_indices": {"type": "array", "description":
+                         "1-based clip positions on video track (assign/remove).",
+                         "items": {"type": "integer"}},
+        "track_index": {"type": "integer", "description": "1-based video track (default 1)."},
+    },
+    required=["action"],
+)
+def t_color_group(app, action, group_name=None, clip_indices=None, track_index=1):
+    project = app.project
+    if not _supports(project, "AddColorGroup"):
+        raise ResolveError("Colour groups need Resolve 19 or newer.")
+    act = str(action).strip().lower()
+
+    def find_group(name):
+        for g in project.GetColorGroupsList() or []:
+            if g.GetName() == name:
+                return g
+        raise ResolveError("No colour group named %r." % name)
+
+    if act == "list":
+        return {"groups": [g.GetName() for g in project.GetColorGroupsList() or []]}
+    if act == "create":
+        if not group_name:
+            raise ResolveError("`group_name` is required.")
+        if not project.AddColorGroup(str(group_name)):
+            raise ResolveError("Could not create group %r (name must be unique)." % group_name)
+        return {"created": group_name}
+    if act == "delete":
+        if not group_name:
+            raise ResolveError("`group_name` is required.")
+        if not project.DeleteColorGroup(find_group(group_name)):
+            raise ResolveError("Could not delete group %r." % group_name)
+        return {"deleted": group_name}
+
+    if act in ("assign", "remove"):
+        if not clip_indices:
+            raise ResolveError("`clip_indices` is required for %s." % act)
+        items = _track_items(app, "video", track_index)
+        picked = []
+        for n in clip_indices:
+            n = int(n)
+            if not 1 <= n <= len(items):
+                raise ResolveError("No clip at position %d (track has %d)." % (n, len(items)))
+            picked.append(items[n - 1])
+        if act == "assign":
+            if not group_name:
+                raise ResolveError("`group_name` is required for assign.")
+            group = find_group(group_name)
+            failed = [i.GetName() for i in picked if not i.AssignToColorGroup(group)]
+        else:
+            failed = [i.GetName() for i in picked if not i.RemoveFromColorGroup()]
+        if failed:
+            raise ResolveError("Failed for: %s" % ", ".join(failed))
+        return {act + "ed": [i.GetName() for i in picked],
+                "group": group_name if act == "assign" else None}
+
+    raise ResolveError("action must be create, list, assign, remove or delete.")
+
+
+LUT_SIZES = {"17": "EXPORT_LUT_17PTCUBE", "33": "EXPORT_LUT_33PTCUBE",
+             "65": "EXPORT_LUT_65PTCUBE", "vlut": "EXPORT_LUT_PANASONICVLUT"}
+
+
+@tool(
+    "export_grade_as_lut",
+    "Bake the grade of the clip under the playhead into a .cube LUT file — reuse "
+    "the look on other clips, projects, or cameras. Resolve 19+. Note windows and "
+    "keyframes can't be carried by a LUT.",
+    params={
+        "file_path": {"type": "string", "description":
+                      "Absolute output path incl. filename (.cube appended if missing)."},
+        "size": {"type": "string", "description": "17, 33 (default), 65, or vlut."},
+    },
+    required=["file_path"],
+)
+def t_export_grade_as_lut(app, file_path, size="33"):
+    item = _current_item(app, "export")
+    if not _supports(item, "ExportLUT"):
+        raise ResolveError("ExportLUT needs Resolve 19 or newer.")
+    key = str(size).strip().lower()
+    if key not in LUT_SIZES:
+        raise ResolveError("size must be one of: %s" % ", ".join(sorted(LUT_SIZES)))
+    if not item.ExportLUT(_resolve_const(app, LUT_SIZES[key]), str(file_path)):
+        raise ResolveError("Resolve refused the LUT export — check the directory exists.")
+    return {"clip": item.GetName(), "lut": file_path, "size": key}
+
+
+# -- project management ---------------------------------------------------------
+
+@tool(
+    "manage_project",
+    "List, create, or open projects in the current project-manager folder. "
+    "Actions: 'list', 'create' (and switch to it), 'open'. Opening another project "
+    "closes the current one — save first and confirm with the user.",
+    params={
+        "action": {"type": "string", "description": "list, create or open."},
+        "name": {"type": "string", "description": "Project name (create/open)."},
+    },
+    required=["action"],
+)
+def t_manage_project(app, action, name=None):
+    pm = app.pm
+    act = str(action).strip().lower()
+    if act == "list":
+        if not _supports(pm, "GetProjectListInCurrentFolder"):
+            raise ResolveError("Cannot list projects on this version of Resolve.")
+        return {"projects": list(pm.GetProjectListInCurrentFolder() or []),
+                "current": app.project.GetName()}
+    if not name:
+        raise ResolveError("`name` is required for %s." % act)
+    if act == "create":
+        if not (_supports(pm, "CreateProject") and pm.CreateProject(str(name))):
+            raise ResolveError("Could not create project %r (name may already exist)." % name)
+        return {"created": name, "current": app.project.GetName()}
+    if act == "open":
+        if not (_supports(pm, "LoadProject") and pm.LoadProject(str(name))):
+            raise ResolveError("Could not open project %r — check the name with 'list'." % name)
+        return {"opened": name}
+    raise ResolveError("action must be list, create or open.")
 
 
 # -- deliver / render ---------------------------------------------------------------
@@ -2144,10 +2697,10 @@ class ToolBridge(object):
             if not isinstance(args, dict):
                 args = {}
             with self._call_lock:
-                ok, text, image = execute_tool(name, args)
+                ok, text, images = execute_tool(name, args)
             reply = {"ok": ok, "content": text}
-            if image:
-                reply["image"] = image
+            if images:
+                reply["images"] = images
             return reply
         return {"ok": False, "content": "bridge: unknown op %r" % (op,)}
 
@@ -2285,12 +2838,12 @@ def run_mcp_bridge():
             if not isinstance(text, str):
                 text = json.dumps(text, default=str)
             content = []
-            image = reply.get("image")
-            if isinstance(image, dict) and image.get("data"):
-                # MCP ImageContent — verified end-to-end that Claude Code
-                # forwards this to the model as real vision input.
-                content.append({"type": "image", "data": image["data"],
-                                "mimeType": image.get("media_type", "image/jpeg")})
+            for image in (reply.get("images") or []):
+                if isinstance(image, dict) and image.get("data"):
+                    # MCP ImageContent — verified end-to-end that Claude Code
+                    # forwards this to the model as real vision input.
+                    content.append({"type": "image", "data": image["data"],
+                                    "mimeType": image.get("media_type", "image/jpeg")})
             content.append({"type": "text", "text": text})
             return ok(rid, {"content": content, "isError": not reply.get("ok")})
 
@@ -2353,22 +2906,27 @@ def resolve_context_block():
 
 
 def execute_tool(name, tool_input):
-    """Run one tool. Returns (ok, text, image).
+    """Run one tool. Returns (ok, text, images).
 
-    `image` is None, or {"data": <base64 str>, "media_type": ...} when the tool
-    produced a picture (view_frame): tools smuggle it out via _image_b64 /
-    _image_media_type keys, which are stripped from the JSON text.
+    `images` is None, or a list of {"data": <base64 str>, "media_type": ...}
+    when the tool produced pictures (view_frame, survey_clip): tools smuggle
+    them out via _image_b64/_image_media_type (one image) or _images (several),
+    all stripped from the JSON text.
     """
     entry = TOOL_INDEX.get(name)
     if entry is None:
         return False, "Unknown tool: %s" % name, None
     try:
         result = entry["fn"](STATE["app"], **(tool_input or {}))
-        image = None
-        if isinstance(result, dict) and "_image_b64" in result:
-            image = {"data": result.pop("_image_b64"),
-                     "media_type": result.pop("_image_media_type", "image/jpeg")}
-        return True, json.dumps(result, default=str), image
+        images = None
+        if isinstance(result, dict):
+            if "_image_b64" in result:
+                images = [{"data": result.pop("_image_b64"),
+                           "media_type": result.pop("_image_media_type", "image/jpeg")}]
+            elif "_images" in result:
+                images = [{"data": i["b64"], "media_type": i.get("media_type", "image/jpeg")}
+                          for i in result.pop("_images")]
+        return True, json.dumps(result, default=str), images or None
     except ResolveError as exc:
         return False, str(exc), None
     except TypeError as exc:
@@ -2600,20 +3158,21 @@ def run_agent_turn_api(api_key, model, user_text, emit):
                 if name == "run_python" and isinstance(block.get("input"), dict):
                     code = block["input"].get("code", "")
                     emit("tool", "```python\n%s\n```" % code)
-                ok, text, image = execute_tool(name, block.get("input") or {})
+                ok, text, images = execute_tool(name, block.get("input") or {})
                 if not ok:
                     emit("tool", "error: %s" % text)
                 entry = {"type": "tool_result", "tool_use_id": block.get("id")}
-                if image:
-                    # Image first, then the JSON summary — Claude sees the frame.
+                if images:
+                    # Images first, then the JSON summary — Claude sees the frames.
                     entry["content"] = [
                         {"type": "image",
                          "source": {"type": "base64",
-                                    "media_type": image["media_type"],
-                                    "data": image["data"]}},
-                        {"type": "text", "text": text},
-                    ]
-                    emit("tool", "(frame attached, %s)" % image["media_type"])
+                                    "media_type": img["media_type"],
+                                    "data": img["data"]}}
+                        for img in images
+                    ] + [{"type": "text", "text": text}]
+                    emit("tool", "(%d frame%s attached)" %
+                         (len(images), "" if len(images) == 1 else "s"))
                 else:
                     entry["content"] = text
                 if not ok:
