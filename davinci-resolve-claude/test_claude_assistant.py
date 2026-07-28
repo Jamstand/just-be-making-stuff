@@ -834,6 +834,19 @@ finally:
     mod.execute_tool = _real_execute
     bridge.close()
 
+# close() must actually stop the listener. A blocked accept() does not wake when
+# the socket is closed from another thread, so this regressed once already.
+import socket as _socket
+_b = mod.ToolBridge()
+_port = _b.port
+_b.close()
+check("close() stops the accept thread", not _b._thread.is_alive())
+try:
+    _socket.create_connection(("127.0.0.1", _port), timeout=2).close()
+    check("close() refuses new connections", False, "port still accepting")
+except Exception:
+    check("close() refuses new connections", True)
+
 os.environ.clear()
 os.environ.update(old_env)
 

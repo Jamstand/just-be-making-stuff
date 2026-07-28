@@ -1381,6 +1381,14 @@ class ToolBridge(object):
 
     def close(self):
         self._closed = True
+        # Closing the socket from another thread does not wake a blocked
+        # accept(), so nudge it with a throwaway connection and let the loop
+        # notice the flag and fall out.
+        try:
+            socket.create_connection(("127.0.0.1", self.port), timeout=1.0).close()
+        except Exception:
+            pass
+        self._thread.join(timeout=2.0)
         try:
             self._sock.close()
         except Exception:
