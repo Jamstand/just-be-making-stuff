@@ -1741,8 +1741,11 @@ class StubBridge:
     token = "stub-token"
 
 
-argv = mod.build_claude_code_argv({}, "claude-opus-5", "hello", StubBridge())
-check("uses print mode", "-p" in argv and "hello" in argv)
+argv, stdin_text, workdir = mod.build_claude_code_invocation(
+    {}, "claude-opus-5", "hello", StubBridge())
+check("prompt goes on stdin, not argv",
+      stdin_text == "hello" and "hello" not in argv)
+check("uses print mode", "-p" in argv)
 check("streams json", argv[argv.index("--output-format") + 1] == "stream-json")
 check("ignores user MCP config", "--strict-mcp-config" in argv)
 check("allowlists only resolve tools",
@@ -1750,15 +1753,22 @@ check("allowlists only resolve tools",
 check("disables built-in tools", argv[argv.index("--tools") + 1] == "")
 check("passes --effort to CLI",
       "--effort" in argv and argv[argv.index("--effort") + 1] in mod.EFFORT_CHOICES)
-_haiku_argv = mod.build_claude_code_argv({}, "claude-haiku-4-5", "hi", StubBridge())
-check("no --effort for haiku", "--effort" not in _haiku_argv)
+_h_argv, _, _hwd = mod.build_claude_code_invocation({}, "claude-haiku-4-5", "hi", StubBridge())
+check("no --effort for haiku", "--effort" not in _h_argv)
 check("never passes --bare", "--bare" not in argv)
 check("no resume on first turn", "--resume" not in argv)
 
-resumed = mod.build_claude_code_argv({}, "claude-opus-5", "hi", StubBridge(), "sess-1")
-check("resumes a session", resumed[resumed.index("--resume") + 1] == "sess-1")
+# System prompt and MCP config are in files, not on the command line — so
+# cmd.exe on Windows never re-parses their metacharacters.
+sys_path = argv[argv.index("--append-system-prompt-file") + 1]
+check("system prompt written to a file", os.path.isfile(sys_path))
+check("system prompt file has the content",
+      open(sys_path, encoding="utf-8").read() == mod.SYSTEM_PROMPT)
+check("no inline system prompt on argv", "--append-system-prompt" not in argv)
 
-mcp_cfg = json.loads(argv[argv.index("--mcp-config") + 1])
+mcp_path = argv[argv.index("--mcp-config") + 1]
+check("mcp config written to a file", os.path.isfile(mcp_path))
+mcp_cfg = json.loads(open(mcp_path, encoding="utf-8").read())
 server = mcp_cfg["mcpServers"]["resolve"]
 check("mcp server is stdio", server["type"] == "stdio")
 check("bridge runs this plugin", server["args"][-1] == mod.MCP_BRIDGE_FLAG)
@@ -1767,6 +1777,18 @@ check("bridge port passed explicitly",
       server["env"][mod.BRIDGE_ENV_PORT] == "51234")
 check("bridge token passed explicitly",
       server["env"][mod.BRIDGE_ENV_TOKEN] == "stub-token")
+
+resumed, _, _rwd = mod.build_claude_code_invocation(
+    {}, "claude-opus-5", "hi", StubBridge(), "sess-1")
+check("resumes a session", resumed[resumed.index("--resume") + 1] == "sess-1")
+
+for _wd in (workdir, _hwd, _rwd):
+    import shutil as _sh
+    _sh.rmtree(_wd, ignore_errors=True)
+
+# PATH augmentation makes the CLI's runtime reachable under Resolve's trimmed env
+_env = mod._augment_path_for_node({"PATH": "/only/one"})
+check("augmented PATH keeps existing entries", "/only/one" in _env["PATH"])
 
 # -- MCP tool catalogue -------------------------------------------------------
 schemas = mod.mcp_tool_schemas()

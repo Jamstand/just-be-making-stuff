@@ -3735,8 +3735,32 @@ def get_tool_bridge():
     return bridge
 
 
-def build_claude_code_argv(cfg, model, prompt, bridge, resume_session=None):
-    """The full `claude` command line for one turn. Split out so it's testable."""
+_cc_seq = [0]
+
+
+def _cc_workdir():
+    """A fresh, home-based scratch dir for one CLI turn's temp files.
+
+    Home-based rather than the system temp dir: on macOS Resolve's process is
+    sandboxed away from /var/folders, and this file is written by Resolve's
+    embedded Python.
+    """
+    _cc_seq[0] += 1
+    path = os.path.join(os.path.dirname(config_path()),
+                        "cc-%d-%d" % (os.getpid(), _cc_seq[0]))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def build_claude_code_invocation(cfg, model, prompt, bridge, resume_session=None):
+    """Prepare one CLI turn. Returns (argv, stdin_text, workdir).
+
+    Nothing large or metacharacter-laden goes on the command line: the prompt is
+    fed on stdin, and the system prompt + MCP config are written to files. On
+    Windows the `claude` shim is a .cmd that cmd.exe re-parses, so a `->` in the
+    system prompt or the `<resolve_context>` tags in the prompt would otherwise
+    be mangled as redirection operators. `workdir` is returned for cleanup.
+    """
     python_bin = find_python_binary()
     if not python_bin:
         raise ApiError("Could not find a Python interpreter to run the Resolve "
@@ -3758,26 +3782,78 @@ def build_claude_code_argv(cfg, model, prompt, bridge, resume_session=None):
         },
     }, separators=(",", ":"))
 
+    workdir = _cc_workdir()
+    mcp_path = os.path.join(workdir, "mcp.json")
+    sys_path = os.path.join(workdir, "system.txt")
+    with open(mcp_path, "w", encoding="utf-8") as f:
+        f.write(mcp_config)
+    with open(sys_path, "w", encoding="utf-8") as f:
+        f.write(SYSTEM_PROMPT)
+
     argv = [
         find_claude_binary(cfg),
-        "-p", prompt,
+        "-p",                              # prompt arrives on stdin, not here
         "--output-format", "stream-json",
         "--verbose",
         # Ignore whatever MCP servers the user has configured globally; this
         # panel's tool surface should be exactly the Resolve tools.
         "--strict-mcp-config",
-        "--mcp-config", mcp_config,
+        "--mcp-config", mcp_path,
         "--allowedTools", "mcp__%s__*" % MCP_SERVER_NAME,
         # No filesystem, no shell — Claude gets the Resolve tools and nothing else.
         "--tools", "",
-        "--append-system-prompt", SYSTEM_PROMPT,
+        "--append-system-prompt-file", sys_path,
         "--model", model,
     ]
     if model_supports_effort(model):
         argv += ["--effort", get_effort(cfg)]
     if resume_session:
         argv += ["--resume", resume_session]
-    return argv
+    return argv, prompt, workdir
+
+
+def _augment_path_for_node(env):
+    """Make sure the CLI's runtime is reachable on PATH.
+
+    Resolve launches scripts with a trimmed PATH, so the `claude` shim (a .cmd
+    on Windows / a script elsewhere) often can't find `node` and exits 1 with no
+    useful message. Add the usual Node/npm locations and the CLI's own folder.
+    """
+    sep = os.pathsep
+    existing = env.get("PATH", "")
+    parts = existing.split(sep) if existing else []
+    have = set(p.lower() for p in parts)
+    extra = []
+
+    def add(path):
+        if path and os.path.isdir(path) and path.lower() not in have:
+            extra.append(path)
+            have.add(path.lower())
+
+    binary = find_claude_binary()
+    if binary:
+        add(os.path.dirname(binary))
+
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA", "")
+        localapp = os.environ.get("LOCALAPPDATA", "")
+        progfiles = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        add(os.path.join(appdata, "npm") if appdata else "")
+        add(os.path.join(progfiles, "nodejs"))
+        if localapp:
+            add(os.path.join(localapp, "Programs", "node"))
+            # nvm-windows keeps the active version behind a symlink dir
+            add(os.path.join(localapp, "nvm"))
+    else:
+        home = os.path.expanduser("~")
+        for path in ("/usr/local/bin", "/opt/homebrew/bin",
+                     os.path.join(home, ".local", "bin"),
+                     os.path.join(home, ".nvm", "current", "bin")):
+            add(path)
+
+    if extra:
+        env["PATH"] = sep.join(parts + extra) if parts else sep.join(extra)
+    return env
 
 
 def claude_code_env():
@@ -3791,7 +3867,7 @@ def claude_code_env():
     env = dict(os.environ)
     env.pop("ANTHROPIC_API_KEY", None)
     env.pop("ANTHROPIC_AUTH_TOKEN", None)
-    return env
+    return _augment_path_for_node(env)
 
 
 def run_agent_turn_claude_code(cfg, model, user_text, emit):
@@ -3808,20 +3884,29 @@ def run_agent_turn_claude_code(cfg, model, user_text, emit):
 
     prompt = "%s\n\n%s" % (user_text, resolve_context_block())
     try:
-        argv = build_claude_code_argv(cfg, model, prompt, get_tool_bridge(),
-                                      STATE.get("cc_session_id"))
+        argv, stdin_text, workdir = build_claude_code_invocation(
+            cfg, model, prompt, get_tool_bridge(), STATE.get("cc_session_id"))
     except ApiError as exc:
         emit("error", str(exc))
         return
 
     try:
-        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                env=claude_code_env(), **_spawn_kwargs())
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, env=claude_code_env(),
+                                **_spawn_kwargs())
     except Exception as exc:
+        shutil.rmtree(workdir, ignore_errors=True)
         emit("error", "Could not start Claude Code: %s" % exc)
         return
 
+    try:
+        proc.stdin.write(stdin_text.encode("utf-8"))
+        proc.stdin.close()
+    except Exception:
+        pass
+
     saw_output = False
+    stray_stdout = []            # non-JSON stdout — often the real error text
     try:
         for raw in proc.stdout:
             line = raw.decode("utf-8", "replace").strip()
@@ -3830,7 +3915,8 @@ def run_agent_turn_claude_code(cfg, model, user_text, emit):
             try:
                 event = json.loads(line)
             except ValueError:
-                continue                       # non-JSON noise on stdout
+                stray_stdout.append(line)      # not stream-json — keep for diagnostics
+                continue
             if _handle_claude_code_event(event, emit):
                 saw_output = True
     finally:
@@ -3845,11 +3931,23 @@ def run_agent_turn_claude_code(cfg, model, user_text, emit):
         except Exception:
             pass
         proc.wait()
+        shutil.rmtree(workdir, ignore_errors=True)
 
     if proc.returncode != 0 and not saw_output:
-        detail = stderr.decode("utf-8", "replace").strip()
-        emit("error", "Claude Code exited with status %d.%s"
-             % (proc.returncode, "\n\n%s" % detail if detail else ""))
+        parts = []
+        err = stderr.decode("utf-8", "replace").strip()
+        if err:
+            parts.append(err)
+        if stray_stdout:
+            parts.append("\n".join(stray_stdout[-12:]))
+        detail = "\n".join(parts).strip()
+        if not detail:
+            detail = ("No output was captured. This usually means the `claude` "
+                      "command couldn't start its runtime — most often Node.js "
+                      "isn't on the PATH that Resolve passes to scripts. "
+                      "Binary: %s" % binary)
+        emit("error", "Claude Code exited with status %d.\n\n%s"
+             % (proc.returncode, detail[:1500]))
 
 
 def _handle_claude_code_event(event, emit):
