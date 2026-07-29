@@ -971,6 +971,16 @@ check("haiku no fallbacks", "fallbacks" not in p and not betas, str(betas))
 p, betas = mod._build_payload("claude-sonnet-5", [])
 check("sonnet thinking, no fallbacks", p.get("thinking") and "fallbacks" not in p, str(p))
 
+# Fable 5: thinking is always on (adaptive is accepted; disabled/budget_tokens 400),
+# and refusal fallbacks matter more here than anywhere else.
+p, betas = mod._build_payload("claude-fable-5", [])
+check("fable thinking adaptive", p.get("thinking") == {"type": "adaptive"}, str(p.get("thinking")))
+check("fable never sends budget_tokens", "budget_tokens" not in json.dumps(p))
+check("fable fallbacks", p.get("fallbacks") == "default" and
+      "server-side-fallback-2026-07-01" in betas, str(betas))
+check("fable in the model picker", "claude-fable-5" in mod.MODEL_CHOICES)
+check("default stays opus-5", mod.DEFAULT_MODEL == "claude-opus-5")
+
 print("== agent loop ==")
 
 

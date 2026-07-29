@@ -60,7 +60,8 @@ import queue as _queue
 APP_NAME = "Claude Assistant"
 DEFAULT_MODEL = "claude-opus-5"
 MODEL_CHOICES = [
-    "claude-opus-5",      # most capable (default)
+    "claude-opus-5",      # most capable of the standard tier (default)
+    "claude-fable-5",     # Anthropic's most capable model; costs more than Opus
     "claude-sonnet-5",    # fast + very capable
     "claude-haiku-4-5",   # fastest / cheapest
 ]
