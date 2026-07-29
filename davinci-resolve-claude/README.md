@@ -98,8 +98,12 @@ avoid that.
 
 ## Using it
 
-- **Model picker** — defaults to `claude-opus-5` (most capable). Switch to
-  `claude-sonnet-5` for faster/cheaper or `claude-haiku-4-5` for quick lookups.
+- **Model picker** — defaults to `claude-opus-5`. `claude-fable-5` is the most
+  capable (and priciest on the API backend); `claude-sonnet-5` is faster/cheaper
+  and `claude-haiku-4-5` is for quick lookups.
+- **Effort** — how hard Claude thinks before acting: `low`/`medium`/`high`
+  (default)/`xhigh`/`max`. Lower is faster and cheaper; raise it for complex
+  multi-step jobs. Ignored on Haiku, which doesn't take an effort setting.
 - **Enter to send.** Claude may take several tool steps per request; each tool
   call is shown in the transcript as it happens.
 - **New chat** clears the conversation (Claude's memory of this session).

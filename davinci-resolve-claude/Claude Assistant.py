@@ -65,6 +65,27 @@ MODEL_CHOICES = [
     "claude-sonnet-5",    # fast + very capable
     "claude-haiku-4-5",   # fastest / cheapest
 ]
+
+# How hard Claude thinks before answering. Higher = smarter and slower; lower =
+# faster and cheaper. Not supported on Haiku, which ignores it.
+EFFORT_CHOICES = ["low", "medium", "high", "xhigh", "max"]
+DEFAULT_EFFORT = "high"
+
+
+def _this_file_path():
+    """Absolute path to this plugin file.
+
+    `__file__` is undefined when Resolve execs the script from Workspace >
+    Scripts, but the code object's filename is always populated (it's what shows
+    up in tracebacks), so fall back to that.
+    """
+    try:
+        return os.path.abspath(__file__)
+    except NameError:
+        return os.path.abspath(_this_file_path.__code__.co_filename)
+
+
+PLUGIN_PATH = _this_file_path()
 MAX_TOKENS = 16000
 MAX_AGENT_ITERATIONS = 30
 API_URL = "https://api.anthropic.com/v1/messages"
@@ -156,6 +177,17 @@ def save_config(cfg):
 
 def get_api_key(cfg):
     return os.environ.get("ANTHROPIC_API_KEY") or cfg.get("api_key") or ""
+
+
+def get_effort(cfg):
+    """Reasoning-effort level: low, medium, high, xhigh or max."""
+    choice = (os.environ.get("CLAUDE_RESOLVE_EFFORT") or cfg.get("effort") or "").strip().lower()
+    return choice if choice in EFFORT_CHOICES else DEFAULT_EFFORT
+
+
+def model_supports_effort(model):
+    # Haiku rejects the effort parameter; every other current model accepts it.
+    return "haiku" not in model
 
 
 def get_backend(cfg):
@@ -3147,8 +3179,10 @@ def _build_payload(model, messages):
         "messages": messages,
     }
     betas = []
-    if "haiku" not in model:
+    if model_supports_effort(model):
         payload["thinking"] = {"type": "adaptive"}
+        effort = STATE.get("effort") or DEFAULT_EFFORT
+        payload["output_config"] = {"effort": effort}
     if model.startswith(("claude-opus-5", "claude-fable-5")):
         # Server-side refusal fallbacks: if safety classifiers decline a
         # request, the API transparently retries it on a recommended model.
@@ -3622,6 +3656,7 @@ def run_mcp_bridge():
 STATE = {
     "messages": [],          # Anthropic wire-format history
     "allow_python": True,
+    "effort": DEFAULT_EFFORT,
     "fusion": None,
     "app": None,             # ResolveApp
     "bridge": None,          # ToolBridge, lazily started for the CLI backend
@@ -3712,7 +3747,7 @@ def build_claude_code_argv(cfg, model, prompt, bridge, resume_session=None):
             MCP_SERVER_NAME: {
                 "type": "stdio",
                 "command": python_bin,
-                "args": [os.path.abspath(__file__), MCP_BRIDGE_FLAG],
+                "args": [PLUGIN_PATH, MCP_BRIDGE_FLAG],
                 # MCP subprocesses are spawned with a whitelisted environment,
                 # so the bridge coordinates have to be passed explicitly here.
                 "env": {
@@ -3738,6 +3773,8 @@ def build_claude_code_argv(cfg, model, prompt, bridge, resume_session=None):
         "--append-system-prompt", SYSTEM_PROMPT,
         "--model", model,
     ]
+    if model_supports_effort(model):
+        argv += ["--effort", get_effort(cfg)]
     if resume_session:
         argv += ["--resume", resume_session]
     return argv
@@ -4004,13 +4041,64 @@ def _render_markdownish(text):
     return "".join(html)
 
 
+# A dark theme tuned to DaVinci Resolve's own palette so the panel reads as part
+# of the app rather than a stray dialog. Resolve's UI toolkit is Qt underneath,
+# so these are standard Qt widget selectors.
+RESOLVE_STYLESHEET = """
+* { color: #c8c8c8; font-size: 13px; }
+QWidget { background-color: #232323; }
+QLabel { background: transparent; color: #9a9a9a; }
+QTextEdit {
+    background-color: #191919;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    padding: 6px;
+    selection-background-color: #4a6b8a;
+}
+QLineEdit {
+    background-color: #2b2b2b;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    padding: 5px 7px;
+    selection-background-color: #4a6b8a;
+}
+QLineEdit:focus { border: 1px solid #5a8bbf; }
+QComboBox {
+    background-color: #2b2b2b;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+QComboBox:hover { border: 1px solid #4a4a4a; }
+QComboBox QAbstractItemView {
+    background-color: #2b2b2b;
+    border: 1px solid #3a3a3a;
+    selection-background-color: #4a6b8a;
+}
+QPushButton {
+    background-color: #333333;
+    border: 1px solid #454545;
+    border-radius: 4px;
+    padding: 5px 14px;
+}
+QPushButton:hover { background-color: #3d3d3d; border: 1px solid #555555; }
+QPushButton:pressed { background-color: #2a2a2a; }
+QPushButton:disabled { color: #666666; background-color: #2a2a2a; border: 1px solid #333333; }
+QCheckBox { background: transparent; }
+QToolTip { background-color: #2b2b2b; color: #c8c8c8; border: 1px solid #454545; }
+"""
+
+# Chat background used inside the HTML transcript, matching the QTextEdit above.
+CHAT_BG = "#191919"
+
+
 class ChatWindow(object):
     SPEAKER_STYLES = {
-        "you": ("You", "#7fd07f"),
-        "assistant": ("Claude", "#e8a87c"),
-        "tool": ("Tool", "#8fa8c8"),
-        "error": ("Error", "#e07a7a"),
-        "notice": ("Note", "#c8b45a"),
+        "you": ("You", "#6fae6f"),
+        "assistant": ("Claude", "#d98f63"),
+        "tool": ("Tool", "#7f9dc4"),
+        "error": ("Error", "#d96b6b"),
+        "notice": ("Note", "#c0a94e"),
     }
 
     def __init__(self, ui, disp, cfg):
@@ -4026,21 +4114,26 @@ class ChatWindow(object):
             {
                 "ID": "ClaudeWin",
                 "WindowTitle": "Claude Assistant — DaVinci Resolve",
-                "Geometry": [240, 160, 760, 680],
+                "Geometry": [240, 160, 780, 700],
+                "StyleSheet": RESOLVE_STYLESHEET,
             },
             [
-                ui.VGroup({"Spacing": 6}, [
-                    ui.HGroup({"Weight": 0}, [
-                        ui.Label({"ID": "ModelLbl", "Text": "Model:", "Weight": 0}),
-                        ui.ComboBox({"ID": "ModelCombo", "Weight": 0.35}),
+                ui.VGroup({"Spacing": 8, "ID": "Root"}, [
+                    ui.HGroup({"Weight": 0, "Spacing": 6}, [
+                        ui.Label({"ID": "ModelLbl", "Text": "Model", "Weight": 0}),
+                        ui.ComboBox({"ID": "ModelCombo", "Weight": 0.3}),
+                        ui.Label({"ID": "EffortLbl", "Text": "Effort", "Weight": 0}),
+                        ui.ComboBox({"ID": "EffortCombo", "Weight": 0.22}),
                         ui.CheckBox({"ID": "AllowPy",
-                                     "Text": "Allow Python execution",
+                                     "Text": "Python",
+                                     "ToolTip": "Allow Claude to run Python inside Resolve",
                                      "Checked": bool(cfg.get("allow_python", True)),
-                                     "Weight": 0.4}),
-                        ui.Button({"ID": "NewChatBtn", "Text": "New chat", "Weight": 0.15}),
+                                     "Weight": 0.18}),
+                        ui.Label({"ID": "Spacer", "Text": "", "Weight": 1}),
+                        ui.Button({"ID": "NewChatBtn", "Text": "New chat", "Weight": 0}),
                     ]),
                     ui.TextEdit({"ID": "Chat", "ReadOnly": True, "Weight": 1}),
-                    ui.HGroup({"Weight": 0}, [
+                    ui.HGroup({"Weight": 0, "Spacing": 6}, [
                         ui.LineEdit({"ID": "Input",
                                      "PlaceholderText": "Ask Claude…  (Enter to send)",
                                      "Weight": 1,
@@ -4053,15 +4146,18 @@ class ChatWindow(object):
             ])
         self.items = self.win.GetItems()
 
-        combo = self.items["ModelCombo"]
-        try:
-            combo.AddItems(MODEL_CHOICES)
-        except Exception:
-            for m in MODEL_CHOICES:
-                combo.AddItem(m)
-        saved = cfg.get("model", DEFAULT_MODEL)
-        if saved in MODEL_CHOICES:
-            combo.CurrentIndex = MODEL_CHOICES.index(saved)
+        def fill(combo_id, choices, saved):
+            combo = self.items[combo_id]
+            try:
+                combo.AddItems(choices)
+            except Exception:
+                for c in choices:
+                    combo.AddItem(c)
+            if saved in choices:
+                combo.CurrentIndex = choices.index(saved)
+
+        fill("ModelCombo", MODEL_CHOICES, cfg.get("model", DEFAULT_MODEL))
+        fill("EffortCombo", EFFORT_CHOICES, cfg.get("effort", DEFAULT_EFFORT))
 
         self.win.On.SendBtn.Clicked = self.on_send
         self.win.On.Input.ReturnPressed = self.on_send
@@ -4144,6 +4240,10 @@ class ChatWindow(object):
         idx = int(self.items["ModelCombo"].CurrentIndex)
         return MODEL_CHOICES[idx] if 0 <= idx < len(MODEL_CHOICES) else DEFAULT_MODEL
 
+    def current_effort(self):
+        idx = int(self.items["EffortCombo"].CurrentIndex)
+        return EFFORT_CHOICES[idx] if 0 <= idx < len(EFFORT_CHOICES) else DEFAULT_EFFORT
+
     def on_send(self, ev):
         if self.busy:
             return
@@ -4152,9 +4252,11 @@ class ChatWindow(object):
             return
         self.items["Input"].Text = ""
         STATE["allow_python"] = bool(self.items["AllowPy"].Checked)
+        STATE["effort"] = self.current_effort()
         model = self.current_model()
 
         self.cfg["model"] = model
+        self.cfg["effort"] = STATE["effort"]
         self.cfg["allow_python"] = STATE["allow_python"]
         save_config(self.cfg)
 
@@ -4318,6 +4420,7 @@ def main():
 
     cfg = load_config()
     STATE["allow_python"] = bool(cfg.get("allow_python", True))
+    STATE["effort"] = get_effort(cfg)
 
     ui = fusion_obj.UIManager
     disp = bmd_mod.UIDispatcher(ui)

@@ -981,6 +981,22 @@ check("fable fallbacks", p.get("fallbacks") == "default" and
 check("fable in the model picker", "claude-fable-5" in mod.MODEL_CHOICES)
 check("default stays opus-5", mod.DEFAULT_MODEL == "claude-opus-5")
 
+# Effort: sent to every model that accepts it, never to Haiku.
+mod.STATE["effort"] = "xhigh"
+p, _ = mod._build_payload("claude-opus-5", [])
+check("effort in output_config", p.get("output_config") == {"effort": "xhigh"}, str(p.get("output_config")))
+p, _ = mod._build_payload("claude-fable-5", [])
+check("fable carries effort", p.get("output_config") == {"effort": "xhigh"})
+p, _ = mod._build_payload("claude-haiku-4-5", [])
+check("haiku never gets effort", "output_config" not in p, str(p.keys()))
+mod.STATE["effort"] = mod.DEFAULT_EFFORT
+
+check("get_effort accepts valid", mod.get_effort({"effort": "low"}) == "low")
+check("get_effort rejects junk", mod.get_effort({"effort": "turbo"}) == mod.DEFAULT_EFFORT)
+check("get_effort default", mod.get_effort({}) == "high")
+check("effort choices complete",
+      mod.EFFORT_CHOICES == ["low", "medium", "high", "xhigh", "max"])
+
 print("== agent loop ==")
 
 
@@ -1732,6 +1748,10 @@ check("ignores user MCP config", "--strict-mcp-config" in argv)
 check("allowlists only resolve tools",
       argv[argv.index("--allowedTools") + 1] == "mcp__resolve__*")
 check("disables built-in tools", argv[argv.index("--tools") + 1] == "")
+check("passes --effort to CLI",
+      "--effort" in argv and argv[argv.index("--effort") + 1] in mod.EFFORT_CHOICES)
+_haiku_argv = mod.build_claude_code_argv({}, "claude-haiku-4-5", "hi", StubBridge())
+check("no --effort for haiku", "--effort" not in _haiku_argv)
 check("never passes --bare", "--bare" not in argv)
 check("no resume on first turn", "--resume" not in argv)
 
