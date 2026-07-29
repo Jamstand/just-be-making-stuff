@@ -1804,12 +1804,95 @@ try:
     check("preflight reports a healthy bridge", ok_pf, detail_pf)
     check("preflight counts the tools", str(len(mod.TOOLS)) in detail_pf, detail_pf)
     ok_pf, detail_pf = mod.preflight_tool_bridge({"python_bin": "/no/such/python"}, _pf_bridge)
-    check("preflight names a missing interpreter",
-          not ok_pf and "No Python interpreter" in detail_pf, detail_pf)
+    check("preflight names a broken python_bin override",
+          not ok_pf and "python_bin" in detail_pf, detail_pf)
 finally:
     _pf_bridge.close()
 ok_pf, detail_pf = mod.preflight_tool_bridge({}, _pf_bridge)   # now closed
 check("preflight detects an unreachable bridge", not ok_pf, detail_pf[:80])
+
+# ---- Microsoft Store stub + Node fallback (the first real-Windows failure) --
+check("store stub recognised", mod._is_ms_store_stub(
+    r"C:\Users\jameg\AppData\Local\Microsoft\WindowsApps\python3.EXE"))
+check("real interpreter validates", mod._validate_python(sys.executable))
+check("validation rejects a non-interpreter", not mod._validate_python("/bin/sh"))
+
+_node = mod.find_node_binary()
+check("node discovered and validated", bool(_node) and mod._validate_node(_node), _node)
+
+_saved_py_cache = mod._binary_cache.pop("python", None)
+mod._binary_cache["python"] = ""            # simulate: no usable Python at all
+try:
+    _rt, _label = mod._bridge_runtime({})
+    check("bridge falls back to node", "Node" in _label, _label)
+    check("node bridge file written", os.path.isfile(_rt[1]) and _rt[1].endswith("bridge.js"))
+
+    # The Node bridge must speak the same MCP dialect as the Python one.
+    _nb = mod.ToolBridge()
+    CALLS2 = []
+    _real_exec2 = mod.execute_tool
+    mod.execute_tool = lambda n, i: (CALLS2.append((n, i)), (
+        True, json.dumps({"ok": n}),
+        [{"data": "aGVsbG8=", "media_type": "image/png"}] if n == "view_frame" else None))[1]
+    try:
+        proc = subprocess.Popen(
+            _rt, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=dict(os.environ, **{mod.BRIDGE_ENV_PORT: str(_nb.port),
+                                    mod.BRIDGE_ENV_TOKEN: _nb.token}))
+
+        def nrpc(obj):
+            proc.stdin.write((json.dumps(obj) + "\n").encode())
+            proc.stdin.flush()
+
+        def nread():
+            return json.loads(proc.stdout.readline().decode())
+
+        nrpc({"jsonrpc": "2.0", "id": 0, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {}}})
+        _init = nread()
+        check("node bridge answers id 0", _init.get("id") == 0, str(_init))
+        check("node bridge echoes protocol version",
+              _init["result"]["protocolVersion"] == "2025-06-18")
+        nrpc({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        nrpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        _listed = nread()
+        check("node bridge silent on notifications", _listed.get("id") == 1, str(_listed)[:80])
+        check("node bridge lists all tools",
+              len(_listed["result"]["tools"]) == len(mod.TOOLS))
+        nrpc({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+              "params": {"name": "list_markers", "arguments": {}}})
+        _called = nread()
+        check("node bridge round-trips a call",
+              _called["result"]["content"][-1]["text"] == json.dumps({"ok": "list_markers"}),
+              str(_called)[:120])
+        nrpc({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+              "params": {"name": "view_frame", "arguments": {}}})
+        _img = nread()
+        check("node bridge carries images",
+              _img["result"]["content"][0] == {"type": "image", "data": "aGVsbG8=",
+                                               "mimeType": "image/png"},
+              str(_img)[:120])
+        nrpc({"jsonrpc": "2.0", "id": 4, "method": "nope"})
+        check("node bridge unknown method -> -32601", nread()["error"]["code"] == -32601)
+        proc.stdin.close()
+        proc.wait(timeout=10)
+    finally:
+        mod.execute_tool = _real_exec2
+        _nb.close()
+
+    # And the CLI invocation must point the MCP config at node.
+    inv_argv, _, _wd2 = mod.build_claude_code_invocation({}, "claude-opus-5", "x", StubBridge())
+    _cfg2 = json.loads(open(inv_argv[inv_argv.index("--mcp-config") + 1]).read())
+    _srv2 = _cfg2["mcpServers"]["resolve"]
+    check("mcp config uses node when python is absent",
+          _srv2["command"] == _rt[0] and _srv2["args"][0].endswith("bridge.js"),
+          str(_srv2)[:120])
+    import shutil as _sh2
+    _sh2.rmtree(_wd2, ignore_errors=True)
+finally:
+    mod._binary_cache.pop("python", None)
+    if _saved_py_cache is not None:
+        mod._binary_cache["python"] = _saved_py_cache
 
 # -- MCP tool catalogue -------------------------------------------------------
 schemas = mod.mcp_tool_schemas()

@@ -201,7 +201,7 @@ when moving the playhead the timecode string is passed to Resolve unmodified.
 | Window opens but nothing sends / "Invalid API key" | Re-check the key; delete the config file to be re-prompted. |
 | "Claude Code CLI not found" | Install it (`npm install -g @anthropic-ai/claude-code`). If it *is* installed, Resolve may be launching with a trimmed PATH — set `claude_code_bin` in the config file to the CLI's full path. |
 | "Claude Code is installed but not signed in" | Run `claude` in a terminal, sign in, then reopen the panel. |
-| "The Resolve tool bridge did not connect" | Usually no Python on PATH for the bridge subprocess — install Python 3, or set `CLAUDE_CODE_BIN`/PATH so Resolve can see it. Claude will still chat but can't drive Resolve. |
+| "The Resolve tool bridge did not connect" | The notice now includes a diagnosis. The bridge runs on Python 3 when a real one exists, and **falls back to Node.js automatically** (Node is present wherever the Claude Code CLI works). Windows note: the `python3.exe` under `Microsoft\WindowsApps` is a Store advert, not Python — the plugin detects and skips it. Escape hatch: set `"python_bin"` in the config file to a real interpreter. |
 | TLS certificate error (macOS) | Run `Install Certificates.command` inside your `/Applications/Python 3.x/` folder, or `pip3 install certifi`, then restart Resolve. |
 | UI freezes while Claude works | Your Resolve build lacks UI timers, so the plugin falls back to synchronous calls — it will unfreeze when the answer arrives. |
 | No Python found by Resolve | Install Python 3 from python.org (macOS/Windows) and restart Resolve. |

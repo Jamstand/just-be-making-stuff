@@ -3352,38 +3352,259 @@ def find_claude_binary(cfg=None):
     return found
 
 
+def _is_ms_store_stub(path):
+    """Windows ships fake python.exe/python3.exe aliases under
+    ...\\Microsoft\\WindowsApps that only print a Store advert and exit."""
+    low = (path or "").lower()
+    return "microsoft" in low and "windowsapps" in low
+
+
+def _validate_python(path):
+    """True only for a real, runnable Python 3 — a path on disk isn't proof."""
+    if not path or not os.path.isfile(path) or _is_ms_store_stub(path):
+        return False
+    try:
+        proc = subprocess.Popen([path, "--version"], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, **_spawn_kwargs())
+        out, _ = proc.communicate(timeout=20)
+    except Exception:
+        return False
+    return proc.returncode == 0 and (out or b"").strip().startswith(b"Python 3")
+
+
 def find_python_binary(cfg=None):
     """A real python interpreter we can spawn the MCP bridge with.
 
-    Inside Resolve, `sys.executable` is often Resolve itself rather than a
-    python binary, so it can only be trusted when it actually looks like one.
+    Every candidate is validated by running it: inside Resolve, sys.executable
+    is often Resolve itself, and on Windows the first `python3` on PATH is
+    frequently the Microsoft Store stub, which exists but isn't Python.
     """
     explicit = ((cfg or {}).get("python_bin")
                 or os.environ.get("CLAUDE_RESOLVE_PYTHON") or "").strip()
     if explicit:
-        return explicit if os.path.isfile(explicit) else (shutil.which(explicit) or "")
+        path = explicit if os.path.isfile(explicit) else (shutil.which(explicit) or "")
+        return path if _validate_python(path) else ""
 
     if "python" in _binary_cache:
         return _binary_cache["python"]
 
+    candidates = []
     exe = sys.executable or ""
     if exe and "python" in os.path.basename(exe).lower():
-        _binary_cache["python"] = exe
-        return exe
-
-    found = shutil.which("python3") or shutil.which("python") or ""
-    if not found and sys.platform == "win32":
+        candidates.append(exe)
+    # The runtime executing this plugin usually belongs to a real install.
+    for prefix in {getattr(sys, "base_prefix", ""), getattr(sys, "prefix", "")}:
+        if prefix:
+            candidates.append(os.path.join(prefix, "python.exe"))
+            candidates.append(os.path.join(prefix, "bin", "python3"))
+    for name in ("python3", "python"):
+        which = shutil.which(name)
+        if which:
+            candidates.append(which)
+    if sys.platform == "win32":
+        # The py launcher is installed by python.org even when "Add to PATH"
+        # wasn't ticked — ask it where the real interpreter lives.
+        py = shutil.which("py")
+        if py and not _is_ms_store_stub(py):
+            try:
+                proc = subprocess.Popen(
+                    [py, "-3", "-c", "import sys; print(sys.executable)"],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    **_spawn_kwargs())
+                out, _ = proc.communicate(timeout=20)
+                resolved = (out or b"").decode("utf-8", "replace").strip()
+                if proc.returncode == 0 and resolved:
+                    candidates.append(resolved)
+            except Exception:
+                pass
         localapp = os.environ.get("LOCALAPPDATA", "")
-        globs = []
         if localapp:
             base = os.path.join(localapp, "Programs", "Python")
             try:
-                globs = [os.path.join(base, d, "python.exe") for d in sorted(os.listdir(base), reverse=True)]
+                candidates += [os.path.join(base, d, "python.exe")
+                               for d in sorted(os.listdir(base), reverse=True)]
             except Exception:
-                globs = []
-        found = _first_existing(globs)
-    _binary_cache["python"] = found
-    return found
+                pass
+        progfiles = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        try:
+            candidates += [os.path.join(progfiles, d, "python.exe")
+                           for d in sorted(os.listdir(progfiles), reverse=True)
+                           if d.lower().startswith("python")]
+        except Exception:
+            pass
+    else:
+        candidates += ["/usr/local/bin/python3", "/usr/bin/python3",
+                       "/opt/homebrew/bin/python3"]
+
+    for cand in candidates:
+        if _validate_python(cand):
+            _binary_cache["python"] = cand
+            return cand
+    _binary_cache["python"] = ""
+    return ""
+
+
+def _validate_node(path):
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        proc = subprocess.Popen([path, "--version"], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, **_spawn_kwargs())
+        out, _ = proc.communicate(timeout=20)
+    except Exception:
+        return False
+    return proc.returncode == 0 and (out or b"").strip().startswith(b"v")
+
+
+def find_node_binary(cfg=None):
+    """Node.js, the fallback runtime for the tool bridge.
+
+    Claude Code itself runs on Node, so wherever the CLI works Node exists —
+    this rescues machines with no usable Python (e.g. only the Store stub).
+    """
+    if "node" in _binary_cache:
+        return _binary_cache["node"]
+    exe_name = "node.exe" if sys.platform == "win32" else "node"
+    candidates = []
+    which = shutil.which("node")
+    if which:
+        candidates.append(which)
+    claude_bin = find_claude_binary(cfg)
+    if claude_bin:
+        candidates.append(os.path.join(os.path.dirname(claude_bin), exe_name))
+    if sys.platform == "win32":
+        progfiles = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        candidates.append(os.path.join(progfiles, "nodejs", "node.exe"))
+        pf86 = os.environ.get("PROGRAMFILES(X86)", "")
+        if pf86:
+            candidates.append(os.path.join(pf86, "nodejs", "node.exe"))
+    else:
+        candidates += ["/usr/local/bin/node", "/opt/homebrew/bin/node"]
+    for cand in candidates:
+        if _validate_node(cand):
+            _binary_cache["node"] = cand
+            return cand
+    _binary_cache["node"] = ""
+    return ""
+
+
+# The same MCP stdio bridge as run_mcp_bridge(), in Node. Used when no real
+# Python 3 exists to spawn (Windows machines often carry only the Store stub);
+# Node is guaranteed wherever the Claude Code CLI runs.
+NODE_BRIDGE_JS = r"""
+'use strict';
+const net = require('net');
+const readline = require('readline');
+const PORT = parseInt(process.env.CLAUDE_RESOLVE_BRIDGE_PORT || '0', 10);
+const TOKEN = process.env.CLAUDE_RESOLVE_BRIDGE_TOKEN || '';
+const SUPPORTED = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
+
+function send(obj) { process.stdout.write(JSON.stringify(obj) + '\n'); }
+
+function bridgeRequest(payload) {
+  return new Promise((resolve, reject) => {
+    const sock = net.connect(PORT, '127.0.0.1');
+    let buf = '';
+    sock.setTimeout(600000, () => { sock.destroy(); reject(new Error('bridge timeout')); });
+    sock.on('error', reject);
+    sock.on('data', (d) => {
+      buf += d.toString('utf8');
+      const i = buf.indexOf('\n');
+      if (i >= 0) {
+        try { resolve(JSON.parse(buf.slice(0, i))); } catch (e) { reject(e); }
+        sock.end();
+      }
+    });
+    sock.write(JSON.stringify(Object.assign({}, payload, { token: TOKEN })) + '\n');
+  });
+}
+
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on('line', async (line) => {
+  line = line.trim();
+  if (!line) return;
+  let msg;
+  try { msg = JSON.parse(line); }
+  catch (e) { send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }); return; }
+  if (msg.method === undefined) return;            // a response; we send no requests
+  const isRequest = ('id' in msg) && msg.id !== null;
+  if (!isRequest) return;                          // notifications get no reply
+  const id = msg.id;
+  try {
+    if (msg.method === 'initialize') {
+      const req = (msg.params || {}).protocolVersion;
+      send({ jsonrpc: '2.0', id, result: {
+        protocolVersion: SUPPORTED.indexOf(req) >= 0 ? req : '2025-06-18',
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: 'resolve', version: '1.0.0' } } });
+    } else if (msg.method === 'ping') {
+      send({ jsonrpc: '2.0', id, result: {} });
+    } else if (msg.method === 'tools/list') {
+      const r = await bridgeRequest({ op: 'list' });
+      if (!r.ok) send({ jsonrpc: '2.0', id, error: { code: -32603, message: String(r.content || 'bridge error') } });
+      else send({ jsonrpc: '2.0', id, result: { tools: r.tools || [] } });
+    } else if (msg.method === 'tools/call') {
+      const p = msg.params || {};
+      if (typeof p.name !== 'string') {
+        send({ jsonrpc: '2.0', id, error: { code: -32602, message: "Invalid params: 'name' must be a string" } });
+        return;
+      }
+      let r;
+      try { r = await bridgeRequest({ op: 'call', name: p.name, arguments: p.arguments || {} }); }
+      catch (e) {
+        send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: 'Resolve bridge unreachable: ' + e.message }], isError: true } });
+        return;
+      }
+      const content = [];
+      for (const img of (r.images || [])) {
+        if (img && img.data) content.push({ type: 'image', data: img.data, mimeType: img.media_type || 'image/jpeg' });
+      }
+      let text = r.content;
+      if (typeof text !== 'string') text = JSON.stringify(text);
+      content.push({ type: 'text', text });
+      send({ jsonrpc: '2.0', id, result: { content, isError: !r.ok } });
+    } else {
+      send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found: ' + msg.method } });
+    }
+  } catch (e) {
+    send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error: ' + e.message } });
+  }
+});
+"""
+
+
+def _node_bridge_path():
+    """Write the Node bridge next to the config and return its path."""
+    path = os.path.join(os.path.dirname(config_path()), "bridge.js")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(NODE_BRIDGE_JS)
+    return path
+
+
+def _bridge_runtime(cfg=None):
+    """(argv, label) for the MCP bridge process: real Python, else Node.
+
+    An explicit python_bin that doesn't validate is an error, not a silent
+    fallback — the user asked for that interpreter specifically.
+    """
+    explicit = ((cfg or {}).get("python_bin")
+                or os.environ.get("CLAUDE_RESOLVE_PYTHON") or "").strip()
+    py = find_python_binary(cfg)
+    if py:
+        return [py, PLUGIN_PATH, MCP_BRIDGE_FLAG], "Python (%s)" % py
+    if explicit:
+        raise ApiError("python_bin is set to %r but it is not a working Python 3. "
+                       "Fix or remove it in %s." % (explicit, config_path()))
+    node = find_node_binary(cfg)
+    if node:
+        return [node, _node_bridge_path()], "Node (%s)" % node
+    raise ApiError(
+        "No runtime found for the Resolve tool bridge. Windows note: the "
+        "python3.exe under Microsoft\\WindowsApps is a Store advert, not Python. "
+        "Install Python 3 from python.org (tick 'Add python.exe to PATH'), or "
+        "install Node.js — either works. You can also set \"python_bin\" in %s."
+        % config_path())
 
 
 def preflight_tool_bridge(cfg, bridge):
@@ -3393,11 +3614,10 @@ def preflight_tool_bridge(cfg, bridge):
     normally sees is a "failed" status with no reason. Driving it directly here
     turns that into an actionable message. Returns (ok, detail).
     """
-    python_bin = find_python_binary(cfg)
-    if not python_bin:
-        return False, ("No Python interpreter found to run the bridge. Install "
-                       "Python 3 and make sure it's on PATH, or set the full path "
-                       "in %s under \"python_bin\"." % config_path())
+    try:
+        runtime_argv, label = _bridge_runtime(cfg)
+    except ApiError as exc:
+        return False, str(exc)
 
     env = dict(os.environ)
     env[BRIDGE_ENV_PORT] = str(bridge.port)
@@ -3405,11 +3625,11 @@ def preflight_tool_bridge(cfg, bridge):
     env["PYTHONIOENCODING"] = "utf-8"
     try:
         proc = subprocess.Popen(
-            [python_bin, PLUGIN_PATH, MCP_BRIDGE_FLAG],
+            runtime_argv,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             env=env, **_spawn_kwargs())
     except Exception as exc:
-        return False, "Could not start %s: %s" % (python_bin, exc)
+        return False, "Could not start %s: %s" % (label, exc)
 
     handshake = json.dumps({
         "jsonrpc": "2.0", "id": 0, "method": "initialize",
@@ -3423,8 +3643,7 @@ def preflight_tool_bridge(cfg, bridge):
             proc.kill()
         except Exception:
             pass
-        return False, ("The bridge started but never answered. Python used: %s"
-                       % python_bin)
+        return False, ("The bridge started but never answered. Runtime: %s" % label)
 
     text = (out or b"").decode("utf-8", "replace")
     errtext = (err or b"").decode("utf-8", "replace").strip()
@@ -3441,10 +3660,10 @@ def preflight_tool_bridge(cfg, bridge):
         if isinstance(result.get("tools"), list):
             tools = len(result["tools"])
     if tools:
-        return True, "%d tools reachable via %s" % (tools, python_bin)
+        return True, "%d tools reachable via %s" % (tools, label)
     detail = errtext or text.strip() or "no output"
-    return False, ("The bridge did not report any tools.\nPython: %s\n%s"
-                   % (python_bin, detail[:800]))
+    return False, ("The bridge did not report any tools.\nRuntime: %s\n%s"
+                   % (label, detail[:800]))
 
 
 def claude_code_auth_status(binary):
@@ -3827,17 +4046,14 @@ def build_claude_code_invocation(cfg, model, prompt, bridge, resume_session=None
     system prompt or the `<resolve_context>` tags in the prompt would otherwise
     be mangled as redirection operators. `workdir` is returned for cleanup.
     """
-    python_bin = find_python_binary(cfg)
-    if not python_bin:
-        raise ApiError("Could not find a Python interpreter to run the Resolve "
-                       "tool bridge. Install Python 3 and make sure it's on PATH.")
+    runtime_argv, _label = _bridge_runtime(cfg)   # raises ApiError with guidance
 
     mcp_config = json.dumps({
         "mcpServers": {
             MCP_SERVER_NAME: {
                 "type": "stdio",
-                "command": python_bin,
-                "args": [PLUGIN_PATH, MCP_BRIDGE_FLAG],
+                "command": runtime_argv[0],
+                "args": runtime_argv[1:],
                 # MCP subprocesses are spawned with a whitelisted environment,
                 # so the bridge coordinates have to be passed explicitly here.
                 "env": {
