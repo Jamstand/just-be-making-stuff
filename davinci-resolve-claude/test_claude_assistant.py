@@ -1790,6 +1790,27 @@ for _wd in (workdir, _hwd, _rwd):
 _env = mod._augment_path_for_node({"PATH": "/only/one"})
 check("augmented PATH keeps existing entries", "/only/one" in _env["PATH"])
 
+# Explicit interpreter override — the escape hatch when discovery fails
+check("python_bin override honoured",
+      mod.find_python_binary({"python_bin": sys.executable}) == sys.executable)
+check("bad python_bin override refuses",
+      mod.find_python_binary({"python_bin": "/no/such/python"}) == "")
+
+# Bridge preflight: turns an opaque "failed" into an actionable reason.
+mod._binary_cache.pop("python", None)   # drop the stub path earlier tests injected
+_pf_bridge = mod.ToolBridge()
+try:
+    ok_pf, detail_pf = mod.preflight_tool_bridge({}, _pf_bridge)
+    check("preflight reports a healthy bridge", ok_pf, detail_pf)
+    check("preflight counts the tools", str(len(mod.TOOLS)) in detail_pf, detail_pf)
+    ok_pf, detail_pf = mod.preflight_tool_bridge({"python_bin": "/no/such/python"}, _pf_bridge)
+    check("preflight names a missing interpreter",
+          not ok_pf and "No Python interpreter" in detail_pf, detail_pf)
+finally:
+    _pf_bridge.close()
+ok_pf, detail_pf = mod.preflight_tool_bridge({}, _pf_bridge)   # now closed
+check("preflight detects an unreachable bridge", not ok_pf, detail_pf[:80])
+
 # -- MCP tool catalogue -------------------------------------------------------
 schemas = mod.mcp_tool_schemas()
 check("mcp catalogue complete", len(schemas) == len(mod.TOOLS))

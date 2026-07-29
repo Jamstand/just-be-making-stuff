@@ -3352,12 +3352,17 @@ def find_claude_binary(cfg=None):
     return found
 
 
-def find_python_binary():
+def find_python_binary(cfg=None):
     """A real python interpreter we can spawn the MCP bridge with.
 
     Inside Resolve, `sys.executable` is often Resolve itself rather than a
     python binary, so it can only be trusted when it actually looks like one.
     """
+    explicit = ((cfg or {}).get("python_bin")
+                or os.environ.get("CLAUDE_RESOLVE_PYTHON") or "").strip()
+    if explicit:
+        return explicit if os.path.isfile(explicit) else (shutil.which(explicit) or "")
+
     if "python" in _binary_cache:
         return _binary_cache["python"]
 
@@ -3379,6 +3384,67 @@ def find_python_binary():
         found = _first_existing(globs)
     _binary_cache["python"] = found
     return found
+
+
+def preflight_tool_bridge(cfg, bridge):
+    """Spawn the MCP bridge exactly as Claude Code would and report what breaks.
+
+    The bridge runs as a subprocess of the CLI, so when it fails all the panel
+    normally sees is a "failed" status with no reason. Driving it directly here
+    turns that into an actionable message. Returns (ok, detail).
+    """
+    python_bin = find_python_binary(cfg)
+    if not python_bin:
+        return False, ("No Python interpreter found to run the bridge. Install "
+                       "Python 3 and make sure it's on PATH, or set the full path "
+                       "in %s under \"python_bin\"." % config_path())
+
+    env = dict(os.environ)
+    env[BRIDGE_ENV_PORT] = str(bridge.port)
+    env[BRIDGE_ENV_TOKEN] = bridge.token
+    env["PYTHONIOENCODING"] = "utf-8"
+    try:
+        proc = subprocess.Popen(
+            [python_bin, PLUGIN_PATH, MCP_BRIDGE_FLAG],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=env, **_spawn_kwargs())
+    except Exception as exc:
+        return False, "Could not start %s: %s" % (python_bin, exc)
+
+    handshake = json.dumps({
+        "jsonrpc": "2.0", "id": 0, "method": "initialize",
+        "params": {"protocolVersion": MCP_FALLBACK_VERSION, "capabilities": {},
+                   "clientInfo": {"name": "preflight", "version": "1"}},
+    }) + "\n" + json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"
+    try:
+        out, err = proc.communicate(handshake.encode("utf-8"), timeout=30)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return False, ("The bridge started but never answered. Python used: %s"
+                       % python_bin)
+
+    text = (out or b"").decode("utf-8", "replace")
+    errtext = (err or b"").decode("utf-8", "replace").strip()
+    tools = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        result = msg.get("result") or {}
+        if isinstance(result.get("tools"), list):
+            tools = len(result["tools"])
+    if tools:
+        return True, "%d tools reachable via %s" % (tools, python_bin)
+    detail = errtext or text.strip() or "no output"
+    return False, ("The bridge did not report any tools.\nPython: %s\n%s"
+                   % (python_bin, detail[:800]))
 
 
 def claude_code_auth_status(binary):
@@ -3761,7 +3827,7 @@ def build_claude_code_invocation(cfg, model, prompt, bridge, resume_session=None
     system prompt or the `<resolve_context>` tags in the prompt would otherwise
     be mangled as redirection operators. `workdir` is returned for cleanup.
     """
-    python_bin = find_python_binary()
+    python_bin = find_python_binary(cfg)
     if not python_bin:
         raise ApiError("Could not find a Python interpreter to run the Resolve "
                        "tool bridge. Install Python 3 and make sure it's on PATH.")
@@ -3962,9 +4028,23 @@ def _handle_claude_code_event(event, emit):
         # A server that failed to connect means no Resolve tools this turn.
         for server in event.get("mcp_servers") or []:
             if server.get("name") == MCP_SERVER_NAME and server.get("status") in ("failed", "needs-auth"):
+                detail = ""
+                bridge = STATE.get("bridge")
+                if bridge is not None and not STATE.get("bridge_diagnosed"):
+                    STATE["bridge_diagnosed"] = True   # probe once per session
+                    try:
+                        ok_probe, why = preflight_tool_bridge(load_config(), bridge)
+                        if not ok_probe:
+                            detail = "\n\n%s" % why
+                        else:
+                            detail = ("\n\nThe bridge itself works (%s), so this is "
+                                      "usually a knock-on effect of the CLI failing "
+                                      "to start — check the error below." % why)
+                    except Exception as exc:
+                        detail = "\n\nBridge check failed: %s" % exc
                 emit("notice", "The Resolve tool bridge did not connect (%s) — "
-                               "Claude can still talk, but can't drive Resolve this turn."
-                     % server.get("status"))
+                               "Claude can still talk, but can't drive Resolve this "
+                               "turn.%s" % (server.get("status"), detail))
         return False
 
     if kind == "assistant":
@@ -3987,7 +4067,17 @@ def _handle_claude_code_event(event, emit):
         if event.get("session_id"):
             STATE["cc_session_id"] = event["session_id"]
         if event.get("is_error") or event.get("subtype") == "error":
-            emit("error", str(event.get("result") or "Claude Code reported an error."))
+            detail = str(event.get("result") or "Claude Code reported an error.")
+            low = detail.lower()
+            if "oauth" in low or "authenticate" in low or "401" in low or "login" in low:
+                detail += ("\n\nYour Claude Code sign-in has expired and can't renew "
+                           "itself. `claude auth status` only checks that credentials "
+                           "exist, not that they still work — you need a real "
+                           "re-login. In a terminal run:\n\n"
+                           "    claude auth logout\n    claude auth login\n\n"
+                           "then send your message again (no need to reinstall the "
+                           "plugin).")
+            emit("error", detail)
             return True
         if event.get("subtype") == "error_max_turns":
             emit("notice", "Stopped after the maximum number of tool rounds — "
