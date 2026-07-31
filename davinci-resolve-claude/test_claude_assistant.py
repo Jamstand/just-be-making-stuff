@@ -136,6 +136,13 @@ class FakeMediaPool:
     def GetRootFolder(self):
         return self._root
 
+    def SetCurrentFolder(self, folder):
+        self.current_folder = folder
+        return True
+
+    def GetCurrentFolder(self):
+        return getattr(self, "current_folder", self._root)
+
     def AddSubFolder(self, parent, name):
         f = FakeFolder(name)
         parent._subs.append(f)
@@ -1788,6 +1795,32 @@ check("keywords written for smart bins", _c1.metadata.get("Keywords") and
       "DJI" in _c1.metadata["Keywords"], str(_c1.metadata))
 check("mentions smart bins to the user", "Smart Bin" in out, out[:300])
 
+# Resolve's real "Date Created" format is verbose, not ISO ('Fri Mar 18 2016...')
+_c5 = FakeMediaPoolItem("beach.mp4", {"Type": "Video", "Resolution": "1920x1080",
+                                      "FPS": "24", "File Path": "/nope/beach.mp4",
+                                      "File Name": "beach.mp4",
+                                      "Date Created": "Fri Mar 18 2016 16:47:44"})
+_segments, _ = mod._classify_clip(_c5, ["date"])
+check("verbose Date Created parsed", _segments == ["2016-03"], str(_segments))
+_c5._props["Date Created"] = "2021-07-04 12:00:00"
+_segments, _ = mod._classify_clip(_c5, ["date"])
+check("ISO Date Created parsed", _segments == ["2021-07"], str(_segments))
+
+# Keyword tagging merges with what the user already set, and never duplicates
+_c6 = FakeMediaPoolItem("DJI_0099.MP4", {"Type": "Video", "Resolution": "3840x2160",
+                                         "FPS": "30", "File Path": "/m/DJI_0099.MP4",
+                                         "File Name": "DJI_0099.MP4"})
+_c6.metadata["Keywords"] = "Family, Vacation"
+_root._clips.append(_c6)
+ok, out = run_tool("auto_sort_media", {})
+check("user keywords preserved on merge", "Family" in _c6.metadata["Keywords"]
+      and "Vacation" in _c6.metadata["Keywords"] and "DJI" in _c6.metadata["Keywords"],
+      str(_c6.metadata))
+ok, out = run_tool("auto_sort_media", {"source_path": "/Videos/4K"})  # re-sort in place
+check("re-sorting does not duplicate keywords",
+      ok and _c6.metadata["Keywords"].count("DJI") == 1,
+      "%s / %s" % (out[:120], _c6.metadata))
+
 # import_and_sort: skips files already in the pool, imports + sorts the rest
 with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as _f1:
     _f1.write(b"x" * 100)
@@ -1799,9 +1832,11 @@ ok, out = run_tool("import_and_sort", {"paths": [_f1.name]})
 check("duplicate path skipped", ok and '"already_in_pool": 1' in out, out)
 with tempfile.NamedTemporaryFile(suffix=".mov", delete=False) as _f2:
     _f2.write(b"y" * 100)
+PROJECT._pool.current_folder = _videos_4k       # user left a deep bin selected
 ok, out = run_tool("import_and_sort", {"paths": [_f2.name, "/no/such/clip.mp4"]})
 check("import_and_sort imports and sorts", ok and '"imported": 1' in out, out)
 check("missing paths reported", "/no/such/clip.mp4" in out, out)
+check("import pinned to root bin", PROJECT._pool.current_folder is _root)
 os.unlink(_f1.name); os.unlink(_f2.name)
 
 # Drop-folder scanner: two-poll stability, no double-processing

@@ -931,6 +931,9 @@ CAMERA_PATTERNS = [
 
 SORT_DIMENSIONS = ("type", "resolution", "fps", "camera", "date")
 
+_MONTH_NUMBERS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                  "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+
 
 def _classify_clip(item, scheme):
     """(bin_path_segments, keywords) for one media pool clip.
@@ -988,11 +991,19 @@ def _classify_clip(item, scheme):
             camera = label
             break
 
+    # Resolve reports "Date Created" like 'Fri Mar 18 2016 16:47:44';
+    # some sources use ISO dates. Parse both before falling back to mtime.
     date_label = ""
-    match = re.search(r"(\d{4})-(\d{2})-\d{2}", prop("Date Created"))
+    created = prop("Date Created")
+    match = re.search(r"(\d{4})-(\d{2})-\d{2}", created)
     if match:
         date_label = "%s-%s" % (match.group(1), match.group(2))
-    elif path:
+    else:
+        match = re.search(r"([A-Za-z]{3})\w*\s+\d{1,2},?\s+(\d{4})", created)
+        if match and match.group(1).lower() in _MONTH_NUMBERS:
+            date_label = "%s-%02d" % (match.group(2),
+                                      _MONTH_NUMBERS[match.group(1).lower()])
+    if not date_label and path:
         try:
             import datetime
             stamp = datetime.datetime.fromtimestamp(os.path.getmtime(path))
@@ -1046,6 +1057,22 @@ def _folder_of_clip_cache(app):
     return placement
 
 
+def _merge_keywords(item, new_keywords):
+    """Union our tags with keywords the user already set — never clobber them."""
+    existing = []
+    if _supports(item, "GetMetadata"):
+        try:
+            raw = str(item.GetMetadata("Keywords") or "")
+            existing = [k.strip() for k in raw.split(",") if k.strip()]
+        except Exception:
+            existing = []
+    merged = list(existing)
+    for keyword in new_keywords:
+        if keyword not in merged:
+            merged.append(keyword)
+    return ",".join(merged)
+
+
 def _sort_items_into_bins(app, items, dims, tag_keywords=True):
     """Move clips into their computed bins; returns (placements, tagged, failed)."""
     mp = app.media_pool
@@ -1073,7 +1100,8 @@ def _sort_items_into_bins(app, items, dims, tag_keywords=True):
             for item, keywords in pairs:
                 if keywords and _supports(item, "SetMetadata"):
                     try:
-                        if item.SetMetadata("Keywords", ",".join(keywords)):
+                        if item.SetMetadata("Keywords",
+                                            _merge_keywords(item, keywords)):
                             tagged += 1
                     except Exception:
                         pass
@@ -1207,6 +1235,13 @@ def t_import_and_sort(app, paths, scheme="type/resolution"):
         return {"imported": 0, "already_in_pool": already,
                 "note": "Everything was already in the media pool."}
 
+    # ImportMedia lands clips in whatever bin is currently selected; pin it
+    # to the root so anything MoveClips later misses stays discoverable.
+    if _supports(app.media_pool, "SetCurrentFolder"):
+        try:
+            app.media_pool.SetCurrentFolder(app.media_pool.GetRootFolder())
+        except Exception:
+            pass
     items = app.media_pool.ImportMedia(list(fresh)) or []
     if not items:
         raise ResolveError("Resolve imported nothing (unsupported formats?).")

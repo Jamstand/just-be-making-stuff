@@ -6,7 +6,7 @@ several from live failures inside real Resolve on Windows.
 ## What this is
 
 A chat panel that runs inside DaVinci Resolve (Workspace > Scripts) and lets
-Claude drive Resolve through 62 tools. Two backends:
+Claude drive Resolve through 64 tools. Two backends:
 
 - **claude-code** (default): shells out to the Claude Code CLI on the user's
   Pro/Max subscription. No API key. The CLI gets the Resolve tools via MCP.
@@ -26,7 +26,7 @@ Resolve process                                external processes
 │ ToolBridge                   │                 │ spawns MCP server:
 │  TCP 127.0.0.1:<random>      │<──JSON-line───  │  python <this file> --mcp-bridge
 │  token-gated, lock-serialised│    socket       │  OR node bridge.js (fallback)
-│ execute_tool → 62 tool fns   │
+│ execute_tool → 64 tool fns   │
 └─────────────────────────────┘
 ```
 
@@ -37,7 +37,7 @@ tools/call over the loopback socket to the process that owns `resolve`.
 ## Run the tests
 
 ```
-python3 test_claude_assistant.py     # ~355 checks, mock Resolve, no deps
+python3 test_claude_assistant.py     # ~380 checks, mock Resolve, no deps
 ```
 
 Every change must keep this green. The fakes mirror documented Resolve API
@@ -84,6 +84,22 @@ behaviour; extend them when adding tools.
     import as NEW timeline), delete+re-place, CDL, .drx looks library.
 11. **resolve.* enum constants** must be validated as ints (`_resolve_const`) —
     a missing constant comes back as a fabricated callable, not None.
+12. **UIManager windows have NO drag-and-drop events.** The official event list
+    (Window: Close, Show, ... KeyRelease, FocusIn/Out, ContextMenu, Enter,
+    Leave) contains no Drop/DragEnter; zero scripts in the whole Reactor corpus
+    subscribe to them. Do not wire `ev["mimeData"]` handlers — they will never
+    fire. File drag-and-drop = the watched "Claude Drop" folder (poll from the
+    UI timer, two-poll size stability). The only real Resolve drop hook is a
+    `Config:/DragDrop/*.fu` `Drag_Drop` action targeting the Fusion-page Nodes
+    view — wrong surface for media, needs a restart; don't bother.
+13. **Media pool facts (verified):** `MoveClips([clips], folder)` → Bool,
+    Resolve ≥16; `ImportMedia` lands in the CURRENT bin, so `SetCurrentFolder`
+    first; there is NO Smart Bin creation API — write comma-separated
+    `SetMetadata("Keywords", ...)` (merge, never clobber user keywords) and let
+    keyword-based UI Smart Bins collect the clips; "Date Created" comes back
+    verbose ('Fri Mar 18 2016 16:47:44'), not ISO; `GetClipProperty("FPS")` may
+    be numeric; "Type" values worth switching on: Video, Audio,
+    "Video + Audio", Still.
 
 ## Conventions
 
@@ -97,7 +113,7 @@ behaviour; extend them when adding tools.
 
 ## Current status (last updated by the original build session)
 
-- All 62 tools live-verified against the real claude CLI with a mocked Resolve
+- 62 of 64 tools live-verified against the real claude CLI with a mocked Resolve
   (markers created end-to-end, vision confirmed, multi-image confirmed, Node
   bridge path confirmed with Python disabled).
 - Verified inside REAL Resolve (Windows 11): panel launch, UI, theming, effort
@@ -106,6 +122,9 @@ behaviour; extend them when adding tools.
   `run_diagnostics` output, any actual tool execution. That confirmation is
   the next milestone — ask the user for the diagnostics report.
 - Known cosmetic issue: cross-model session resume can log a benign notice.
+- Newest feature: auto-sort (auto_sort_media / import_and_sort tools, WatchDrop
+  checkbox + "Claude Drop" watched folder). Mock-tested only; API signatures
+  research-verified against three README mirrors (see traps 12–13).
 
 ## User setup (Windows box this is deployed on)
 
