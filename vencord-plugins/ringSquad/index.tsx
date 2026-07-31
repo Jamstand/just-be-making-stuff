@@ -289,17 +289,20 @@ function advanceRoundRobin() {
         try { CallActions.stopRinging(session.channelId); } catch { /* best effort */ }
     }
 
+    // Advance to the next eligible member, noting whether we rolled past the
+    // end of the list (= completed a full round). Basing "wrapped" on the
+    // roll-over rather than "next <= index" keeps the round count honest even
+    // when offline members are skipped.
     const n = session.members.length;
-    let next = session.index;
+    let idx = session.index;
+    let wrapped = false;
     let guard = 0;
     do {
-        next = (next + 1) % n;
+        idx++;
+        if (idx >= n) { idx = 0; wrapped = true; }
         guard++;
-    } while (settings.store.onlyWhenOnline && !isPresent(session.members[next]) && guard < n);
-
-    // completed a full loop back to (or past) where we were
-    const wrapped = next <= session.index;
-    session.index = next;
+    } while (settings.store.onlyWhenOnline && !isPresent(session.members[idx]) && guard < n);
+    session.index = idx;
 
     if (wrapped) {
         session.attempts++;
@@ -373,6 +376,7 @@ async function start(rawIds: string[]) {
         return;
     }
     session.index = 0;
+    session.attempts = 1; // the first pass through the squad counts as round 1 (matches group mode)
     ringCurrent();
     session.interval = setInterval(advanceRoundRobin, settings.store.rolloverSeconds * 1000);
     showToast(`Round-robin calling ${session.members.length} people, one at a time. /stopsquad to stop.`);
