@@ -92,6 +92,12 @@ behaviour; extend them when adding tools.
     UI timer, two-poll size stability). The only real Resolve drop hook is a
     `Config:/DragDrop/*.fu` `Drag_Drop` action targeting the Fusion-page Nodes
     view — wrong surface for media, needs a restart; don't bother.
+    Related: the transcript TextEdit is a QTextEdit rendering Qt's "Supported
+    HTML Subset" ONLY — no border-radius, CSS padding works on table cells
+    only, and only longhand margin/padding-* with px units are documented
+    (shorthands like `margin:2px 0` work in current Qt but are off-contract).
+    Cards are built as tables; code goes through `_code_card`, never through
+    the markdown fence parser (a ``` inside Python code would break out).
 13. **Media pool facts (verified):** `MoveClips([clips], folder)` → Bool,
     Resolve ≥16; `ImportMedia` lands in the CURRENT bin, so `SetCurrentFolder`
     first; there is NO Smart Bin creation API — write comma-separated

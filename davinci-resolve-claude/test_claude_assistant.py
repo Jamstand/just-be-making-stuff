@@ -1213,6 +1213,12 @@ _prev = mod._code_preview("\n".join("line%d" % i for i in range(30)))
 check("code preview truncated", "+18 more lines" in _prev
       and "line11" in _prev and "line12" not in _prev, _prev)
 check("short code not truncated", "more lines" not in mod._code_preview("a=1\nb=2"))
+check("truncation marker pluralised",
+      "+1 more line)" in mod._code_preview("\n".join(["x"] * 13)))
+_h = mod._render_tool_event(mod._code_preview('print("```")\nx = 1'))
+check("backticks in code cannot escape the card",
+      _h.count("<table") == 1 and "x = 1" in _h
+      and _h.index("x = 1") < _h.index("</pre>"), _h)
 _h = mod.render_chat_message("you", "hello **there**")
 check("user card has accent + label", "You" in _h and "#6fae6f" in _h
       and "<b>there</b>" in _h, _h)

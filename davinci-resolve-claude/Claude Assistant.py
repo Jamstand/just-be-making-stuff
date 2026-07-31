@@ -4774,23 +4774,26 @@ def _escape(text):
                 .replace(">", "&gt;"))
 
 
-def _render_markdownish(text):
-    """Minimal, safe rendering: escape HTML, keep ``` blocks as code cards.
+def _code_card(code):
+    """One-cell table 'card' for code. QTextEdit's HTML subset has no
+    border-radius and honours CSS padding only on table cells, and only the
+    longhand margin/padding properties with px units are documented — so cards
+    are tables, and every box property is spelled out."""
+    return ("<table width='100%' cellspacing='0' border='0'><tr>"
+            "<td style='padding-top:6px; padding-bottom:6px; padding-left:9px; "
+            "padding-right:9px; background-color:#141414;'>"
+            "<pre style='margin-top:0px; margin-bottom:0px; font-size:11px; "
+            "color:#cfd2d6; white-space:pre-wrap;'>" + _escape(code)
+            + "</pre></td></tr></table>")
 
-    QTextEdit renders a limited HTML subset: no border-radius, and CSS padding
-    only works on table cells — so code blocks are a one-cell table with the
-    <pre> inside (the <pre> keeps newlines even if white-space CSS is ignored).
-    """
+
+def _render_markdownish(text):
+    """Minimal, safe rendering: escape HTML, keep ``` blocks as code cards."""
     parts = re.split(r"```(?:[\w+-]*)\n?", text)
     html = []
     for i, part in enumerate(parts):
         if i % 2 == 1:  # inside a fence
-            html.append(
-                "<table width='100%' cellspacing='0' border='0'><tr>"
-                "<td style='padding:6px 9px; background-color:#141414;'>"
-                "<pre style='margin:0; font-size:11px; color:#cfd2d6; "
-                "white-space:pre-wrap;'>" + _escape(part.rstrip("\n"))
-                + "</pre></td></tr></table>")
+            html.append(_code_card(part.rstrip("\n")))
         else:
             chunk = _escape(part)
             chunk = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", chunk)
@@ -4838,23 +4841,31 @@ def _code_preview(code, max_lines=12):
     """A fenced preview of tool code, cut off past max_lines."""
     lines = str(code).rstrip().splitlines()
     if len(lines) > max_lines:
-        lines = lines[:max_lines] + ["… (+%d more lines)" % (len(lines) - max_lines)]
+        extra = len(lines) - max_lines
+        lines = lines[:max_lines] + ["… (+%d more line%s)"
+                                     % (extra, "" if extra == 1 else "s")]
     return "```python\n%s\n```" % "\n".join(lines)
 
 
 def _render_tool_event(text):
     """Tool activity: one dim, indented line (or a code card for previews)."""
     if text.startswith("```"):
-        return ("<div style='margin:2px 0 2px 16px;'>%s</div>"
-                % _render_markdownish(text))
+        # Strip our own fence markers and card the raw code directly — going
+        # through the markdown parser would let a ``` inside the code (a
+        # perfectly legal Python string) break out of the card.
+        body = re.sub(r"^```[\w+-]*\n?", "", text)
+        body = re.sub(r"\n?```\s*$", "", body)
+        return ("<div style='margin-top:2px; margin-bottom:2px; "
+                "margin-left:16px;'>%s</div>" % _code_card(body))
     head, _, rest = text.partition("  ")
     if text.startswith(("error:", "(")) or not head:
         head, rest = "", text
-    name_html = ("<span style='color:#7f9dc4;'>&#9656; %s</span>&nbsp; "
+    name_html = ("<span style='color:#7f9dc4;'>&#8250; %s</span>&nbsp; "
                  % _escape(head)) if head else ""
     color = "#c98080" if text.startswith("error:") else "#8a8f96"
-    return ("<div style='margin:3px 0 3px 10px; font-size:11px; color:%s;'>"
-            "%s%s</div>" % (color, name_html, _escape(rest)))
+    return ("<div style='margin-top:3px; margin-bottom:3px; margin-left:10px; "
+            "font-size:11px; color:%s;'>%s%s</div>" % (color, name_html,
+                                                       _escape(rest)))
 
 
 def render_chat_message(kind, text):
@@ -4865,7 +4876,8 @@ def render_chat_message(kind, text):
     return ("<table width='100%%' cellspacing='0' border='0' "
             "style='margin-top:8px;'><tr>"
             "<td width='4' bgcolor='%s'></td>"
-            "<td style='padding:6px 10px; background-color:%s;'>"
+            "<td style='padding-top:6px; padding-bottom:6px; padding-left:10px; "
+            "padding-right:10px; background-color:%s;'>"
             "<span style='color:%s; font-weight:bold; font-size:12px;'>%s</span>"
             "<br>%s</td></tr></table>"
             % (accent, bg, accent, speaker, _render_markdownish(text)))
