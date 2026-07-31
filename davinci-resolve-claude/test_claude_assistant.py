@@ -1200,6 +1200,31 @@ check("_strip_none", mod._strip_none({"a": None, "b": [{"c": None, "d": 1}]}) ==
       {"b": [{"d": 1}]})
 check("_short_json truncates", mod._short_json({"k": "x" * 500}).endswith("…"))
 
+# transcript rendering: cards, tool lines, code previews
+_line = mod._tool_call_line("mcp__resolve__list_media_pool",
+                            {"folder_path": "/", "include_subfolders": True})
+check("tool line strips prefix + braces", _line.startswith("list_media_pool")
+      and "folder_path: /" in _line and "{" not in _line, _line)
+_line = mod._tool_call_line("run_python", {"code": "a=1\nb=2\nc=3"})
+check("run_python line counts code lines", "3 lines of Python" in _line, _line)
+_line = mod._tool_call_line("grade", {"note": "x" * 300})
+check("tool line truncates long values", len(_line) < 240 and "…" in _line, _line)
+_prev = mod._code_preview("\n".join("line%d" % i for i in range(30)))
+check("code preview truncated", "+18 more lines" in _prev
+      and "line11" in _prev and "line12" not in _prev, _prev)
+check("short code not truncated", "more lines" not in mod._code_preview("a=1\nb=2"))
+_h = mod.render_chat_message("you", "hello **there**")
+check("user card has accent + label", "You" in _h and "#6fae6f" in _h
+      and "<b>there</b>" in _h, _h)
+check("card escapes html", "<script" not in mod.render_chat_message("you", "<script>"))
+_h = mod.render_chat_message("tool", "add_marker  color: Red")
+check("tool event renders compact", "add_marker" in _h and "font-size:11px" in _h, _h)
+_h = mod.render_chat_message("tool", "```python\nx=1\n```")
+check("tool code renders as pre card", "<pre" in _h and "x=1" in _h, _h)
+_h = mod.render_chat_message("tool", "error: exploded")
+check("tool errors tinted red", "#c98080" in _h and "exploded" in _h, _h)
+check("unknown kind safe", "?" in mod.render_chat_message("mystery", "hm"))
+
 # config round-trip in a temp HOME
 old_env = dict(os.environ)
 with tempfile.TemporaryDirectory() as td:
@@ -2077,7 +2102,9 @@ mod._handle_claude_code_event(
     ]}}, lambda k, t: ev.append((k, t)))
 check("emits assistant text", ("assistant", "done") in ev, str(ev))
 check("strips mcp prefix in tool label",
-      any(k == "tool" and t.startswith("add_marker(") for k, t in ev), str(ev))
+      any(k == "tool" and t.startswith("add_marker") for k, t in ev), str(ev))
+check("tool line is humanised, not JSON",
+      any(k == "tool" and "color: Red" in t and "{" not in t for k, t in ev), str(ev))
 
 ev = []
 mod._handle_claude_code_event({"type": "result", "is_error": True, "result": "boom"},

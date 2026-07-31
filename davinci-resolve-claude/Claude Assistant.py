@@ -4621,9 +4621,9 @@ def _handle_claude_code_event(event, emit):
             elif btype == "tool_use":
                 name = block.get("name") or ""
                 short = name.split("__")[-1] or name
-                emit("tool", "%s(%s)" % (short, _short_json(block.get("input"))))
+                emit("tool", _tool_call_line(short, block.get("input")))
                 if short == "run_python" and isinstance(block.get("input"), dict):
-                    emit("tool", "```python\n%s\n```" % block["input"].get("code", ""))
+                    emit("tool", _code_preview(block["input"].get("code", "")))
                 shown = True
         return shown
 
@@ -4689,10 +4689,9 @@ def run_agent_turn_api(api_key, model, user_text, emit):
                 if block.get("type") != "tool_use":
                     continue
                 name = block.get("name")
-                emit("tool", "%s(%s)" % (name, _short_json(block.get("input"))))
+                emit("tool", _tool_call_line(name, block.get("input")))
                 if name == "run_python" and isinstance(block.get("input"), dict):
-                    code = block["input"].get("code", "")
-                    emit("tool", "```python\n%s\n```" % code)
+                    emit("tool", _code_preview(block["input"].get("code", "")))
                 ok, text, images = execute_tool(name, block.get("input") or {})
                 if not ok:
                     emit("tool", "error: %s" % text)
@@ -4776,14 +4775,22 @@ def _escape(text):
 
 
 def _render_markdownish(text):
-    """Minimal, safe rendering: escape HTML, keep ``` blocks as <pre>."""
+    """Minimal, safe rendering: escape HTML, keep ``` blocks as code cards.
+
+    QTextEdit renders a limited HTML subset: no border-radius, and CSS padding
+    only works on table cells — so code blocks are a one-cell table with the
+    <pre> inside (the <pre> keeps newlines even if white-space CSS is ignored).
+    """
     parts = re.split(r"```(?:[\w+-]*)\n?", text)
     html = []
     for i, part in enumerate(parts):
         if i % 2 == 1:  # inside a fence
-            html.append("<pre style='background:#161616;color:#d8d8d8;"
-                        "padding:6px;border-radius:4px;white-space:pre-wrap;'>"
-                        + _escape(part) + "</pre>")
+            html.append(
+                "<table width='100%' cellspacing='0' border='0'><tr>"
+                "<td style='padding:6px 9px; background-color:#141414;'>"
+                "<pre style='margin:0; font-size:11px; color:#cfd2d6; "
+                "white-space:pre-wrap;'>" + _escape(part.rstrip("\n"))
+                + "</pre></td></tr></table>")
         else:
             chunk = _escape(part)
             chunk = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", chunk)
@@ -4791,6 +4798,77 @@ def _render_markdownish(text):
                            r"<code style='background:#242424;'>\1</code>", chunk)
             html.append(chunk.replace("\n", "<br>"))
     return "".join(html)
+
+
+# Per-speaker card colours: (label, accent, card background). Tints stay close
+# to Resolve's palette so the transcript reads as part of the app.
+CHAT_STYLES = {
+    "you":       ("You",    "#6fae6f", "#20281f"),
+    "assistant": ("Claude", "#d98f63", "#282019"),
+    "error":     ("Error",  "#d96b6b", "#2e1d1d"),
+    "notice":    ("Note",   "#c0a94e", "#282619"),
+}
+
+
+def _tool_call_line(name, args):
+    """'list_media_pool  folder_path: /, include_subfolders: true' — no JSON noise."""
+    short = (str(name or "tool")).split("__")[-1]
+    pieces = []
+    if isinstance(args, dict):
+        for key in args:
+            value = args[key]
+            if short == "run_python" and key == "code":
+                lines = len(str(value).rstrip().splitlines()) or 1
+                pieces.append("%d line%s of Python" % (lines, "" if lines == 1 else "s"))
+                continue
+            if not isinstance(value, str):
+                value = _short_json(value, 48)
+            if len(value) > 48:
+                value = value[:48] + "…"
+            pieces.append("%s: %s" % (key, value))
+    elif args:
+        pieces.append(_short_json(args, 96))
+    summary = ", ".join(pieces)
+    if len(summary) > 170:
+        summary = summary[:170] + "…"
+    return short + ("  " + summary if summary else "")
+
+
+def _code_preview(code, max_lines=12):
+    """A fenced preview of tool code, cut off past max_lines."""
+    lines = str(code).rstrip().splitlines()
+    if len(lines) > max_lines:
+        lines = lines[:max_lines] + ["… (+%d more lines)" % (len(lines) - max_lines)]
+    return "```python\n%s\n```" % "\n".join(lines)
+
+
+def _render_tool_event(text):
+    """Tool activity: one dim, indented line (or a code card for previews)."""
+    if text.startswith("```"):
+        return ("<div style='margin:2px 0 2px 16px;'>%s</div>"
+                % _render_markdownish(text))
+    head, _, rest = text.partition("  ")
+    if text.startswith(("error:", "(")) or not head:
+        head, rest = "", text
+    name_html = ("<span style='color:#7f9dc4;'>&#9656; %s</span>&nbsp; "
+                 % _escape(head)) if head else ""
+    color = "#c98080" if text.startswith("error:") else "#8a8f96"
+    return ("<div style='margin:3px 0 3px 10px; font-size:11px; color:%s;'>"
+            "%s%s</div>" % (color, name_html, _escape(rest)))
+
+
+def render_chat_message(kind, text):
+    """One transcript entry as QTextEdit-safe HTML."""
+    if kind == "tool":
+        return _render_tool_event(text)
+    speaker, accent, bg = CHAT_STYLES.get(kind, ("?", "#9a9a9a", "#222222"))
+    return ("<table width='100%%' cellspacing='0' border='0' "
+            "style='margin-top:8px;'><tr>"
+            "<td width='4' bgcolor='%s'></td>"
+            "<td style='padding:6px 10px; background-color:%s;'>"
+            "<span style='color:%s; font-weight:bold; font-size:12px;'>%s</span>"
+            "<br>%s</td></tr></table>"
+            % (accent, bg, accent, speaker, _render_markdownish(text)))
 
 
 # A dark theme tuned to DaVinci Resolve's own palette so the panel reads as part
@@ -4845,14 +4923,6 @@ CHAT_BG = "#191919"
 
 
 class ChatWindow(object):
-    SPEAKER_STYLES = {
-        "you": ("You", "#6fae6f"),
-        "assistant": ("Claude", "#d98f63"),
-        "tool": ("Tool", "#7f9dc4"),
-        "error": ("Error", "#d96b6b"),
-        "notice": ("Note", "#c0a94e"),
-    }
-
     def __init__(self, ui, disp, cfg):
         self.ui = ui
         self.disp = disp
@@ -4991,8 +5061,8 @@ class ChatWindow(object):
             self._drop_ready = True
             self._drop_tracker = {}
             self.append_chat("notice",
-                             "Watching <b>%s</b> — drop videos there and I'll import "
-                             "and sort them into bins automatically." % _escape(folder))
+                             "Watching **%s** — drop videos there and I'll import "
+                             "and sort them into bins automatically." % folder)
         ready = scan_drop_folder(folder, self._drop_tracker)
         if not ready:
             return
@@ -5001,17 +5071,14 @@ class ChatWindow(object):
         if ok:
             self.append_chat("notice", "Drop folder: imported %d file%s (%s) — %s"
                              % (len(ready), "" if len(ready) == 1 else "s",
-                                _escape(names), _escape(text[:400])))
+                                names, text[:400]))
         else:
             self.append_chat("error", "Drop folder import failed for %s: %s"
-                             % (_escape(names), _escape(text[:400])))
+                             % (names, text[:400]))
 
     # -- transcript -----------------------------------------------------------
     def append_chat(self, kind, text):
-        speaker, color = self.SPEAKER_STYLES.get(kind, ("?", "#cccccc"))
-        body = _render_markdownish(text)
-        html = ("<div style='margin:6px 0;'><b><span style='color:%s;'>%s"
-                "</span></b>&nbsp; %s</div>" % (color, speaker, body))
+        html = render_chat_message(kind, text)
         self.html_log.append(html)
         chat = self.items["Chat"]
         try:
