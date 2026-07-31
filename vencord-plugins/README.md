@@ -10,6 +10,7 @@ menus) — no patches against Discord's minified code.
 | --- | --- |
 | [JoinWhenFree](joinWhenFree/) | When a voice channel is full, wait and auto-join the moment a spot opens |
 | [RingUntilAnswer](ringUntilAnswer/) | Right-click someone → keep ringing them in DMs until they pick up |
+| [RingSquad](ringSquad/) | Ring several people at once — group blast or round-robin — until someone answers |
 | [BootOnJoin](bootOnJoin/) | Auto-disconnect chosen users from voice when you share a channel (needs Move Members) |
 | [FollowVC](followVc/) | Auto-join whatever voice channel a chosen person hops into |
 | [AutoRejoin](autoRejoin/) | Pin a voice channel and snap back into it if you're disconnected/booted |
