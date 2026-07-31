@@ -64,7 +64,16 @@ class FakeMediaPoolItem:
         self._name = name
         self._props = props or {"Duration": "00:00:10:00", "FPS": "24",
                                 "Resolution": "1920x1080", "Type": "Video",
-                                "File Path": "/media/%s" % name}
+                                "File Path": "/media/%s" % name,
+                                "File Name": name}
+        self.metadata = {}
+
+    def SetMetadata(self, key, value):
+        self.metadata[key] = value
+        return True
+
+    def GetMetadata(self, key=None):
+        return dict(self.metadata) if key is None else self.metadata.get(key, "")
 
     def GetName(self):
         return self._name
@@ -152,6 +161,18 @@ class FakeMediaPool:
         items = [FakeMediaPoolItem(os.path.basename(p)) for p in paths]
         self.imported.extend(items)
         return items
+
+    def MoveClips(self, clips, folder):
+        for clip in clips:
+            def strip(f):
+                if clip in f._clips:
+                    f._clips.remove(clip)
+                for sub in f._subs:
+                    strip(sub)
+            strip(self._root)
+            folder._clips.append(clip)
+        self.moved = getattr(self, "moved", 0) + len(clips)
+        return True
 
     def DeleteTimelines(self, timelines):
         for tl in timelines:
@@ -1703,6 +1724,103 @@ check("scratch timeline cleaned up",
       _diag["live"]["cleanup"] == "ok" and len(PROJECT._timelines) == _tl_count,
       "%s / %d vs %d" % (_diag["live"].get("cleanup"), len(PROJECT._timelines), _tl_count))
 check("current timeline restored", PROJECT._current is _current_before)
+
+# --------------------------------------------------------------- auto-sorting
+print("== auto-sort ==")
+
+_c1 = FakeMediaPoolItem("DJI_0042.MP4", {"Type": "Video", "Resolution": "3840x2160",
+                                         "FPS": "29.97", "File Path": "/m/DJI_0042.MP4",
+                                         "File Name": "DJI_0042.MP4"})
+_c2 = FakeMediaPoolItem("GX010101.MP4", {"Type": "Video", "Resolution": "1920x1080",
+                                         "FPS": "59.94", "File Path": "/m/GX010101.MP4",
+                                         "File Name": "GX010101.MP4"})
+_c3 = FakeMediaPoolItem("interview.wav", {"Type": "Audio", "Resolution": "",
+                                          "FPS": "0", "File Path": "/m/interview.wav",
+                                          "File Name": "interview.wav"})
+_c4 = FakeMediaPoolItem("poster.png", {"Type": "Still", "Resolution": "1080x1920",
+                                       "FPS": "0", "File Path": "/m/poster.png",
+                                       "File Name": "poster.png"})
+
+_segments, _kw = mod._classify_clip(_c1, ["type", "resolution"])
+check("classify 4K drone video", _segments == ["Videos", "4K"], str(_segments))
+check("classify keywords", "DJI" in _kw and "4K" in _kw and "30fps" in _kw, str(_kw))
+_segments, _ = mod._classify_clip(_c2, ["type", "resolution", "fps", "camera"])
+check("classify gopro 1080p60", _segments == ["Videos", "1080p", "60fps", "GoPro"],
+      str(_segments))
+_segments, _ = mod._classify_clip(_c3, ["type"])
+check("classify audio", _segments == ["Audio"], str(_segments))
+_segments, _ = mod._classify_clip(_c4, ["type", "resolution"])
+check("classify vertical still by long edge", _segments == ["Stills", "1080p"],
+      str(_segments))
+
+try:
+    mod._parse_sort_scheme("type/turbo")
+    check("bad scheme rejected", False)
+except mod.ResolveError as exc:
+    check("bad scheme rejected", "turbo" not in str(exc) and "dimensions" in str(exc))
+
+_root = PROJECT._pool.GetRootFolder()
+_root._clips += [_c1, _c2, _c3, _c4]
+
+ok, out = run_tool("auto_sort_media", {"dry_run": True})
+check("dry run previews without moving", ok and '"dry_run": true' in out
+      and _c1 in _root._clips, out[:200])
+
+ok, out = run_tool("auto_sort_media", {})
+check("auto_sort ok", ok, out)
+check("clips left the root", _c1 not in _root._clips and _c3 not in _root._clips)
+
+
+def _find_bin(folder, path_parts):
+    for part in path_parts:
+        folder = next((s for s in folder._subs if s.GetName() == part), None)
+        if folder is None:
+            return None
+    return folder
+
+
+_videos_4k = _find_bin(_root, ["Videos", "4K"])
+check("4K bin created and populated", _videos_4k is not None and _c1 in _videos_4k._clips)
+_audio_bin = _find_bin(_root, ["Audio"])
+check("audio bin holds the wav",
+      _audio_bin is not None and any(_c3 in f._clips for f in [_audio_bin] + _audio_bin._subs))
+check("keywords written for smart bins", _c1.metadata.get("Keywords") and
+      "DJI" in _c1.metadata["Keywords"], str(_c1.metadata))
+check("mentions smart bins to the user", "Smart Bin" in out, out[:300])
+
+# import_and_sort: skips files already in the pool, imports + sorts the rest
+with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as _f1:
+    _f1.write(b"x" * 100)
+_dupe = FakeMediaPoolItem("dupe.mp4", {"Type": "Video", "Resolution": "1920x1080",
+                                       "FPS": "24", "File Path": _f1.name,
+                                       "File Name": os.path.basename(_f1.name)})
+_root._clips.append(_dupe)
+ok, out = run_tool("import_and_sort", {"paths": [_f1.name]})
+check("duplicate path skipped", ok and '"already_in_pool": 1' in out, out)
+with tempfile.NamedTemporaryFile(suffix=".mov", delete=False) as _f2:
+    _f2.write(b"y" * 100)
+ok, out = run_tool("import_and_sort", {"paths": [_f2.name, "/no/such/clip.mp4"]})
+check("import_and_sort imports and sorts", ok and '"imported": 1' in out, out)
+check("missing paths reported", "/no/such/clip.mp4" in out, out)
+os.unlink(_f1.name); os.unlink(_f2.name)
+
+# Drop-folder scanner: two-poll stability, no double-processing
+_dropdir = tempfile.mkdtemp()
+_trk = {}
+_clip_path = os.path.join(_dropdir, "take1.mp4")
+open(_clip_path, "wb").write(b"a" * 50)
+check("scan pass 1 waits for stability", mod.scan_drop_folder(_dropdir, _trk) == [])
+open(_clip_path, "ab").write(b"b" * 50)          # still growing
+check("growing file not picked up", mod.scan_drop_folder(_dropdir, _trk) == [])
+check("stable file picked up", mod.scan_drop_folder(_dropdir, _trk) == [_clip_path])
+check("never picked up twice", mod.scan_drop_folder(_dropdir, _trk) == [])
+open(os.path.join(_dropdir, "notes.txt"), "w").write("not media")
+mod.scan_drop_folder(_dropdir, _trk)
+check("non-media ignored", mod.scan_drop_folder(_dropdir, _trk) == [])
+import shutil as _sh3
+_sh3.rmtree(_dropdir, ignore_errors=True)
+check("default drop folder is home-based",
+      mod.default_drop_folder().startswith(os.path.expanduser("~")))
 
 # ------------------------------------------------------- claude code backend
 print("== claude code backend ==")

@@ -11,7 +11,7 @@ Resolve for you — not just answer questions. Ask it things like:
 - *"Why does my 23.976 footage stutter on a 25fps timeline?"* (plain advice — no tools needed)
 
 Claude sees a live snapshot of your session (current page, project, timeline,
-playhead) with every message, and works through **62 purpose-built tools**
+playhead) with every message, and works through **64 purpose-built tools**
 covering markers, timelines, the media pool, clip properties, project settings,
 color (current clip / LUTs), and the render queue — plus an optional
 `run_python` escape hatch for anything the tools don't cover.
@@ -73,7 +73,7 @@ only the in-Resolve panel holds that connection. The panel therefore starts a
 loopback tool server (random port, random token, `127.0.0.1` only) and hands
 Claude Code a small MCP server that forwards tool calls back to it. Claude Code
 is launched with `--strict-mcp-config`, `--tools ""` and
-`--allowedTools mcp__resolve__*`, so it gets **the 62 Resolve tools and nothing
+`--allowedTools mcp__resolve__*`, so it gets **the 64 Resolve tools and nothing
 else** — no filesystem access, no shell, and none of your other MCP servers.
 
 Note that `ANTHROPIC_API_KEY` is deliberately **removed** from the CLI's
@@ -133,6 +133,7 @@ avoid that.
 | Audio extras | AI Voice Isolation per clip (20.1+ Studio), proxy link/unlink, AI speech generation (21+) |
 | Render setup | list formats/codecs, set format/codec and any render setting, save render presets |
 | Projects | list/create/open projects |
+| **Auto-sorting** | `auto_sort_media` — sort the pool into bins by type/resolution/fps/camera/date (with dry-run preview); `import_and_sort` — import files and bin them in one step; the **Drop folder** checkbox watches `~/Videos/Claude Drop` and auto-imports+sorts anything you drop there. Clips get Keywords metadata so UI **Smart Bins** matching those keywords collect them automatically (the API can't create Smart Bin rules itself). |
 | Search | `find_clips` — find clips by name, clip color or flag across the media pool and timeline, returning positions other tools accept directly |
 | Diagnostics | `run_diagnostics` — reports what THIS Resolve version supports per capability; `live=true` also exercises a scratch timeline end-to-end and cleans up after itself |
 | Deliver | list presets, queue render jobs (preset/target/filename), start, status |

@@ -908,6 +908,319 @@ def t_import_media(app, paths):
     return {"imported": [it.GetName() for it in items]}
 
 
+# -- auto-sorting media into bins ---------------------------------------------
+
+VIDEO_EXTS = (".mp4", ".mov", ".mxf", ".avi", ".mkv", ".braw", ".r3d", ".m4v",
+              ".mts", ".m2ts", ".webm", ".mpg", ".mpeg", ".wmv", ".dng")
+AUDIO_EXTS = (".wav", ".mp3", ".aac", ".flac", ".aif", ".aiff", ".m4a", ".ogg")
+STILL_EXTS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".exr", ".bmp", ".webp",
+              ".heic", ".gif", ".psd")
+
+# Filename-prefix fingerprints of common cameras/sources.
+CAMERA_PATTERNS = [
+    (re.compile(r"^DJI[_-]", re.I), "DJI"),
+    (re.compile(r"^(GX|GOPR|GH|GP)\d", re.I), "GoPro"),
+    (re.compile(r"^C\d{4}", re.I), "Sony"),
+    (re.compile(r"^DSC", re.I), "Sony"),
+    (re.compile(r"^PXL_", re.I), "Pixel"),
+    (re.compile(r"^(IMG|MVI)[_-]", re.I), "Phone-Canon"),
+    (re.compile(r"^VID[_-]", re.I), "Android"),
+    (re.compile(r"^(Screen[ _]Recording|ScreenRec|Screencast)", re.I), "Screen"),
+    (re.compile(r"^(A\d{3}_|B\d{3}_)", re.I), "Cine"),
+]
+
+SORT_DIMENSIONS = ("type", "resolution", "fps", "camera", "date")
+
+
+def _classify_clip(item, scheme):
+    """(bin_path_segments, keywords) for one media pool clip.
+
+    Reads only documented clip properties, tolerantly — a missing property
+    lands the clip in a sensible bucket instead of erroring.
+    """
+    def prop(key):
+        try:
+            return str(item.GetClipProperty(key) or "")
+        except Exception:
+            return ""
+
+    name = prop("File Name") or (item.GetName() if _supports(item, "GetName") else "")
+    path = prop("File Path")
+    ext = os.path.splitext(name or path)[1].lower()
+
+    type_text = prop("Type").lower()
+    if ("audio" in type_text and "video" not in type_text) or ext in AUDIO_EXTS:
+        kind = "Audio"
+    elif ("still" in type_text or "graphic" in type_text or "photo" in type_text
+          or ext in STILL_EXTS):
+        kind = "Stills"
+    else:
+        kind = "Videos"
+
+    res_label = ""
+    match = re.match(r"(\d+)\s*x\s*(\d+)", prop("Resolution"))
+    if match:
+        long_edge = max(int(match.group(1)), int(match.group(2)))
+        if long_edge >= 5000:
+            res_label = "6K+"
+        elif long_edge >= 3600:
+            res_label = "4K"
+        elif long_edge >= 2400:
+            res_label = "1440p"
+        elif long_edge >= 1800:
+            res_label = "1080p"
+        elif long_edge >= 1200:
+            res_label = "720p"
+        else:
+            res_label = "SD"
+
+    fps_label = ""
+    try:
+        fps_value = float(prop("FPS"))
+        if fps_value > 0:
+            fps_label = "%dfps" % int(round(fps_value))
+    except ValueError:
+        pass
+
+    camera = "Other"
+    for pattern, label in CAMERA_PATTERNS:
+        if name and pattern.match(name):
+            camera = label
+            break
+
+    date_label = ""
+    match = re.search(r"(\d{4})-(\d{2})-\d{2}", prop("Date Created"))
+    if match:
+        date_label = "%s-%s" % (match.group(1), match.group(2))
+    elif path:
+        try:
+            import datetime
+            stamp = datetime.datetime.fromtimestamp(os.path.getmtime(path))
+            date_label = stamp.strftime("%Y-%m")
+        except Exception:
+            pass
+
+    values = {"type": kind, "resolution": res_label or "Unknown res",
+              "fps": fps_label or "Unknown fps", "camera": camera,
+              "date": date_label or "Undated"}
+    segments = [values[dim] for dim in scheme]
+    keywords = [v for v in (kind.rstrip("s"), res_label, fps_label, camera)
+                if v and v != "Other"]
+    return segments, keywords
+
+
+def _parse_sort_scheme(scheme):
+    dims = [d.strip().lower() for d in str(scheme or "").split("/") if d.strip()]
+    bad = [d for d in dims if d not in SORT_DIMENSIONS]
+    if bad or not dims:
+        raise ResolveError("scheme must be dimensions joined by '/', from: %s"
+                           % ", ".join(SORT_DIMENSIONS))
+    return dims
+
+
+def _ensure_bin_path(app, segments):
+    """Walk/create a chain of bins under the root; returns the leaf folder."""
+    folder = app.media_pool.GetRootFolder()
+    for name in segments:
+        subs = folder.GetSubFolderList() or []
+        nxt = next((s for s in subs if s.GetName() == name), None)
+        if nxt is None:
+            nxt = app.media_pool.AddSubFolder(folder, name)
+            if not nxt:
+                raise ResolveError("Could not create bin %r." % name)
+        folder = nxt
+    return folder
+
+
+def _folder_of_clip_cache(app):
+    """Map id(clip)->folder path string, by walking the pool once."""
+    placement = {}
+
+    def walk(folder, path):
+        for clip in folder.GetClipList() or []:
+            placement[id(clip)] = path or "/"
+        for sub in folder.GetSubFolderList() or []:
+            walk(sub, path + "/" + sub.GetName())
+
+    walk(app.media_pool.GetRootFolder(), "")
+    return placement
+
+
+def _sort_items_into_bins(app, items, dims, tag_keywords=True):
+    """Move clips into their computed bins; returns (placements, tagged, failed)."""
+    mp = app.media_pool
+    can_move = _supports(mp, "MoveClips")
+    if not can_move:
+        raise ResolveError("This version of Resolve cannot move clips between "
+                           "bins from a script (MoveClips is missing).")
+    by_target = {}
+    placements = {}
+    for item in items:
+        segments, keywords = _classify_clip(item, dims)
+        target = "/" + "/".join(segments)
+        by_target.setdefault(target, []).append((item, keywords))
+        placements[target] = placements.get(target, 0) + 1
+
+    tagged = 0
+    failed = []
+    for target, pairs in by_target.items():
+        folder = _ensure_bin_path(app, target.strip("/").split("/"))
+        clips = [pair[0] for pair in pairs]
+        if not mp.MoveClips(clips, folder):
+            failed.append(target)
+            continue
+        if tag_keywords:
+            for item, keywords in pairs:
+                if keywords and _supports(item, "SetMetadata"):
+                    try:
+                        if item.SetMetadata("Keywords", ",".join(keywords)):
+                            tagged += 1
+                    except Exception:
+                        pass
+    return placements, tagged, failed
+
+
+MEDIA_EXTS = VIDEO_EXTS + AUDIO_EXTS + STILL_EXTS
+
+
+def default_drop_folder():
+    home = os.path.expanduser("~")
+    if sys.platform == "win32":
+        base = os.path.join(os.environ.get("USERPROFILE", home), "Videos")
+    elif sys.platform == "darwin":
+        base = os.path.join(home, "Movies")
+    else:
+        base = os.path.join(home, "Videos")
+    return os.path.join(base, "Claude Drop")
+
+
+def scan_drop_folder(path, tracker):
+    """One poll of the drop folder. Returns media files that just became stable.
+
+    A file is imported only after its size stops changing between two polls, so
+    a video still copying in never gets picked up half-written. `tracker` maps
+    filename -> [last_size, processed] and persists across polls.
+    """
+    ready = []
+    try:
+        names = os.listdir(path)
+    except Exception:
+        return ready
+    for name in names:
+        if os.path.splitext(name)[1].lower() not in MEDIA_EXTS:
+            continue
+        full = os.path.join(path, name)
+        try:
+            size = os.path.getsize(full)
+        except OSError:
+            continue
+        record = tracker.get(name)
+        if record is None:
+            tracker[name] = [size, False]
+            continue
+        if record[1]:
+            continue                        # already handled this session
+        if size == record[0] and size > 0:
+            record[1] = True
+            ready.append(full)
+        else:
+            record[0] = size
+    return ready
+
+
+@tool(
+    "auto_sort_media",
+    "Sort media pool clips into bins automatically by their properties. `scheme` "
+    "is bin levels joined by '/', from: type, resolution, fps, camera, date — "
+    "e.g. 'type/resolution' makes Videos/4K, Videos/1080p, Audio... Also tags "
+    "each clip's Keywords metadata (Video, 4K, GoPro...), so the user can build "
+    "real Smart Bins in the UI that match those keywords — the API itself cannot "
+    "create Smart Bin rules. Set dry_run=true to preview without moving anything.",
+    params={
+        "scheme": {"type": "string", "description":
+                   "Bin structure, default 'type/resolution'."},
+        "source_path": {"type": "string", "description":
+                        "Only sort clips currently in this bin (default '/', the root)."},
+        "dry_run": {"type": "boolean", "description": "Preview only (default false)."},
+    },
+)
+def t_auto_sort_media(app, scheme="type/resolution", source_path="/", dry_run=False):
+    dims = _parse_sort_scheme(scheme)
+    source = app.folder_by_path(source_path)
+    items = list(source.GetClipList() or [])
+    if not items:
+        raise ResolveError("No clips directly inside %r to sort." % source_path)
+
+    if dry_run:
+        preview = {}
+        for item in items:
+            segments, _ = _classify_clip(item, dims)
+            preview.setdefault("/" + "/".join(segments), []).append(item.GetName())
+        return {"dry_run": True, "would_move": preview}
+
+    placements, tagged, failed = _sort_items_into_bins(app, items, dims)
+    out = {"sorted": sum(placements.values()), "bins": placements,
+           "keyword_tagged": tagged,
+           "note": ("Keywords were written to clip metadata — a UI Smart Bin "
+                    "matching 'Keywords' will now collect these automatically.")}
+    if failed:
+        out["failed_bins"] = failed
+    return out
+
+
+@tool(
+    "import_and_sort",
+    "Import video/audio/still files from disk AND auto-sort them into bins in "
+    "one step (same scheme rules as auto_sort_media). This is what the panel's "
+    "drop folder uses. Skips files already in the media pool.",
+    params={
+        "paths": {"type": "array", "description": "Absolute file paths to import.",
+                  "items": {"type": "string"}},
+        "scheme": {"type": "string", "description": "Bin structure, default 'type/resolution'."},
+    },
+    required=["paths"],
+)
+def t_import_and_sort(app, paths, scheme="type/resolution"):
+    dims = _parse_sort_scheme(scheme)
+    real = [p for p in paths if os.path.exists(p)]
+    missing = [p for p in paths if p not in real]
+    if not real:
+        raise ResolveError("None of those paths exist on disk.")
+
+    # Don't create duplicates: skip anything whose file is already in the pool.
+    existing = set()
+
+    def walk(folder):
+        for clip in folder.GetClipList() or []:
+            try:
+                existing.add(os.path.normcase(
+                    str(clip.GetClipProperty("File Path") or "")))
+            except Exception:
+                pass
+        for sub in folder.GetSubFolderList() or []:
+            walk(sub)
+
+    walk(app.media_pool.GetRootFolder())
+    fresh = [p for p in real if os.path.normcase(p) not in existing]
+    already = len(real) - len(fresh)
+    if not fresh:
+        return {"imported": 0, "already_in_pool": already,
+                "note": "Everything was already in the media pool."}
+
+    items = app.media_pool.ImportMedia(list(fresh)) or []
+    if not items:
+        raise ResolveError("Resolve imported nothing (unsupported formats?).")
+    placements, tagged, failed = _sort_items_into_bins(app, items, dims)
+    out = {"imported": len(items), "bins": placements, "keyword_tagged": tagged}
+    if already:
+        out["already_in_pool"] = already
+    if missing:
+        out["missing_paths"] = missing
+    if failed:
+        out["failed_bins"] = failed
+    return out
+
+
 @tool(
     "append_to_timeline",
     "Append media pool clips (found by exact name) to the end of the current timeline, "
@@ -4532,7 +4845,13 @@ class ChatWindow(object):
                                      "Text": "Python",
                                      "ToolTip": "Allow Claude to run Python inside Resolve",
                                      "Checked": bool(cfg.get("allow_python", True)),
-                                     "Weight": 0.18}),
+                                     "Weight": 0.14}),
+                        ui.CheckBox({"ID": "WatchDrop",
+                                     "Text": "Drop folder",
+                                     "ToolTip": "Auto-import and sort any video dropped into:\n"
+                                                + default_drop_folder(),
+                                     "Checked": bool(cfg.get("watch_drop", False)),
+                                     "Weight": 0.16}),
                         ui.Label({"ID": "Spacer", "Text": "", "Weight": 1}),
                         ui.Button({"ID": "NewChatBtn", "Text": "New chat", "Weight": 0}),
                     ]),
@@ -4601,7 +4920,7 @@ class ChatWindow(object):
             try:
                 kind, text = self.events.get_nowait()
             except _queue.Empty:
-                return
+                break
             try:
                 if kind == "__done__":
                     self.set_busy(False)
@@ -4609,6 +4928,48 @@ class ChatWindow(object):
                     self.append_chat(kind, text)
             except Exception:
                 pass  # window may be tearing down; never lose the queue loop
+        try:
+            self.maybe_poll_drop_folder()
+        except Exception:
+            pass                             # polling must never kill the timer
+
+    # -- drop folder ------------------------------------------------------------
+    def maybe_poll_drop_folder(self):
+        """Every ~3s: import + auto-sort media that landed in the drop folder."""
+        self._drop_tick = getattr(self, "_drop_tick", 0) + 1
+        if self._drop_tick % 25 or self.busy:
+            return
+        try:
+            if not self.items["WatchDrop"].Checked:
+                return
+        except Exception:
+            return
+        folder = default_drop_folder()
+        if not getattr(self, "_drop_ready", False):
+            try:
+                os.makedirs(folder, exist_ok=True)
+            except Exception as exc:
+                self.append_chat("error", "Could not create the drop folder %s: %s"
+                                 % (folder, exc))
+                self.items["WatchDrop"].Checked = False
+                return
+            self._drop_ready = True
+            self._drop_tracker = {}
+            self.append_chat("notice",
+                             "Watching <b>%s</b> — drop videos there and I'll import "
+                             "and sort them into bins automatically." % _escape(folder))
+        ready = scan_drop_folder(folder, self._drop_tracker)
+        if not ready:
+            return
+        ok, text, _imgs = execute_tool("import_and_sort", {"paths": ready})
+        names = ", ".join(os.path.basename(p) for p in ready[:6])
+        if ok:
+            self.append_chat("notice", "Drop folder: imported %d file%s (%s) — %s"
+                             % (len(ready), "" if len(ready) == 1 else "s",
+                                _escape(names), _escape(text[:400])))
+        else:
+            self.append_chat("error", "Drop folder import failed for %s: %s"
+                             % (_escape(names), _escape(text[:400])))
 
     # -- transcript -----------------------------------------------------------
     def append_chat(self, kind, text):
@@ -4662,6 +5023,10 @@ class ChatWindow(object):
         self.cfg["model"] = model
         self.cfg["effort"] = STATE["effort"]
         self.cfg["allow_python"] = STATE["allow_python"]
+        try:
+            self.cfg["watch_drop"] = bool(self.items["WatchDrop"].Checked)
+        except Exception:
+            pass
         save_config(self.cfg)
 
         ready, why = backend_ready(self.cfg)
