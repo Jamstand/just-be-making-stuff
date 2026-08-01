@@ -1243,6 +1243,31 @@ check("unterminated string does not hang or drop text",
       "tail" in mod._highlight_python('x = "unclosed\ntail = 1'))
 check("unterminated triple quote survives",
       "&lt;" in mod._highlight_python('x = """<open'))
+# An unterminated string must colour to end of line, not let its own contents
+# highlight as code (keywords, a fake # comment, or paired apostrophes).
+_h = mod._highlight_python('msg = "if you import a class\nprint(msg)')
+check("unterminated string does not colour its contents as code",
+      mod._PY_COLORS["keyword"] not in _h, _h)
+check("code after an unterminated string still highlights",
+      mod._PY_COLORS["builtin"] in _h, _h)
+check("no fake comment inside a broken string",
+      mod._PY_COLORS["comment"] not in mod._highlight_python('s = "a # b\nt = 1'))
+check("apostrophes in a broken string do not pair",
+      mod._highlight_python('m = "don\'t stop, it\'s fine\nx = 1').count(
+          mod._PY_COLORS["string"]) == 1)
+_a = mod._highlight_python('a = "x\nb = "x')
+check("highlighting is not position-dependent",
+      _a.count(mod._PY_COLORS["string"]) == 2, _a)
+
+# number literals beyond plain decimals
+for _lit in ("0x1f", "0b1010", "0o777", "1_000", "1e-5", "1.5j", "3.14", "12"):
+    _h = mod._highlight_python("x = %s" % _lit)
+    check("number literal %s coloured whole" % _lit,
+          ">%s<" % _lit in _h, _h)
+check("no number colour inside identifiers",
+      mod._PY_COLORS["number"] not in mod._highlight_python("frame2 = utf8"))
+check("attribute named like a builtin is not coloured",
+      mod._PY_COLORS["builtin"] not in mod._highlight_python("obj.list()"))
 _plain = mod._code_card("def f(): pass", None)
 check("non-python cards are not highlighted",
       mod._PY_COLORS["keyword"] not in _plain, _plain)
@@ -1255,6 +1280,26 @@ check("text around several fences preserved",
       all(w in strip_tags(_h) for w in ("before", "x=1", "after", "y=2", "end")),
       strip_tags(_h))
 check("both fences became cards", _h.count("<pre") == 2, _h)
+
+# Four-backtick fences: Claude uses them when the block itself contains ```
+_h = mod._render_markdownish("see:\n````\nrun ```python\nx=1\n```\n````\ndone")
+check("long fence keeps inner backticks verbatim",
+      _h.count("<pre") == 1 and "```python" in strip_tags(_h), _h)
+check("text after a long fence survives", strip_tags(_h).endswith("done"), _h)
+check("unclosed fence still cards its body",
+      "<pre" in mod._render_markdownish("a\n```py\nx=1"))
+check("empty text renders empty", mod._render_markdownish("") == "")
+
+# The truncation note must sit outside the code, so a cut-off docstring
+# cannot swallow it into a string span.
+_p = mod._code_preview('"""doc\n' + "\n".join("l%d" % i for i in range(20)))
+check("truncation note is outside the fence", _p.rstrip().endswith("more lines)")
+      and _p.index("```", 3) < _p.index("more lines"), _p)
+_h = mod._render_tool_event(_p)
+check("truncation note renders outside the card",
+      "more lines" in _h and _h.index("</pre>") < _h.index("more lines"), _h)
+check("truncation note is not string-coloured",
+      mod._PY_COLORS["string"] not in _h[_h.index("</pre>"):], _h)
 
 # progress line
 check("elapsed under a minute", mod._format_elapsed(8) == "8s")

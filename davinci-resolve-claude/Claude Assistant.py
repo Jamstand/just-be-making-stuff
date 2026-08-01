@@ -4793,16 +4793,19 @@ _PY_BUILTINS = ("abs|all|any|bool|dict|enumerate|float|int|len|list|max|min|open
 # One pass, alternation ordered so comments and strings win before keywords —
 # that is what keeps 'def' inside a string from being coloured as a keyword.
 # Deliberately regex, not tokenize: truncated previews aren't valid Python and
-# tokenize would raise on them.
+# tokenize would raise on them. The closing quote is OPTIONAL so a string cut
+# off by truncation (or continued with a backslash) still colours to the end of
+# its line; requiring it made the string's own contents highlight as code.
 _PY_TOKEN_RE = re.compile(
     r"(?P<comment>\#[^\n]*)"
-    r"|(?P<string>[bruBRUf]{0,2}(?:'''[\s\S]*?(?:'''|\Z)"
+    r"|(?P<string>[bruBRUfF]{0,2}(?:'''[\s\S]*?(?:'''|\Z)"
     r"|\"\"\"[\s\S]*?(?:\"\"\"|\Z)"
-    r"|'(?:\\.|[^'\\\n])*(?:'|$)"
-    r"|\"(?:\\.|[^\"\\\n])*(?:\"|$)))"
+    r"|'(?:\\.|[^'\\\n])*'?"
+    r"|\"(?:\\.|[^\"\\\n])*\"?))"
     r"|(?P<keyword>\b(?:" + _PY_KEYWORDS + r")\b)"
-    r"|(?P<builtin>\b(?:" + _PY_BUILTINS + r")\b(?=\s*\())"
-    r"|(?P<number>\b\d+\.?\d*\b)")
+    r"|(?P<builtin>(?<![\w.])(?:" + _PY_BUILTINS + r")\b(?=\s*\())"
+    r"|(?P<number>(?<![\w.])(?:0[xXbBoO][0-9a-fA-F_]+"
+    r"|\d[\d_]*(?:\.[\d_]*)?(?:[eE][-+]?\d+)?[jJ]?))")
 
 
 def _highlight_python(code):
@@ -4835,29 +4838,47 @@ def _code_card(code, language=None):
             + "</pre></td></tr></table>")
 
 
-def _render_markdownish(text):
-    """Minimal, safe rendering: escape HTML, keep ``` blocks as code cards.
+def _render_prose(text):
+    """Escaped text with **bold** and `inline code` honoured."""
+    chunk = _escape(text)
+    chunk = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", chunk)
+    chunk = re.sub(r"`([^`\n]+)`",
+                   r"<code style='background:#242424;'>\1</code>", chunk)
+    return chunk.replace("\n", "<br>")
 
-    Fences are matched line-oriented (as in real markdown): a bare ```
-    followed by prose on the same line is a closer, not a language tag —
-    matching it loosely used to swallow the word right after it. The tag is
-    a capture group, so re.split yields text, lang, text, lang, text… where
-    odd slots are the tags and even slots alternate prose / code.
+
+# A fence is a whole line of 3+ backticks, optionally tagged with a language.
+_FENCE_RE = re.compile(r"(?m)^[ \t]*(`{3,})([\w+-]*)[ \t]*$\n?")
+
+
+def _render_markdownish(text):
+    """Minimal, safe rendering: escape HTML, keep fenced blocks as code cards.
+
+    Fences are paired the way markdown really does it — line-oriented, and a
+    closer must be at least as long as its opener and carry no language tag.
+    That matters because Claude switches to ```` when the block itself
+    contains ```; a naive parser treats the inner fence as a closer and spills
+    code into the transcript as prose.
     """
-    parts = re.split(r"(?m)^[ \t]*```([\w+-]*)[ \t]*$\n?", text)
     html = []
-    for i, part in enumerate(parts):
-        if i % 2:
-            continue                       # language tag, consumed with the code
-        if (i // 2) % 2:                   # inside a fence
-            html.append(_code_card(part.rstrip("\n"), parts[i - 1]))
-        else:
-            chunk = _escape(part)
-            chunk = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", chunk)
-            chunk = re.sub(r"`([^`\n]+)`",
-                           r"<code style='background:#242424;'>\1</code>", chunk)
-            html.append(chunk.replace("\n", "<br>"))
-    return "".join(html)
+    pos = 0
+    while True:
+        opener = _FENCE_RE.search(text, pos)
+        if opener is None:
+            html.append(_render_prose(text[pos:]))
+            return "".join(html)
+        html.append(_render_prose(text[pos:opener.start()]))
+        ticks, lang = opener.group(1), opener.group(2)
+        closer = None
+        for candidate in _FENCE_RE.finditer(text, opener.end()):
+            if len(candidate.group(1)) >= len(ticks) and not candidate.group(2):
+                closer = candidate
+                break
+        if closer is None:                 # unclosed fence: card the remainder
+            html.append(_code_card(text[opener.end():].rstrip("\n"), lang))
+            return "".join(html)
+        html.append(_code_card(text[opener.end():closer.start()].rstrip("\n"), lang))
+        pos = closer.end()
 
 
 # Per-speaker card colours: (label, accent, card background). Tints stay close
@@ -4895,27 +4916,43 @@ def _tool_call_line(name, args):
 
 
 def _code_preview(code, max_lines=12):
-    """A fenced preview of tool code, cut off past max_lines."""
+    """A fenced preview of tool code, cut off past max_lines.
+
+    The '+N more lines' note goes AFTER the closing fence: inside it, a
+    preview truncated mid-docstring would swallow the note into the string.
+    """
     lines = str(code).rstrip().splitlines()
-    if len(lines) > max_lines:
-        extra = len(lines) - max_lines
-        lines = lines[:max_lines] + ["… (+%d more line%s)"
-                                     % (extra, "" if extra == 1 else "s")]
-    return "```python\n%s\n```" % "\n".join(lines)
+    extra = len(lines) - max_lines
+    if extra > 0:
+        lines = lines[:max_lines]
+    preview = "```python\n%s\n```" % "\n".join(lines)
+    if extra > 0:
+        preview += "\n… (+%d more line%s)" % (extra, "" if extra == 1 else "s")
+    return preview
+
+
+# Fence, code, then an optional trailing note. Greedy body so a ``` line inside
+# the code can't end the block early — the real closer is always the last one.
+_PREVIEW_RE = re.compile(r"^```([\w+-]*)\n([\s\S]*)\n```(?:\n(.*))?$")
 
 
 def _render_tool_event(text):
     """Tool activity: one dim, indented line (or a code card for previews)."""
     if text.startswith("```"):
-        # Strip our own fence markers and card the raw code directly — going
-        # through the markdown parser would let a ``` inside the code (a
-        # perfectly legal Python string) break out of the card.
-        opener = re.match(r"^```([\w+-]*)", text)
-        lang = opener.group(1) if opener else ""
-        body = re.sub(r"^```[\w+-]*\n?", "", text)
-        body = re.sub(r"\n?```\s*$", "", body)
+        # Parsed here rather than via the markdown renderer: a ``` inside the
+        # code (a perfectly legal Python string) must not break out of the card.
+        match = _PREVIEW_RE.match(text)
+        if match:
+            lang, body, note = match.group(1), match.group(2), match.group(3)
+        else:
+            lang, note = "", None
+            body = re.sub(r"\n?```\s*$", "", re.sub(r"^```[\w+-]*\n?", "", text))
+        card = _code_card(body, lang)
+        if note:
+            card += ("<div style='margin-top:0px; margin-bottom:0px; "
+                     "font-size:11px; color:#8a8f96;'>%s</div>" % _escape(note))
         return ("<div style='margin-top:2px; margin-bottom:2px; "
-                "margin-left:16px;'>%s</div>" % _code_card(body, lang))
+                "margin-left:16px;'>%s</div>" % card)
     head, _, rest = text.partition("  ")
     if text.startswith(("error:", "(")) or not head:
         head, rest = "", text
