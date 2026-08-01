@@ -6,6 +6,7 @@ and drives the agent loop against a scripted fake API.
 import importlib.util
 import json
 import os
+import re
 import sys
 import subprocess
 import tempfile
@@ -1191,10 +1192,16 @@ app = mod.STATE["app"]
 check("tc round trip", app.abs_frame_to_tc(app.tc_to_abs_frame("01:02:03:04", 24.0), 24.0)
       == "01:02:03:04")
 check("tc 23.976 nominal", app.tc_to_abs_frame("00:00:01:00", 23.976) == 24)
-h = mod._render_markdownish("hi <b>x</b> `code` **bold**\n```python\nprint(1)\n```tail")
+def strip_tags(html):
+    """Visible text of rendered HTML, so checks survive styling changes."""
+    return re.sub(r"<[^>]+>", "", html)
+
+
+h = mod._render_markdownish("hi <b>x</b> `code` **bold**\n```python\nprint(1)\n```\ntail")
 check("html escaped", "&lt;b&gt;" in h, h)
-check("code block pre", "<pre" in h and "print(1)" in h, h)
+check("code block pre", "<pre" in h and "print(1)" in strip_tags(h), h)
 check("inline code", "<code" in h, h)
+check("text after a closing fence survives", strip_tags(h).endswith("tail"), h)
 
 check("_strip_none", mod._strip_none({"a": None, "b": [{"c": None, "d": 1}]}) ==
       {"b": [{"d": 1}]})
@@ -1217,8 +1224,48 @@ check("truncation marker pluralised",
       "+1 more line)" in mod._code_preview("\n".join(["x"] * 13)))
 _h = mod._render_tool_event(mod._code_preview('print("```")\nx = 1'))
 check("backticks in code cannot escape the card",
-      _h.count("<table") == 1 and "x = 1" in _h
-      and _h.index("x = 1") < _h.index("</pre>"), _h)
+      _h.count("<table") == 1
+      and "x = 1" in strip_tags(_h[:_h.index("</pre>")]), _h)
+
+# syntax highlighting
+_h = mod._highlight_python("def f(x):  # note\n    return 'a' + str(x)")
+check("keywords coloured", mod._PY_COLORS["keyword"] in _h and ">def<" in _h, _h)
+check("strings coloured", mod._PY_COLORS["string"] in _h, _h)
+check("comments coloured", mod._PY_COLORS["comment"] in _h and "# note" in _h, _h)
+check("builtins coloured", mod._PY_COLORS["builtin"] in _h and ">str<" in _h, _h)
+_h = mod._highlight_python('s = "def not a keyword"')
+check("keywords inside strings not coloured",
+      _h.count(mod._PY_COLORS["keyword"]) == 0, _h)
+_h = mod._highlight_python('x = "<b>" + y  # <i>')
+check("highlighter still escapes html", "<b>" not in _h and "&lt;b&gt;" in _h
+      and "&lt;i&gt;" in _h, _h)
+check("unterminated string does not hang or drop text",
+      "tail" in mod._highlight_python('x = "unclosed\ntail = 1'))
+check("unterminated triple quote survives",
+      "&lt;" in mod._highlight_python('x = """<open'))
+_plain = mod._code_card("def f(): pass", None)
+check("non-python cards are not highlighted",
+      mod._PY_COLORS["keyword"] not in _plain, _plain)
+check("python fences highlight via markdownish",
+      mod._PY_COLORS["keyword"] in mod._render_markdownish("```python\nreturn 1\n```"))
+check("bare fences stay plain",
+      mod._PY_COLORS["keyword"] not in mod._render_markdownish("```\nreturn 1\n```"))
+_h = mod._render_markdownish("before\n```py\nx=1\n```\nafter\n```\ny=2\n```\nend")
+check("text around several fences preserved",
+      all(w in strip_tags(_h) for w in ("before", "x=1", "after", "y=2", "end")),
+      strip_tags(_h))
+check("both fences became cards", _h.count("<pre") == 2, _h)
+
+# progress line
+check("elapsed under a minute", mod._format_elapsed(8) == "8s")
+check("elapsed minutes", mod._format_elapsed(72) == "1m 12s")
+check("elapsed hours", mod._format_elapsed(3720) == "1h 02m")
+check("negative elapsed safe", mod._format_elapsed(-5) == "0s")
+check("progress starts bare", mod._progress_text(0, 0, "") == "Claude is working… 0s")
+_p = mod._progress_text(72, 7, "list_media_pool")
+check("progress shows time, tools, last tool",
+      "1m 12s" in _p and "7 tools" in _p and "list_media_pool" in _p, _p)
+check("one tool not pluralised", "1 tool  ·" in mod._progress_text(3, 1, "x"))
 _h = mod.render_chat_message("you", "hello **there**")
 check("user card has accent + label", "You" in _h and "#6fae6f" in _h
       and "<b>there</b>" in _h, _h)
@@ -1226,7 +1273,7 @@ check("card escapes html", "<script" not in mod.render_chat_message("you", "<scr
 _h = mod.render_chat_message("tool", "add_marker  color: Red")
 check("tool event renders compact", "add_marker" in _h and "font-size:11px" in _h, _h)
 _h = mod.render_chat_message("tool", "```python\nx=1\n```")
-check("tool code renders as pre card", "<pre" in _h and "x=1" in _h, _h)
+check("tool code renders as pre card", "<pre" in _h and "x=1" in strip_tags(_h), _h)
 _h = mod.render_chat_message("tool", "error: exploded")
 check("tool errors tinted red", "#c98080" in _h and "exploded" in _h, _h)
 check("unknown kind safe", "?" in mod.render_chat_message("mystery", "hm"))

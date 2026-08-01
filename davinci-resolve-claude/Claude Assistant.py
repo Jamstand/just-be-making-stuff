@@ -4774,26 +4774,83 @@ def _escape(text):
                 .replace(">", "&gt;"))
 
 
-def _code_card(code):
+# Syntax colours for Python code cards, picked to sit on #141414 next to
+# Resolve's grey/orange palette without competing with the speaker accents.
+_PY_COLORS = {
+    "comment": "#6f7a6f",
+    "string": "#c99a6e",
+    "keyword": "#a49ada",
+    "builtin": "#7fa8c9",
+    "number": "#9fc08a",
+}
+
+_PY_KEYWORDS = ("False|None|True|and|as|assert|async|await|break|class|continue|"
+                "def|del|elif|else|except|finally|for|from|global|if|import|in|"
+                "is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield")
+_PY_BUILTINS = ("abs|all|any|bool|dict|enumerate|float|int|len|list|max|min|open|"
+                "print|range|repr|reversed|round|set|sorted|str|sum|tuple|type|zip")
+
+# One pass, alternation ordered so comments and strings win before keywords —
+# that is what keeps 'def' inside a string from being coloured as a keyword.
+# Deliberately regex, not tokenize: truncated previews aren't valid Python and
+# tokenize would raise on them.
+_PY_TOKEN_RE = re.compile(
+    r"(?P<comment>\#[^\n]*)"
+    r"|(?P<string>[bruBRUf]{0,2}(?:'''[\s\S]*?(?:'''|\Z)"
+    r"|\"\"\"[\s\S]*?(?:\"\"\"|\Z)"
+    r"|'(?:\\.|[^'\\\n])*(?:'|$)"
+    r"|\"(?:\\.|[^\"\\\n])*(?:\"|$)))"
+    r"|(?P<keyword>\b(?:" + _PY_KEYWORDS + r")\b)"
+    r"|(?P<builtin>\b(?:" + _PY_BUILTINS + r")\b(?=\s*\())"
+    r"|(?P<number>\b\d+\.?\d*\b)")
+
+
+def _highlight_python(code):
+    """Escaped HTML for `code` with keywords/strings/comments coloured."""
+    out = []
+    pos = 0
+    for match in _PY_TOKEN_RE.finditer(code):
+        out.append(_escape(code[pos:match.start()]))
+        out.append("<span style='color:%s;'>%s</span>"
+                   % (_PY_COLORS[match.lastgroup], _escape(match.group())))
+        pos = match.end()
+    out.append(_escape(code[pos:]))
+    return "".join(out)
+
+
+def _code_card(code, language=None):
     """One-cell table 'card' for code. QTextEdit's HTML subset has no
     border-radius and honours CSS padding only on table cells, and only the
     longhand margin/padding properties with px units are documented — so cards
     are tables, and every box property is spelled out."""
+    if str(language or "").lower() in ("python", "py"):
+        body = _highlight_python(code)
+    else:
+        body = _escape(code)
     return ("<table width='100%' cellspacing='0' border='0'><tr>"
             "<td style='padding-top:6px; padding-bottom:6px; padding-left:9px; "
             "padding-right:9px; background-color:#141414;'>"
             "<pre style='margin-top:0px; margin-bottom:0px; font-size:11px; "
-            "color:#cfd2d6; white-space:pre-wrap;'>" + _escape(code)
+            "color:#cfd2d6; white-space:pre-wrap;'>" + body
             + "</pre></td></tr></table>")
 
 
 def _render_markdownish(text):
-    """Minimal, safe rendering: escape HTML, keep ``` blocks as code cards."""
-    parts = re.split(r"```(?:[\w+-]*)\n?", text)
+    """Minimal, safe rendering: escape HTML, keep ``` blocks as code cards.
+
+    Fences are matched line-oriented (as in real markdown): a bare ```
+    followed by prose on the same line is a closer, not a language tag —
+    matching it loosely used to swallow the word right after it. The tag is
+    a capture group, so re.split yields text, lang, text, lang, text… where
+    odd slots are the tags and even slots alternate prose / code.
+    """
+    parts = re.split(r"(?m)^[ \t]*```([\w+-]*)[ \t]*$\n?", text)
     html = []
     for i, part in enumerate(parts):
-        if i % 2 == 1:  # inside a fence
-            html.append(_code_card(part.rstrip("\n")))
+        if i % 2:
+            continue                       # language tag, consumed with the code
+        if (i // 2) % 2:                   # inside a fence
+            html.append(_code_card(part.rstrip("\n"), parts[i - 1]))
         else:
             chunk = _escape(part)
             chunk = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", chunk)
@@ -4853,10 +4910,12 @@ def _render_tool_event(text):
         # Strip our own fence markers and card the raw code directly — going
         # through the markdown parser would let a ``` inside the code (a
         # perfectly legal Python string) break out of the card.
+        opener = re.match(r"^```([\w+-]*)", text)
+        lang = opener.group(1) if opener else ""
         body = re.sub(r"^```[\w+-]*\n?", "", text)
         body = re.sub(r"\n?```\s*$", "", body)
         return ("<div style='margin-top:2px; margin-bottom:2px; "
-                "margin-left:16px;'>%s</div>" % _code_card(body))
+                "margin-left:16px;'>%s</div>" % _code_card(body, lang))
     head, _, rest = text.partition("  ")
     if text.startswith(("error:", "(")) or not head:
         head, rest = "", text
@@ -4866,6 +4925,25 @@ def _render_tool_event(text):
     return ("<div style='margin-top:3px; margin-bottom:3px; margin-left:10px; "
             "font-size:11px; color:%s;'>%s%s</div>" % (color, name_html,
                                                        _escape(rest)))
+
+
+def _format_elapsed(seconds):
+    seconds = int(max(0, seconds))
+    if seconds < 60:
+        return "%ds" % seconds
+    if seconds < 3600:
+        return "%dm %02ds" % (seconds // 60, seconds % 60)
+    return "%dh %02dm" % (seconds // 3600, (seconds % 3600) // 60)
+
+
+def _progress_text(elapsed, tool_count, last_tool):
+    """'Claude is working… 1m 12s · 7 tools · list_media_pool'."""
+    bits = ["Claude is working… " + _format_elapsed(elapsed)]
+    if tool_count:
+        bits.append("%d tool%s" % (tool_count, "" if tool_count == 1 else "s"))
+    if last_tool:
+        bits.append(last_tool)
+    return "  ·  ".join(bits)
 
 
 def render_chat_message(kind, text):
@@ -5046,6 +5124,10 @@ class ChatWindow(object):
             except Exception:
                 pass  # window may be tearing down; never lose the queue loop
         try:
+            self.tick_progress()
+        except Exception:
+            pass                             # status is cosmetic; never fatal
+        try:
             self.maybe_poll_drop_folder()
         except Exception:
             pass                             # polling must never kill the timer
@@ -5090,6 +5172,9 @@ class ChatWindow(object):
 
     # -- transcript -----------------------------------------------------------
     def append_chat(self, kind, text):
+        if kind == "tool" and not text.startswith(("```", "(", "error:")):
+            self._tool_count = getattr(self, "_tool_count", 0) + 1
+            self._last_tool = text.split("  ")[0]
         html = render_chat_message(kind, text)
         self.html_log.append(html)
         chat = self.items["Chat"]
@@ -5112,7 +5197,24 @@ class ChatWindow(object):
         self.busy = busy
         self.items["SendBtn"].Enabled = not busy
         self.items["Input"].Enabled = not busy
-        self.set_status("Claude is working…" if busy else "")
+        if busy:
+            self._busy_since = time.time()
+            self._tool_count = 0
+            self._last_tool = ""
+        self.set_status(_progress_text(0, 0, "") if busy else "")
+
+    def tick_progress(self):
+        """Keep the status line counting while a turn runs, so a long job
+        never looks frozen. Called from the same timer that drains events."""
+        if not self.busy:
+            return
+        self._status_tick = getattr(self, "_status_tick", 0) + 1
+        if self._status_tick % 4:                    # ~every half second
+            return
+        self.set_status(_progress_text(time.time() - getattr(self, "_busy_since",
+                                                             time.time()),
+                                       getattr(self, "_tool_count", 0),
+                                       getattr(self, "_last_tool", "")))
 
     # -- events -----------------------------------------------------------------
     def current_model(self):
