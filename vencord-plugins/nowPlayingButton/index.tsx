@@ -18,6 +18,8 @@ interface NowPlaying {
     title?: string;
     artist?: string;
     url?: string;
+    /** Spotify track id, as served by this repo's /now-playing */
+    id?: string;
 }
 
 const settings = definePluginSettings({
@@ -71,7 +73,10 @@ async function poll() {
         return;
     }
 
-    const url = (settings.store.buttonUrl || data.url || "").trim();
+    // The repo's /now-playing sends a Spotify track `id` (not a `url`), so build
+    // the track link from it when no explicit url is configured or supplied.
+    const trackUrl = data.url || (data.id ? `https://open.spotify.com/track/${data.id}` : "");
+    const url = (settings.store.buttonUrl || trackUrl).trim();
     const key = `${data.title}::${data.artist ?? ""}::${url}`;
     if (key === lastKey) return;
     lastKey = key;

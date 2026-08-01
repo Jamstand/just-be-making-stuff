@@ -16,13 +16,13 @@ const ACTIVITY_PLAYING = 0;
 const settings = definePluginSettings({
     endpoint: {
         type: OptionType.STRING,
-        description: "URL returning JSON with your counts, e.g. { count, goal, label }",
-        default: ""
+        description: "URL returning JSON with your counts. Defaults to this repo's Twitch endpoint, which serves { followers, viewers, live, game, channel }.",
+        default: "http://localhost:3000/twitch/stream-status"
     },
     template: {
         type: OptionType.STRING,
-        description: "Status text. Placeholders: {count} {goal} {label}",
-        default: "{count}/{goal} subs"
+        description: "Status text. {anyField} is replaced with that field from the JSON (e.g. {followers}, {viewers}, {count}/{goal}). If a referenced field is missing, no status is set.",
+        default: "{followers} followers"
     },
     pollSeconds: {
         type: OptionType.SLIDER,
@@ -57,13 +57,21 @@ async function poll() {
         return;
     }
 
-    const text = template
-        .replaceAll("{count}", String(data.count ?? "?"))
-        .replaceAll("{goal}", String(data.goal ?? "?"))
-        .replaceAll("{label}", String(data.label ?? ""))
-        .trim();
+    // Substitute {anyField} from the JSON. If a referenced field is absent —
+    // e.g. the Twitch endpoint returns just { connected: false } while
+    // disconnected — skip rather than showing a half-filled status.
+    let missingField = false;
+    const text = template.replace(/\{(\w+)\}/g, (_, key) => {
+        const value = data?.[key];
+        if (value == null) { missingField = true; return ""; }
+        return String(value);
+    }).trim();
 
-    if (!text || text === lastText) return;
+    if (missingField || !text) {
+        if (lastText !== null) { lastText = null; setActivity(null); }
+        return;
+    }
+    if (text === lastText) return;
     lastText = text;
     setActivity({ application_id: "0", name: text, type: ACTIVITY_PLAYING, flags: 1 << 0 });
 }
