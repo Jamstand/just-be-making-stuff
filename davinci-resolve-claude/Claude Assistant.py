@@ -5152,6 +5152,9 @@ CHAT_BG = "#191919"
 
 
 class ChatWindow(object):
+    # Widgets the panel cannot function without; used to validate construction.
+    CORE_ITEMS = ("Chat", "Input", "SendBtn", "ModelCombo", "EffortCombo")
+
     def __init__(self, ui, disp, cfg):
         self.ui = ui
         self.disp = disp
@@ -5161,11 +5164,62 @@ class ChatWindow(object):
         self.timer = None
         self.html_log = []
         self.msg_log = []                  # raw (kind, text), for re-theming
+        self.has_style_combo = False
 
         saved_theme = cfg.get("ui_theme")
         STATE["ui_theme"] = saved_theme if saved_theme in THEMES else DEFAULT_THEME
 
-        self.win = disp.AddWindow(
+        # Build the full window; if anything about it fails on this Resolve
+        # build, fall back to the plain header that is known to work
+        # everywhere. A broken panel must degrade, never come up empty.
+        try:
+            self._build_window(cfg, fancy=True)
+            print("[%s] window built (full header)" % APP_NAME)
+        except Exception:
+            print("[%s] full window failed — building plain fallback:" % APP_NAME)
+            traceback.print_exc()
+            try:
+                self.win.Hide()
+            except Exception:
+                pass
+            self._build_window(cfg, fancy=False)
+            print("[%s] window built (fallback header)" % APP_NAME)
+
+        self._setup_timer()
+        self._ui_ready = True
+
+    def _build_window(self, cfg, fancy):
+        header = [
+            self.ui.Label({"ID": "ModelLbl", "Text": "Model", "Weight": 0}),
+            self.ui.ComboBox({"ID": "ModelCombo", "Weight": 0.3}),
+            self.ui.Label({"ID": "EffortLbl", "Text": "Effort", "Weight": 0}),
+            self.ui.ComboBox({"ID": "EffortCombo", "Weight": 0.22}),
+            self.ui.CheckBox({"ID": "AllowPy",
+                              "Text": "Python",
+                              "ToolTip": "Allow Claude to run Python inside Resolve",
+                              "Checked": bool(cfg.get("allow_python", True)),
+                              "Weight": 0.14}),
+        ]
+        if fancy:
+            header += [
+                self.ui.CheckBox({"ID": "WatchDrop",
+                                  "Text": "Drop folder",
+                                  "ToolTip": "Auto-import and sort any video dropped into:\n"
+                                             + default_drop_folder(),
+                                  "Checked": bool(cfg.get("watch_drop", False)),
+                                  "Weight": 0.16}),
+                self.ui.Label({"ID": "StyleLbl", "Text": "Style", "Weight": 0}),
+                self.ui.ComboBox({"ID": "StyleCombo", "Weight": 0.22,
+                                  "ToolTip": "Panel look — switching restyles "
+                                             "the whole transcript",
+                                  "Events": {"CurrentIndexChanged": True}}),
+            ]
+        header += [
+            self.ui.Label({"ID": "Spacer", "Text": "", "Weight": 1}),
+            self.ui.Button({"ID": "NewChatBtn", "Text": "New chat", "Weight": 0}),
+        ]
+
+        self.win = self.disp.AddWindow(
             {
                 "ID": "ClaudeWin",
                 "WindowTitle": "Claude Assistant — DaVinci Resolve",
@@ -5173,44 +5227,33 @@ class ChatWindow(object):
                 "StyleSheet": build_stylesheet(_theme()),
             },
             [
-                ui.VGroup({"Spacing": 8, "ID": "Root"}, [
-                    ui.HGroup({"Weight": 0, "Spacing": 6}, [
-                        ui.Label({"ID": "ModelLbl", "Text": "Model", "Weight": 0}),
-                        ui.ComboBox({"ID": "ModelCombo", "Weight": 0.3}),
-                        ui.Label({"ID": "EffortLbl", "Text": "Effort", "Weight": 0}),
-                        ui.ComboBox({"ID": "EffortCombo", "Weight": 0.22}),
-                        ui.CheckBox({"ID": "AllowPy",
-                                     "Text": "Python",
-                                     "ToolTip": "Allow Claude to run Python inside Resolve",
-                                     "Checked": bool(cfg.get("allow_python", True)),
-                                     "Weight": 0.14}),
-                        ui.CheckBox({"ID": "WatchDrop",
-                                     "Text": "Drop folder",
-                                     "ToolTip": "Auto-import and sort any video dropped into:\n"
-                                                + default_drop_folder(),
-                                     "Checked": bool(cfg.get("watch_drop", False)),
-                                     "Weight": 0.16}),
-                        ui.Label({"ID": "StyleLbl", "Text": "Style", "Weight": 0}),
-                        ui.ComboBox({"ID": "StyleCombo", "Weight": 0.22,
-                                     "ToolTip": "Panel look — switching restyles "
-                                                "the whole transcript",
-                                     "Events": {"CurrentIndexChanged": True}}),
-                        ui.Label({"ID": "Spacer", "Text": "", "Weight": 1}),
-                        ui.Button({"ID": "NewChatBtn", "Text": "New chat", "Weight": 0}),
+                self.ui.VGroup({"Spacing": 8, "ID": "Root"}, [
+                    self.ui.HGroup({"Weight": 0, "Spacing": 6}, header),
+                    self.ui.TextEdit({"ID": "Chat", "ReadOnly": True, "Weight": 1}),
+                    self.ui.HGroup({"Weight": 0, "Spacing": 6}, [
+                        self.ui.LineEdit({"ID": "Input",
+                                          "PlaceholderText": "Ask Claude…  (Enter to send)",
+                                          "Weight": 1,
+                                          # ReturnPressed is not enabled by default
+                                          "Events": {"ReturnPressed": True}}),
+                        self.ui.Button({"ID": "SendBtn", "Text": "Send", "Weight": 0}),
                     ]),
-                    ui.TextEdit({"ID": "Chat", "ReadOnly": True, "Weight": 1}),
-                    ui.HGroup({"Weight": 0, "Spacing": 6}, [
-                        ui.LineEdit({"ID": "Input",
-                                     "PlaceholderText": "Ask Claude…  (Enter to send)",
-                                     "Weight": 1,
-                                     # ReturnPressed is not a default-enabled event
-                                     "Events": {"ReturnPressed": True}}),
-                        ui.Button({"ID": "SendBtn", "Text": "Send", "Weight": 0}),
-                    ]),
-                    ui.Label({"ID": "Status", "Text": "", "Weight": 0}),
+                    self.ui.Label({"ID": "Status", "Text": "", "Weight": 0}),
                 ]),
             ])
         self.items = self.win.GetItems()
+
+        # Fusion can accept a window yet silently drop widgets it could not
+        # build — probe for the essentials instead of trusting it.
+        missing = []
+        for item_id in self.CORE_ITEMS:
+            try:
+                if not self.items[item_id]:
+                    missing.append(item_id)
+            except Exception:
+                missing.append(item_id)
+        if missing:
+            raise RuntimeError("window came up without: %s" % ", ".join(missing))
 
         def fill(combo_id, choices, saved):
             combo = self.items[combo_id]
@@ -5224,16 +5267,17 @@ class ChatWindow(object):
 
         fill("ModelCombo", MODEL_CHOICES, cfg.get("model", DEFAULT_MODEL))
         fill("EffortCombo", EFFORT_CHOICES, cfg.get("effort", DEFAULT_EFFORT))
-        fill("StyleCombo", THEME_CHOICES, STATE["ui_theme"])
 
         self.win.On.SendBtn.Clicked = self.on_send
         self.win.On.Input.ReturnPressed = self.on_send
         self.win.On.NewChatBtn.Clicked = self.on_new_chat
-        self.win.On.StyleCombo.CurrentIndexChanged = self.on_style_change
         self.win.On.ClaudeWin.Close = self.on_close
 
-        self._setup_timer()
-        self._ui_ready = True
+        self.has_style_combo = False
+        if fancy:
+            fill("StyleCombo", THEME_CHOICES, STATE["ui_theme"])
+            self.win.On.StyleCombo.CurrentIndexChanged = self.on_style_change
+            self.has_style_combo = True
 
     # -- timer / threading ----------------------------------------------------
     def _setup_timer(self):
@@ -5610,10 +5654,21 @@ def main():
 
     try:
         window = ChatWindow(ui, disp, cfg)
-        window.greet()
+        try:
+            window.greet()
+        except Exception:
+            print("[%s] greeting failed (continuing):" % APP_NAME)
+            traceback.print_exc()
         window.win.Show()
+        print("[%s] panel shown — entering event loop." % APP_NAME)
         disp.RunLoop()
         window.win.Hide()
+    except Exception:
+        # Whatever went wrong, say so in the console instead of dying silently
+        # behind a half-built window.
+        print("[%s] the panel crashed during startup:" % APP_NAME)
+        traceback.print_exc()
+        raise
     finally:
         bridge = STATE.get("bridge")
         if bridge is not None:

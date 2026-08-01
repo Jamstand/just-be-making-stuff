@@ -2024,6 +2024,169 @@ _sh3.rmtree(_dropdir, ignore_errors=True)
 check("default drop folder is home-based",
       mod.default_drop_folder().startswith(os.path.expanduser("~")))
 
+# ---------------------------------------------------------- window construction
+print("== chat window ==")
+
+
+class FakeUIItem(object):
+    def __init__(self):
+        self.Text = ""
+        self.HTML = ""
+        self.Checked = False
+        self.Enabled = True
+        self.CurrentIndex = 0
+        self.choices = []
+
+    def AddItems(self, items):
+        self.choices += list(items)
+
+    def AddItem(self, item):
+        self.choices.append(item)
+
+    def Append(self, html):
+        self.HTML += html
+
+    def EnsureCursorVisible(self):
+        pass
+
+    def Clear(self):
+        self.HTML = ""
+
+
+class _AutoOn(object):
+    """win.On.SomeId.SomeEvent = handler, auto-vivifying like Fusion's."""
+    def __getattr__(self, name):
+        node = _AutoOn()
+        object.__setattr__(self, name, node)
+        return node
+
+
+class FakeWin(object):
+    def __init__(self, items):
+        self._items = items
+        self.On = _AutoOn()
+        self.shown = False
+
+    def GetItems(self):
+        return self._items
+
+    def Show(self):
+        self.shown = True
+
+    def Hide(self):
+        self.shown = False
+
+
+class FakeTimer(object):
+    def __init__(self):
+        self.started = False
+
+    def Start(self):
+        self.started = True
+
+
+class FakeUI(object):
+    """Element factories record IDs; optionally reject chosen creation specs
+    the way a fussy UIManager build might."""
+    def __init__(self, reject=None):
+        self.ids = []
+        self.reject = reject
+
+    def Timer(self, spec):
+        return FakeTimer()
+
+    def __getattr__(self, element):
+        def make(spec, children=None):
+            if self.reject and self.reject(element, spec):
+                raise RuntimeError("fake UIManager rejects %s(%r)"
+                                   % (element, spec.get("ID")))
+            if isinstance(spec, dict) and spec.get("ID"):
+                self.ids.append(spec["ID"])
+            return {"element": element, "spec": spec, "children": children or []}
+        return make
+
+
+class FakeDisp(object):
+    def __init__(self, ui):
+        self.ui = ui
+        self._on = {}
+
+    def AddWindow(self, spec, children):
+        win = FakeWin({i: FakeUIItem() for i in self.ui.ids})
+        if isinstance(spec, dict) and spec.get("ID"):
+            self.ui.ids.append(spec["ID"])
+        return win
+
+    def __getitem__(self, key):
+        return self._on.setdefault(key, {})
+
+    def RunLoop(self):
+        pass
+
+    def ExitLoop(self):
+        pass
+
+
+_saved_configs = []
+_real_save_config = mod.save_config
+mod.save_config = lambda cfg: _saved_configs.append(dict(cfg))
+
+_ui = FakeUI()
+_w = mod.ChatWindow(_ui, FakeDisp(_ui), {"model": mod.DEFAULT_MODEL})
+check("window builds with full header", _w.has_style_combo and _w.timer is not None)
+check("style combo filled with themes",
+      _w.items["StyleCombo"].choices == mod.THEME_CHOICES)
+check("model combo filled", _w.items["ModelCombo"].choices == mod.MODEL_CHOICES)
+check("theme defaulted", mod.STATE["ui_theme"] == mod.DEFAULT_THEME)
+
+_w.append_chat("you", "hello")
+check("append records raw message", ("you", "hello") in _w.msg_log)
+_w.items["StyleCombo"].CurrentIndex = mod.THEME_CHOICES.index("Terminal")
+_w.on_style_change(None)
+check("style change switches theme", mod.STATE["ui_theme"] == "Terminal")
+check("style change persists config",
+      _saved_configs and _saved_configs[-1].get("ui_theme") == "Terminal")
+check("style change re-renders transcript",
+      mod.THEMES["Terminal"]["cards"]["you"][1] in _w.items["Chat"].HTML)
+_w.items["StyleCombo"].CurrentIndex = 0
+_w.on_style_change(None)
+check("switch back to default", mod.STATE["ui_theme"] == mod.DEFAULT_THEME)
+
+_w.set_busy(True)
+for _ in range(4):
+    _w.tick_progress()
+check("progress line ticks while busy",
+      "Claude is working" in _w.items["Status"].Text)
+_w.set_busy(False)
+check("status cleared when idle", _w.items["Status"].Text == "")
+
+# A Resolve build that chokes on the new widgets must still get a panel.
+_ui2 = FakeUI(reject=lambda el, spec: isinstance(spec, dict)
+              and spec.get("ID") in ("StyleCombo", "WatchDrop"))
+_w2 = mod.ChatWindow(_ui2, FakeDisp(_ui2), {})
+check("fallback window still functional",
+      not _w2.has_style_combo and _w2.items["Chat"] and _w2.items["SendBtn"])
+check("fallback keeps model combo",
+      _w2.items["ModelCombo"].choices == mod.MODEL_CHOICES)
+
+# A build that silently DROPS core widgets triggers the probe + fallback.
+class DroppyDisp(FakeDisp):
+    calls = 0
+    def AddWindow(self, spec, children):
+        win = FakeDisp.AddWindow(self, spec, children)
+        DroppyDisp.calls += 1
+        if DroppyDisp.calls == 1:
+            del win._items["Chat"]        # first attempt loses the transcript
+        return win
+
+_ui3 = FakeUI()
+_w3 = mod.ChatWindow(_ui3, DroppyDisp(_ui3), {})
+check("silent widget drop detected and retried",
+      DroppyDisp.calls == 2 and _w3.items["Chat"])
+
+mod.save_config = _real_save_config
+mod.STATE["ui_theme"] = mod.DEFAULT_THEME
+
 # ------------------------------------------------------- claude code backend
 print("== claude code backend ==")
 
