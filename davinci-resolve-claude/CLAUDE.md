@@ -131,6 +131,13 @@ behaviour; extend them when adding tools.
 - Newest feature: auto-sort (auto_sort_media / import_and_sort tools, WatchDrop
   checkbox + "Claude Drop" watched folder). Mock-tested only; API signatures
   research-verified against three README mirrors (see traps 12–13).
+- Themes: THEMES registry + Style dropdown. Renderers read the active theme
+  via _theme(); ChatWindow keeps msg_log of raw (kind, text) so switching
+  re-renders the whole transcript. The user has a claude.ai/design project
+  ("Resolve Assistant Options") with mockup variants meant to become themes —
+  it needs to be sent into a session ("Send to Claude Code Web" from Claude
+  Design) because DesignSync auth is interactive-only here. Map its variants
+  onto THEMES entries when it arrives.
 
 ## User setup (Windows box this is deployed on)
 

@@ -111,6 +111,10 @@ avoid that.
   snippets inside Resolve for requests the built-in tools don't cover. Every
   snippet is printed in the transcript before it runs. Uncheck to restrict
   Claude to the curated tools only.
+- **Style** — switches the panel's look: `Resolve` (stock graphite),
+  `Contrast` (brighter text, stronger accents), `Compact` (tighter spacing,
+  more lines on screen) and `Terminal` (near-black, code-forward). Switching
+  restyles the whole transcript instantly and is remembered across sessions.
 
 ### What Claude can do out of the box
 

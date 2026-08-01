@@ -4810,12 +4810,13 @@ _PY_TOKEN_RE = re.compile(
 
 def _highlight_python(code):
     """Escaped HTML for `code` with keywords/strings/comments coloured."""
+    palette = _theme()["syntax"]
     out = []
     pos = 0
     for match in _PY_TOKEN_RE.finditer(code):
         out.append(_escape(code[pos:match.start()]))
         out.append("<span style='color:%s;'>%s</span>"
-                   % (_PY_COLORS[match.lastgroup], _escape(match.group())))
+                   % (palette[match.lastgroup], _escape(match.group())))
         pos = match.end()
     out.append(_escape(code[pos:]))
     return "".join(out)
@@ -4830,12 +4831,13 @@ def _code_card(code, language=None):
         body = _highlight_python(code)
     else:
         body = _escape(code)
-    return ("<table width='100%' cellspacing='0' border='0'><tr>"
+    t = _theme()
+    return ("<table width='100%%' cellspacing='0' border='0'><tr>"
             "<td style='padding-top:6px; padding-bottom:6px; padding-left:9px; "
-            "padding-right:9px; background-color:#141414;'>"
-            "<pre style='margin-top:0px; margin-bottom:0px; font-size:11px; "
-            "color:#cfd2d6; white-space:pre-wrap;'>" + body
-            + "</pre></td></tr></table>")
+            "padding-right:9px; background-color:%s;'>"
+            "<pre style='margin-top:0px; margin-bottom:0px; font-size:%dpx; "
+            "color:%s; white-space:pre-wrap;'>%s</pre></td></tr></table>"
+            % (t["code_bg"], t["code_px"], t["code_fg"], body))
 
 
 def _render_prose(text):
@@ -4843,7 +4845,8 @@ def _render_prose(text):
     chunk = _escape(text)
     chunk = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", chunk)
     chunk = re.sub(r"`([^`\n]+)`",
-                   r"<code style='background:#242424;'>\1</code>", chunk)
+                   r"<code style='background:%s;'>\1</code>"
+                   % _theme()["inline_code_bg"], chunk)
     return chunk.replace("\n", "<br>")
 
 
@@ -4889,6 +4892,93 @@ CHAT_STYLES = {
     "error":     ("Error",  "#d96b6b", "#2e1d1d"),
     "notice":    ("Note",   "#c0a94e", "#282619"),
 }
+
+# ---------------------------------------------------------------------- themes
+# Switchable looks for the whole panel (Style dropdown in the header). Each
+# theme fully describes the transcript rendering and the widget stylesheet;
+# every renderer reads the active theme through _theme(), and switching
+# re-renders the stored transcript, so the change is instant and retroactive.
+THEMES = {
+    # The stock look: Resolve graphite with per-speaker tinted cards.
+    "Resolve": {
+        "window_bg": "#232323", "text": "#c8c8c8", "body_px": 13,
+        "chat_bg": "#191919", "chat_border": "#333333",
+        "input_bg": "#2b2b2b", "focus": "#5a8bbf",
+        "cards": CHAT_STYLES, "card_gap": 8, "card_pad": (6, 10), "label_px": 12,
+        "tool_px": 11, "tool_color": "#8a8f96", "tool_name": "#7f9dc4",
+        "tool_error": "#c98080", "tool_indent": 10, "code_indent": 16,
+        "code_bg": "#141414", "code_fg": "#cfd2d6", "code_px": 11,
+        "inline_code_bg": "#242424",
+        "syntax": _PY_COLORS,
+    },
+    # Brighter text and stronger accents on a darker well — for small fonts,
+    # bright suites, or just tired eyes.
+    "Contrast": {
+        "window_bg": "#202020", "text": "#e0e0e0", "body_px": 13,
+        "chat_bg": "#111111", "chat_border": "#3d3d3d",
+        "input_bg": "#2e2e2e", "focus": "#6f9fd8",
+        "cards": {
+            "you":       ("You",    "#7ec97e", "#1d2a1d"),
+            "assistant": ("Claude", "#e89a66", "#2c231a"),
+            "error":     ("Error",  "#e07070", "#331f1f"),
+            "notice":    ("Note",   "#d4b95e", "#2d2a1c"),
+        },
+        "card_gap": 10, "card_pad": (7, 11), "label_px": 12,
+        "tool_px": 11, "tool_color": "#9aa2ab", "tool_name": "#8fb8e8",
+        "tool_error": "#e08a8a", "tool_indent": 10, "code_indent": 16,
+        "code_bg": "#0d0d0d", "code_fg": "#e6e9ed", "code_px": 11,
+        "inline_code_bg": "#2a2a2a",
+        "syntax": {"comment": "#7d8a7d", "string": "#e0a878",
+                   "keyword": "#b3a8ef", "builtin": "#8fb8e8",
+                   "number": "#aed295"},
+    },
+    # Maximum lines on screen: tighter spacing, smaller type, cards flattened
+    # to an accent bar on the chat background.
+    "Compact": {
+        "window_bg": "#232323", "text": "#c4c4c4", "body_px": 12,
+        "chat_bg": "#191919", "chat_border": "#333333",
+        "input_bg": "#2b2b2b", "focus": "#5a8bbf",
+        "cards": {
+            "you":       ("You",    "#6fae6f", "#191919"),
+            "assistant": ("Claude", "#d98f63", "#191919"),
+            "error":     ("Error",  "#d96b6b", "#241a1a"),
+            "notice":    ("Note",   "#c0a94e", "#191919"),
+        },
+        "card_gap": 4, "card_pad": (3, 8), "label_px": 11,
+        "tool_px": 10, "tool_color": "#84898f", "tool_name": "#7f9dc4",
+        "tool_error": "#c98080", "tool_indent": 8, "code_indent": 12,
+        "code_bg": "#141414", "code_fg": "#c8ccd0", "code_px": 10,
+        "inline_code_bg": "#242424",
+        "syntax": _PY_COLORS,
+    },
+    # Code-forward mono look: near-black, one warm accent, greener syntax.
+    "Terminal": {
+        "window_bg": "#1a1a1a", "text": "#b8bfb6", "body_px": 13,
+        "chat_bg": "#101010", "chat_border": "#2c2c2c",
+        "input_bg": "#242424", "focus": "#8fbf8f",
+        "cards": {
+            "you":       ("you",    "#8fbf8f", "#161616"),
+            "assistant": ("claude", "#d9a679", "#161616"),
+            "error":     ("error",  "#d97070", "#1e1414"),
+            "notice":    ("note",   "#b5a35e", "#161616"),
+        },
+        "card_gap": 7, "card_pad": (5, 9), "label_px": 11,
+        "tool_px": 11, "tool_color": "#6f7a6f", "tool_name": "#8fbf8f",
+        "tool_error": "#d97070", "tool_indent": 10, "code_indent": 14,
+        "code_bg": "#0a0a0a", "code_fg": "#d0d8cc", "code_px": 11,
+        "inline_code_bg": "#1f241f",
+        "syntax": {"comment": "#5f6a5f", "string": "#a8bf8a",
+                   "keyword": "#8fb5d9", "builtin": "#7fc9b0",
+                   "number": "#c9b080"},
+    },
+}
+DEFAULT_THEME = "Resolve"
+THEME_CHOICES = ["Resolve", "Contrast", "Compact", "Terminal"]
+
+
+def _theme():
+    return THEMES.get(STATE.get("ui_theme") or DEFAULT_THEME,
+                      THEMES[DEFAULT_THEME])
 
 
 def _tool_call_line(name, args):
@@ -4947,21 +5037,24 @@ def _render_tool_event(text):
         else:
             lang, note = "", None
             body = re.sub(r"\n?```\s*$", "", re.sub(r"^```[\w+-]*\n?", "", text))
+        t = _theme()
         card = _code_card(body, lang)
         if note:
             card += ("<div style='margin-top:0px; margin-bottom:0px; "
-                     "font-size:11px; color:#8a8f96;'>%s</div>" % _escape(note))
+                     "font-size:%dpx; color:%s;'>%s</div>"
+                     % (t["tool_px"], t["tool_color"], _escape(note)))
         return ("<div style='margin-top:2px; margin-bottom:2px; "
-                "margin-left:16px;'>%s</div>" % card)
+                "margin-left:%dpx;'>%s</div>" % (t["code_indent"], card))
+    t = _theme()
     head, _, rest = text.partition("  ")
     if text.startswith(("error:", "(")) or not head:
         head, rest = "", text
-    name_html = ("<span style='color:#7f9dc4;'>&#8250; %s</span>&nbsp; "
-                 % _escape(head)) if head else ""
-    color = "#c98080" if text.startswith("error:") else "#8a8f96"
-    return ("<div style='margin-top:3px; margin-bottom:3px; margin-left:10px; "
-            "font-size:11px; color:%s;'>%s%s</div>" % (color, name_html,
-                                                       _escape(rest)))
+    name_html = ("<span style='color:%s;'>&#8250; %s</span>&nbsp; "
+                 % (t["tool_name"], _escape(head))) if head else ""
+    color = t["tool_error"] if text.startswith("error:") else t["tool_color"]
+    return ("<div style='margin-top:3px; margin-bottom:3px; margin-left:%dpx; "
+            "font-size:%dpx; color:%s;'>%s%s</div>"
+            % (t["tool_indent"], t["tool_px"], color, name_html, _escape(rest)))
 
 
 def _format_elapsed(seconds):
@@ -4984,66 +5077,75 @@ def _progress_text(elapsed, tool_count, last_tool):
 
 
 def render_chat_message(kind, text):
-    """One transcript entry as QTextEdit-safe HTML."""
+    """One transcript entry as QTextEdit-safe HTML, in the active theme."""
     if kind == "tool":
         return _render_tool_event(text)
-    speaker, accent, bg = CHAT_STYLES.get(kind, ("?", "#9a9a9a", "#222222"))
+    t = _theme()
+    speaker, accent, bg = t["cards"].get(kind, ("?", "#9a9a9a", "#222222"))
+    pad_v, pad_h = t["card_pad"]
     return ("<table width='100%%' cellspacing='0' border='0' "
-            "style='margin-top:8px;'><tr>"
+            "style='margin-top:%dpx;'><tr>"
             "<td width='4' bgcolor='%s'></td>"
-            "<td style='padding-top:6px; padding-bottom:6px; padding-left:10px; "
-            "padding-right:10px; background-color:%s;'>"
-            "<span style='color:%s; font-weight:bold; font-size:12px;'>%s</span>"
+            "<td style='padding-top:%dpx; padding-bottom:%dpx; "
+            "padding-left:%dpx; padding-right:%dpx; background-color:%s;'>"
+            "<span style='color:%s; font-weight:bold; font-size:%dpx;'>%s</span>"
             "<br>%s</td></tr></table>"
-            % (accent, bg, accent, speaker, _render_markdownish(text)))
+            % (t["card_gap"], accent, pad_v, pad_v, pad_h, pad_h, bg,
+               accent, t["label_px"], speaker, _render_markdownish(text)))
 
 
 # A dark theme tuned to DaVinci Resolve's own palette so the panel reads as part
 # of the app rather than a stray dialog. Resolve's UI toolkit is Qt underneath,
-# so these are standard Qt widget selectors.
-RESOLVE_STYLESHEET = """
-* { color: #c8c8c8; font-size: 13px; }
-QWidget { background-color: #232323; }
-QLabel { background: transparent; color: #9a9a9a; }
-QTextEdit {
-    background-color: #191919;
-    border: 1px solid #333333;
+# so these are standard Qt widget selectors, parameterised per theme.
+def build_stylesheet(t):
+    return """
+* {{ color: {text}; font-size: {body_px}px; }}
+QWidget {{ background-color: {window_bg}; }}
+QLabel {{ background: transparent; color: #9a9a9a; }}
+QTextEdit {{
+    background-color: {chat_bg};
+    border: 1px solid {chat_border};
     border-radius: 4px;
     padding: 6px;
     selection-background-color: #4a6b8a;
-}
-QLineEdit {
-    background-color: #2b2b2b;
+}}
+QLineEdit {{
+    background-color: {input_bg};
     border: 1px solid #3a3a3a;
     border-radius: 4px;
     padding: 5px 7px;
     selection-background-color: #4a6b8a;
-}
-QLineEdit:focus { border: 1px solid #5a8bbf; }
-QComboBox {
-    background-color: #2b2b2b;
+}}
+QLineEdit:focus {{ border: 1px solid {focus}; }}
+QComboBox {{
+    background-color: {input_bg};
     border: 1px solid #3a3a3a;
     border-radius: 4px;
     padding: 4px 6px;
-}
-QComboBox:hover { border: 1px solid #4a4a4a; }
-QComboBox QAbstractItemView {
-    background-color: #2b2b2b;
+}}
+QComboBox:hover {{ border: 1px solid #4a4a4a; }}
+QComboBox QAbstractItemView {{
+    background-color: {input_bg};
     border: 1px solid #3a3a3a;
     selection-background-color: #4a6b8a;
-}
-QPushButton {
+}}
+QPushButton {{
     background-color: #333333;
     border: 1px solid #454545;
     border-radius: 4px;
     padding: 5px 14px;
-}
-QPushButton:hover { background-color: #3d3d3d; border: 1px solid #555555; }
-QPushButton:pressed { background-color: #2a2a2a; }
-QPushButton:disabled { color: #666666; background-color: #2a2a2a; border: 1px solid #333333; }
-QCheckBox { background: transparent; }
-QToolTip { background-color: #2b2b2b; color: #c8c8c8; border: 1px solid #454545; }
-"""
+}}
+QPushButton:hover {{ background-color: #3d3d3d; border: 1px solid #555555; }}
+QPushButton:pressed {{ background-color: #2a2a2a; }}
+QPushButton:disabled {{ color: #666666; background-color: #2a2a2a; border: 1px solid #333333; }}
+QCheckBox {{ background: transparent; }}
+QToolTip {{ background-color: {input_bg}; color: {text}; border: 1px solid #454545; }}
+""".format(text=t["text"], body_px=t["body_px"], window_bg=t["window_bg"],
+           chat_bg=t["chat_bg"], chat_border=t["chat_border"],
+           input_bg=t["input_bg"], focus=t["focus"])
+
+
+RESOLVE_STYLESHEET = build_stylesheet(THEMES[DEFAULT_THEME])
 
 # Chat background used inside the HTML transcript, matching the QTextEdit above.
 CHAT_BG = "#191919"
@@ -5058,13 +5160,17 @@ class ChatWindow(object):
         self.busy = False
         self.timer = None
         self.html_log = []
+        self.msg_log = []                  # raw (kind, text), for re-theming
+
+        saved_theme = cfg.get("ui_theme")
+        STATE["ui_theme"] = saved_theme if saved_theme in THEMES else DEFAULT_THEME
 
         self.win = disp.AddWindow(
             {
                 "ID": "ClaudeWin",
                 "WindowTitle": "Claude Assistant — DaVinci Resolve",
                 "Geometry": [240, 160, 780, 700],
-                "StyleSheet": RESOLVE_STYLESHEET,
+                "StyleSheet": build_stylesheet(_theme()),
             },
             [
                 ui.VGroup({"Spacing": 8, "ID": "Root"}, [
@@ -5084,6 +5190,11 @@ class ChatWindow(object):
                                                 + default_drop_folder(),
                                      "Checked": bool(cfg.get("watch_drop", False)),
                                      "Weight": 0.16}),
+                        ui.Label({"ID": "StyleLbl", "Text": "Style", "Weight": 0}),
+                        ui.ComboBox({"ID": "StyleCombo", "Weight": 0.22,
+                                     "ToolTip": "Panel look — switching restyles "
+                                                "the whole transcript",
+                                     "Events": {"CurrentIndexChanged": True}}),
                         ui.Label({"ID": "Spacer", "Text": "", "Weight": 1}),
                         ui.Button({"ID": "NewChatBtn", "Text": "New chat", "Weight": 0}),
                     ]),
@@ -5113,13 +5224,16 @@ class ChatWindow(object):
 
         fill("ModelCombo", MODEL_CHOICES, cfg.get("model", DEFAULT_MODEL))
         fill("EffortCombo", EFFORT_CHOICES, cfg.get("effort", DEFAULT_EFFORT))
+        fill("StyleCombo", THEME_CHOICES, STATE["ui_theme"])
 
         self.win.On.SendBtn.Clicked = self.on_send
         self.win.On.Input.ReturnPressed = self.on_send
         self.win.On.NewChatBtn.Clicked = self.on_new_chat
+        self.win.On.StyleCombo.CurrentIndexChanged = self.on_style_change
         self.win.On.ClaudeWin.Close = self.on_close
 
         self._setup_timer()
+        self._ui_ready = True
 
     # -- timer / threading ----------------------------------------------------
     def _setup_timer(self):
@@ -5212,6 +5326,7 @@ class ChatWindow(object):
         if kind == "tool" and not text.startswith(("```", "(", "error:")):
             self._tool_count = getattr(self, "_tool_count", 0) + 1
             self._last_tool = text.split("  ")[0]
+        self.msg_log.append((kind, text))
         html = render_chat_message(kind, text)
         self.html_log.append(html)
         chat = self.items["Chat"]
@@ -5261,6 +5376,44 @@ class ChatWindow(object):
     def current_effort(self):
         idx = int(self.items["EffortCombo"].CurrentIndex)
         return EFFORT_CHOICES[idx] if 0 <= idx < len(EFFORT_CHOICES) else DEFAULT_EFFORT
+
+    def current_style(self):
+        idx = int(self.items["StyleCombo"].CurrentIndex)
+        return THEME_CHOICES[idx] if 0 <= idx < len(THEME_CHOICES) else DEFAULT_THEME
+
+    def on_style_change(self, ev):
+        # fill() sets CurrentIndex during construction; ignore that firing.
+        if not getattr(self, "_ui_ready", False):
+            return
+        name = self.current_style()
+        if name == STATE.get("ui_theme"):
+            return
+        STATE["ui_theme"] = name
+        self.cfg["ui_theme"] = name
+        try:
+            save_config(self.cfg)
+        except Exception:
+            pass
+        # Widget chrome: honoured live on Qt builds that re-polish on
+        # StyleSheet assignment; elsewhere it applies on next open.
+        try:
+            self.win.StyleSheet = build_stylesheet(_theme())
+        except Exception:
+            pass
+        self.rebuild_chat()
+
+    def rebuild_chat(self):
+        """Re-render the stored transcript in the active theme."""
+        self.html_log = [render_chat_message(k, t) for k, t in self.msg_log]
+        chat = self.items["Chat"]
+        try:
+            chat.HTML = "".join(self.html_log)
+        except Exception:
+            pass
+        try:
+            chat.EnsureCursorVisible()
+        except Exception:
+            pass
 
     def on_send(self, ev):
         if self.busy:
@@ -5326,6 +5479,7 @@ class ChatWindow(object):
         STATE["messages"] = []
         STATE["cc_session_id"] = None   # start a fresh Claude Code session too
         self.html_log = []
+        self.msg_log = []
         try:
             self.items["Chat"].Clear()
         except Exception:

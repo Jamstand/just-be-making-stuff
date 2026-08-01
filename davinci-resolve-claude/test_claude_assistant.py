@@ -1311,6 +1311,50 @@ _p = mod._progress_text(72, 7, "list_media_pool")
 check("progress shows time, tools, last tool",
       "1m 12s" in _p and "7 tools" in _p and "list_media_pool" in _p, _p)
 check("one tool not pluralised", "1 tool  ·" in mod._progress_text(3, 1, "x"))
+
+# themes: registry integrity, per-theme rendering, live switching
+_REQUIRED_THEME_KEYS = {"window_bg", "text", "body_px", "chat_bg", "chat_border",
+                        "input_bg", "focus", "cards", "card_gap", "card_pad",
+                        "label_px", "tool_px", "tool_color", "tool_name",
+                        "tool_error", "tool_indent", "code_indent", "code_bg",
+                        "code_fg", "code_px", "inline_code_bg", "syntax"}
+for _name, _t in mod.THEMES.items():
+    check("theme %s has every key" % _name,
+          _REQUIRED_THEME_KEYS <= set(_t), str(set(_REQUIRED_THEME_KEYS) - set(_t)))
+    check("theme %s covers all speakers" % _name,
+          set(_t["cards"]) == {"you", "assistant", "error", "notice"})
+    check("theme %s syntax complete" % _name,
+          set(_t["syntax"]) == {"comment", "string", "keyword", "builtin", "number"})
+    check("theme %s pads are (v,h)" % _name, len(_t["card_pad"]) == 2)
+check("theme choices match registry",
+      set(mod.THEME_CHOICES) == set(mod.THEMES) and
+      mod.THEME_CHOICES[0] == mod.DEFAULT_THEME)
+check("unknown theme falls back", (mod.STATE.update({"ui_theme": "nope"}) or
+                                   mod._theme()) is mod.THEMES[mod.DEFAULT_THEME])
+
+mod.STATE["ui_theme"] = "Terminal"
+_h = mod.render_chat_message("you", "hi")
+check("terminal theme colours the card",
+      mod.THEMES["Terminal"]["cards"]["you"][1] in _h, _h)
+check("terminal code card uses its bg",
+      mod.THEMES["Terminal"]["code_bg"] in mod._code_card("x=1", "py"))
+check("terminal syntax palette used",
+      mod.THEMES["Terminal"]["syntax"]["keyword"] in mod._highlight_python("def f(): pass"))
+mod.STATE["ui_theme"] = "Compact"
+check("compact theme tightens the gap",
+      "margin-top:%dpx" % mod.THEMES["Compact"]["card_gap"]
+      in mod.render_chat_message("you", "hi"))
+mod.STATE["ui_theme"] = mod.DEFAULT_THEME
+check("default theme is the classic look",
+      mod.CHAT_STYLES["you"][1] in mod.render_chat_message("you", "hi"))
+
+for _name in mod.THEME_CHOICES:
+    _css = mod.build_stylesheet(mod.THEMES[_name])
+    check("stylesheet %s carries its palette" % _name,
+          mod.THEMES[_name]["chat_bg"] in _css and mod.THEMES[_name]["text"] in _css
+          and "{" in _css and "{{" not in _css, _css[:200])
+check("legacy stylesheet is the default theme",
+      mod.RESOLVE_STYLESHEET == mod.build_stylesheet(mod.THEMES[mod.DEFAULT_THEME]))
 _h = mod.render_chat_message("you", "hello **there**")
 check("user card has accent + label", "You" in _h and "#6fae6f" in _h
       and "<b>there</b>" in _h, _h)
