@@ -115,6 +115,12 @@ avoid that.
   `Contrast` (brighter text, stronger accents), `Compact` (tighter spacing,
   more lines on screen) and `Terminal` (near-black, code-forward). Switching
   restyles the whole transcript instantly and is remembered across sessions.
+- **History** — every chat saves itself after each completed turn. The
+  History button opens a browser of past chats (double-click to reopen one
+  and keep going). On the Claude Code backend the original session is resumed
+  when it still exists; when it doesn't, the next message quietly carries a
+  transcript recap so the conversation still continues. The newest 100 chats
+  are kept, in `ClaudeResolveAssistant/chats` next to the config file.
 
 ### What Claude can do out of the box
 

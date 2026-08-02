@@ -2028,6 +2028,11 @@ check("default drop folder is home-based",
 print("== chat window ==")
 
 
+class FakeTreeItem(object):
+    def __init__(self):
+        self.Text = {}
+
+
 class FakeUIItem(object):
     def __init__(self):
         self.Text = ""
@@ -2036,6 +2041,11 @@ class FakeUIItem(object):
         self.Enabled = True
         self.CurrentIndex = 0
         self.choices = []
+        self.top_items = []
+        self.header = None
+        self.current = None
+        self.ColumnCount = 0
+        self.ColumnWidth = {}
 
     def AddItems(self, items):
         self.choices += list(items)
@@ -2051,6 +2061,21 @@ class FakeUIItem(object):
 
     def Clear(self):
         self.HTML = ""
+        self.top_items = []
+        self.choices = []
+
+    # tree API
+    def NewItem(self):
+        return FakeTreeItem()
+
+    def AddTopLevelItem(self, item):
+        self.top_items.append(item)
+
+    def SetHeaderItem(self, item):
+        self.header = item
+
+    def CurrentItem(self):
+        return self.current
 
 
 class _AutoOn(object):
@@ -2186,6 +2211,154 @@ check("silent widget drop detected and retried",
 
 mod.save_config = _real_save_config
 mod.STATE["ui_theme"] = mod.DEFAULT_THEME
+
+# --------------------------------------------------------------- chat history
+print("== chat history ==")
+
+_histdir = tempfile.mkdtemp()
+_real_history_dir = mod.history_dir
+mod.history_dir = lambda: _histdir
+
+check("title from first user message",
+      mod.chat_title([("notice", "hi"), ("you", "  sort   my clips  ")])
+      == "sort my clips")
+check("long titles truncated",
+      len(mod.chat_title([("you", "x" * 200)])) <= 58)
+check("no user turn -> untitled", mod.chat_title([("notice", "n")]) == "Untitled chat")
+
+check("empty chats are not saved",
+      mod.save_chat("id0", [("notice", "hello")], [], None, "m") is None
+      and not os.listdir(_histdir))
+
+_msgs = [{"role": "user", "content": "hi"},
+         {"role": "user", "content": [
+             {"type": "tool_result", "tool_use_id": "t1", "content": [
+                 {"type": "image", "source": {"type": "base64", "data": "A" * 500}},
+                 {"type": "text", "text": "grabbed frame"}]}]}]
+_p = mod.save_chat("id1", [("you", "look at this frame")], _msgs, "sess-42", "claude-opus-5")
+check("chat saved", _p and os.path.exists(_p), _p)
+check("images stripped from saved history",
+      "A" * 100 not in open(_p).read() and "omitted" in open(_p).read())
+_loaded = mod.load_chat("id1")
+check("session id survives the round trip", _loaded["cc_session_id"] == "sess-42")
+check("text tool results survive", "grabbed frame" in json.dumps(_loaded["messages"]))
+
+import time as _time
+mod.save_chat("id2", [("you", "second chat"), ("assistant", "ok")], [], None, "m")
+os.utime(os.path.join(_histdir, "id1.json"),
+         (_time.time() - 100, _time.time() - 100))
+_ids = [c["id"] for c in mod.list_chats()]
+check("list is newest first", _ids.index("id2") < _ids.index("id1"), _ids)
+check("turn counts reported",
+      [c["turns"] for c in mod.list_chats() if c["id"] == "id2"] == [1])
+
+open(os.path.join(_histdir, "broken.json"), "w").write("{nope")
+check("corrupt files skipped", len(mod.list_chats()) == 2)
+check("delete removes", mod.delete_chat("id2") and
+      "id2" not in [c["id"] for c in mod.list_chats()])
+check("delete missing is calm", mod.delete_chat("ghost") is False)
+
+for _i in range(6):
+    mod.save_chat("prune%d" % _i, [("you", "c%d" % _i)], [], None, "m")
+mod.prune_history(_histdir, keep=3)
+check("history pruned to cap",
+      len([n for n in os.listdir(_histdir) if n.endswith(".json")]) == 3 + 1)
+# (+1 is broken.json, which prune leaves alone)
+
+# window integration: autosave on turn completion, browse, restore, delete
+for _n in os.listdir(_histdir):
+    os.remove(os.path.join(_histdir, _n))
+mod.save_config = lambda cfg: None
+_ui4 = FakeUI()
+_w4 = mod.ChatWindow(_ui4, FakeDisp(_ui4), {})
+_w4.append_chat("you", "make a montage")
+_w4.append_chat("assistant", "on it")
+mod.STATE["cc_session_id"] = "sess-live"
+_w4.events.put(("__done__", ""))
+_w4.drain_events()
+check("turn completion autosaves",
+      [c["title"] for c in mod.list_chats()] == ["make a montage"])
+
+_first_id = _w4.chat_id
+_w4.on_new_chat(None)
+check("new chat starts a new identity", _w4.chat_id != _first_id)
+_w4.append_chat("you", "grade the interview")
+mod.STATE["cc_session_id"] = "sess-2"
+_w4.autosave()
+check("two chats in history", len(mod.list_chats()) == 2)
+
+_w4.on_history(None)
+check("history window opened", _w4.hist_win is not None and _w4._hist_kind == "tree")
+_tree = _w4.hist_items["HistTree"]
+check("history rows populated", len(_tree.top_items) == 2 and
+      _tree.header.Text[0] == "When")
+check("row carries the chat id", _tree.top_items[0].Text[3] in _w4._hist_ids)
+
+_row = [i for i in _tree.top_items if i.Text[3] == _first_id][0]
+_tree.current = _row
+mod.STATE["messages"] = [{"role": "user", "content": "current"}]
+_w4.on_history_open(None)
+check("restore switches identity", _w4.chat_id == _first_id)
+check("restore brings transcript back",
+      ("you", "make a montage") in _w4.msg_log)
+check("restore brings session id back",
+      mod.STATE["cc_session_id"] == "sess-live")
+check("restore notice shown", "Restored" in _w4.items["Chat"].HTML)
+
+_w4.on_history(None)
+_tree = _w4.hist_items["HistTree"]
+_gone = [i for i in _tree.top_items if i.Text[3] != _first_id][0]
+_tree.current = _gone
+_w4.on_history_delete(None)
+check("delete refreshes the list", len(_tree.top_items) == 1
+      and _tree.top_items[0].Text[3] == _first_id)
+
+# a UIManager without Tree still gets a browser
+_ui5 = FakeUI(reject=lambda el, spec: el == "Tree")
+_w5 = mod.ChatWindow(_ui5, FakeDisp(_ui5), {})
+_w5.on_history(None)
+check("combo fallback browser", _w5._hist_kind == "combo"
+      and len(_w5.hist_items["HistCombo"].choices) == 1,
+      getattr(_w5, "_hist_kind", None))
+_w5.hist_items["HistCombo"].CurrentIndex = 0
+_w5.on_history_open(None)
+check("combo restore works", _w5.chat_id == _first_id)
+
+# resume resilience: recap digest + self-healing on dead sessions
+_recap = mod.build_recap([("notice", "n"), ("you", "sort my clips"),
+                          ("tool", "x"), ("assistant", "done — 4 bins")])
+check("recap keeps only the dialogue",
+      "User: sort my clips" in _recap and "Claude: done — 4 bins" in _recap
+      and "notice" not in _recap and "tool" not in _recap, _recap)
+check("empty transcript -> empty recap", mod.build_recap([("tool", "x")]) == "")
+check("recap capped", len(mod.build_recap(
+    [("you", "w" * 900)] * 60)) < 8000)
+
+check("restore primes the recap", mod.STATE.get("chat_recap") and
+      "make a montage" in mod.STATE["chat_recap"])
+
+mod.STATE["cc_session_id"] = "dead-sess"
+_ev = []
+mod._handle_claude_code_event(
+    {"type": "result", "is_error": True, "session_id": "dead-sess",
+     "result": "No conversation found with session ID: dead-sess"},
+    lambda k, t: _ev.append((k, t)))
+check("dead session cleared for self-heal", mod.STATE["cc_session_id"] is None)
+check("dead session explained as notice, not error",
+      _ev and _ev[0][0] == "notice" and "transcript" in _ev[0][1], str(_ev))
+
+mod.STATE["chat_recap"] = "RECAP"
+mod._handle_claude_code_event(
+    {"type": "result", "subtype": "success", "session_id": "fresh-sess"},
+    lambda k, t: None)
+check("successful turn clears the recap", "chat_recap" not in mod.STATE)
+check("fresh session captured", mod.STATE["cc_session_id"] == "fresh-sess")
+
+mod.history_dir = _real_history_dir
+mod.save_config = _real_save_config
+mod.STATE["cc_session_id"] = None
+mod.STATE["messages"] = []
+mod.STATE.pop("chat_recap", None)
 
 # ------------------------------------------------------- claude code backend
 print("== claude code backend ==")

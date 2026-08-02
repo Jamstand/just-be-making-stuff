@@ -51,6 +51,7 @@ import sys
 import time
 import threading
 import traceback
+import uuid
 import queue as _queue
 
 # ----------------------------------------------------------------------------
@@ -173,6 +174,160 @@ def save_config(cfg):
             os.chmod(path, 0o600)
     except Exception as exc:
         print("[Claude Assistant] could not save config: %s" % exc)
+
+
+# ------------------------------------------------------------- chat history
+# Every conversation autosaves to a JSON file after each completed turn, so
+# the History browser can reopen it later — including the Claude Code session
+# id, which lets --resume continue the model's server-side context.
+
+def history_dir():
+    return os.path.join(os.path.dirname(config_path()), "chats")
+
+
+def chat_title(msg_log):
+    """First thing the user said, cleaned up, as the saved chat's name."""
+    for kind, text in msg_log:
+        if kind == "you":
+            title = " ".join(str(text).split())
+            return (title[:57] + "…") if len(title) > 58 else (title or "Untitled chat")
+    return "Untitled chat"
+
+
+def _shrink_messages(messages):
+    """History copies of the API transcript drop base64 frame images —
+    they can be megabytes each and matter far less than the words."""
+    slim = []
+    for msg in messages or []:
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(content, list):
+            slim.append(msg)
+            continue
+        blocks = []
+        for block in content:
+            inner = block.get("content") if isinstance(block, dict) else None
+            if isinstance(inner, list) and any(
+                    isinstance(b, dict) and b.get("type") == "image" for b in inner):
+                kept = [b for b in inner
+                        if not (isinstance(b, dict) and b.get("type") == "image")]
+                kept.insert(0, {"type": "text",
+                                "text": "[frame images omitted from saved history]"})
+                block = dict(block)
+                block["content"] = kept
+            blocks.append(block)
+        out = dict(msg)
+        out["content"] = blocks
+        slim.append(out)
+    return slim
+
+
+def save_chat(chat_id, msg_log, messages, cc_session_id, model):
+    """Write one chat's snapshot; returns the path, or None if nothing to save."""
+    if not chat_id or not any(k == "you" for k, _ in msg_log):
+        return None
+    folder = history_dir()
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "%s.json" % chat_id)
+    created = time.time()
+    try:
+        with open(path, "r") as f:
+            created = json.load(f).get("created") or created
+    except Exception:
+        pass
+    data = {"id": chat_id, "title": chat_title(msg_log), "created": created,
+            "updated": time.time(), "model": model,
+            "msg_log": [list(m) for m in msg_log],
+            "messages": _shrink_messages(messages),
+            "cc_session_id": cc_session_id}
+    with open(path, "w") as f:
+        json.dump(data, f)
+    prune_history(folder)
+    return path
+
+
+def list_chats():
+    """Newest-first summaries of every saved chat; unreadable files skipped."""
+    folder = history_dir()
+    out = []
+    try:
+        names = os.listdir(folder)
+    except Exception:
+        return out
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(folder, name), "r") as f:
+                data = json.load(f)
+            out.append({"id": data["id"], "title": data.get("title") or "Untitled",
+                        "updated": data.get("updated") or 0,
+                        "created": data.get("created") or 0,
+                        "model": data.get("model") or "",
+                        "turns": sum(1 for m in data.get("msg_log") or []
+                                     if m and m[0] == "you")})
+        except Exception:
+            continue
+    out.sort(key=lambda c: c["updated"], reverse=True)
+    return out
+
+
+def load_chat(chat_id):
+    try:
+        with open(os.path.join(history_dir(), "%s.json" % chat_id), "r") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def delete_chat(chat_id):
+    try:
+        os.remove(os.path.join(history_dir(), "%s.json" % chat_id))
+        return True
+    except Exception:
+        return False
+
+
+def build_recap(msg_log, max_entries=30, max_total=6000):
+    """A compact transcript digest, injected into the first turn after a chat
+    is reopened but its Claude Code session can no longer be resumed — the
+    model reads this instead of the lost server-side context."""
+    lines = []
+    for kind, text in msg_log[-max_entries * 2:]:
+        if kind not in ("you", "assistant"):
+            continue
+        text = " ".join(str(text).split())
+        if len(text) > 500:
+            text = text[:500] + "…"
+        lines.append("%s: %s" % ("User" if kind == "you" else "Claude", text))
+    lines = lines[-max_entries:]
+    recap = "\n".join(lines)
+    if len(recap) > max_total:
+        recap = recap[-max_total:]
+    if not recap:
+        return ""
+    return ("<earlier_conversation_recap>\n%s\n</earlier_conversation_recap>\n"
+            "This chat was reopened from history and the original session "
+            "context is unavailable; the recap above is the visible transcript "
+            "so far. Continue the conversation naturally." % recap)
+
+
+def prune_history(folder, keep=100):
+    """Cap the archive so it never grows unbounded; oldest chats go first."""
+    try:
+        chats = []
+        for name in os.listdir(folder):
+            if name.endswith(".json"):
+                path = os.path.join(folder, name)
+                try:
+                    with open(path, "r") as f:
+                        chats.append((json.load(f).get("updated") or 0, path))
+                except Exception:
+                    continue
+        chats.sort(reverse=True)
+        for _, path in chats[keep:]:
+            os.remove(path)
+    except Exception:
+        pass
 
 
 def get_api_key(cfg):
@@ -4513,16 +4668,25 @@ def run_agent_turn_claude_code(cfg, model, user_text, emit):
         return
 
     prompt = "%s\n\n%s" % (user_text, resolve_context_block())
+    resume_id = STATE.get("cc_session_id")
+    if not resume_id and STATE.get("chat_recap"):
+        # Reopened chat whose server-side session is gone: rebuild context
+        # from the saved transcript instead.
+        prompt = "%s\n\n%s" % (STATE["chat_recap"], prompt)
     try:
         argv, stdin_text, workdir = build_claude_code_invocation(
-            cfg, model, prompt, get_tool_bridge(), STATE.get("cc_session_id"))
+            cfg, model, prompt, get_tool_bridge(), resume_id)
     except ApiError as exc:
         emit("error", str(exc))
         return
 
     try:
+        # cwd is pinned to the (stable) config dir: the CLI keys its session
+        # store to the working directory, so resuming across Resolve restarts
+        # only works if every turn runs from the same place.
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, env=claude_code_env(),
+                                cwd=os.path.dirname(config_path()),
                                 **_spawn_kwargs())
     except Exception as exc:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -4630,9 +4794,21 @@ def _handle_claude_code_event(event, emit):
     if kind == "result":
         if event.get("session_id"):
             STATE["cc_session_id"] = event["session_id"]
+        if not (event.get("is_error") or event.get("subtype") == "error"):
+            # Context is established server-side now; the recap has done its job.
+            STATE.pop("chat_recap", None)
         if event.get("is_error") or event.get("subtype") == "error":
             detail = str(event.get("result") or "Claude Code reported an error.")
             low = detail.lower()
+            if "no conversation found" in low or "session not found" in low:
+                # A restored chat whose CLI session no longer exists (machine
+                # cleaned, session expired). Self-heal: drop the dead id so the
+                # next send starts fresh, with the transcript recap as context.
+                STATE["cc_session_id"] = None
+                emit("notice", "That chat's saved session no longer exists on "
+                               "this machine — send your message again and I'll "
+                               "continue from the transcript instead.")
+                return True
             if "oauth" in low or "authenticate" in low or "401" in low or "login" in low:
                 detail += ("\n\nYour Claude Code sign-in has expired and can't renew "
                            "itself. `claude auth status` only checks that credentials "
@@ -5165,6 +5341,10 @@ class ChatWindow(object):
         self.html_log = []
         self.msg_log = []                  # raw (kind, text), for re-theming
         self.has_style_combo = False
+        self.chat_id = uuid.uuid4().hex   # identity of the chat being written
+        self.hist_win = None
+        self.hist_items = None
+        self._hist_ids = []
 
         saved_theme = cfg.get("ui_theme")
         STATE["ui_theme"] = saved_theme if saved_theme in THEMES else DEFAULT_THEME
@@ -5216,6 +5396,8 @@ class ChatWindow(object):
             ]
         header += [
             self.ui.Label({"ID": "Spacer", "Text": "", "Weight": 1}),
+            self.ui.Button({"ID": "HistoryBtn", "Text": "History", "Weight": 0,
+                            "ToolTip": "Reopen a past chat and keep going"}),
             self.ui.Button({"ID": "NewChatBtn", "Text": "New chat", "Weight": 0}),
         ]
 
@@ -5271,6 +5453,7 @@ class ChatWindow(object):
         self.win.On.SendBtn.Clicked = self.on_send
         self.win.On.Input.ReturnPressed = self.on_send
         self.win.On.NewChatBtn.Clicked = self.on_new_chat
+        self.win.On.HistoryBtn.Clicked = self.on_history
         self.win.On.ClaudeWin.Close = self.on_close
 
         self.has_style_combo = False
@@ -5314,6 +5497,7 @@ class ChatWindow(object):
             try:
                 if kind == "__done__":
                     self.set_busy(False)
+                    self.autosave()
                 else:
                     self.append_chat(kind, text)
             except Exception:
@@ -5520,8 +5704,11 @@ class ChatWindow(object):
     def on_new_chat(self, ev):
         if self.busy:
             return
+        self.autosave()                 # archive the outgoing conversation
+        self.chat_id = uuid.uuid4().hex
         STATE["messages"] = []
         STATE["cc_session_id"] = None   # start a fresh Claude Code session too
+        STATE.pop("chat_recap", None)
         self.html_log = []
         self.msg_log = []
         try:
@@ -5531,7 +5718,183 @@ class ChatWindow(object):
         self.greet()
 
     def on_close(self, ev):
+        self.autosave()
         self.disp.ExitLoop()
+
+    # -- history ---------------------------------------------------------------
+    def autosave(self):
+        """Persist the open chat; quiet best-effort, never disturbs the UI."""
+        try:
+            save_chat(self.chat_id, self.msg_log, STATE.get("messages"),
+                      STATE.get("cc_session_id"), self.current_model())
+        except Exception:
+            pass
+
+    def on_history(self, ev):
+        chats = list_chats()
+        if not chats:
+            self.append_chat("notice", "No saved chats yet — chats save "
+                                       "themselves after each completed turn.")
+            return
+        try:
+            self._show_history(chats)
+        except Exception:
+            print("[%s] history browser failed:" % APP_NAME)
+            traceback.print_exc()
+            try:
+                self._show_history(chats, fancy=False)
+            except Exception:
+                traceback.print_exc()
+                self.append_chat("error", "Could not open the history browser — "
+                                          "see the Console for details.")
+
+    def _show_history(self, chats, fancy=True):
+        """A second window listing saved chats: a Tree when the UIManager
+        build allows it, a plain ComboBox otherwise."""
+        want = "tree" if fancy else "combo"
+        if self.hist_win is not None and getattr(self, "_hist_kind", "") != want:
+            try:
+                self.hist_win.Hide()
+            except Exception:
+                pass
+            self.hist_win = None
+        if self.hist_win is None:
+            body = [self.ui.Label({"ID": "HistHint", "Weight": 0,
+                                   "Text": "Double-click a chat (or select it and "
+                                           "press Open) to continue it."})]
+            if fancy:
+                body.append(self.ui.Tree({"ID": "HistTree", "Weight": 1,
+                                          "Events": {"ItemDoubleClicked": True}}))
+            else:
+                body.append(self.ui.ComboBox({"ID": "HistCombo", "Weight": 0}))
+            body.append(self.ui.HGroup({"Weight": 0, "Spacing": 6}, [
+                self.ui.Button({"ID": "HistOpen", "Text": "Open", "Weight": 0}),
+                self.ui.Button({"ID": "HistDelete", "Text": "Delete", "Weight": 0}),
+                self.ui.Label({"ID": "HistSpacer", "Text": "", "Weight": 1}),
+                self.ui.Button({"ID": "HistClose", "Text": "Close", "Weight": 0}),
+            ]))
+            self.hist_win = self.disp.AddWindow(
+                {"ID": "HistWin", "WindowTitle": "Chat history — Claude Assistant",
+                 "Geometry": [300, 220, 560, 420],
+                 "StyleSheet": build_stylesheet(_theme())},
+                [self.ui.VGroup({"Spacing": 8, "ID": "HistRoot"}, body)])
+            self.hist_items = self.hist_win.GetItems()
+            self._hist_kind = want
+            self.hist_win.On.HistOpen.Clicked = self.on_history_open
+            self.hist_win.On.HistDelete.Clicked = self.on_history_delete
+            self.hist_win.On.HistClose.Clicked = self.on_history_close
+            self.hist_win.On.HistWin.Close = self.on_history_close
+            if fancy:
+                self.hist_win.On.HistTree.ItemDoubleClicked = self.on_history_open
+        self._populate_history(chats)
+        self.hist_win.Show()
+
+    def _populate_history(self, chats):
+        self._hist_ids = [c["id"] for c in chats]
+        rows = [("%s" % time.strftime("%b %d  %H:%M",
+                                      time.localtime(c["updated"] or 0)),
+                 c["title"], "%d" % c["turns"]) for c in chats]
+        if self._hist_kind == "tree":
+            tree = self.hist_items["HistTree"]
+            try:
+                tree.Clear()
+            except Exception:
+                pass
+            try:
+                tree.ColumnCount = 3
+                header = tree.NewItem()
+                header.Text[0] = "When"
+                header.Text[1] = "Chat"
+                header.Text[2] = "Turns"
+                tree.SetHeaderItem(header)
+                try:
+                    tree.ColumnWidth[0] = 110
+                    tree.ColumnWidth[2] = 50
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            for row, chat_id in zip(rows, self._hist_ids):
+                item = tree.NewItem()
+                item.Text[0], item.Text[1], item.Text[2] = row
+                item.Text[3] = chat_id
+                tree.AddTopLevelItem(item)
+        else:
+            combo = self.hist_items["HistCombo"]
+            try:
+                combo.Clear()
+            except Exception:
+                pass
+            labels = ["%s — %s  (%s turns)" % row for row in rows]
+            try:
+                combo.AddItems(labels)
+            except Exception:
+                for label in labels:
+                    combo.AddItem(label)
+
+    def _selected_chat_id(self):
+        if self._hist_kind == "tree":
+            try:
+                selected = self.hist_items["HistTree"].CurrentItem()
+                chat_id = selected.Text[3]
+                if chat_id in self._hist_ids:
+                    return chat_id
+            except Exception:
+                pass
+            return self._hist_ids[0] if len(self._hist_ids) == 1 else None
+        try:
+            idx = int(self.hist_items["HistCombo"].CurrentIndex)
+        except Exception:
+            return None
+        return self._hist_ids[idx] if 0 <= idx < len(self._hist_ids) else None
+
+    def on_history_open(self, ev):
+        chat_id = self._selected_chat_id()
+        if not chat_id:
+            return
+        if self.busy:
+            self.append_chat("notice", "Wait for the current turn to finish "
+                                       "before switching chats.")
+            return
+        data = load_chat(chat_id)
+        if not data:
+            self.append_chat("error", "That chat could not be loaded.")
+            return
+        self.autosave()                 # keep the chat we're leaving
+        self.chat_id = data["id"]
+        self.msg_log = [tuple(m) for m in data.get("msg_log") or []]
+        STATE["messages"] = data.get("messages") or []
+        STATE["cc_session_id"] = data.get("cc_session_id")
+        # If the saved session can't be resumed, the next turn falls back to
+        # this transcript digest so the conversation still continues.
+        STATE["chat_recap"] = build_recap(self.msg_log)
+        saved_model = data.get("model")
+        if saved_model in MODEL_CHOICES:
+            try:
+                self.items["ModelCombo"].CurrentIndex = MODEL_CHOICES.index(saved_model)
+            except Exception:
+                pass
+        self.rebuild_chat()
+        self.append_chat("notice", "Restored “%s” — continue where "
+                                   "you left off." % (data.get("title") or "chat"))
+        self.on_history_close(None)
+
+    def on_history_delete(self, ev):
+        chat_id = self._selected_chat_id()
+        if not chat_id:
+            return
+        delete_chat(chat_id)
+        remaining = list_chats()
+        if remaining:
+            self._populate_history(remaining)
+        else:
+            self.on_history_close(None)
+
+    def on_history_close(self, ev):
+        try:
+            self.hist_win.Hide()
+        except Exception:
+            pass
 
     def greet(self):
         self.append_chat("notice",

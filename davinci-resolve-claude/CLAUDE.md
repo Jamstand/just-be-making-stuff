@@ -138,6 +138,14 @@ behaviour; extend them when adding tools.
   it needs to be sent into a session ("Send to Claude Code Web" from Claude
   Design) because DesignSync auth is interactive-only here. Map its variants
   onto THEMES entries when it arrives.
+- Chat history: autosaves to <config dir>/chats/<uuid>.json after every
+  completed turn (images stripped from the stored API messages). History
+  button opens a Tree browser (ComboBox fallback). Resume semantics: the CLI
+  keys sessions to its cwd, so turn spawns pin cwd to the config dir; a dead
+  --resume self-heals (clears cc_session_id, notice to re-send) and the next
+  turn injects build_recap(msg_log) — STATE["chat_recap"], cleared on the
+  first successful result — so reopened chats continue even without the
+  server-side session.
 
 ## User setup (Windows box this is deployed on)
 
