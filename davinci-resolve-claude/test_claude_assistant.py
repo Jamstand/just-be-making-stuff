@@ -2283,9 +2283,8 @@ check("delete missing is calm", mod.delete_chat("ghost") is False)
 for _i in range(6):
     mod.save_chat("prune%d" % _i, [("you", "c%d" % _i)], [], None, "m")
 mod.prune_history(_histdir, keep=3)
-check("history pruned to cap",
-      len([n for n in os.listdir(_histdir) if n.endswith(".json")]) == 3 + 1)
-# (+1 is broken.json, which prune leaves alone)
+check("history pruned to cap (corrupt corpses reaped too)",
+      len([n for n in os.listdir(_histdir) if n.endswith(".json")]) == 3)
 
 # window integration: autosave on turn completion, browse, restore, delete
 for _n in os.listdir(_histdir):
@@ -2375,6 +2374,178 @@ mod._handle_claude_code_event(
     lambda k, t: None)
 check("successful turn clears the recap", "chat_recap" not in mod.STATE)
 check("fresh session captured", mod.STATE["cc_session_id"] == "fresh-sess")
+
+# -- review-driven hardening ---------------------------------------------
+# Atomic writes: a failed save must leave the previous good snapshot intact.
+_good = mod.save_chat("atom1", [("you", "keep me safe")], [], None, "m")
+
+
+class _Unserialisable(object):
+    pass
+
+
+try:
+    mod.save_chat("atom1", [("you", "boom")], [{"role": "user",
+                                                "content": _Unserialisable()}],
+                  None, "m")
+except Exception:
+    pass
+_data = mod.load_chat("atom1")
+check("failed save never destroys the archive",
+      _data is not None and _data["msg_log"] == [["you", "keep me safe"]],
+      str(_data)[:120])
+check("no temp corpses left behind",
+      not [n for n in os.listdir(_histdir) if ".tmp" in n])
+
+# created survives via the in-memory cache, no full-file re-read
+_c1 = mod.load_chat("atom1")["created"]
+mod.save_chat("atom1", [("you", "keep me safe"), ("assistant", "ok")], [], None, "m")
+check("created stable across resaves", mod.load_chat("atom1")["created"] == _c1)
+
+# dangling tool_use trimmed at save AND at restore
+_dangling = [{"role": "user", "content": "hi"},
+             {"role": "assistant", "content": [
+                 {"type": "tool_use", "id": "t1", "name": "x", "input": {}}]}]
+mod.save_chat("dang1", [("you", "mid-turn crash")], _dangling, None, "m")
+check("dangling tool_use trimmed on save",
+      len(mod.load_chat("dang1")["messages"]) == 1)
+check("trim keeps completed turns",
+      len(mod._trim_dangling_tool_use(
+          [{"role": "user", "content": "hi"},
+           {"role": "assistant", "content": [{"type": "text", "text": "done"}]}])) == 2)
+
+# prune: mtime-based, pins the fresh file even on clock rollback
+for _n in os.listdir(_histdir):
+    os.remove(os.path.join(_histdir, _n))
+for _i in range(4):
+    _pp = mod.save_chat("pin%d" % _i, [("you", "c%d" % _i)], [], None, "m")
+    os.utime(_pp, (_time.time() + 500, _time.time() + 500))   # future mtimes
+_fresh = mod.save_chat("fresh", [("you", "latest")], [], None, "m")
+mod.prune_history(_histdir, keep=2, keep_path=_fresh)
+check("prune pins the just-saved chat", os.path.exists(_fresh))
+check("prune keeps cap", len(os.listdir(_histdir)) == 2)
+
+# list_chats survives junk field types
+mod.save_chat("weird", [("you", "w")], [], None, "m")
+_raw = json.load(open(os.path.join(_histdir, "weird.json")))
+_raw["updated"] = "yesterday"
+json.dump(_raw, open(os.path.join(_histdir, "weird.json"), "w"))
+check("string timestamps coerced, sort survives",
+      any(c["id"] == "weird" and c["updated"] == 0.0 for c in mod.list_chats()))
+
+# sync (no-timer) fallback autosaves after the turn
+for _n in os.listdir(_histdir):
+    os.remove(os.path.join(_histdir, _n))
+mod.save_config = lambda cfg: None
+_real_backend_ready = mod.backend_ready
+_real_run_turn = mod.run_agent_turn
+mod.backend_ready = lambda cfg: (True, "")
+mod.run_agent_turn = lambda cfg, m, t, emit: emit("assistant", "sync reply")
+_ui6 = FakeUI(reject=lambda el, spec: el == "Timer")
+
+
+class NoTimerUI(FakeUI):
+    def Timer(self, spec):
+        raise RuntimeError("no timers here")
+
+
+_ui6 = NoTimerUI()
+_w6 = mod.ChatWindow(_ui6, FakeDisp(_ui6), {})
+check("fallback build has no timer", _w6.timer is None)
+_w6.items["Input"].Text = "save me synchronously"
+_w6.on_send(None)
+check("sync turn autosaved",
+      [c["title"] for c in mod.list_chats()] == ["save me synchronously"])
+mod.backend_ready = _real_backend_ready
+mod.run_agent_turn = _real_run_turn
+
+# close during a busy turn must NOT snapshot mid-turn state
+_w6.busy = True
+_w6.msg_log.append(("you", "MUST NOT PERSIST"))
+_w6.on_close(None)
+check("busy close keeps last good snapshot",
+      "MUST NOT PERSIST" not in json.dumps(mod.load_chat(_w6.chat_id)))
+
+# delete needs an explicit selection; deleting the open chat re-identifies it
+_w7 = mod.ChatWindow((lambda u: u)(FakeUI()), None, {}) if False else None
+_ui8 = FakeUI()
+_w8 = mod.ChatWindow(_ui8, FakeDisp(_ui8), {})
+_w8.append_chat("you", "only chat")
+_w8.autosave()
+_w8.on_history(None)
+_w8.hist_items["HistTree"].current = None
+_before = len(mod.list_chats())
+_w8.on_history_delete(None)
+check("no-selection delete deletes nothing", len(mod.list_chats()) == _before)
+_row8 = [i for i in _w8.hist_items["HistTree"].top_items
+         if i.Text[3] == _w8.chat_id][0]
+_w8.hist_items["HistTree"].current = _row8
+_old_id = _w8.chat_id
+_w8.on_history_delete(None)
+check("deleting the open chat detaches its identity",
+      _w8.chat_id != _old_id and mod.load_chat(_old_id) is None)
+
+# reopening the already-open chat is a no-op, not a rewind
+_w8.append_chat("you", "tail message")
+_w8.autosave()
+_w8.on_history(None)
+_roww = [i for i in _w8.hist_items["HistTree"].top_items
+         if i.Text[3] == _w8.chat_id][0]
+_w8.hist_items["HistTree"].current = _roww
+_len_before = len(_w8.msg_log)
+_w8.on_history_open(None)
+check("reopening current chat does not rewind", len(_w8.msg_log) == _len_before)
+
+# restore banner is ephemeral: not written into the archive
+_w8.on_new_chat(None)
+_w8.append_chat("you", "second story")
+_w8.autosave()
+_w8.on_history(None)
+_rows = [i for i in _w8.hist_items["HistTree"].top_items]
+_other = [i for i in _rows if i.Text[3] != _w8.chat_id][0]
+_w8.hist_items["HistTree"].current = _other
+_w8.on_history_open(None)
+_w8.autosave()
+check("restore banner not persisted",
+      "Restored" not in json.dumps(mod.load_chat(_w8.chat_id)["msg_log"]))
+
+# dead-resume error text arriving via the errors array still self-heals
+mod.STATE["cc_session_id"] = "gone-1"
+_ev = []
+mod._handle_claude_code_event(
+    {"type": "result", "subtype": "error_during_execution", "result": "",
+     "errors": ["No conversation found with session ID: gone-1"]},
+    lambda k, t: _ev.append((k, t)))
+check("errors-array dead session self-heals",
+      mod.STATE["cc_session_id"] is None and _ev and _ev[0][0] == "notice",
+      str(_ev))
+_ev = []
+mod._handle_claude_code_event(
+    {"type": "result", "subtype": "error_during_execution", "result": "",
+     "errors": ["something else entirely"]},
+    lambda k, t: _ev.append((k, t)))
+check("errors array surfaces real text",
+      _ev and _ev[0][0] == "error" and "something else" in _ev[0][1], str(_ev))
+_ev = []
+mod._handle_claude_code_event({"type": "result", "subtype": "error_max_turns"},
+                              lambda k, t: _ev.append((k, t)))
+check("max turns still gets its own notice",
+      _ev and _ev[0][0] == "notice" and "maximum" in _ev[0][1], str(_ev))
+
+# api backend seeds the recap when there is no replayable history
+mod.STATE["messages"] = []
+mod.STATE["chat_recap"] = "<earlier_conversation_recap>RECAP</earlier_conversation_recap>"
+_calls = {}
+_real_call_claude = mod.call_claude
+def _fake_call(key, model, messages):
+    _calls["first_user"] = messages[0]
+    return {"content": [{"type": "text", "text": "hi"}], "stop_reason": "end_turn"}
+mod.call_claude = _fake_call
+mod.run_agent_turn_api("k", "claude-opus-5", "continue please", lambda k, t: None)
+check("api recap seeded into first message",
+      "RECAP" in json.dumps(_calls["first_user"]), str(_calls["first_user"])[:150])
+check("api recap cleared after success", "chat_recap" not in mod.STATE)
+mod.call_claude = _real_call_claude
 
 mod.history_dir = _real_history_dir
 mod.save_config = _real_save_config

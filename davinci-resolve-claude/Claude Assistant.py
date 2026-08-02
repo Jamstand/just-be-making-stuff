@@ -221,27 +221,67 @@ def _shrink_messages(messages):
     return slim
 
 
+_history_lock = threading.Lock()
+_chat_created = {}                     # chat_id -> first-save timestamp
+
+
+def _trim_dangling_tool_use(messages):
+    """Drop a trailing assistant message still waiting on tool results — a
+    snapshot taken mid-turn would otherwise be rejected by the API on replay."""
+    trimmed = list(messages or [])
+    while trimmed:
+        last = trimmed[-1]
+        content = last.get("content") if isinstance(last, dict) else None
+        if (isinstance(last, dict) and last.get("role") == "assistant"
+                and isinstance(content, list)
+                and any(isinstance(b, dict) and b.get("type") == "tool_use"
+                        for b in content)):
+            trimmed.pop()
+            continue
+        break
+    return trimmed
+
+
 def save_chat(chat_id, msg_log, messages, cc_session_id, model):
-    """Write one chat's snapshot; returns the path, or None if nothing to save."""
-    if not chat_id or not any(k == "you" for k, _ in msg_log):
+    """Write one chat's snapshot; returns the path, or None if nothing to save.
+
+    Crash-safe: the JSON goes to a private temp file that is fsynced and then
+    os.replace()d over the archive (atomic on Windows too), so a crash or a
+    full disk can never destroy the previous good snapshot — and concurrent
+    savers each publish a complete file, last one wins.
+    """
+    if not chat_id or not any(m[0] == "you" for m in msg_log):
         return None
-    folder = history_dir()
-    os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, "%s.json" % chat_id)
-    created = time.time()
-    try:
-        with open(path, "r") as f:
-            created = json.load(f).get("created") or created
-    except Exception:
-        pass
-    data = {"id": chat_id, "title": chat_title(msg_log), "created": created,
-            "updated": time.time(), "model": model,
-            "msg_log": [list(m) for m in msg_log],
-            "messages": _shrink_messages(messages),
-            "cc_session_id": cc_session_id}
-    with open(path, "w") as f:
-        json.dump(data, f)
-    prune_history(folder)
+    with _history_lock:
+        folder = history_dir()
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "%s.json" % chat_id)
+        created = _chat_created.get(chat_id)
+        if created is None:
+            try:                        # survived a restart: age from the file
+                created = os.stat(path).st_mtime
+            except Exception:
+                created = time.time()
+            _chat_created[chat_id] = created
+        data = {"id": chat_id, "title": chat_title(msg_log), "created": created,
+                "updated": time.time(), "model": model,
+                "msg_log": [list(m) for m in msg_log],
+                "messages": _shrink_messages(_trim_dangling_tool_use(messages)),
+                "cc_session_id": cc_session_id}
+        tmp = "%s.%s.tmp" % (path, uuid.uuid4().hex)
+        try:
+            with open(tmp, "w") as f:
+                json.dump(data, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        finally:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
+        prune_history(folder, keep_path=path)
     return path
 
 
@@ -259,9 +299,16 @@ def list_chats():
         try:
             with open(os.path.join(folder, name), "r") as f:
                 data = json.load(f)
+
+            def _num(value):
+                try:
+                    return float(value or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+
             out.append({"id": data["id"], "title": data.get("title") or "Untitled",
-                        "updated": data.get("updated") or 0,
-                        "created": data.get("created") or 0,
+                        "updated": _num(data.get("updated")),
+                        "created": _num(data.get("created")),
                         "model": data.get("model") or "",
                         "turns": sum(1 for m in data.get("msg_log") or []
                                      if m and m[0] == "you")})
@@ -311,20 +358,29 @@ def build_recap(msg_log, max_entries=30, max_total=6000):
             "so far. Continue the conversation naturally." % recap)
 
 
-def prune_history(folder, keep=100):
-    """Cap the archive so it never grows unbounded; oldest chats go first."""
+def prune_history(folder, keep=100, keep_path=None):
+    """Cap the archive so it never grows unbounded; oldest chats go first.
+
+    Recency comes from st_mtime — no JSON parsing, so pruning stays O(listdir)
+    per save. The just-written file (keep_path) is pinned so a clock rollback
+    can never make a save delete itself.
+    """
     try:
+        names = [n for n in os.listdir(folder) if n.endswith(".json")]
+        if len(names) <= keep:
+            return
         chats = []
-        for name in os.listdir(folder):
-            if name.endswith(".json"):
-                path = os.path.join(folder, name)
-                try:
-                    with open(path, "r") as f:
-                        chats.append((json.load(f).get("updated") or 0, path))
-                except Exception:
-                    continue
+        for name in names:
+            path = os.path.join(folder, name)
+            if keep_path and os.path.basename(path) == os.path.basename(keep_path):
+                continue
+            try:
+                chats.append((os.stat(path).st_mtime, path))
+            except Exception:
+                continue
         chats.sort(reverse=True)
-        for _, path in chats[keep:]:
+        spare = keep - 1 if keep_path else keep
+        for _, path in chats[max(0, spare):]:
             os.remove(path)
     except Exception:
         pass
@@ -4735,6 +4791,14 @@ def run_agent_turn_claude_code(cfg, model, user_text, emit):
         if stray_stdout:
             parts.append("\n".join(stray_stdout[-12:]))
         detail = "\n".join(parts).strip()
+        low = detail.lower()
+        if "no conversation found" in low or "session not found" in low:
+            # Dead --resume reported outside stream-json: self-heal here too.
+            STATE["cc_session_id"] = None
+            emit("notice", "That chat's saved session no longer exists on this "
+                           "machine — send your message again and I'll continue "
+                           "from the transcript instead.")
+            return
         if not detail:
             detail = ("No output was captured. This usually means the `claude` "
                       "command couldn't start its runtime — most often Node.js "
@@ -4797,8 +4861,17 @@ def _handle_claude_code_event(event, emit):
         if not (event.get("is_error") or event.get("subtype") == "error"):
             # Context is established server-side now; the recap has done its job.
             STATE.pop("chat_recap", None)
-        if event.get("is_error") or event.get("subtype") == "error":
-            detail = str(event.get("result") or "Claude Code reported an error.")
+        if event.get("subtype") == "error_max_turns":
+            emit("notice", "Stopped after the maximum number of tool rounds — "
+                           "ask me to continue if needed.")
+            return True
+        if event.get("is_error") or str(event.get("subtype") or "").startswith("error"):
+            # Real CLI error results often carry an empty `result` and put the
+            # text in an `errors` array — read both before giving up.
+            detail = str(event.get("result") or "").strip()
+            if not detail:
+                detail = "\n".join(str(e) for e in event.get("errors") or [])
+            detail = detail.strip() or "Claude Code reported an error."
             low = detail.lower()
             if "no conversation found" in low or "session not found" in low:
                 # A restored chat whose CLI session no longer exists (machine
@@ -4819,23 +4892,20 @@ def _handle_claude_code_event(event, emit):
                            "plugin).")
             emit("error", detail)
             return True
-        if event.get("subtype") == "error_max_turns":
-            emit("notice", "Stopped after the maximum number of tool rounds — "
-                           "ask me to continue if needed.")
-            return True
     return False
 
 
 def run_agent_turn_api(api_key, model, user_text, emit):
     """Run one full user turn against the Messages API (many tool round-trips)."""
     messages = STATE["messages"]
-    messages.append({
-        "role": "user",
-        "content": [
-            {"type": "text", "text": user_text},
-            {"type": "text", "text": resolve_context_block()},
-        ],
-    })
+    blocks = [{"type": "text", "text": user_text},
+              {"type": "text", "text": resolve_context_block()}]
+    if not messages and STATE.get("chat_recap"):
+        # A reopened chat with no replayable wire history (saved under the
+        # claude-code backend): seed the conversation with the transcript
+        # digest so continuity survives the backend switch.
+        blocks.insert(0, {"type": "text", "text": STATE["chat_recap"]})
+    messages.append({"role": "user", "content": blocks})
 
     for _ in range(MAX_AGENT_ITERATIONS):
         try:
@@ -4904,6 +4974,7 @@ def run_agent_turn_api(api_key, model, user_text, emit):
         elif stop_reason == "max_tokens":
             emit("notice", "Response hit the length limit and may be truncated — "
                            "say 'continue' to keep going.")
+        STATE.pop("chat_recap", None)   # context re-established in the history
         return
 
     emit("notice", "Stopped after %d tool rounds — ask me to continue if needed."
@@ -5619,11 +5690,14 @@ class ChatWindow(object):
                              % (names, text[:400]))
 
     # -- transcript -----------------------------------------------------------
-    def append_chat(self, kind, text):
+    def append_chat(self, kind, text, persist=True):
+        """Show a message; persist=False renders it without archiving it
+        (restore banners and the like would otherwise pile up in the file)."""
         if kind == "tool" and not text.startswith(("```", "(", "error:")):
             self._tool_count = getattr(self, "_tool_count", 0) + 1
             self._last_tool = text.split("  ")[0]
-        self.msg_log.append((kind, text))
+        if persist:
+            self.msg_log.append((kind, text))
         html = render_chat_message(kind, text)
         self.html_log.append(html)
         chat = self.items["Chat"]
@@ -5762,6 +5836,7 @@ class ChatWindow(object):
                                lambda kind, t: self.append_chat(kind, t))
             finally:
                 self.set_busy(False)
+                self.autosave()         # no "__done__" event fires on this path
 
     def _worker(self, cfg, model, text):
         try:
@@ -5797,7 +5872,10 @@ class ChatWindow(object):
         self.greet()
 
     def on_close(self, ev):
-        self.autosave()
+        # Mid-turn state ends in a dangling tool_use; the last turn-boundary
+        # snapshot is already on disk and consistent, so keep that one.
+        if not self.busy:
+            self.autosave()
         self.disp.ExitLoop()
 
     # -- history ---------------------------------------------------------------
@@ -5813,7 +5891,8 @@ class ChatWindow(object):
         chats = list_chats()
         if not chats:
             self.append_chat("notice", "No saved chats yet — chats save "
-                                       "themselves after each completed turn.")
+                                       "themselves after each completed turn.",
+                             persist=False)
             return
         try:
             self._show_history(chats)
@@ -5870,9 +5949,15 @@ class ChatWindow(object):
 
     def _populate_history(self, chats):
         self._hist_ids = [c["id"] for c in chats]
-        rows = [("%s" % time.strftime("%b %d  %H:%M",
-                                      time.localtime(c["updated"] or 0)),
-                 c["title"], "%d" % c["turns"]) for c in chats]
+
+        def when(stamp):
+            try:
+                return time.strftime("%b %d  %H:%M", time.localtime(stamp or 0))
+            except Exception:
+                return "?"
+
+        rows = [(when(c["updated"]), c["title"], "%d" % c["turns"])
+                for c in chats]
         if self._hist_kind == "tree":
             tree = self.hist_items["HistTree"]
             try:
@@ -5911,7 +5996,9 @@ class ChatWindow(object):
                 for label in labels:
                     combo.AddItem(label)
 
-    def _selected_chat_id(self):
+    def _selected_chat_id(self, allow_single_fallback=False):
+        """The chat picked in the browser. `allow_single_fallback` treats a
+        one-entry list as selected — safe for Open, never for Delete."""
         if self._hist_kind == "tree":
             try:
                 selected = self.hist_items["HistTree"].CurrentItem()
@@ -5920,7 +6007,9 @@ class ChatWindow(object):
                     return chat_id
             except Exception:
                 pass
-            return self._hist_ids[0] if len(self._hist_ids) == 1 else None
+            if allow_single_fallback and len(self._hist_ids) == 1:
+                return self._hist_ids[0]
+            return None
         try:
             idx = int(self.hist_items["HistCombo"].CurrentIndex)
         except Exception:
@@ -5928,21 +6017,25 @@ class ChatWindow(object):
         return self._hist_ids[idx] if 0 <= idx < len(self._hist_ids) else None
 
     def on_history_open(self, ev):
-        chat_id = self._selected_chat_id()
+        chat_id = self._selected_chat_id(allow_single_fallback=True)
         if not chat_id:
             return
         if self.busy:
             self.append_chat("notice", "Wait for the current turn to finish "
-                                       "before switching chats.")
+                                       "before switching chats.", persist=False)
             return
+        if chat_id == self.chat_id:
+            self.on_history_close(None)   # it's already on screen
+            return
+        self.autosave()                 # keep the chat we're leaving, tail included
         data = load_chat(chat_id)
         if not data:
             self.append_chat("error", "That chat could not be loaded.")
             return
-        self.autosave()                 # keep the chat we're leaving
         self.chat_id = data["id"]
         self.msg_log = [tuple(m) for m in data.get("msg_log") or []]
-        STATE["messages"] = data.get("messages") or []
+        # Heal snapshots from older builds that could save mid-turn state.
+        STATE["messages"] = _trim_dangling_tool_use(data.get("messages"))
         STATE["cc_session_id"] = data.get("cc_session_id")
         # If the saved session can't be resumed, the next turn falls back to
         # this transcript digest so the conversation still continues.
@@ -5955,14 +6048,19 @@ class ChatWindow(object):
                 pass
         self.rebuild_chat()
         self.append_chat("notice", "Restored “%s” — continue where "
-                                   "you left off." % (data.get("title") or "chat"))
+                                   "you left off." % (data.get("title") or "chat"),
+                         persist=False)
         self.on_history_close(None)
 
     def on_history_delete(self, ev):
-        chat_id = self._selected_chat_id()
+        chat_id = self._selected_chat_id()   # explicit selection only
         if not chat_id:
             return
         delete_chat(chat_id)
+        if chat_id == self.chat_id:
+            # The live transcript stays, but under a fresh identity — otherwise
+            # the next autosave would quietly resurrect the deleted archive.
+            self.chat_id = uuid.uuid4().hex
         remaining = list_chats()
         if remaining:
             self._populate_history(remaining)
