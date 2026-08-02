@@ -1296,10 +1296,12 @@ _p = mod._code_preview('"""doc\n' + "\n".join("l%d" % i for i in range(20)))
 check("truncation note is outside the fence", _p.rstrip().endswith("more lines)")
       and _p.index("```", 3) < _p.index("more lines"), _p)
 _h = mod._render_tool_event(_p)
-check("truncation note renders outside the card",
-      "more lines" in _h and _h.index("</pre>") < _h.index("more lines"), _h)
+_pre_seg = _h[_h.index("<pre"):_h.index("</pre>")]
+check("truncation note stays out of the code body",
+      "more lines" in _h and "more lines" not in _pre_seg, _h)
 check("truncation note is not string-coloured",
-      mod._PY_COLORS["string"] not in _h[_h.index("</pre>"):], _h)
+      mod._PY_COLORS["string"] not in _h[:_h.index("<pre")], _h)
+check("code card names its language", "PYTHON" in _h, _h)
 
 # progress line
 check("elapsed under a minute", mod._format_elapsed(8) == "8s")
@@ -1344,7 +1346,20 @@ mod.STATE["ui_theme"] = "Compact"
 check("compact theme tightens the gap",
       "margin-top:%dpx" % mod.THEMES["Compact"]["card_gap"]
       in mod.render_chat_message("you", "hi"))
+
+# the Console theme: dense rows, no card tables, code collapsed to chips
+mod.STATE["ui_theme"] = "Console"
+_h = mod.render_chat_message("you", "sort my clips")
+check("console rows are flat", "<table" not in _h and "›" in _h, _h)
+_h = mod.render_chat_message("assistant", "done\n```python\nx=1\ny=2\n```")
+check("console code collapses to a chip",
+      "<pre" not in _h and "python · 2 lines" in _h, _h)
+_h = mod._render_tool_event(mod._code_preview("a=1\nb=2\nc=3"))
+check("console tool code is a chip too",
+      "<pre" not in _h and "3 lines" in _h, _h)
 mod.STATE["ui_theme"] = mod.DEFAULT_THEME
+check("card themes keep full code",
+      "<pre" in mod.render_chat_message("assistant", "```python\nx=1\n```"))
 check("default theme is the classic look",
       mod.CHAT_STYLES["you"][1] in mod.render_chat_message("you", "hi"))
 
@@ -1356,7 +1371,7 @@ for _name in mod.THEME_CHOICES:
 check("legacy stylesheet is the default theme",
       mod.RESOLVE_STYLESHEET == mod.build_stylesheet(mod.THEMES[mod.DEFAULT_THEME]))
 _h = mod.render_chat_message("you", "hello **there**")
-check("user card has accent + label", "You" in _h and "#6fae6f" in _h
+check("user card has accent + label", "YOU" in _h.upper() and "#6fae6f" in _h
       and "<b>there</b>" in _h, _h)
 check("card escapes html", "<script" not in mod.render_chat_message("you", "<script>"))
 _h = mod.render_chat_message("tool", "add_marker  color: Red")
@@ -2184,6 +2199,13 @@ check("progress line ticks while busy",
       "Claude is working" in _w.items["Status"].Text)
 _w.set_busy(False)
 check("status cleared when idle", _w.items["Status"].Text == "")
+_w.set_busy(True)
+_w.append_chat("tool", "add_marker  color: Red")
+_w.append_chat("tool", "grab_still")
+_w.set_busy(False)
+check("idle summary after a tool turn",
+      _w.items["Status"].Text.startswith("Ready · 2 tool calls · "),
+      _w.items["Status"].Text)
 
 # A Resolve build that chokes on the new widgets must still get a panel.
 _ui2 = FakeUI(reject=lambda el, spec: isinstance(spec, dict)

@@ -4998,22 +4998,49 @@ def _highlight_python(code):
     return "".join(out)
 
 
-def _code_card(code, language=None):
-    """One-cell table 'card' for code. QTextEdit's HTML subset has no
-    border-radius and honours CSS padding only on table cells, and only the
-    longhand margin/padding properties with px units are documented — so cards
-    are tables, and every box property is spelled out."""
-    if str(language or "").lower() in ("python", "py"):
+def _code_card(code, language=None, note=None):
+    """Code as the transcript shows it, in the active theme.
+
+    Card themes: a table (QTextEdit's HTML subset has no border-radius and
+    honours CSS padding only on table cells) with a dim header row naming the
+    language — the mockup's "PYTHON · 14 more lines" strip. Chip themes
+    ("code_chip") collapse the whole block to a single dense line instead.
+    """
+    t = _theme()
+    lang = str(language or "").lower()
+    if t.get("code_chip"):
+        count = len(str(code).splitlines()) or 1
+        bits = "%s · %d line%s" % (lang or "code", count,
+                                   "" if count == 1 else "s")
+        if note:
+            bits += " · %s" % note
+        return ("<div style='margin-top:2px; margin-bottom:2px;'>"
+                "<span style='background-color:%s; color:%s; font-size:%dpx;'>"
+                "&nbsp;{&#8202;} %s&nbsp;</span></div>"
+                % (t["code_bg"], t["code_fg"], t["code_px"], _escape(bits)))
+    if lang in ("python", "py"):
         body = _highlight_python(code)
     else:
         body = _escape(code)
-    t = _theme()
-    return ("<table width='100%%' cellspacing='0' border='0'><tr>"
+    header = ""
+    if lang or note:
+        bits = []
+        if lang:
+            bits.append("<span style='color:#8a8f96; font-size:10px; "
+                        "font-weight:bold;'>%s</span>" % _escape(lang.upper()))
+        if note:
+            bits.append("<span style='color:#70757c; font-size:10px;'>%s</span>"
+                        % _escape(note))
+        header = ("<tr><td style='padding-top:3px; padding-bottom:3px; "
+                  "padding-left:9px; padding-right:9px; "
+                  "background-color:#1d1d1d;'>%s</td></tr>"
+                  % " &nbsp;&#183;&nbsp; ".join(bits))
+    return ("<table width='100%%' cellspacing='0' border='0'>%s<tr>"
             "<td style='padding-top:6px; padding-bottom:6px; padding-left:9px; "
             "padding-right:9px; background-color:%s;'>"
             "<pre style='margin-top:0px; margin-bottom:0px; font-size:%dpx; "
             "color:%s; white-space:pre-wrap;'>%s</pre></td></tr></table>"
-            % (t["code_bg"], t["code_px"], t["code_fg"], body))
+            % (header, t["code_bg"], t["code_px"], t["code_fg"], body))
 
 
 def _render_prose(text):
@@ -5060,13 +5087,13 @@ def _render_markdownish(text):
         pos = closer.end()
 
 
-# Per-speaker card colours: (label, accent, card background). Tints stay close
-# to Resolve's palette so the transcript reads as part of the app.
+# Per-speaker card colours: (label, accent, card background). Neutral graphite
+# fills with coloured caps labels — the user's "native restyle" mockup.
 CHAT_STYLES = {
-    "you":       ("You",    "#6fae6f", "#20281f"),
-    "assistant": ("Claude", "#d98f63", "#282019"),
-    "error":     ("Error",  "#d96b6b", "#2e1d1d"),
-    "notice":    ("Note",   "#c0a94e", "#282619"),
+    "you":       ("YOU",    "#6fae6f", "#26292d"),
+    "assistant": ("CLAUDE", "#d98f63", "#232323"),
+    "error":     ("ERROR",  "#d96b6b", "#2e1d1d"),
+    "notice":    ("NOTE",   "#c0a94e", "#282619"),
 }
 
 # ---------------------------------------------------------------------- themes
@@ -5075,7 +5102,8 @@ CHAT_STYLES = {
 # every renderer reads the active theme through _theme(), and switching
 # re-renders the stored transcript, so the change is instant and retroactive.
 THEMES = {
-    # The stock look: Resolve graphite with per-speaker tinted cards.
+    # The stock look, re-tuned to the user's design mockup "1a Native restyle":
+    # neutral card fills, coloured caps labels, code cards with a header row.
     "Resolve": {
         "window_bg": "#232323", "text": "#c8c8c8", "body_px": 13,
         "chat_bg": "#191919", "chat_border": "#333333",
@@ -5147,9 +5175,32 @@ THEMES = {
                    "keyword": "#8fb5d9", "builtin": "#7fc9b0",
                    "number": "#c9b080"},
     },
+    # The user's "1b Dense console" mockup, within one-TextEdit limits: one
+    # flat row per event with a small coloured speaker tag, and code collapsed
+    # to a chip line instead of a card.
+    "Console": {
+        "window_bg": "#1e1e1e", "text": "#c8ccd2", "body_px": 12,
+        "chat_bg": "#131313", "chat_border": "#2e2e2e",
+        "input_bg": "#262626", "focus": "#c4703f",
+        # Glyphs limited to Latin-1/general punctuation so no Windows font
+        # renders them as tofu boxes (the mockup's ✳/✕ live in symbol fonts).
+        "cards": {
+            "you":       ("›", "#6fae6f", "#131313"),
+            "assistant": ("»", "#d98f63", "#131313"),
+            "error":     ("×", "#d96b6b", "#131313"),
+            "notice":    ("•", "#b0a04e", "#131313"),
+        },
+        "card_gap": 5, "card_pad": (2, 6), "label_px": 11,
+        "tool_px": 10, "tool_color": "#7d838b", "tool_name": "#7f9dc4",
+        "tool_error": "#d96b6b", "tool_indent": 14, "code_indent": 14,
+        "code_bg": "#0f0f0f", "code_fg": "#c8ccd0", "code_px": 10,
+        "inline_code_bg": "#242424",
+        "syntax": _PY_COLORS,
+        "layout": "console", "code_chip": True,
+    },
 }
 DEFAULT_THEME = "Resolve"
-THEME_CHOICES = ["Resolve", "Contrast", "Compact", "Terminal"]
+THEME_CHOICES = ["Resolve", "Console", "Contrast", "Compact", "Terminal"]
 
 
 def _theme():
@@ -5214,11 +5265,7 @@ def _render_tool_event(text):
             lang, note = "", None
             body = re.sub(r"\n?```\s*$", "", re.sub(r"^```[\w+-]*\n?", "", text))
         t = _theme()
-        card = _code_card(body, lang)
-        if note:
-            card += ("<div style='margin-top:0px; margin-bottom:0px; "
-                     "font-size:%dpx; color:%s;'>%s</div>"
-                     % (t["tool_px"], t["tool_color"], _escape(note)))
+        card = _code_card(body, lang, note)
         return ("<div style='margin-top:2px; margin-bottom:2px; "
                 "margin-left:%dpx;'>%s</div>" % (t["code_indent"], card))
     t = _theme()
@@ -5258,6 +5305,12 @@ def render_chat_message(kind, text):
         return _render_tool_event(text)
     t = _theme()
     speaker, accent, bg = t["cards"].get(kind, ("?", "#9a9a9a", "#222222"))
+    if t.get("layout") == "console":
+        # Dense one-row-per-event look: coloured tag, flat background.
+        return ("<div style='margin-top:%dpx;'>"
+                "<span style='color:%s; font-weight:bold;'>%s</span>&nbsp; %s"
+                "</div>" % (t["card_gap"], accent, _escape(speaker),
+                            _render_markdownish(text)))
     pad_v, pad_h = t["card_pad"]
     return ("<table width='100%%' cellspacing='0' border='0' "
             "style='margin-top:%dpx;'><tr>"
@@ -5315,10 +5368,26 @@ QPushButton:hover {{ background-color: #3d3d3d; border: 1px solid #555555; }}
 QPushButton:pressed {{ background-color: #2a2a2a; }}
 QPushButton:disabled {{ color: #666666; background-color: #2a2a2a; border: 1px solid #333333; }}
 QCheckBox {{ background: transparent; }}
+QCheckBox::indicator {{
+    width: 28px; height: 15px;
+    border-radius: 8px;
+    background-color: #3a3a3a;
+    border: 1px solid #4a4a4a;
+}}
+QCheckBox::indicator:checked {{ background-color: {accent}; border: 1px solid {accent}; }}
+QPushButton#SendBtn {{
+    background-color: {accent};
+    color: #1c1c1c;
+    font-weight: bold;
+    border: none;
+}}
+QPushButton#SendBtn:hover {{ border: 1px solid #e8e8e8; }}
+QPushButton#SendBtn:disabled {{ background-color: #3a3a3a; color: #777777; }}
 QToolTip {{ background-color: {input_bg}; color: {text}; border: 1px solid #454545; }}
 """.format(text=t["text"], body_px=t["body_px"], window_bg=t["window_bg"],
            chat_bg=t["chat_bg"], chat_border=t["chat_border"],
-           input_bg=t["input_bg"], focus=t["focus"])
+           input_bg=t["input_bg"], focus=t["focus"],
+           accent=t["cards"]["assistant"][1])
 
 
 RESOLVE_STYLESHEET = build_stylesheet(THEMES[DEFAULT_THEME])
@@ -5581,7 +5650,17 @@ class ChatWindow(object):
             self._busy_since = time.time()
             self._tool_count = 0
             self._last_tool = ""
-        self.set_status(_progress_text(0, 0, "") if busy else "")
+            self.set_status(_progress_text(0, 0, ""))
+        else:
+            # Idle summary strip from the mockup: "Ready · 3 tool calls · 0:52"
+            tools = getattr(self, "_tool_count", 0)
+            if tools:
+                elapsed = time.time() - getattr(self, "_busy_since", time.time())
+                self.set_status("Ready · %d tool call%s · %s"
+                                % (tools, "" if tools == 1 else "s",
+                                   _format_elapsed(elapsed)))
+            else:
+                self.set_status("")
 
     def tick_progress(self):
         """Keep the status line counting while a turn runs, so a long job
