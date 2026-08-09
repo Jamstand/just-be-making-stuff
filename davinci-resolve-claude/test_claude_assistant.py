@@ -2039,6 +2039,29 @@ _sh3.rmtree(_dropdir, ignore_errors=True)
 check("default drop folder is home-based",
       mod.default_drop_folder().startswith(os.path.expanduser("~")))
 
+# watch_folder tool: add/list/remove extra watched folders (e.g. Higgsfield out)
+_cfg_home = tempfile.mkdtemp()
+_real_cfg_path = mod.config_path
+mod.config_path = lambda: os.path.join(_cfg_home, "config.json")
+_hf = tempfile.mkdtemp()
+ok, out = run_tool("watch_folder", {"action": "add", "path": _hf})
+check("watch add ok", ok and _hf in out, out)
+check("watch add persisted",
+      mod.load_config().get("extra_watch_folders") == [_hf])
+check("watch add live", mod.STATE.get("extra_watch_folders") == [_hf])
+ok, out = run_tool("watch_folder", {"action": "add", "path": _hf})
+check("watch add idempotent",
+      ok and mod.load_config()["extra_watch_folders"] == [_hf])
+ok, out = run_tool("watch_folder", {"action": "list"})
+check("watch list shows both", ok and _hf in out and "Claude Drop" in out, out)
+ok, out = run_tool("watch_folder", {"action": "add", "path": "/no/such/dir/xyz"})
+check("watch add rejects missing dirs", not ok and "not an existing folder" in out)
+ok, out = run_tool("watch_folder", {"action": "remove", "path": _hf})
+check("watch remove ok", ok and mod.load_config()["extra_watch_folders"] == [])
+mod.config_path = _real_cfg_path
+import shutil as _sh4
+_sh4.rmtree(_cfg_home, ignore_errors=True); _sh4.rmtree(_hf, ignore_errors=True)
+
 # ---------------------------------------------------------- window construction
 print("== chat window ==")
 

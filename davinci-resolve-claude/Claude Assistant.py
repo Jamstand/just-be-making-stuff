@@ -1468,6 +1468,47 @@ def t_import_and_sort(app, paths, scheme="type/resolution"):
 
 
 @tool(
+    "watch_folder",
+    "Manage the folders the panel watches for new media (needs the panel's "
+    "'Drop folder' checkbox ON). Besides the default Claude Drop folder, extra "
+    "folders can be watched — e.g. the output folder of an AI generator like "
+    "Higgsfield, so every clip it saves is imported and sorted into bins "
+    "automatically. Actions: 'list', 'add' (requires path), 'remove'.",
+    params={
+        "action": {"type": "string", "enum": ["list", "add", "remove"],
+                   "description": "What to do."},
+        "path": {"type": "string",
+                 "description": "Folder path, for add/remove."},
+    },
+    required=["action"],
+)
+def t_watch_folder(app, action, path=None):
+    cfg = load_config()
+    extra = [f for f in (cfg.get("extra_watch_folders") or []) if f]
+    if action == "list":
+        return {"default": default_drop_folder(), "extra": extra,
+                "note": "Watching runs only while the panel's 'Drop folder' "
+                        "checkbox is ticked."}
+    if not path:
+        raise ResolveError("Provide the folder path to %s." % action)
+    path = os.path.abspath(os.path.expanduser(str(path)))
+    if action == "add":
+        if not os.path.isdir(path):
+            raise ResolveError("%s is not an existing folder — create it (or "
+                               "check the spelling) first." % path)
+        if path not in extra:
+            extra.append(path)
+    elif action == "remove":
+        extra = [f for f in extra if os.path.normcase(f) != os.path.normcase(path)]
+    cfg["extra_watch_folders"] = extra
+    save_config(cfg)
+    STATE["extra_watch_folders"] = extra
+    return {"watching": [default_drop_folder()] + extra,
+            "note": "Saved. New files landing there import and sort "
+                    "automatically while 'Drop folder' is ticked."}
+
+
+@tool(
     "append_to_timeline",
     "Append media pool clips (found by exact name) to the end of the current timeline, "
     "in the order given.",
@@ -5488,6 +5529,7 @@ class ChatWindow(object):
 
         saved_theme = cfg.get("ui_theme")
         STATE["ui_theme"] = saved_theme if saved_theme in THEMES else DEFAULT_THEME
+        STATE["extra_watch_folders"] = list(cfg.get("extra_watch_folders") or [])
 
         # Build the full window; if anything about it fails on this Resolve
         # build, fall back to the plain header that is known to work
@@ -5672,11 +5714,19 @@ class ChatWindow(object):
                 self.items["WatchDrop"].Checked = False
                 return
             self._drop_ready = True
-            self._drop_tracker = {}
+            self._drop_trackers = {}
             self.append_chat("notice",
                              "Watching **%s** — drop videos there and I'll import "
                              "and sort them into bins automatically." % folder)
-        ready = scan_drop_folder(folder, self._drop_tracker)
+        # The default drop folder plus any extras (e.g. an AI generator's
+        # output dir added via the watch_folder tool). Each keeps its own
+        # two-poll stability tracker; extras are scanned only if they exist.
+        ready = []
+        for watched in [folder] + list(STATE.get("extra_watch_folders") or []):
+            if watched != folder and not os.path.isdir(watched):
+                continue
+            tracker = self._drop_trackers.setdefault(watched, {})
+            ready += scan_drop_folder(watched, tracker)
         if not ready:
             return
         ok, text, _imgs = execute_tool("import_and_sort", {"paths": ready})

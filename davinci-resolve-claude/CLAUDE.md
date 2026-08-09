@@ -6,7 +6,7 @@ several from live failures inside real Resolve on Windows.
 ## What this is
 
 A chat panel that runs inside DaVinci Resolve (Workspace > Scripts) and lets
-Claude drive Resolve through 64 tools. Two backends:
+Claude drive Resolve through 65 tools. Two backends:
 
 - **claude-code** (default): shells out to the Claude Code CLI on the user's
   Pro/Max subscription. No API key. The CLI gets the Resolve tools via MCP.
@@ -26,7 +26,7 @@ Resolve process                                external processes
 │ ToolBridge                   │                 │ spawns MCP server:
 │  TCP 127.0.0.1:<random>      │<──JSON-line───  │  python <this file> --mcp-bridge
 │  token-gated, lock-serialised│    socket       │  OR node bridge.js (fallback)
-│ execute_tool → 64 tool fns   │
+│ execute_tool → 65 tool fns   │
 └─────────────────────────────┘
 ```
 
@@ -119,7 +119,7 @@ behaviour; extend them when adding tools.
 
 ## Current status (last updated by the original build session)
 
-- 62 of 64 tools live-verified against the real claude CLI with a mocked Resolve
+- 62 of 65 tools live-verified against the real claude CLI with a mocked Resolve
   (markers created end-to-end, vision confirmed, multi-image confirmed, Node
   bridge path confirmed with Python disabled).
 - Verified inside REAL Resolve (Windows 11): panel launch, UI, theming, effort
