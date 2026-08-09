@@ -1508,6 +1508,248 @@ def t_watch_folder(app, action, path=None):
                     "automatically while 'Drop folder' is ticked."}
 
 
+# -- Higgsfield AI ------------------------------------------------------------
+# Generation runs on Higgsfield's cloud (platform.higgsfield.ai). Endpoint
+# shapes are verbatim from Higgsfield's own SDKs (higgsfield-client /
+# higgsfield-js): auth "Authorization: Key ID:SECRET", v1 bodies wrapped in
+# {"params": ...}, async job_sets polled at /v1/job-sets/<id>, finished jobs
+# carrying results.raw.url. 403 means out of credits, not bad auth.
+
+HIGGSFIELD_BASE = "https://platform.higgsfield.ai"
+
+
+def get_higgsfield_key(cfg):
+    key = os.environ.get("HF_KEY")
+    if not key and os.environ.get("HF_API_KEY") and os.environ.get("HF_API_SECRET"):
+        key = "%s:%s" % (os.environ["HF_API_KEY"], os.environ["HF_API_SECRET"])
+    return key or cfg.get("higgsfield_key") or ""
+
+
+def _hf_call(cfg, method, path, body=None, timeout=30):
+    key = get_higgsfield_key(cfg)
+    if not key or ":" not in key:
+        raise ResolveError(
+            "No Higgsfield API key set. Create one at cloud.higgsfield.ai "
+            "(API keys page), then tell me: set my higgsfield key to "
+            "KEY_ID:KEY_SECRET — I'll store it in the plugin config.")
+    import urllib.request
+    import urllib.error
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(
+        HIGGSFIELD_BASE + path, data=data, method=method,
+        headers={"Authorization": "Key %s" % key,
+                 "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", "replace")[:400]
+        except Exception:
+            pass
+        if exc.code == 401:
+            raise ResolveError("Higgsfield rejected the API key (401). Check it "
+                               "at cloud.higgsfield.ai and set it again.")
+        if exc.code == 403:
+            raise ResolveError("Higgsfield says the account is out of credits "
+                               "(403). Top up at higgsfield.ai and retry.")
+        raise ResolveError("Higgsfield API error %d on %s: %s"
+                           % (exc.code, path, detail or exc.reason))
+    except Exception as exc:
+        raise ResolveError("Could not reach Higgsfield (%s): %s"
+                           % (path, exc))
+
+
+def _hf_download(url, base_name):
+    """Fetch a finished result into the drop folder; returns the local path."""
+    import urllib.request
+    folder = default_drop_folder()
+    os.makedirs(folder, exist_ok=True)
+    with urllib.request.urlopen(url, timeout=120) as resp:
+        payload = resp.read()
+        ctype = (resp.headers.get("Content-Type") or "").lower()
+    ext = ".mp4" if "video" in ctype else (".png" if "png" in ctype else
+                                           ".jpg" if "jpe" in ctype else
+                                           os.path.splitext(url.split("?")[0])[1] or ".bin")
+    stem = re.sub(r"[^\w\-]+", "_", base_name).strip("_")[:48] or "higgsfield"
+    path = os.path.join(folder, stem + ext)
+    seq = 1
+    while os.path.exists(path):
+        path = os.path.join(folder, "%s_%d%s" % (stem, seq, ext))
+        seq += 1
+    with open(path, "wb") as f:
+        f.write(payload)
+    return path
+
+
+def _hf_collect(app, cfg, job_set_id, label, budget_seconds):
+    """Poll a job set within the budget; import whatever completed."""
+    deadline = time.time() + max(3, budget_seconds)
+    job_set = None
+    while time.time() < deadline:
+        job_set = _hf_call(cfg, "GET", "/v1/job-sets/%s" % job_set_id)
+        jobs = job_set.get("jobs") or []
+        states = set(str(j.get("status")) for j in jobs)
+        if jobs and not states & {"queued", "in_progress", "processing"}:
+            break
+        time.sleep(3)
+    jobs = (job_set or {}).get("jobs") or []
+    done = [j for j in jobs
+            if ((j.get("results") or {}).get("raw") or {}).get("url")]
+    failed = [j for j in jobs if str(j.get("status")) == "failed"]
+    if not done:
+        if failed and len(failed) == len(jobs):
+            raise ResolveError("Higgsfield reported the generation failed "
+                               "(job set %s)." % job_set_id)
+        return {"status": "still_generating", "job_set_id": job_set_id,
+                "note": "Not finished yet — call higgsfield_check_job with "
+                        "this job_set_id in a little while."}
+    paths = [_hf_download(j["results"]["raw"]["url"], label) for j in done]
+    imported = t_import_and_sort(app, paths)
+    out = {"status": "imported", "files": [os.path.basename(p) for p in paths]}
+    out.update(imported)
+    if failed:
+        out["failed_jobs"] = len(failed)
+    return out
+
+
+@tool(
+    "higgsfield_setup",
+    "Store the user's Higgsfield API credentials so the higgsfield_* tools can "
+    "generate media. Get a key at cloud.higgsfield.ai; the value is "
+    "'KEY_ID:KEY_SECRET'. Stored locally in the plugin config file.",
+    params={"api_key": {"type": "string",
+                        "description": "Credentials as KEY_ID:KEY_SECRET."}},
+    required=["api_key"],
+)
+def t_higgsfield_setup(app, api_key):
+    api_key = str(api_key).strip()
+    if ":" not in api_key:
+        raise ResolveError("That doesn't look right — Higgsfield credentials "
+                           "are two parts joined by a colon: KEY_ID:KEY_SECRET.")
+    cfg = load_config()
+    cfg["higgsfield_key"] = api_key
+    save_config(cfg)
+    return {"saved": True,
+            "key_preview": api_key.split(":")[0][:6] + "…",
+            "note": "You can now use higgsfield_generate_image, "
+                    "higgsfield_animate_image and higgsfield_list_motions."}
+
+
+@tool(
+    "higgsfield_generate_image",
+    "Generate an image with Higgsfield's Soul model from a text prompt, then "
+    "import it into the media pool (sorted into bins). Uses the user's "
+    "Higgsfield credits. If generation takes longer than ~45s this returns a "
+    "job_set_id — follow up with higgsfield_check_job.",
+    params={
+        "prompt": {"type": "string", "description": "What to generate."},
+        "width_and_height": {"type": "string",
+                             "description": "e.g. '2048x1152' (landscape), "
+                                            "'1536x2048' (portrait), "
+                                            "'1536x1536' (square)."},
+        "quality": {"type": "string", "enum": ["720p", "1080p"],
+                    "description": "Default 1080p."},
+        "batch_size": {"type": "integer", "enum": [1, 4],
+                       "description": "1 or 4 variations. Default 1."},
+        "seed": {"type": "integer", "description": "Optional, 0-1000000."},
+    },
+    required=["prompt"],
+)
+def t_higgsfield_generate_image(app, prompt, width_and_height="1536x1536",
+                                quality="1080p", batch_size=1, seed=None):
+    cfg = load_config()
+    params = {"prompt": str(prompt), "width_and_height": str(width_and_height),
+              "quality": quality, "batch_size": int(batch_size)}
+    if seed is not None:
+        params["seed"] = int(seed)
+    job_set = _hf_call(cfg, "POST", "/v1/text2image/soul", {"params": params})
+    return _hf_collect(app, cfg, job_set.get("id"), prompt, budget_seconds=45)
+
+
+@tool(
+    "higgsfield_animate_image",
+    "Animate a still image into a video clip with Higgsfield's DoP model "
+    "(cinematic camera motion), then import the result. `image_path` is an "
+    "absolute path on disk — e.g. a frame grabbed with grab_still, or a still "
+    "from the media pool ('File Path' property). Video takes minutes: this "
+    "returns a job_set_id — follow up with higgsfield_check_job.",
+    params={
+        "image_path": {"type": "string", "description": "Absolute path to the "
+                                                        "source image."},
+        "prompt": {"type": "string", "description": "Motion/mood description."},
+        "model": {"type": "string",
+                  "enum": ["dop-lite", "dop-turbo", "dop-standard"],
+                  "description": "Default dop-turbo."},
+        "motion_id": {"type": "string",
+                      "description": "Optional camera-motion preset id from "
+                                     "higgsfield_list_motions."},
+        "motion_strength": {"type": "number",
+                            "description": "0-1, with motion_id. Default 0.8."},
+    },
+    required=["image_path", "prompt"],
+)
+def t_higgsfield_animate_image(app, image_path, prompt, model="dop-turbo",
+                               motion_id=None, motion_strength=0.8):
+    cfg = load_config()
+    image_path = os.path.abspath(os.path.expanduser(str(image_path)))
+    if not os.path.isfile(image_path):
+        raise ResolveError("No image at %s." % image_path)
+    ext = os.path.splitext(image_path)[1].lower()
+    ctype = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+             "webp": "image/webp"}.get(ext.lstrip("."), "image/png")
+    upload = _hf_call(cfg, "POST", "/files/generate-upload-url",
+                      {"content_type": ctype})
+    import urllib.request
+    with open(image_path, "rb") as f:
+        payload = f.read()
+    put = urllib.request.Request(upload["upload_url"], data=payload,
+                                 method="PUT",
+                                 headers={"Content-Type": ctype})
+    try:
+        urllib.request.urlopen(put, timeout=120).read()
+    except Exception as exc:
+        raise ResolveError("Uploading the image to Higgsfield failed: %s" % exc)
+    params = {"model": model, "prompt": str(prompt),
+              "input_images": [{"type": "image_url",
+                                "image_url": upload["public_url"]}]}
+    if motion_id:
+        params["motions"] = [{"id": str(motion_id),
+                              "strength": float(motion_strength)}]
+    job_set = _hf_call(cfg, "POST", "/v1/image2video/dop", {"params": params})
+    return _hf_collect(app, cfg, job_set.get("id"), prompt, budget_seconds=30)
+
+
+@tool(
+    "higgsfield_check_job",
+    "Check a Higgsfield generation job (from higgsfield_generate_image / "
+    "higgsfield_animate_image) and import the results into the media pool "
+    "once finished.",
+    params={"job_set_id": {"type": "string", "description": "The job set id."}},
+    required=["job_set_id"],
+)
+def t_higgsfield_check_job(app, job_set_id):
+    cfg = load_config()
+    return _hf_collect(app, cfg, str(job_set_id), "higgsfield", budget_seconds=20)
+
+
+@tool(
+    "higgsfield_list_motions",
+    "List Higgsfield's camera-motion presets (crash zoom, dolly, orbit...) for "
+    "higgsfield_animate_image.",
+    params={},
+    required=[],
+)
+def t_higgsfield_list_motions(app):
+    cfg = load_config()
+    motions = _hf_call(cfg, "GET", "/v1/motions") or []
+    return {"motions": [{"id": m.get("id"), "name": m.get("name"),
+                         "description": (m.get("description") or "")[:120]}
+                        for m in motions[:60]],
+            "count": len(motions)}
+
+
 @tool(
     "append_to_timeline",
     "Append media pool clips (found by exact name) to the end of the current timeline, "

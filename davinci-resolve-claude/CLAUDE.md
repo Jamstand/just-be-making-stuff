@@ -6,7 +6,7 @@ several from live failures inside real Resolve on Windows.
 ## What this is
 
 A chat panel that runs inside DaVinci Resolve (Workspace > Scripts) and lets
-Claude drive Resolve through 65 tools. Two backends:
+Claude drive Resolve through 70 tools. Two backends:
 
 - **claude-code** (default): shells out to the Claude Code CLI on the user's
   Pro/Max subscription. No API key. The CLI gets the Resolve tools via MCP.
@@ -26,7 +26,7 @@ Resolve process                                external processes
 │ ToolBridge                   │                 │ spawns MCP server:
 │  TCP 127.0.0.1:<random>      │<──JSON-line───  │  python <this file> --mcp-bridge
 │  token-gated, lock-serialised│    socket       │  OR node bridge.js (fallback)
-│ execute_tool → 65 tool fns   │
+│ execute_tool → 70 tool fns   │
 └─────────────────────────────┘
 ```
 
@@ -119,7 +119,7 @@ behaviour; extend them when adding tools.
 
 ## Current status (last updated by the original build session)
 
-- 62 of 65 tools live-verified against the real claude CLI with a mocked Resolve
+- 62 of 70 tools live-verified against the real claude CLI with a mocked Resolve
   (markers created end-to-end, vision confirmed, multi-image confirmed, Node
   bridge path confirmed with Python disabled).
 - Verified inside REAL Resolve (Windows 11): panel launch, UI, theming, effort
@@ -155,6 +155,18 @@ behaviour; extend them when adding tools.
   redistribution); precedent repo olegkupshukov/claude-resolve spawns the
   claude CLI from the plugin's main process. Gotchas: orphaned electron.exe
   can lock the .node file on Windows; call SetAPITimeout() after init.
+- Higgsfield tools (endpoint shapes verbatim from Higgsfield's OFFICIAL SDKs,
+  higgsfield-client/higgsfield-js on GitHub — do not trust blog posts): base
+  platform.higgsfield.ai; auth header `Authorization: Key ID:SECRET`; v1
+  bodies wrapped in {"params": {...}}; POST /v1/text2image/soul,
+  /v1/image2video/dop (dop-lite/turbo/standard, motions from GET /v1/motions),
+  /files/generate-upload-url + PUT for inputs; async job_sets polled at GET
+  /v1/job-sets/<id>, results in jobs[].results.raw.url; 401=bad key,
+  403=OUT OF CREDITS (not authz), 422=validation. Tools submit + wait briefly,
+  then hand back job_set_id for higgsfield_check_job (MCP calls must not block
+  for minutes). Keys from cloud.higgsfield.ai, stored as cfg higgsfield_key.
+  Higgsfield's own Resolve plugin is a separate Workflow Integration that
+  imports into the media pool directly — no stable output folder to watch.
 - Chat history: autosaves to <config dir>/chats/<uuid>.json after every
   completed turn (images stripped from the stored API messages). History
   button opens a Tree browser (ComboBox fallback). Resume semantics: the CLI

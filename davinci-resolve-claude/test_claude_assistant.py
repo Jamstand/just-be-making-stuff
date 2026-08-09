@@ -2062,6 +2062,150 @@ mod.config_path = _real_cfg_path
 import shutil as _sh4
 _sh4.rmtree(_cfg_home, ignore_errors=True); _sh4.rmtree(_hf, ignore_errors=True)
 
+# ------------------------------------------------------------- higgsfield
+print("== higgsfield ==")
+
+_cfg_home2 = tempfile.mkdtemp()
+_dropdir2 = tempfile.mkdtemp()
+_real_cfg_path2 = mod.config_path
+_real_dropdir = mod.default_drop_folder
+mod.config_path = lambda: os.path.join(_cfg_home2, "config.json")
+mod.default_drop_folder = lambda: _dropdir2
+
+for _v in ("HF_KEY", "HF_API_KEY", "HF_API_SECRET"):
+    os.environ.pop(_v, None)
+check("no key -> friendly setup pointer", (lambda r: not r[0]
+      and "cloud.higgsfield.ai" in r[1])(run_tool("higgsfield_generate_image",
+                                                  {"prompt": "x"})))
+ok, out = run_tool("higgsfield_setup", {"api_key": "justonepart"})
+check("setup rejects malformed key", not ok and "colon" in out, out)
+ok, out = run_tool("higgsfield_setup", {"api_key": "kid123:sec456"})
+check("setup stores key", ok and mod.load_config()["higgsfield_key"] == "kid123:sec456")
+check("key preview is masked", "sec456" not in out, out)
+os.environ["HF_KEY"] = "envid:envsec"
+check("env key wins over config",
+      mod.get_higgsfield_key(mod.load_config()) == "envid:envsec")
+os.environ.pop("HF_KEY")
+
+_hf_calls = []
+_real_hf_call = mod._hf_call
+_real_hf_download = mod._hf_download
+
+
+def _fake_hf_call(cfg, method, path, body=None, timeout=30):
+    _hf_calls.append((method, path, body))
+    if path == "/v1/text2image/soul":
+        return {"id": "js-1", "jobs": [{"id": "j1", "status": "queued"}]}
+    if path == "/v1/job-sets/js-1":
+        return {"id": "js-1", "jobs": [{"id": "j1", "status": "completed",
+                                        "results": {"raw": {"url": "https://cdn/x.png",
+                                                            "type": "image"}}}]}
+    if path == "/v1/job-sets/js-slow":
+        return {"id": "js-slow", "jobs": [{"id": "j1", "status": "in_progress"}]}
+    if path == "/v1/job-sets/js-dead":
+        return {"id": "js-dead", "jobs": [{"id": "j1", "status": "failed"}]}
+    if path == "/files/generate-upload-url":
+        return {"upload_url": "https://up/put-here", "public_url": "https://pub/img.png"}
+    if path == "/v1/image2video/dop":
+        return {"id": "js-slow", "jobs": [{"id": "j2", "status": "queued"}]}
+    if path == "/v1/motions":
+        return [{"id": "m%d" % i, "name": "Motion %d" % i,
+                 "description": "d" * 200} for i in range(70)]
+    raise AssertionError("unexpected path %s" % path)
+
+
+def _fake_download(url, base_name):
+    p = os.path.join(_dropdir2, "gen_x.png")
+    open(p, "wb").write(b"png")
+    return p
+
+
+mod._hf_call = _fake_hf_call
+mod._hf_download = _fake_download
+ok, out = run_tool("higgsfield_generate_image",
+                   {"prompt": "a car at dusk", "batch_size": 1})
+check("generate_image imports the result",
+      ok and '"status": "imported"' in out and '"imported": 1' in out, out)
+check("soul body wrapped in params",
+      any(p == "/v1/text2image/soul" and "params" in (b or {})
+          and b["params"]["prompt"] == "a car at dusk"
+          for _, p, b in _hf_calls), str(_hf_calls))
+
+ok, out = run_tool("higgsfield_check_job", {"job_set_id": "js-slow"})
+check("pending job reports still_generating",
+      ok and "still_generating" in out and "js-slow" in out, out)
+ok, out = run_tool("higgsfield_check_job", {"job_set_id": "js-dead"})
+check("failed job set surfaces as error", not ok and "failed" in out, out)
+
+_put_hits = []
+import urllib.request as _urlreq
+_real_urlopen = _urlreq.urlopen
+
+
+class _FakePutResp(object):
+    def read(self):
+        return b""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _fake_urlopen(req, timeout=None, **kw):
+    _put_hits.append((getattr(req, "full_url", req), getattr(req, "method", "GET")))
+    return _FakePutResp()
+
+
+_urlreq.urlopen = _fake_urlopen
+with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as _src:
+    _src.write(b"fakepng")
+ok, out = run_tool("higgsfield_animate_image",
+                   {"image_path": _src.name, "prompt": "slow push in",
+                    "motion_id": "m1", "motion_strength": 0.5})
+_urlreq.urlopen = _real_urlopen
+check("animate uploads then submits dop",
+      ok and any("up/put-here" in str(u) and m == "PUT" for u, m in _put_hits)
+      and any(p == "/v1/image2video/dop" and b["params"]["motions"] ==
+              [{"id": "m1", "strength": 0.5}] for _, p, b in _hf_calls), out)
+check("video job returns id to check later", "js-slow" in out, out)
+os.unlink(_src.name)
+
+ok, out = run_tool("higgsfield_list_motions", {})
+check("motions listed and truncated",
+      ok and '"count": 70' in out and out.count('"id"') <= 61, out[:200])
+
+# HTTP error mapping straight through _hf_call
+import urllib.error as _urlerr
+
+
+def _fake_urlopen_err(req, timeout=None, **kw):
+    code = 403 if "soul" in req.full_url else 401
+    raise _urlerr.HTTPError(req.full_url, code, "boom", {}, None)
+
+
+mod._hf_call = _real_hf_call
+_urlreq.urlopen = _fake_urlopen_err
+try:
+    mod._hf_call({"higgsfield_key": "a:b"}, "POST", "/v1/text2image/soul", {})
+    check("403 maps to credits message", False)
+except mod.ResolveError as exc:
+    check("403 maps to credits message", "credits" in str(exc), str(exc))
+try:
+    mod._hf_call({"higgsfield_key": "a:b"}, "GET", "/v1/motions")
+    check("401 maps to key message", False)
+except mod.ResolveError as exc:
+    check("401 maps to key message", "key" in str(exc), str(exc))
+_urlreq.urlopen = _real_urlopen
+
+mod._hf_call = _real_hf_call
+mod._hf_download = _real_hf_download
+mod.config_path = _real_cfg_path2
+mod.default_drop_folder = _real_dropdir
+_sh4.rmtree(_cfg_home2, ignore_errors=True)
+_sh4.rmtree(_dropdir2, ignore_errors=True)
+
 # ---------------------------------------------------------- window construction
 print("== chat window ==")
 
