@@ -138,6 +138,23 @@ behaviour; extend them when adding tools.
   it needs to be sent into a session ("Send to Claude Code Web" from Claude
   Design) because DesignSync auth is interactive-only here. Map its variants
   onto THEMES entries when it arrives.
+- Workflow Integration (research-verified, three README mirrors + shipped
+  plugins): a BARE .py in
+  `%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Workflow
+  Integration Plugins\` (mac: `/Library/Application Support/Blackmagic
+  Design/DaVinci Resolve/Workflow Integration Plugins/`, no `Support`)
+  appears under Workspace > Workflow Integrations after a RESTART (startup
+  scan only). Same in-process env as Workspace > Scripts plus a bonus
+  `project` global. STUDIO-ONLY — and free 19.1+ blocks fusion.UIManager
+  everywhere, so this panel is effectively Studio-targeted on current
+  versions. Install-WorkflowIntegration.ps1 deploys both launch points.
+  Future Electron milestone (verified): Resolve Studio bundles its own
+  Electron; a plugin = folder + manifest.xml + WorkflowIntegration.node
+  COPIED FROM THE USER'S INSTALL (Developer/Workflow
+  Integrations/Examples/SamplePlugin/ — don't commit it, gray-area
+  redistribution); precedent repo olegkupshukov/claude-resolve spawns the
+  claude CLI from the plugin's main process. Gotchas: orphaned electron.exe
+  can lock the .node file on Windows; call SetAPITimeout() after init.
 - Chat history: autosaves to <config dir>/chats/<uuid>.json after every
   completed turn (images stripped from the stored API messages). History
   button opens a Tree browser (ComboBox fallback). Resume semantics: the CLI

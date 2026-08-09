@@ -125,6 +125,26 @@ avoid that.
   transcript recap so the conversation still continues. The newest 100 chats
   are kept, in `ClaudeResolveAssistant/chats` next to the config file.
 
+### Workspace > Workflow Integrations (Resolve Studio)
+
+The same file can also be registered as a **Workflow Integration**, so the
+assistant appears under `Workspace > Workflow Integrations > Claude Assistant`
+like a native plugin. Run `Install-WorkflowIntegration.ps1` (right-click →
+Run with PowerShell — it asks for admin because the folder lives in
+ProgramData), or copy manually:
+
+```
+%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins\
+```
+
+Create the folder if it doesn't exist, drop `Claude Assistant.py` in as a bare
+file, and restart Resolve (this menu is scanned only at startup). The script
+runs in the same in-process environment either way — same panel, same tools.
+
+Caveat: workflow integrations are a **DaVinci Resolve Studio** feature; the
+free edition never shows the menu (and free 19.1+ also blocks UIManager
+panels generally). If the menu doesn't appear, keep using Workspace > Scripts.
+
 ### What Claude can do out of the box
 
 | Area | Tools |
