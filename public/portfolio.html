@@ -8,6 +8,11 @@
 <meta property="og:title" content="Josh Iott — Videographer · Photographer · Cinematographer">
 <meta property="og:description" content="Stories told frame by frame. Videography, photography and cinematography portfolio.">
 <meta property="og:type" content="website">
+<meta property="og:image" content="og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Josh Iott — Videographer · Photographer · Cinematographer">
+<meta name="twitter:description" content="Stories told frame by frame. Videography, photography and cinematography portfolio.">
+<meta name="twitter:image" content="og.jpg">
 <meta name="theme-color" content="#0a0908">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0908'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23d4a259' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%23d4a259'/%3E%3C/svg%3E">
 <style>
@@ -172,6 +177,7 @@
     .nav-links, .nav-cta { display: none; }
     .menu-btn { display: block; }
   }
+  @media (min-width: 761px) { .mobile-menu { display: none; } }
 
   /* ── Hero ────────────────────────────────────────────────────────────── */
   .hero {
@@ -297,10 +303,10 @@
   .card:hover .card-frame img, .card:focus-visible .card-frame img { transform: scale(1.045); filter: saturate(1.05); }
   .card-veil {
     position: absolute; inset: 0;
-    background: linear-gradient(180deg, transparent 45%, rgba(5,4,3,.72) 100%);
-    opacity: .55; transition: opacity .4s ease;
+    background: linear-gradient(180deg, transparent 35%, rgba(5,4,3,.82) 100%);
+    opacity: .8; transition: opacity .4s ease;
   }
-  .card:hover .card-veil { opacity: .9; }
+  .card:hover .card-veil { opacity: 1; }
   .card-brackets { position: absolute; inset: 14px; opacity: 0; transition: opacity .4s ease; pointer-events: none; }
   .card-brackets i {
     position: absolute; width: 18px; height: 18px;
@@ -319,9 +325,7 @@
   }
   .card-meta { position: absolute; left: 18px; right: 18px; bottom: 16px; }
   .card-meta h3 { font-family: var(--serif); font-weight: 500; font-size: clamp(22px, 2vw, 27px); line-height: 1.15; }
-  .card-meta p { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
-
-  .work-note { margin-top: 34px; font-size: 13px; color: var(--muted); max-width: 62ch; }
+  .card-meta p { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: rgba(236,231,223,.75); margin-top: 6px; }
 
   /* ── About ───────────────────────────────────────────────────────────── */
   .about-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(36px, 6vw, 90px); align-items: center; }
@@ -372,6 +376,9 @@
   .contact h2 { font-size: clamp(40px, 6.5vw, 92px); max-width: 16ch; margin: 18px auto 0; }
   .contact .lede { max-width: 46ch; margin: 22px auto 0; color: var(--muted); }
   .contact-ctas { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 44px; }
+  .contact-ctas .btn { max-width: 100%; }
+  #emailBtnLabel { min-width: 0; overflow-wrap: anywhere; }
+  @media (max-width: 400px) { .btn { padding: 14px 18px; letter-spacing: .12em; } }
   .socials { display: flex; gap: 26px; justify-content: center; margin-top: 46px; }
   .socials a {
     font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted);
@@ -390,13 +397,19 @@
   /* ── Lightbox ────────────────────────────────────────────────────────── */
   .lightbox {
     border: 0; padding: 0; margin: auto; background: transparent;
-    width: min(1080px, calc(100vw - 32px)); max-height: calc(100dvh - 32px);
+    width: min(1080px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px);
     overflow: visible;
   }
   .lightbox::backdrop { background: rgba(5, 4, 3, .9); backdrop-filter: blur(6px); }
-  .lb-inner { background: var(--bg-2); border: 1px solid var(--hairline-strong); border-radius: 12px; overflow: hidden; }
+  .lb-inner {
+    background: var(--bg-2); border: 1px solid var(--hairline-strong); border-radius: 12px;
+    overflow: hidden auto;
+    max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px);
+  }
+  .lb-stage { position: relative; }
   .lb-media { position: relative; background: #000; }
-  .lb-media img { width: 100%; max-height: 68dvh; object-fit: contain; }
+  .lb-media img { width: 100%; max-height: 68vh; max-height: 68dvh; object-fit: contain; }
   .lb-media .embed { aspect-ratio: 16 / 9; }
   .lb-media iframe { width: 100%; height: 100%; border: 0; }
   .lb-meta { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 22px 26px 26px; flex-wrap: wrap; }
@@ -496,8 +509,8 @@
   <!-- ── Showreel ─────────────────────────────────────────────────────── -->
   <section class="section" id="reel" aria-labelledby="reelTitle">
     <div class="section-head reveal">
-      <p class="overline">01 — Showreel</p>
-      <h2 class="display" id="reelTitle">Two minutes of <em>moving pictures.</em></h2>
+      <p class="overline" data-num="Showreel">01 — Showreel</p>
+      <h2 class="display" id="reelTitle">A short film about <em>everything I shoot.</em></h2>
     </div>
     <div class="reel-frame reveal" id="reelFrame">
       <img id="reelPoster" alt="" aria-hidden="true">
@@ -514,13 +527,12 @@
   <!-- ── Work ─────────────────────────────────────────────────────────── -->
   <section class="section" id="work" aria-labelledby="workTitle">
     <div class="section-head reveal">
-      <p class="overline">02 — Selected work</p>
+      <p class="overline" data-num="Selected work">02 — Selected work</p>
       <h2 class="display" id="workTitle">Every project is <em>a small film.</em></h2>
       <p class="lede">A mix of motion and stills across three disciplines. Filter by craft, or wander.</p>
     </div>
     <div class="filters reveal" role="group" aria-label="Filter portfolio by discipline" id="filters"></div>
     <div class="work-grid" id="workGrid"></div>
-    <p class="work-note reveal">These frames are generated placeholders — each card is wired up and ready for a real photograph, a YouTube link or a Vimeo link. Open <code>public/portfolio.html</code> and edit the <code>WORK</code> list at the bottom of the file.</p>
   </section>
 
   <!-- ── About ────────────────────────────────────────────────────────── -->
@@ -531,7 +543,7 @@
         <span class="portrait-caption">Behind the camera</span>
       </div>
       <div class="about-copy reveal">
-        <p class="overline">03 — About</p>
+        <p class="overline" data-num="About">03 — About</p>
         <h2 class="display" id="aboutTitle">The person <em>behind the lens.</em></h2>
         <p>I'm <strong>Josh</strong> — a one-person crew with a director-of-photography eye. I shoot video, photographs and cinema-style projects, and I care as much about the edit and the color grade as I do about the day of the shoot.</p>
         <p>Whatever the format, the job is the same: <strong>find the light, wait for the honest moment, and frame it like it matters.</strong> I keep productions light on their feet, so the people in front of the camera stay relaxed and the work stays true.</p>
@@ -559,7 +571,7 @@
   <!-- ── Services ─────────────────────────────────────────────────────── -->
   <section class="section" id="services" aria-labelledby="servicesTitle">
     <div class="section-head reveal">
-      <p class="overline">04 — Services</p>
+      <p class="overline" data-num="Services">04 — Services</p>
       <h2 class="display" id="servicesTitle">Three crafts, <em>one eye.</em></h2>
     </div>
     <div class="services-grid">
@@ -601,7 +613,7 @@
 
   <!-- ── Contact ──────────────────────────────────────────────────────── -->
   <section class="section contact" id="contact" aria-labelledby="contactTitle">
-    <p class="overline">05 — Contact</p>
+    <p class="overline" data-num="Contact">05 — Contact</p>
     <h2 class="display reveal" id="contactTitle">Let's make something <em>worth watching.</em></h2>
     <p class="lede reveal">Have a project, an idea, or just a date and a location? Tell me about it — I'll bring the cameras.</p>
     <div class="contact-ctas reveal">
@@ -615,14 +627,23 @@
 
 <footer>
   <span id="footName"></span>
-  <span>Videography · Photography · Cinematography</span>
+  <span id="footRoles">Videography · Photography · Cinematography</span>
   <span id="footYear"></span>
 </footer>
 
 <!-- ── Lightbox ─────────────────────────────────────────────────────────── -->
 <dialog class="lightbox" id="lightbox" aria-labelledby="lbTitle">
   <div class="lb-inner">
-    <div class="lb-media" id="lbMedia"></div>
+    <div class="lb-stage">
+      <div class="lb-media" id="lbMedia"></div>
+      <button class="lb-nav prev" id="lbPrev" aria-label="Previous project">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4l-8 8 8 8"/></svg>
+      </button>
+      <button class="lb-nav next" id="lbNext" aria-label="Next project">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4l8 8-8 8"/></svg>
+      </button>
+      <button class="lb-close" id="lbClose" aria-label="Close">&times;</button>
+    </div>
     <div class="lb-meta">
       <span class="visually-hidden" id="lbStatus" role="status"></span>
       <div>
@@ -631,13 +652,6 @@
       </div>
       <p class="blurb" id="lbBlurb"></p>
     </div>
-    <button class="lb-nav prev" id="lbPrev" aria-label="Previous project">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4l-8 8 8 8"/></svg>
-    </button>
-    <button class="lb-nav next" id="lbNext" aria-label="Next project">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4l8 8-8 8"/></svg>
-    </button>
-    <button class="lb-close" id="lbClose" aria-label="Close">&times;</button>
   </div>
 </dialog>
 
@@ -645,7 +659,10 @@
 document.documentElement.classList.add('js');
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   EDIT ME — everything personal about the site lives in these two blocks.
+   EDIT ME — your name, roles, email, reel link, socials and the project list
+   live in these two blocks. The longer prose — hero intro, about, services,
+   page <title> and meta description — is ordinary HTML in the sections above:
+   edit it right there.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const SITE = {
@@ -686,7 +703,7 @@ const WORK = [
     blurb: 'Opening sequence for a short film — a ridge line, a low sun, and one long unbroken take.',
     media: { type: 'placeholder' }, scene: 'ridge',    hues: [32, 14] },
   { title: 'City of Signals',   category: 'video',  year: '2026', aspect: 'video',
-    blurb: 'A night-drive brand film cut to a synth score. Neon, rain and reflections.',
+    blurb: 'A night-drive film cut to a synth score. Neon, rain and reflections.',
     media: { type: 'placeholder' }, scene: 'city',     hues: [200, 280] },
   { title: 'Stillness, Vol. I', category: 'photo',  year: '2025', aspect: 'portrait',
     blurb: 'A portrait series about patience — natural light only, one roll per sitter.',
@@ -706,8 +723,8 @@ const WORK = [
   { title: 'Verse / Chorus',    category: 'video',  year: '2024', aspect: 'video',
     blurb: 'A one-location music video built on practical light and hard cuts on the beat.',
     media: { type: 'placeholder' }, scene: 'city',     hues: [320, 260] },
-  { title: 'North Face',        category: 'cinema', year: '2024', aspect: 'video',
-    blurb: 'Cinematography for an outdoor brand — cold hands, warm grade.',
+  { title: 'High Country',      category: 'cinema', year: '2024', aspect: 'video',
+    blurb: 'An alpine cinematography study — cold hands, warm grade.',
     media: { type: 'placeholder' }, scene: 'ridge',    hues: [210, 190] },
 ];
 
@@ -810,10 +827,10 @@ function placeholderFrame(scene, hues, aspect) {
 /* ── Media helpers ───────────────────────────────────────────────────────── */
 
 function videoEmbedURL(src) {
-  const yt = src.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{6,})/);
+  const yt = src.match(/(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{6,})/);
   if (yt) return 'https://www.youtube-nocookie.com/embed/' + yt[1] + '?autoplay=1&rel=0';
-  const vm = src.match(/vimeo\.com\/(?:video\/)?(\d+)/);
-  if (vm) return 'https://player.vimeo.com/video/' + vm[1] + '?autoplay=1';
+  const vm = src.match(/vimeo\.com\/(?:video\/)?(\d+)(?:\/(\w+))?/);
+  if (vm) return 'https://player.vimeo.com/video/' + vm[1] + '?autoplay=1' + (vm[2] ? '&h=' + vm[2] : '');
   return null;
 }
 
@@ -827,8 +844,10 @@ function cardImageSrc(item) {
 document.getElementById('heroRoles').textContent = SITE.roles;
 document.getElementById('heroLocation').textContent = SITE.location;
 document.getElementById('footName').textContent = SITE.name;
+document.getElementById('footRoles').textContent = SITE.roles;
 document.getElementById('footYear').textContent = '© ' + new Date().getFullYear();
 document.querySelector('.brand-name').textContent = SITE.name;
+document.getElementById('portraitImg').alt = 'Portrait of ' + SITE.name;
 
 const emailBtn = document.getElementById('emailBtn');
 emailBtn.href = 'mailto:' + SITE.email + '?subject=' + encodeURIComponent('Project inquiry');
@@ -850,25 +869,39 @@ document.getElementById('heroBg').src = placeholderFrame('ridge', [30, 16], 'vid
 document.getElementById('portraitImg').src = placeholderFrame('portrait', [28, 18], 'portrait');
 
 /* ── Showreel ────────────────────────────────────────────────────────────── */
+/* The whole section stays hidden until SITE.reelUrl is set, so the public
+   page never shows a play button with nothing behind it. */
 
-const reelFrame = document.getElementById('reelFrame');
-const reelHint = document.getElementById('reelHint');
-document.getElementById('reelPoster').src = placeholderFrame('road', [36, 12], 'wide');
+if (SITE.reelUrl) {
+  const reelFrame = document.getElementById('reelFrame');
+  document.getElementById('reelPoster').src = placeholderFrame('road', [36, 12], 'wide');
+  document.getElementById('reelPlay').addEventListener('click', () => {
+    const url = videoEmbedURL(SITE.reelUrl);
+    if (url) {
+      const iframe = document.createElement('iframe');
+      iframe.src = url;
+      iframe.title = 'Showreel';
+      iframe.allow = 'autoplay; fullscreen; picture-in-picture; encrypted-media';
+      iframe.allowFullscreen = true;
+      iframe.setAttribute('tabindex', '0');
+      reelFrame.replaceChildren(iframe);
+      iframe.focus();
+    } else {
+      document.getElementById('reelHint').textContent =
+        'The reel link couldn’t be read — it needs to be a YouTube or Vimeo URL.';
+    }
+  });
+} else {
+  document.getElementById('reel').remove();
+  document.querySelectorAll('a[href="#reel"]').forEach(a => (a.closest('li') || a).remove());
+  const workBtn = document.querySelector('.hero-ctas a[href="#work"]');
+  workBtn.classList.replace('btn-ghost', 'btn-solid');
+  workBtn.insertAdjacentHTML('afterbegin', '<span class="dot"></span>');
+}
 
-document.getElementById('reelPlay').addEventListener('click', () => {
-  const url = SITE.reelUrl && videoEmbedURL(SITE.reelUrl);
-  if (url) {
-    const iframe = document.createElement('iframe');
-    iframe.src = url;
-    iframe.title = 'Showreel';
-    iframe.allow = 'autoplay; fullscreen; picture-in-picture; encrypted-media';
-    iframe.allowFullscreen = true;
-    iframe.setAttribute('tabindex', '0');
-    reelFrame.replaceChildren(iframe);
-    iframe.focus();
-  } else {
-    reelHint.innerHTML = 'No reel linked yet — paste a YouTube or Vimeo URL into <code>SITE.reelUrl</code> in <code>public/portfolio.html</code> and this button plays it inline.';
-  }
+// keep the "01 —" section numbers sequential whatever is visible
+document.querySelectorAll('.overline[data-num]').forEach((o, idx) => {
+  o.textContent = String(idx + 1).padStart(2, '0') + ' — ' + o.dataset.num;
 });
 
 /* ── Work grid + filters ─────────────────────────────────────────────────── */
@@ -964,7 +997,13 @@ function openLightbox(i) {
     img.alt = item.title;
     lbMedia.replaceChildren(img);
   }
-  if (!lightbox.open) lightbox.showModal();
+  if (!lightbox.open) {
+    lightbox.showModal();
+    // keep focus on a dialog control — if the browser focuses an embedded
+    // iframe, Escape and the arrow keys die inside the cross-origin frame
+    document.getElementById('lbClose').focus();
+    document.body.style.overflow = 'hidden';
+  }
 }
 
 function stepLightbox(dir) {
@@ -978,7 +1017,10 @@ function stepLightbox(dir) {
 document.getElementById('lbPrev').addEventListener('click', () => stepLightbox(-1));
 document.getElementById('lbNext').addEventListener('click', () => stepLightbox(1));
 document.getElementById('lbClose').addEventListener('click', () => lightbox.close());
-lightbox.addEventListener('close', () => lbMedia.replaceChildren());
+lightbox.addEventListener('close', () => {
+  lbMedia.replaceChildren();
+  document.body.style.overflow = '';
+});
 lightbox.addEventListener('click', e => { if (e.target === lightbox) lightbox.close(); });
 lightbox.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') stepLightbox(-1);
@@ -1005,6 +1047,10 @@ menuBtn.addEventListener('click', () => setMenu(menuBtn.getAttribute('aria-expan
 mobileMenu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => setMenu(false)));
 addEventListener('keydown', e => {
   if (e.key === 'Escape' && mobileMenu.classList.contains('open')) setMenu(false);
+});
+// close the menu (and release the scroll lock) if the viewport grows past the breakpoint
+matchMedia('(min-width: 761px)').addEventListener('change', e => {
+  if (e.matches && mobileMenu.classList.contains('open')) setMenu(false);
 });
 
 /* ── Reveal on scroll ────────────────────────────────────────────────────── */
