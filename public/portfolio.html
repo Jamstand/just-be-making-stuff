@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Josh Iott — Videographer · Photographer · Cinematographer</title>
-<meta name="description" content="Portfolio of Josh Iott — videography, photography and cinematography. Brand films, music videos, portraits, documentaries and everything worth remembering.">
-<meta property="og:title" content="Josh Iott — Videographer · Photographer · Cinematographer">
-<meta property="og:description" content="Stories told frame by frame. Videography, photography and cinematography portfolio.">
+<title>Josh Iott — video, photo & film</title>
+<meta name="description" content="Josh Iott films things. Videography, photography and cinematography — weddings, bands, brands and short films.">
+<meta property="og:title" content="Josh Iott — video, photo & film">
+<meta property="og:description" content="Hi, I'm Josh. I film things. Weddings, bands, short films, and whatever else deserves to look good.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="og.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Josh Iott — Videographer · Photographer · Cinematographer">
-<meta name="twitter:description" content="Stories told frame by frame. Videography, photography and cinematography portfolio.">
+<meta name="twitter:title" content="Josh Iott — video, photo & film">
+<meta name="twitter:description" content="Hi, I'm Josh. I film things. Weddings, bands, short films, and whatever else deserves to look good.">
 <meta name="twitter:image" content="og.jpg">
 <meta name="theme-color" content="#0a0908">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0908'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23d4a259' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%23d4a259'/%3E%3C/svg%3E">
@@ -32,6 +32,11 @@
     font-style: normal; font-weight: 100 900; font-display: swap;
     src: url("fonts/inter.woff2") format("woff2");
   }
+  @font-face {
+    font-family: "Caveat";
+    font-style: normal; font-weight: 400 700; font-display: swap;
+    src: url("fonts/caveat.woff2") format("woff2");
+  }
 
   /* ── Tokens ──────────────────────────────────────────────────────────── */
   :root {
@@ -47,6 +52,7 @@
     --hairline-strong: rgba(236, 231, 223, .22);
     --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
     --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --hand: "Caveat", "Segoe Print", "Comic Sans MS", cursive;
     --pad: clamp(20px, 5vw, 72px);
     --ease: cubic-bezier(.22, 1, .36, 1);
   }
@@ -92,12 +98,18 @@
 
   /* ── Type helpers ────────────────────────────────────────────────────── */
   .overline {
-    font-size: 11px; font-weight: 600;
-    letter-spacing: .32em; text-transform: uppercase;
-    color: var(--accent);
+    font-family: var(--hand); font-size: 22px; font-weight: 500;
+    color: var(--accent); transform: rotate(-1.2deg); transform-origin: left bottom;
+    display: inline-block;
   }
   .display { font-family: var(--serif); font-weight: 500; line-height: 1.02; }
   .display em { font-style: italic; font-weight: 400; }
+
+  /* hand-drawn marker underline */
+  .scribble {
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 16' preserveAspectRatio='none'%3E%3Cpath d='M5 10 C 55 4, 110 13, 165 8 S 255 5, 295 9' fill='none' stroke='%23d4a259' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat left 100% / 100% 0.13em;
+    padding-bottom: 0.1em;
+  }
 
   .section { padding: clamp(80px, 12vh, 140px) var(--pad); max-width: 1440px; margin: 0 auto; }
   .section-head { margin-bottom: clamp(36px, 6vh, 64px); }
@@ -134,17 +146,18 @@
     border-bottom-color: var(--hairline);
     padding-top: 12px; padding-bottom: 12px;
   }
-  .brand { display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; }
+  .brand { display: flex; align-items: center; gap: 12px; font-size: 15px; font-weight: 600; letter-spacing: .02em; text-transform: lowercase; }
+  footer #footName { text-transform: lowercase; }
   .brand-mark { width: 26px; height: 26px; flex: none; }
   .nav-links { display: flex; gap: 34px; list-style: none; }
   .nav-links a {
-    font-size: 12px; font-weight: 500; letter-spacing: .18em; text-transform: uppercase;
+    font-size: 14px; font-weight: 450;
     color: var(--muted); transition: color .25s ease; padding: 6px 0;
   }
   .nav-links a:hover { color: var(--ink); }
   .nav-cta {
-    font-size: 12px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase;
-    border: 1px solid var(--hairline-strong); padding: 10px 18px; border-radius: 999px;
+    font-family: var(--hand); font-size: 19px; font-weight: 500;
+    border: 1px solid var(--hairline-strong); padding: 7px 18px 9px; border-radius: 999px;
     transition: border-color .25s ease, background .25s ease, color .25s ease;
   }
   .nav-cta:hover { border-color: var(--accent); color: var(--accent); }
@@ -206,20 +219,17 @@
   .letterbox.top { top: 0; } .letterbox.bottom { bottom: 0; }
 
   .hero-inner { max-width: 1440px; margin: 0 auto; width: 100%; }
-  .hero .overline { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-  .hero .overline::before { content: ""; width: 44px; height: 1px; background: var(--accent); flex: none; }
   .hero h1 {
     font-size: clamp(52px, 10.5vw, 148px);
-    margin: 26px 0 30px;
+    margin: 18px 0 30px;
   }
-  .hero h1 em { color: var(--accent); }
   .hero-sub { max-width: 46ch; color: var(--muted); font-size: clamp(15px, 1.4vw, 17px); }
   .hero-ctas { display: flex; gap: 16px; margin-top: 42px; flex-wrap: wrap; }
 
   .btn {
     display: inline-flex; align-items: center; gap: 12px;
-    font-size: 12px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase;
-    padding: 16px 28px; border-radius: 999px; transition: all .3s ease;
+    font-size: 15px; font-weight: 550; letter-spacing: .01em;
+    padding: 15px 28px; border-radius: 999px; transition: all .3s ease;
   }
   .btn-solid { background: var(--ink); color: var(--bg); }
   .btn-solid:hover { background: var(--accent); }
@@ -231,7 +241,7 @@
     position: absolute; left: var(--pad); right: var(--pad);
     bottom: calc(clamp(14px, 3vh, 30px) + 22px);
     display: flex; justify-content: space-between; align-items: flex-end; gap: 20px;
-    font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--faint);
+    font-family: var(--hand); font-size: 19px; color: var(--faint);
   }
   .scroll-cue { display: inline-flex; align-items: center; gap: 10px; color: var(--faint); }
   .scroll-cue .line { width: 1px; height: 44px; background: var(--hairline-strong); position: relative; overflow: hidden; }
@@ -267,8 +277,8 @@
   .reel-cover:hover .play-btn { transform: scale(1.08); border-color: var(--accent); background: var(--accent-soft); }
   .reel-cover:hover .play-btn svg { fill: var(--accent); }
   .reel-note {
-    position: absolute; z-index: 1; bottom: 18px; left: 0; right: 0; text-align: center;
-    font-size: 11px; letter-spacing: .24em; text-transform: uppercase; color: var(--muted);
+    position: absolute; z-index: 1; bottom: 16px; left: 0; right: 0; text-align: center;
+    font-family: var(--hand); font-size: 21px; color: var(--muted);
   }
   .reel-hint {
     margin-top: 14px; font-size: 13px; color: var(--muted); text-align: center;
@@ -278,9 +288,9 @@
   /* ── Work ────────────────────────────────────────────────────────────── */
   .filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 40px; }
   .chip {
-    font-size: 12px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase;
+    font-size: 14px; font-weight: 480;
     color: var(--muted); border: 1px solid var(--hairline); border-radius: 999px;
-    padding: 10px 20px; transition: all .25s ease;
+    padding: 9px 20px; transition: all .25s ease;
   }
   .chip:hover { color: var(--ink); border-color: var(--hairline-strong); }
   .chip[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
@@ -318,14 +328,16 @@
   .card-brackets i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
   .card:hover .card-brackets, .card:focus-visible .card-brackets { opacity: 1; }
   .card-tag {
-    position: absolute; top: 16px; left: 16px;
-    font-size: 10px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase;
+    position: absolute; top: 14px; left: 14px;
+    font-family: var(--hand); font-size: 19px; font-weight: 500; line-height: 1;
     color: var(--ink); background: rgba(10,9,8,.55); backdrop-filter: blur(4px);
-    padding: 6px 12px; border-radius: 999px; border: 1px solid var(--hairline);
+    padding: 5px 13px 8px; border-radius: 999px; border: 1px solid var(--hairline);
+    transform: rotate(-2deg);
   }
+  .card:nth-child(even) .card-tag { transform: rotate(1.4deg); }
   .card-meta { position: absolute; left: 18px; right: 18px; bottom: 16px; }
   .card-meta h3 { font-family: var(--serif); font-weight: 500; font-size: clamp(22px, 2vw, 27px); line-height: 1.15; }
-  .card-meta p { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: rgba(236,231,223,.75); margin-top: 6px; }
+  .card-meta p { font-family: var(--hand); font-size: 18px; color: rgba(236,231,223,.78); margin-top: 2px; }
 
   /* ── About ───────────────────────────────────────────────────────────── */
   .about-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(36px, 6vw, 90px); align-items: center; }
@@ -337,8 +349,9 @@
   .portrait-frame img { width: 100%; height: 100%; object-fit: cover; }
   .portrait-caption {
     position: absolute; bottom: 14px; left: 14px;
-    font-size: 10px; letter-spacing: .24em; text-transform: uppercase; color: var(--muted);
-    background: rgba(10,9,8,.55); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--hairline);
+    font-family: var(--hand); font-size: 20px; color: var(--ink);
+    background: rgba(10,9,8,.55); padding: 4px 14px 7px; border-radius: 999px; border: 1px solid var(--hairline);
+    transform: rotate(-1.6deg);
   }
   .about-copy h2 { font-size: clamp(32px, 4vw, 52px); margin-top: 14px; }
   .about-copy p { color: var(--muted); margin-top: 20px; max-width: 56ch; }
@@ -347,8 +360,8 @@
   .process { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--hairline); border: 1px solid var(--hairline); border-radius: 10px; overflow: hidden; margin-top: 40px; }
   @media (max-width: 640px) { .process { grid-template-columns: 1fr; } }
   .process div { background: var(--bg-2); padding: 22px 22px 24px; }
-  .process .num { font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--accent); }
-  .process h3 { font-size: 13px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; margin: 10px 0 8px; }
+  .process .num { font-family: var(--hand); font-size: 21px; color: var(--accent); }
+  .process h3 { font-size: 15px; font-weight: 600; margin: 8px 0 8px; }
   .process p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.55; }
 
   /* ── Services ────────────────────────────────────────────────────────── */
@@ -360,7 +373,7 @@
     transition: border-color .35s ease, transform .35s var(--ease);
   }
   .service:hover { border-color: rgba(212,162,89,.45); transform: translateY(-4px); }
-  .service .idx { font-family: var(--serif); font-style: italic; font-size: 17px; color: var(--accent); }
+  .service .idx { font-family: var(--hand); font-size: 22px; color: var(--accent); display: inline-block; transform: rotate(-2deg); }
   .service h3 { font-family: var(--serif); font-weight: 500; font-size: 30px; margin: 14px 0 12px; }
   .service > p { font-size: 14px; color: var(--muted); }
   .service ul { list-style: none; margin-top: 22px; border-top: 1px solid var(--hairline); }
@@ -381,7 +394,7 @@
   @media (max-width: 400px) { .btn { padding: 14px 18px; letter-spacing: .12em; } }
   .socials { display: flex; gap: 26px; justify-content: center; margin-top: 46px; }
   .socials a {
-    font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted);
+    font-size: 14px; font-weight: 480; color: var(--muted);
     transition: color .25s ease;
   }
   .socials a:hover { color: var(--accent); }
@@ -391,7 +404,7 @@
     border-top: 1px solid var(--hairline);
     padding: 30px var(--pad);
     display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
-    font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--faint);
+    font-size: 13px; color: var(--faint);
   }
 
   /* ── Lightbox ────────────────────────────────────────────────────────── */
@@ -414,7 +427,7 @@
   .lb-media iframe { width: 100%; height: 100%; border: 0; }
   .lb-meta { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 22px 26px 26px; flex-wrap: wrap; }
   .lb-meta h3 { font-family: var(--serif); font-weight: 500; font-size: 30px; line-height: 1.1; }
-  .lb-meta .cat { font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--accent); margin-top: 8px; }
+  .lb-meta .cat { font-family: var(--hand); font-size: 20px; color: var(--accent); margin-top: 4px; }
   .lb-meta .blurb { flex: 1 1 300px; font-size: 14px; color: var(--muted); max-width: 52ch; }
   .lb-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
     width: 46px; height: 46px; border-radius: 50%;
@@ -464,24 +477,24 @@
   </a>
   <nav aria-label="Primary">
     <ul class="nav-links">
-      <li><a href="#reel">Reel</a></li>
-      <li><a href="#work">Work</a></li>
-      <li><a href="#about">About</a></li>
-      <li><a href="#services">Services</a></li>
+      <li><a href="#reel">the reel</a></li>
+      <li><a href="#work">the work</a></li>
+      <li><a href="#about">about me</a></li>
+      <li><a href="#services">what i do</a></li>
     </ul>
   </nav>
-  <a class="nav-cta" href="#contact">Let's talk</a>
+  <a class="nav-cta" href="#contact">say hi</a>
   <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mobileMenu" aria-label="Menu">
     <span></span><span></span>
   </button>
 </header>
 
 <div class="mobile-menu" id="mobileMenu">
-  <a href="#reel">Reel</a>
-  <a href="#work">Work</a>
-  <a href="#about">About</a>
-  <a href="#services">Services</a>
-  <a href="#contact">Contact</a>
+  <a href="#reel">the reel</a>
+  <a href="#work">the work</a>
+  <a href="#about">about me</a>
+  <a href="#services">what i do</a>
+  <a href="#contact">say hi</a>
 </div>
 
 <main id="top" tabindex="-1">
@@ -493,15 +506,15 @@
     <div class="hero-bg" aria-hidden="true"><img id="heroBg" alt=""></div>
     <div class="hero-inner">
       <p class="overline" id="heroRoles"></p>
-      <h1 class="display">Stories told,<br><em>frame by frame.</em></h1>
-      <p class="hero-sub">I'm a filmmaker and photographer who cares about light, timing and honest moments — brand films, music videos, portraits, events and the quiet in-between frames people actually remember.</p>
+      <h1 class="display">hi, i'm josh.<br><em class="scribble">i film things.</em></h1>
+      <p class="hero-sub">Weddings, bands, short films, and whatever else deserves to look good. It's usually just me, a couple of cameras, and a mild obsession with the last hour of daylight.</p>
       <div class="hero-ctas">
-        <a class="btn btn-solid" href="#reel"><span class="dot"></span>Watch the reel</a>
-        <a class="btn btn-ghost" href="#work">Selected work</a>
+        <a class="btn btn-solid" href="#reel"><span class="dot"></span>watch the reel</a>
+        <a class="btn btn-ghost" href="#work">see the work</a>
       </div>
     </div>
     <div class="hero-foot">
-      <span class="scroll-cue"><span class="line" aria-hidden="true"></span>Scroll</span>
+      <span class="scroll-cue"><span class="line" aria-hidden="true"></span>scroll down</span>
       <span class="frame-note" id="heroLocation"></span>
     </div>
   </section>
@@ -509,8 +522,8 @@
   <!-- ── Showreel ─────────────────────────────────────────────────────── -->
   <section class="section" id="reel" aria-labelledby="reelTitle">
     <div class="section-head reveal">
-      <p class="overline" data-num="Showreel">01 — Showreel</p>
-      <h2 class="display" id="reelTitle">A short film about <em>everything I shoot.</em></h2>
+      <p class="overline">( the reel )</p>
+      <h2 class="display" id="reelTitle">my favorite frames, <em>back to back.</em></h2>
     </div>
     <div class="reel-frame reveal" id="reelFrame">
       <img id="reelPoster" alt="" aria-hidden="true">
@@ -518,7 +531,7 @@
         <span class="play-btn" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M6 3.5v17l14-8.5z"/></svg>
         </span>
-        <span class="reel-note" aria-hidden="true">Play reel</span>
+        <span class="reel-note" aria-hidden="true">press play, it's short</span>
       </button>
     </div>
     <p class="reel-hint reveal" id="reelHint" role="status"></p>
@@ -527,9 +540,9 @@
   <!-- ── Work ─────────────────────────────────────────────────────────── -->
   <section class="section" id="work" aria-labelledby="workTitle">
     <div class="section-head reveal">
-      <p class="overline" data-num="Selected work">02 — Selected work</p>
-      <h2 class="display" id="workTitle">Every project is <em>a small film.</em></h2>
-      <p class="lede">A mix of motion and stills across three disciplines. Filter by craft, or wander.</p>
+      <p class="overline">( the work )</p>
+      <h2 class="display" id="workTitle">some things <em>i've made.</em></h2>
+      <p class="lede">Video, photos, and film projects, all mixed together. Filter if you're picky. Click anything for the story behind it.</p>
     </div>
     <div class="filters reveal" role="group" aria-label="Filter portfolio by discipline" id="filters"></div>
     <div class="work-grid" id="workGrid"></div>
@@ -540,28 +553,28 @@
     <div class="about-grid">
       <div class="portrait-frame reveal">
         <img id="portraitImg" alt="Portrait of Josh Iott">
-        <span class="portrait-caption">Behind the camera</span>
+        <span class="portrait-caption">( that's me )</span>
       </div>
       <div class="about-copy reveal">
-        <p class="overline" data-num="About">03 — About</p>
-        <h2 class="display" id="aboutTitle">The person <em>behind the lens.</em></h2>
-        <p>I'm <strong>Josh</strong> — a one-person crew with a director-of-photography eye. I shoot video, photographs and cinema-style projects, and I care as much about the edit and the color grade as I do about the day of the shoot.</p>
-        <p>Whatever the format, the job is the same: <strong>find the light, wait for the honest moment, and frame it like it matters.</strong> I keep productions light on their feet, so the people in front of the camera stay relaxed and the work stays true.</p>
+        <p class="overline">( about me )</p>
+        <h2 class="display" id="aboutTitle">the person <em>behind the camera.</em></h2>
+        <p>I'm <strong>Josh</strong>. I shoot video, photos, and film projects, usually as a one-person crew, and honestly I like it that way. Small footprint, relaxed shoots, nobody standing around holding a clipboard.</p>
+        <p>My whole approach fits in one sentence: <strong>find the light, wait for the real moment, and frame it like it matters.</strong> Then I go home and fuss over the edit way longer than I plan to.</p>
         <div class="process">
           <div>
-            <span class="num">i.</span>
-            <h3>Pre-production</h3>
-            <p>Creative direction, shot lists, locations and scheduling — so shoot day is calm, not chaotic.</p>
+            <span class="num">1.</span>
+            <h3>We talk</h3>
+            <p>You tell me the idea. I ask a lot of questions and start scribbling shot lists on whatever's nearby.</p>
           </div>
           <div>
-            <span class="num">ii.</span>
-            <h3>Production</h3>
-            <p>Cinema cameras, deliberate lighting and a documentary instinct for the unscripted moment.</p>
+            <span class="num">2.</span>
+            <h3>We shoot</h3>
+            <p>Real cameras, deliberate light, and enough patience to catch the stuff nobody planned.</p>
           </div>
           <div>
-            <span class="num">iii.</span>
-            <h3>Post</h3>
-            <p>Editing, sound and color grading, delivered in every format and crop the work needs to live in.</p>
+            <span class="num">3.</span>
+            <h3>I disappear into the edit</h3>
+            <p>Cutting, sound, and color until it feels like the day actually felt. You get every format you need.</p>
           </div>
         </div>
       </div>
@@ -571,41 +584,41 @@
   <!-- ── Services ─────────────────────────────────────────────────────── -->
   <section class="section" id="services" aria-labelledby="servicesTitle">
     <div class="section-head reveal">
-      <p class="overline" data-num="Services">04 — Services</p>
-      <h2 class="display" id="servicesTitle">Three crafts, <em>one eye.</em></h2>
+      <p class="overline">( what i do )</p>
+      <h2 class="display" id="servicesTitle">three ways <em>to hire me.</em></h2>
     </div>
     <div class="services-grid">
       <article class="service reveal">
-        <span class="idx">i.</span>
-        <h3>Videography</h3>
-        <p>Story-first video for brands, artists and events — shot, edited and graded end to end.</p>
+        <span class="idx">no. 1</span>
+        <h3>Video</h3>
+        <p>Story-first videos, shot and edited end to end. You get the film, plus every crop your feeds need.</p>
         <ul>
           <li>Brand &amp; promo films</li>
           <li>Music videos</li>
           <li>Events &amp; weddings</li>
-          <li>Social-first vertical cuts</li>
+          <li>Vertical cuts for socials</li>
         </ul>
       </article>
       <article class="service reveal">
-        <span class="idx">ii.</span>
-        <h3>Photography</h3>
-        <p>Stills with a filmmaker's sense of light — made to hold up large, in print and on screens.</p>
+        <span class="idx">no. 2</span>
+        <h3>Photo</h3>
+        <p>Stills with a filmmaker's eye for light. Made to hold up big, in print and on screens.</p>
         <ul>
           <li>Portraits &amp; headshots</li>
           <li>Editorial &amp; lifestyle</li>
           <li>Events &amp; live shows</li>
-          <li>Product &amp; brand imagery</li>
+          <li>Product &amp; brand shots</li>
         </ul>
       </article>
       <article class="service reveal">
-        <span class="idx">iii.</span>
-        <h3>Cinematography</h3>
-        <p>Camera and lighting for directors and productions that want intention in every frame.</p>
+        <span class="idx">no. 3</span>
+        <h3>Film</h3>
+        <p>Camera and lighting for projects that want every frame on purpose. I'll run the camera or the whole look.</p>
         <ul>
           <li>Narrative &amp; short film</li>
           <li>Documentary</li>
           <li>Commercial spots</li>
-          <li>Lighting &amp; camera operation</li>
+          <li>Lighting &amp; camera op</li>
         </ul>
       </article>
     </div>
@@ -613,12 +626,12 @@
 
   <!-- ── Contact ──────────────────────────────────────────────────────── -->
   <section class="section contact" id="contact" aria-labelledby="contactTitle">
-    <p class="overline" data-num="Contact">05 — Contact</p>
-    <h2 class="display reveal" id="contactTitle">Let's make something <em>worth watching.</em></h2>
-    <p class="lede reveal">Have a project, an idea, or just a date and a location? Tell me about it — I'll bring the cameras.</p>
+    <p class="overline">( say hi )</p>
+    <h2 class="display reveal" id="contactTitle">got something <em>in mind?</em></h2>
+    <p class="lede reveal">Tell me what you're making. Big plans, half an idea, just a date and a location — all good starting points. Worst case, we end up talking about cameras.</p>
     <div class="contact-ctas reveal">
-      <a class="btn btn-solid" id="emailBtn" href="#"><span class="dot"></span><span id="emailBtnLabel">Email me</span></a>
-      <a class="btn btn-ghost" href="#work">See the work first</a>
+      <a class="btn btn-solid" id="emailBtn" href="#"><span class="dot"></span><span id="emailBtnLabel">email me</span></a>
+      <a class="btn btn-ghost" href="#work">look around first</a>
     </div>
     <div class="socials reveal" id="socials"></div>
   </section>
@@ -667,8 +680,8 @@ document.documentElement.classList.add('js');
 
 const SITE = {
   name: 'Josh Iott',
-  roles: 'Videography · Photography · Cinematography',
-  location: 'Available for travel',
+  roles: 'video · photo · film',
+  location: 'will travel for good light',
   email: 'joshiott05@gmail.com',
 
   // Paste a YouTube or Vimeo URL here and the showreel section goes live.
@@ -699,32 +712,32 @@ const SITE = {
               hues is a pair of 0–360 color hues for the frame's palette.
 */
 const WORK = [
-  { title: 'Golden Hour',       category: 'cinema', year: '2026', aspect: 'wide',
-    blurb: 'Opening sequence for a short film — a ridge line, a low sun, and one long unbroken take.',
+  { title: 'golden hour',       category: 'cinema', year: '2026', aspect: 'wide',
+    blurb: 'We hiked up in the dark for this one. Cold hands, one long unbroken take, completely worth it.',
     media: { type: 'placeholder' }, scene: 'ridge',    hues: [32, 14] },
-  { title: 'City of Signals',   category: 'video',  year: '2026', aspect: 'video',
-    blurb: 'A night-drive film cut to a synth score. Neon, rain and reflections.',
+  { title: 'night drive',       category: 'video',  year: '2026', aspect: 'video',
+    blurb: 'Neon, rain, and a synth track. Shot the whole thing after midnight and slept till two.',
     media: { type: 'placeholder' }, scene: 'city',     hues: [200, 280] },
-  { title: 'Stillness, Vol. I', category: 'photo',  year: '2025', aspect: 'portrait',
-    blurb: 'A portrait series about patience — natural light only, one roll per sitter.',
+  { title: 'portraits on film', category: 'photo',  year: '2025', aspect: 'portrait',
+    blurb: 'A slow portrait series. Natural light, one roll each, no do-overs. That\'s the fun part.',
     media: { type: 'placeholder' }, scene: 'portrait', hues: [22, 350] },
-  { title: 'Salt & Light',      category: 'photo',  year: '2025', aspect: 'video',
-    blurb: 'Sea studies at dusk. Long exposures, short window, no second chances.',
+  { title: 'the coast at dusk', category: 'photo',  year: '2025', aspect: 'video',
+    blurb: 'Long exposures in the last twenty minutes of light. You get one window and that\'s it.',
     media: { type: 'placeholder' }, scene: 'sea',      hues: [190, 220] },
-  { title: 'The Long Way Home', category: 'cinema', year: '2025', aspect: 'wide',
-    blurb: 'Documentary road piece — two lanes, one summer, everything in between.',
+  { title: 'the long way home', category: 'cinema', year: '2025', aspect: 'wide',
+    blurb: 'Two lanes, one summer. A little road documentary about everything in between.',
     media: { type: 'placeholder' }, scene: 'road',     hues: [38, 8] },
-  { title: 'First Dance',       category: 'video',  year: '2025', aspect: 'portrait',
-    blurb: 'A wedding film that skips the clichés and keeps the shaky, happy, real parts.',
+  { title: 'first dance',       category: 'video',  year: '2025', aspect: 'portrait',
+    blurb: 'A wedding film that keeps the shaky, happy, real parts in. Those are the good bits.',
     media: { type: 'placeholder' }, scene: 'portrait', hues: [45, 20] },
-  { title: 'Dune Lines',        category: 'photo',  year: '2024', aspect: 'square',
-    blurb: 'Minimal landscapes — wind-drawn geometry an hour after sunrise.',
+  { title: 'dune lines',        category: 'photo',  year: '2024', aspect: 'square',
+    blurb: 'Wind-drawn geometry, about an hour after sunrise. The wind redraws it daily.',
     media: { type: 'placeholder' }, scene: 'dunes',    hues: [35, 55] },
-  { title: 'Verse / Chorus',    category: 'video',  year: '2024', aspect: 'video',
-    blurb: 'A one-location music video built on practical light and hard cuts on the beat.',
+  { title: 'verse / chorus',    category: 'video',  year: '2024', aspect: 'video',
+    blurb: 'A one-location music video. Practical light and hard cuts right on the beat.',
     media: { type: 'placeholder' }, scene: 'city',     hues: [320, 260] },
-  { title: 'High Country',      category: 'cinema', year: '2024', aspect: 'video',
-    blurb: 'An alpine cinematography study — cold hands, warm grade.',
+  { title: 'high country',      category: 'cinema', year: '2024', aspect: 'video',
+    blurb: 'An alpine study. Cold hands again. I\'m sensing a pattern.',
     media: { type: 'placeholder' }, scene: 'ridge',    hues: [210, 190] },
 ];
 
@@ -732,7 +745,7 @@ const WORK = [
    Everything below renders the page — no need to edit past this line.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const CATEGORIES = { video: 'Videography', photo: 'Photography', cinema: 'Cinematography' };
+const CATEGORIES = { video: 'video', photo: 'photo', cinema: 'film' };
 const ASPECTS = { wide: [1600, 680], video: [1600, 900], portrait: [1200, 1500], square: [1400, 1400] };
 
 /* ── Placeholder frame generator ─────────────────────────────────────────── */
@@ -899,11 +912,6 @@ if (SITE.reelUrl) {
   workBtn.insertAdjacentHTML('afterbegin', '<span class="dot"></span>');
 }
 
-// keep the "01 —" section numbers sequential whatever is visible
-document.querySelectorAll('.overline[data-num]').forEach((o, idx) => {
-  o.textContent = String(idx + 1).padStart(2, '0') + ' — ' + o.dataset.num;
-});
-
 /* ── Work grid + filters ─────────────────────────────────────────────────── */
 
 const workGrid = document.getElementById('workGrid');
@@ -931,15 +939,14 @@ WORK.forEach((item, i) => {
     <div class="card-meta" aria-hidden="true"><h3></h3><p></p></div>`);
   frame.querySelector('.card-tag').textContent = CATEGORIES[item.category] || item.category;
   frame.querySelector('.card-meta h3').textContent = item.title;
-  frame.querySelector('.card-meta p').textContent =
-    String(i + 1).padStart(2, '0') + ' — ' + item.year;
+  frame.querySelector('.card-meta p').textContent = item.year;
 
   card.appendChild(frame);
   card.addEventListener('click', () => openLightbox(i));
   workGrid.appendChild(card);
 });
 
-const FILTERS = [['all', 'All'], ['video', 'Videography'], ['photo', 'Photography'], ['cinema', 'Cinematography']];
+const FILTERS = [['all', 'everything'], ['video', 'video'], ['photo', 'photo'], ['cinema', 'film']];
 FILTERS.forEach(([key, label], idx) => {
   const chip = document.createElement('button');
   chip.className = 'chip';
