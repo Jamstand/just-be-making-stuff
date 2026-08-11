@@ -283,7 +283,6 @@
   .reel-hint {
     margin-top: 14px; font-size: 13px; color: var(--muted); text-align: center;
   }
-  .reel-hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
 
   /* ── Work ────────────────────────────────────────────────────────────── */
   .filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 40px; }
@@ -391,7 +390,7 @@
   .contact-ctas { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 44px; }
   .contact-ctas .btn { max-width: 100%; }
   #emailBtnLabel { min-width: 0; overflow-wrap: anywhere; }
-  @media (max-width: 400px) { .btn { padding: 14px 18px; letter-spacing: .12em; } }
+  @media (max-width: 400px) { .btn { padding: 14px 18px; } }
   .socials { display: flex; gap: 26px; justify-content: center; margin-top: 46px; }
   .socials a {
     font-size: 14px; font-weight: 480; color: var(--muted);
@@ -542,7 +541,7 @@
     <div class="section-head reveal">
       <p class="overline">( the work )</p>
       <h2 class="display" id="workTitle">some things <em>i've made.</em></h2>
-      <p class="lede">Video, photos, and film projects, all mixed together. Filter if you're picky. Click anything for the story behind it.</p>
+      <p class="lede">Video, photos, and film projects, all mixed together. Filter by type if you want, and click anything for the story behind it.</p>
     </div>
     <div class="filters reveal" role="group" aria-label="Filter portfolio by discipline" id="filters"></div>
     <div class="work-grid" id="workGrid"></div>
@@ -558,8 +557,8 @@
       <div class="about-copy reveal">
         <p class="overline">( about me )</p>
         <h2 class="display" id="aboutTitle">the person <em>behind the camera.</em></h2>
-        <p>I'm <strong>Josh</strong>. I shoot video, photos, and film projects, usually as a one-person crew, and honestly I like it that way. Small footprint, relaxed shoots, nobody standing around holding a clipboard.</p>
-        <p>My whole approach fits in one sentence: <strong>find the light, wait for the real moment, and frame it like it matters.</strong> Then I go home and fuss over the edit way longer than I plan to.</p>
+        <p>I'm <strong>Josh</strong>. I shoot video, photos, and film projects, usually as a one-person crew. Shoots stay small and relaxed that way, and nobody has to stand around holding a clipboard.</p>
+        <p><strong>I plan everything around the light.</strong> If that means dinner happens at 4:30 so we're on the ridge by seven, that's the job. Then I go home and fuss over the edit way longer than I plan to.</p>
         <div class="process">
           <div>
             <span class="num">1.</span>
@@ -569,7 +568,7 @@
           <div>
             <span class="num">2.</span>
             <h3>We shoot</h3>
-            <p>Real cameras, deliberate light, and enough patience to catch the stuff nobody planned.</p>
+            <p>I light it properly, then I wait. The unplanned stuff is usually the keeper.</p>
           </div>
           <div>
             <span class="num">3.</span>
@@ -628,7 +627,7 @@
   <section class="section contact" id="contact" aria-labelledby="contactTitle">
     <p class="overline">( say hi )</p>
     <h2 class="display reveal" id="contactTitle">got something <em>in mind?</em></h2>
-    <p class="lede reveal">Tell me what you're making. Big plans, half an idea, just a date and a location — all good starting points. Worst case, we end up talking about cameras.</p>
+    <p class="lede reveal">Tell me what you're making, even if it's only half an idea. A date and a town is enough to start.</p>
     <div class="contact-ctas reveal">
       <a class="btn btn-solid" id="emailBtn" href="#"><span class="dot"></span><span id="emailBtnLabel">email me</span></a>
       <a class="btn btn-ghost" href="#work">look around first</a>
@@ -640,7 +639,7 @@
 
 <footer>
   <span id="footName"></span>
-  <span id="footRoles">Videography · Photography · Cinematography</span>
+  <span id="footRoles">video · photo · film</span>
   <span id="footYear"></span>
 </footer>
 
@@ -681,6 +680,8 @@ document.documentElement.classList.add('js');
 const SITE = {
   name: 'Josh Iott',
   roles: 'video · photo · film',
+  // ↓ put your real city here — producers and planners look for it,
+  //   e.g. 'based in columbus · will travel'
   location: 'will travel for good light',
   email: 'joshiott05@gmail.com',
 
@@ -716,7 +717,7 @@ const WORK = [
     blurb: 'We hiked up in the dark for this one. Cold hands, one long unbroken take, completely worth it.',
     media: { type: 'placeholder' }, scene: 'ridge',    hues: [32, 14] },
   { title: 'night drive',       category: 'video',  year: '2026', aspect: 'video',
-    blurb: 'Neon, rain, and a synth track. Shot the whole thing after midnight and slept till two.',
+    blurb: 'Shot entirely after midnight with one synth track on repeat. Slept till two the next day.',
     media: { type: 'placeholder' }, scene: 'city',     hues: [200, 280] },
   { title: 'portraits on film', category: 'photo',  year: '2025', aspect: 'portrait',
     blurb: 'A slow portrait series. Natural light, one roll each, no do-overs. That\'s the fun part.',
