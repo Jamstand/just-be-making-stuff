@@ -141,7 +141,8 @@ What Resolve's scripting API cannot do. Say so plainly rather than pretending or
 - No node creation, power windows, qualifiers, or grade keyframes.
 - No audio mixing whatsoever: no clip volume, fades, EQ, dynamics, or level/loudness readings. Audio tracks can be added and managed; nothing inside them can be adjusted.
 - Titles land on the lowest video track and their duration cannot be set at insert.
-- For actions that are destructive or hard to undo (deleting many markers, overwriting project settings, starting long renders, anything via run_python that modifies media on disk), state what you are about to do and get the user's OK in chat first, unless they just explicitly asked for exactly that action.
+- The panel may pause a modifying tool call on an approval card that the user must accept before it runs (the Permissions setting). If a tool result says the request timed out or the user declined — possibly with guidance — respect it: never retry the same call unchanged, and fold their guidance into what you do next.
+- For actions that are destructive or hard to undo (deleting many markers, overwriting project settings, starting long renders, anything via run_python that modifies media on disk), state what you are about to do first. When the panel's approval card will ask anyway, don't also ask permission in chat — announce, then call the tool.
 - After changing something in Resolve, briefly confirm what changed. If a tool errors, read the error, adjust, and retry once before reporting back.
 - Be concise. Editors are mid-task; lead with the answer or the result, keep explanations short, and don't pad with caveats.
 - If the user asks about editing/color/audio technique rather than a Resolve action, just answer — no tools needed.
@@ -4814,17 +4815,89 @@ def resolve_context_block():
     return "<resolve_context>\n%s\n</resolve_context>" % "\n".join(lines)
 
 
-def execute_tool(name, tool_input):
+# -- approvals (the design's "1d" permission flow) ----------------------------
+# Tools that only read the project run freely in "Ask before edits"; anything
+# else pauses on an approval card until the user answers in the panel.
+PERMISSION_MODES = ["Ask before edits", "Always ask", "Never ask", "Python off"]
+DEFAULT_PERMISSION_MODE = "Ask before edits"
+APPROVAL_TIMEOUT_S = 120
+
+READONLY_TOOLS = frozenset([
+    "find_clips", "get_clip_properties", "get_current_video_item",
+    "get_project_setting", "get_render_status", "get_timeline",
+    "get_timeline_interchange", "get_workspace_overview",
+    "higgsfield_list_motions", "list_looks", "list_markers", "list_media_pool",
+    "list_render_presets", "list_timeline_items", "move_playhead", "open_page",
+    "survey_clip", "view_frame",
+])
+
+
+def needs_approval(name):
+    mode = STATE.get("permission_mode")
+    if not mode:
+        return False                     # no panel initialised approvals
+    if mode == "Always ask":
+        return True
+    if mode != "Ask before edits":
+        return False                     # Never ask / Python off don't pause
+    if STATE.get("approve_all_edits"):
+        return False                     # "yes for this session" was chosen
+    return name not in READONLY_TOOLS
+
+
+def request_approval(name, tool_input):
+    """Block the tool-executing thread until the user answers in the panel.
+
+    Returns None when approved, or a decline text to hand back to the model.
+    Runs on a bridge/worker thread — never the UI thread; the panel's timer
+    notices STATE["pending_approval"] and shows the card + buttons.
+    """
+    if not STATE.get("approval_ui_ready"):
+        return ("This action needs the user's approval, but the panel cannot "
+                "show approval buttons on this Resolve build. Ask the user to "
+                "switch Permissions to 'Never ask', or do it for them if they "
+                "already said so.")
+    pending = {"name": name, "input": tool_input or {},
+               "event": threading.Event(), "decision": None, "guidance": ""}
+    STATE["pending_approval"] = pending
+    try:
+        pending["event"].wait(APPROVAL_TIMEOUT_S)
+    finally:
+        STATE["pending_approval"] = None
+    decision = pending["decision"]
+    if decision == "always":
+        STATE["approve_all_edits"] = True
+        return None
+    if decision == "run":
+        return None
+    if decision is None:
+        return ("The approval request timed out after %d seconds with no "
+                "answer — the action was NOT performed. Ask the user how to "
+                "proceed." % APPROVAL_TIMEOUT_S)
+    guidance = (pending.get("guidance") or "").strip()
+    return ("The user declined this action%s. Do not retry it as-is."
+            % (" and said: %s" % guidance if guidance else ""))
+
+
+def execute_tool(name, tool_input, bypass_approval=False):
     """Run one tool. Returns (ok, text, images).
 
     `images` is None, or a list of {"data": <base64 str>, "media_type": ...}
     when the tool produced pictures (view_frame, survey_clip): tools smuggle
     them out via _image_b64/_image_media_type (one image) or _images (several),
     all stripped from the JSON text.
+
+    `bypass_approval` is for panel-internal calls the user already opted into
+    (the drop-folder watcher) — they run on the UI thread, where waiting for
+    an approval click would deadlock.
     """
     entry = TOOL_INDEX.get(name)
     if entry is None:
         return False, "Unknown tool: %s" % name, None
+    if not bypass_approval and needs_approval(name):
+        declined = request_approval(name, tool_input)
+        if declined:
+            return False, declined, None
     try:
         result = entry["fn"](STATE["app"], **(tool_input or {}))
         images = None
@@ -5800,6 +5873,17 @@ class ChatWindow(object):
         STATE["ui_theme"] = saved_theme if saved_theme in THEMES else DEFAULT_THEME
         STATE["extra_watch_folders"] = list(cfg.get("extra_watch_folders") or [])
 
+        saved_mode = cfg.get("permission_mode")
+        if saved_mode not in PERMISSION_MODES:
+            # Migrate the old Python checkbox setting.
+            saved_mode = ("Python off" if cfg.get("allow_python") is False
+                          else DEFAULT_PERMISSION_MODE)
+        STATE["permission_mode"] = saved_mode
+        STATE["allow_python"] = saved_mode != "Python off"
+        STATE["approve_all_edits"] = False
+        STATE["pending_approval"] = None
+        self._approval_shown = None
+
         # Build the full window; if anything about it fails on this Resolve
         # build, fall back to the plain header that is known to work
         # everywhere. A broken panel must degrade, never come up empty.
@@ -5817,6 +5901,9 @@ class ChatWindow(object):
             print("[%s] window built (fallback header)" % APP_NAME)
 
         self._setup_timer()
+        # Approvals need the timer loop to show the card and buttons; without
+        # it the flow declines gracefully instead of deadlocking.
+        STATE["approval_ui_ready"] = self.timer is not None
         self._ui_ready = True
 
     def _build_window(self, cfg, fancy):
@@ -5825,12 +5912,27 @@ class ChatWindow(object):
             self.ui.ComboBox({"ID": "ModelCombo", "Weight": 0.3}),
             self.ui.Label({"ID": "EffortLbl", "Text": "Effort", "Weight": 0}),
             self.ui.ComboBox({"ID": "EffortCombo", "Weight": 0.22}),
-            self.ui.CheckBox({"ID": "AllowPy",
-                              "Text": "Python",
-                              "ToolTip": "Allow Claude to run Python inside Resolve",
-                              "Checked": bool(cfg.get("allow_python", True)),
-                              "Weight": 0.14}),
         ]
+        if fancy:
+            header += [
+                self.ui.Label({"ID": "PermLbl", "Text": "Permissions", "Weight": 0}),
+                self.ui.ComboBox({"ID": "PermCombo", "Weight": 0.28,
+                                  "ToolTip": "Ask before edits: read-only tools run "
+                                             "freely, anything that modifies the "
+                                             "project pauses for your OK.\n"
+                                             "Always ask: every tool pauses.\n"
+                                             "Never ask: run everything.\n"
+                                             "Python off: no run_python at all.",
+                                  "Events": {"CurrentIndexChanged": True}}),
+            ]
+        else:
+            header += [
+                self.ui.CheckBox({"ID": "AllowPy",
+                                  "Text": "Python",
+                                  "ToolTip": "Allow Claude to run Python inside Resolve",
+                                  "Checked": bool(cfg.get("allow_python", True)),
+                                  "Weight": 0.14}),
+            ]
         if fancy:
             header += [
                 self.ui.CheckBox({"ID": "WatchDrop",
@@ -5863,6 +5965,20 @@ class ChatWindow(object):
                 self.ui.VGroup({"Spacing": 8, "ID": "Root"}, [
                     self.ui.HGroup({"Weight": 0, "Spacing": 6}, header),
                     self.ui.TextEdit({"ID": "Chat", "ReadOnly": True, "Weight": 1}),
+                    self.ui.HGroup({"Weight": 0, "Spacing": 6, "ID": "ApprovalRow",
+                                    "Hidden": True}, [
+                        self.ui.Button({"ID": "ApproveRun",
+                                        "Text": "1  Yes, run it", "Weight": 0,
+                                        "Enabled": False}),
+                        self.ui.Button({"ID": "ApproveAlways",
+                                        "Text": "2  Yes for this session",
+                                        "Weight": 0, "Enabled": False}),
+                        self.ui.Button({"ID": "ApproveNo",
+                                        "Text": "3  No", "Weight": 0,
+                                        "Enabled": False}),
+                        self.ui.Label({"ID": "ApproveHint", "Weight": 1,
+                                       "Text": ""}),
+                    ]),
                     self.ui.HGroup({"Weight": 0, "Spacing": 6}, [
                         self.ui.LineEdit({"ID": "Input",
                                           "PlaceholderText": "Ask Claude…  (Enter to send)",
@@ -5905,13 +6021,20 @@ class ChatWindow(object):
         self.win.On.Input.ReturnPressed = self.on_send
         self.win.On.NewChatBtn.Clicked = self.on_new_chat
         self.win.On.HistoryBtn.Clicked = self.on_history
+        self.win.On.ApproveRun.Clicked = self.on_approve_run
+        self.win.On.ApproveAlways.Clicked = self.on_approve_always
+        self.win.On.ApproveNo.Clicked = self.on_approve_no
         self.win.On.ClaudeWin.Close = self.on_close
 
         self.has_style_combo = False
+        self.has_perm_combo = False
         if fancy:
             fill("StyleCombo", THEME_CHOICES, STATE["ui_theme"])
             self.win.On.StyleCombo.CurrentIndexChanged = self.on_style_change
             self.has_style_combo = True
+            fill("PermCombo", PERMISSION_MODES, STATE["permission_mode"])
+            self.win.On.PermCombo.CurrentIndexChanged = self.on_permission_change
+            self.has_perm_combo = True
 
     # -- timer / threading ----------------------------------------------------
     def _setup_timer(self):
@@ -5953,6 +6076,10 @@ class ChatWindow(object):
                     self.append_chat(kind, text)
             except Exception:
                 pass  # window may be tearing down; never lose the queue loop
+        try:
+            self.maybe_show_approval()
+        except Exception:
+            pass                             # a broken card must not block tools
         try:
             self.tick_progress()
         except Exception:
@@ -5998,7 +6125,8 @@ class ChatWindow(object):
             ready += scan_drop_folder(watched, tracker)
         if not ready:
             return
-        ok, text, _imgs = execute_tool("import_and_sort", {"paths": ready})
+        ok, text, _imgs = execute_tool("import_and_sort", {"paths": ready},
+                                       bypass_approval=True)
         names = ", ".join(os.path.basename(p) for p in ready[:6])
         if ok:
             self.append_chat("notice", "Drop folder: imported %d file%s (%s) — %s"
@@ -6103,6 +6231,111 @@ class ChatWindow(object):
             pass
         self.rebuild_chat()
 
+    # -- approvals --------------------------------------------------------------
+    def current_permission_mode(self):
+        if getattr(self, "has_perm_combo", False):
+            try:
+                idx = int(self.items["PermCombo"].CurrentIndex)
+                if 0 <= idx < len(PERMISSION_MODES):
+                    return PERMISSION_MODES[idx]
+            except Exception:
+                pass
+            return DEFAULT_PERMISSION_MODE
+        # Fallback header keeps the plain Python checkbox.
+        try:
+            return "Never ask" if self.items["AllowPy"].Checked else "Python off"
+        except Exception:
+            return "Never ask"
+
+    def on_permission_change(self, ev):
+        if not getattr(self, "_ui_ready", False):
+            return
+        mode = self.current_permission_mode()
+        if mode == STATE.get("permission_mode"):
+            return
+        STATE["permission_mode"] = mode
+        STATE["allow_python"] = mode != "Python off"
+        STATE["approve_all_edits"] = False   # consent doesn't carry across modes
+        self.cfg["permission_mode"] = mode
+        self.cfg["allow_python"] = STATE["allow_python"]
+        try:
+            save_config(self.cfg)
+        except Exception:
+            pass
+
+    def set_approval_ui(self, active):
+        for button_id in ("ApproveRun", "ApproveAlways", "ApproveNo"):
+            try:
+                self.items[button_id].Enabled = active
+            except Exception:
+                pass
+        try:
+            self.items["ApprovalRow"].Hidden = not active
+        except Exception:
+            pass                            # Hidden unsupported: buttons grey out
+        try:
+            self.items["Input"].Enabled = active or not self.busy
+            self.items["Input"].PlaceholderText = (
+                "1 = yes · 2 = yes for this session · 3 = no — or type what "
+                "to do instead" if active else "Ask Claude…  (Enter to send)")
+        except Exception:
+            pass
+
+    def maybe_show_approval(self):
+        pending = STATE.get("pending_approval")
+        if pending is None:
+            if self._approval_shown is not None:
+                self._approval_shown = None
+                self.set_approval_ui(False)  # resolved elsewhere or timed out
+            return
+        if self._approval_shown is pending:
+            return
+        self._approval_shown = pending
+        name, args = pending["name"], pending["input"]
+        body = "**Approval needed** — %s" % _tool_call_line(name, args)
+        if name == "run_python" and isinstance(args, dict) and args.get("code"):
+            body += "\n\n%s" % _code_preview(str(args.get("code", "")), 18)
+        body += ("\n\nClick a button below — or type **1** yes · **2** yes "
+                 "for this session · **3** no (or type what to do instead).")
+        self.append_chat("notice", body, persist=False)
+        self.set_approval_ui(True)
+
+    def resolve_approval(self, decision, guidance=""):
+        pending = STATE.get("pending_approval")
+        if not pending:
+            return
+        pending["guidance"] = guidance
+        pending["decision"] = decision
+        labels = {"run": "Approved — running.",
+                  "always": "Approved, and edits are allowed for the rest of "
+                            "this session.",
+                  "decline": "Declined." + (" Sent your guidance to Claude."
+                                            if guidance else "")}
+        self.append_chat("notice", labels.get(decision, decision), persist=False)
+        self._approval_shown = None
+        self.set_approval_ui(False)
+        pending["event"].set()
+
+    def on_approve_run(self, ev):
+        self.resolve_approval("run")
+
+    def on_approve_always(self, ev):
+        self.resolve_approval("always")
+
+    def on_approve_no(self, ev):
+        self.resolve_approval("decline")
+
+    def answer_approval_text(self, text):
+        low = text.strip().lower()
+        if low in ("", "1", "y", "yes"):     # the design: Enter runs
+            self.resolve_approval("run")
+        elif low == "2":
+            self.resolve_approval("always")
+        elif low in ("3", "n", "no", "esc"):
+            self.resolve_approval("decline")
+        else:
+            self.resolve_approval("decline", guidance=text.strip())
+
     def rebuild_chat(self):
         """Re-render the stored transcript in the active theme."""
         self.html_log = [render_chat_message(*entry_parts(m))
@@ -6118,18 +6351,27 @@ class ChatWindow(object):
             pass
 
     def on_send(self, ev):
+        if STATE.get("pending_approval"):
+            # The input doubles as the keyboard path for approvals.
+            text = (self.items["Input"].Text or "")
+            self.items["Input"].Text = ""
+            self.answer_approval_text(text)
+            return
         if self.busy:
             return
         text = (self.items["Input"].Text or "").strip()
         if not text:
             return
         self.items["Input"].Text = ""
-        STATE["allow_python"] = bool(self.items["AllowPy"].Checked)
+        mode = self.current_permission_mode()
+        STATE["permission_mode"] = mode
+        STATE["allow_python"] = mode != "Python off"
         STATE["effort"] = self.current_effort()
         model = self.current_model()
 
         self.cfg["model"] = model
         self.cfg["effort"] = STATE["effort"]
+        self.cfg["permission_mode"] = mode
         self.cfg["allow_python"] = STATE["allow_python"]
         try:
             self.cfg["watch_drop"] = bool(self.items["WatchDrop"].Checked)

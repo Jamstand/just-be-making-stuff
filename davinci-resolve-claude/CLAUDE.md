@@ -107,6 +107,25 @@ behaviour; extend them when adding tools.
     be numeric; "Type" values worth switching on: Video, Audio,
     "Video + Audio", Still.
 
+## Approvals (the design's 1d flow)
+
+- Chokepoint: execute_tool → needs_approval(name) → request_approval blocks
+  the CALLING thread (bridge conn / API worker — never the UI thread) on a
+  threading.Event; the UI timer notices STATE["pending_approval"], shows the
+  amber card + ApprovalRow buttons, and resolve_approval sets the decision.
+- READONLY_TOOLS is an explicit frozenset — new tools default to "asks".
+  Keep it updated when adding read-only tools, or Ask-mode gets annoying.
+- needs_approval returns False when STATE["permission_mode"] is unset: only
+  the panel initialises approvals, so tests/drive.py/headless flows never
+  block. The drop-folder watcher calls execute_tool(bypass_approval=True) —
+  it runs ON the UI thread, where waiting would deadlock.
+- The input box doubles as the keyboard path (on_send intercepts while a
+  request is pending): ""/1/y = run, 2 = session-wide consent, 3/n = no,
+  anything else = decline + guidance handed to the model.
+- Timeout APPROVAL_TIMEOUT_S (120s) declines with an explanation — an MCP
+  call must never hang the bridge forever. approval_ui_ready gates the whole
+  flow off when the timer fallback is in play (sync mode would deadlock).
+
 ## Conventions
 
 - Tool = `@tool(name, description, params, required)` on `t_*(app, ...)`;

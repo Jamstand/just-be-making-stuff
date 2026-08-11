@@ -107,10 +107,15 @@ avoid that.
 - **Enter to send.** Claude may take several tool steps per request; each tool
   call is shown in the transcript as it happens.
 - **New chat** clears the conversation (Claude's memory of this session).
-- **Allow Python execution** — when checked, Claude may run short Python
-  snippets inside Resolve for requests the built-in tools don't cover. Every
-  snippet is printed in the transcript before it runs. Uncheck to restrict
-  Claude to the curated tools only.
+- **Permissions** — the design's approval flow, live. Four modes:
+  `Ask before edits` (default: read-only tools run freely, anything that
+  modifies the project pauses on an amber approval card), `Always ask`
+  (every tool pauses), `Never ask`, and `Python off` (also disables
+  `run_python`). When a call pauses you can click **1 Yes, run it** /
+  **2 Yes for this session** / **3 No** — or just type `1`, `2`, `3`, or
+  *what you want done instead*, which declines and hands Claude your
+  guidance. Unanswered requests time out safely after 2 minutes. Every
+  Python snippet is still printed in the transcript before it runs.
 - **Style** — switches the panel's look: `Resolve` (native graphite — cards
   with coloured caps labels, code cards with a language header), `Console`
   (dense one-row-per-event, code collapsed to chips), `Contrast`, `Compact`

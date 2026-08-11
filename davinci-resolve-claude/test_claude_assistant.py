@@ -2398,6 +2398,134 @@ check("fallback window still functional",
 check("fallback keeps model combo",
       _w2.items["ModelCombo"].choices == mod.MODEL_CHOICES)
 
+# ------------------------------------------------------------- approvals (1d)
+print("== approvals ==")
+import threading as _thr
+
+check("readonly set only names real tools",
+      mod.READONLY_TOOLS <= set(t["name"] for t in mod.TOOLS),
+      str(mod.READONLY_TOOLS - set(t["name"] for t in mod.TOOLS)))
+
+mod.STATE["approve_all_edits"] = False
+mod.STATE["permission_mode"] = "Ask before edits"
+check("edits ask", mod.needs_approval("delete_clips"))
+check("python asks", mod.needs_approval("run_python"))
+check("readonly runs freely", not mod.needs_approval("list_media_pool"))
+mod.STATE["permission_mode"] = "Always ask"
+check("always-ask pauses readonly too", mod.needs_approval("list_media_pool"))
+mod.STATE["permission_mode"] = "Never ask"
+check("never-ask never pauses", not mod.needs_approval("delete_clips"))
+mod.STATE["permission_mode"] = "Ask before edits"
+mod.STATE["approve_all_edits"] = True
+check("session-wide consent honoured", not mod.needs_approval("delete_clips"))
+mod.STATE["approve_all_edits"] = False
+
+# no approval UI (sync fallback) -> decline with clear pointer, no deadlock
+mod.STATE["approval_ui_ready"] = False
+ok, out = run_tool("add_marker", {"position": 1, "color": "Red"})
+check("no-UI approval declines safely", not ok and "Never ask" in out, out)
+
+# full flow through a fake window: tool thread blocks, UI thread answers
+_uiA = FakeUI()
+_wA = mod.ChatWindow(_uiA, FakeDisp(_uiA), {})     # sets approval_ui_ready True
+check("perm combo carries the modes",
+      _wA.items["PermCombo"].choices == mod.PERMISSION_MODES)
+check("default mode is ask-before-edits",
+      mod.STATE["permission_mode"] == "Ask before edits")
+
+
+def _drive_approval(answer_with, tool="add_marker",
+                    args={"position": 7, "color": "Blue", "name": "ap"}):
+    result = {}
+
+    def call():
+        result["r"] = mod.execute_tool(tool, dict(args))
+
+    t = _thr.Thread(target=call)
+    t.start()
+    for _ in range(200):                      # wait for the pending request
+        if mod.STATE.get("pending_approval"):
+            break
+        time.sleep(0.01)
+    _wA.maybe_show_approval()
+    answer_with()
+    t.join(5)
+    return result.get("r")
+
+
+import time
+_ok, _out, _ = _drive_approval(lambda: _wA.resolve_approval("run"))
+check("approved tool actually runs", _ok, _out)
+check("approval card was shown",
+      "Approval needed" in _wA.items["Chat"].HTML and
+      "add_marker" in _wA.items["Chat"].HTML)
+check("card is ephemeral", not any("Approval needed" in str(m[1])
+                                   for m in _wA.msg_log))
+
+_ok, _out, _ = _drive_approval(lambda: _wA.resolve_approval(
+    "decline", guidance="use green markers on V2 instead"),
+    args={"position": 11, "color": "Blue"})
+check("decline blocks the tool and carries guidance",
+      not _ok and "declined" in _out and "green markers on V2" in _out, _out)
+
+_ok, _out, _ = _drive_approval(lambda: _wA.answer_approval_text("2"),
+                               args={"position": 13, "color": "Blue"})
+check("typed 2 grants session-wide consent",
+      _ok and mod.STATE.get("approve_all_edits") is True, _out)
+_ok, _out, _ = mod.execute_tool("add_marker", {"position": 9, "color": "Red"})
+check("later edits skip approval after consent", _ok, _out)
+mod.STATE["approve_all_edits"] = False
+
+# keyboard path routes through on_send while a request is pending
+def _type_answer():
+    _wA.items["Input"].Text = "don't touch the timeline, work on a duplicate"
+    _wA.on_send(None)
+
+_ok, _out, _ = _drive_approval(_type_answer, args={"position": 15, "color": "Red"})
+check("typed guidance declines via on_send",
+      not _ok and "duplicate" in _out, _out)
+
+# timeout self-heals instead of hanging the bridge forever
+_real_timeout = mod.APPROVAL_TIMEOUT_S
+mod.APPROVAL_TIMEOUT_S = 0.2
+_ok, _out, _ = mod.execute_tool("add_marker", {"position": 3, "color": "Red"})
+check("approval timeout declines with explanation",
+      not _ok and "timed out" in _out, _out)
+mod.APPROVAL_TIMEOUT_S = _real_timeout
+_wA.maybe_show_approval()                      # UI notices the cleared pending
+check("timeout clears the approval UI", _wA._approval_shown is None)
+
+# drop-folder ingestion is user-opted-in: bypasses approval on the UI thread
+_ok2, _out2, _ = mod.execute_tool("list_media_pool", {"folder_path": "/"})
+check("readonly still free mid-mode", _ok2)
+
+# mode switch handler persists and derives allow_python
+_saved_cfgs2 = []
+_real_sc2 = mod.save_config
+mod.save_config = lambda c: _saved_cfgs2.append(dict(c))
+_wA.items["PermCombo"].CurrentIndex = mod.PERMISSION_MODES.index("Python off")
+_wA.on_permission_change(None)
+check("python-off mode disables run_python",
+      mod.STATE["permission_mode"] == "Python off"
+      and mod.STATE["allow_python"] is False
+      and _saved_cfgs2 and _saved_cfgs2[-1]["permission_mode"] == "Python off")
+_wA.items["PermCombo"].CurrentIndex = mod.PERMISSION_MODES.index("Never ask")
+_wA.on_permission_change(None)
+check("never-ask re-enables python", mod.STATE["allow_python"] is True)
+mod.save_config = _real_sc2
+
+# fallback header keeps the Python checkbox as the permission control
+_uiB = FakeUI(reject=lambda el, spec: isinstance(spec, dict)
+              and spec.get("ID") == "PermCombo")
+_wB = mod.ChatWindow(_uiB, FakeDisp(_uiB), {})
+check("fallback maps checkbox to modes",
+      not _wB.has_perm_combo and _wB.current_permission_mode() == "Python off")
+_wB.items["AllowPy"].Checked = True
+check("checked box means never-ask", _wB.current_permission_mode() == "Never ask")
+
+mod.STATE["permission_mode"] = "Never ask"     # later sections run tools freely
+mod.STATE["pending_approval"] = None
+
 # A build that silently DROPS core widgets triggers the probe + fallback.
 class DroppyDisp(FakeDisp):
     calls = 0
