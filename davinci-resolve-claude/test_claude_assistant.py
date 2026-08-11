@@ -1357,9 +1357,19 @@ check("console code collapses to a chip",
 _h = mod._render_tool_event(mod._code_preview("a=1\nb=2\nc=3"))
 check("console tool code is a chip too",
       "<pre" not in _h and "3 lines" in _h, _h)
+check("console shows the timestamp gutter",
+      "14:02:11" in mod.render_chat_message("you", "sort", "14:02:11"))
 mod.STATE["ui_theme"] = mod.DEFAULT_THEME
 check("card themes keep full code",
       "<pre" in mod.render_chat_message("assistant", "```python\nx=1\n```"))
+check("card themes ignore the gutter",
+      "09:00:00" not in mod.render_chat_message("you", "hi", "09:00:00"))
+check("legacy two-part entries still render",
+      mod.entry_parts(("you", "old")) == ("you", "old", None) and
+      mod.entry_parts(["notice", "n", "12:00:00"]) == ("notice", "n", "12:00:00"))
+check("code card names its language in header colour",
+      mod.THEMES["Resolve"]["code_lang_color"]
+      in mod._code_card("x=1", "python", None))
 check("default theme is the classic look",
       mod.CHAT_STYLES["you"][1] in mod.render_chat_message("you", "hi"))
 
@@ -1371,15 +1381,18 @@ for _name in mod.THEME_CHOICES:
 check("legacy stylesheet is the default theme",
       mod.RESOLVE_STYLESHEET == mod.build_stylesheet(mod.THEMES[mod.DEFAULT_THEME]))
 _h = mod.render_chat_message("you", "hello **there**")
-check("user card has accent + label", "YOU" in _h.upper() and "#6fae6f" in _h
-      and "<b>there</b>" in _h, _h)
+check("user card has accent + label", "YOU" in _h.upper()
+      and mod.CHAT_STYLES["you"][1] in _h and "<b>there</b>" in _h, _h)
+check("design tokens applied", mod.CHAT_STYLES["you"][1] == "#6e9bc5"
+      and mod.CHAT_STYLES["assistant"][1] == "#d97757")
 check("card escapes html", "<script" not in mod.render_chat_message("you", "<script>"))
 _h = mod.render_chat_message("tool", "add_marker  color: Red")
 check("tool event renders compact", "add_marker" in _h and "font-size:11px" in _h, _h)
 _h = mod.render_chat_message("tool", "```python\nx=1\n```")
 check("tool code renders as pre card", "<pre" in _h and "x=1" in strip_tags(_h), _h)
 _h = mod.render_chat_message("tool", "error: exploded")
-check("tool errors tinted red", "#c98080" in _h and "exploded" in _h, _h)
+check("tool errors tinted red",
+      mod.THEMES[mod.DEFAULT_THEME]["tool_error"] in _h and "exploded" in _h, _h)
 check("unknown kind safe", "?" in mod.render_chat_message("mystery", "hm"))
 
 # config round-trip in a temp HOME
@@ -2347,7 +2360,9 @@ check("model combo filled", _w.items["ModelCombo"].choices == mod.MODEL_CHOICES)
 check("theme defaulted", mod.STATE["ui_theme"] == mod.DEFAULT_THEME)
 
 _w.append_chat("you", "hello")
-check("append records raw message", ("you", "hello") in _w.msg_log)
+check("append records raw message with timestamp",
+      any(m[0] == "you" and m[1] == "hello" and len(m) == 3
+          for m in _w.msg_log), str(_w.msg_log))
 _w.items["StyleCombo"].CurrentIndex = mod.THEME_CHOICES.index("Terminal")
 _w.on_style_change(None)
 check("style change switches theme", mod.STATE["ui_theme"] == "Terminal")
@@ -2488,7 +2503,7 @@ mod.STATE["messages"] = [{"role": "user", "content": "current"}]
 _w4.on_history_open(None)
 check("restore switches identity", _w4.chat_id == _first_id)
 check("restore brings transcript back",
-      ("you", "make a montage") in _w4.msg_log)
+      any(m[0] == "you" and m[1] == "make a montage" for m in _w4.msg_log))
 check("restore brings session id back",
       mod.STATE["cc_session_id"] == "sess-live")
 check("restore notice shown", "Restored" in _w4.items["Chat"].HTML)
