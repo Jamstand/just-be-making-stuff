@@ -1,0 +1,27 @@
+{
+  "name": "CrackAGeode",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Config": {
+        "$path": "src/shared/Config.luau"
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "CrackAGeodeServer": {
+        "$path": "src/server/CrackAGeodeServer"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "CrackAGeodeClient": {
+          "$path": "src/client/CrackAGeodeClient"
+        }
+      }
+    }
+  }
+}

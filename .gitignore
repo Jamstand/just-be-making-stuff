@@ -1,0 +1,11 @@
+# Rojo / toolchain
+/node_modules/
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/

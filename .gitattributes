@@ -1,0 +1,4 @@
+# Keep Luau/JSON source LF so Rojo round-trips byte-for-byte regardless of core.autocrlf
+*.luau text eol=lf
+*.json text eol=lf
+*.md text eol=lf
