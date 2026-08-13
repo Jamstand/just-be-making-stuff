@@ -6,6 +6,12 @@
       "$className": "ReplicatedStorage",
       "Config": {
         "$path": "src/shared/Config.luau"
+      },
+      "Zones": {
+        "$path": "src/shared/Zones.luau"
+      },
+      "StyleGuide": {
+        "$path": "src/shared/StyleGuide.luau"
       }
     },
     "ServerScriptService": {

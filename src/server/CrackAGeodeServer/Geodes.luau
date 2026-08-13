@@ -165,6 +165,8 @@ function Geodes.TryCrack(player, id, opts)
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
+	local zone = Config.Zones.Get(node.regionKey)
+	if zone and not Config.Zones.IsUnlocked(zone, Config.Zones.StatsFor(p)) then return end -- zone not unlocked
 	if (hrp.Position - node.pos).Magnitude > Config.Balance.ClickRange + 8 then return end
 	local now = os.clock()
 	local cd = Config.Cooldown(p.power)
@@ -174,7 +176,8 @@ function Geodes.TryCrack(player, id, opts)
 
 	local rarityIdx = opts.forceRarity or Econ.RollRarity(player)
 	local mutIdx = opts.forceMutation or Econ.RollMutation(player)
-	local gained, newEntry = Econ.RegisterFind(player, rarityIdx, mutIdx)
+	local gained, newEntry = Econ.RegisterFind(player, rarityIdx, mutIdx, node.valueMult, node.regionKey)
+	if S.CollectPets then S.CollectPets.MaybeDrop(player, node.regionKey) end -- Phase 3: pet drop chance
 	if S.Dailies then
 		S.Dailies.Event(player, "crack", 1)
 		S.Dailies.Event(player, "earn", gained)
@@ -218,14 +221,20 @@ function Geodes.Respawn(id)
 	}):Play()
 end
 
-local function buildNode(i)
-	local size = 5.5 + (i % 3)
-	local a = (i / Config.Balance.NodeCount) * math.pi * 2
-	local pos = Vector3.new(math.cos(a) * Config.Balance.NodeRingRadius, size / 2, math.sin(a) * Config.Balance.NodeRingRadius)
+-- One geode node in a region's ring. `ringIndex`/`ringCount` place it around the
+-- region center; the region theme colors the rock + crystal seam; the node carries
+-- its region's payout multiplier and rebirth unlock so TryCrack can gate + scale.
+local function buildNode(id, ringIndex, ringCount, region)
+	local theme = region.theme
+	local size = 5.5 + (ringIndex % 3)
+	local a = (ringIndex / ringCount) * math.pi * 2
+	local radius = region.radius or Config.Balance.NodeRingRadius
+	local pos = region.center + Vector3.new(math.cos(a) * radius, size / 2, math.sin(a) * radius)
+	local seamColor = theme.crystals[(ringIndex % #theme.crystals) + 1]
 
 	local model = Instance.new("Model")
-	model.Name = "Node" .. i
-	model:SetAttribute("NodeId", i)
+	model.Name = "Node" .. id
+	model:SetAttribute("NodeId", id)
 
 	local rock = Instance.new("Part")
 	rock.Name = "Rock"
@@ -234,7 +243,7 @@ local function buildNode(i)
 	rock.CFrame = CFrame.new(pos)
 	rock.Anchored = true
 	rock.Material = Enum.Material.Rock
-	rock.Color = ROCK_COLOR
+	rock.Color = theme.rock
 	rock.Parent = model
 
 	local seam = Instance.new("Part")
@@ -245,7 +254,7 @@ local function buildNode(i)
 	seam.Anchored = true
 	seam.CanCollide = false
 	seam.Material = Enum.Material.Neon
-	seam.Color = Color3.fromRGB(160, 210, 255)
+	seam.Color = seamColor
 	seam.Transparency = 0.35
 	seam.Parent = model
 
@@ -253,13 +262,14 @@ local function buildNode(i)
 	click.MaxActivationDistance = Config.Balance.ClickRange
 	click.Parent = rock
 	click.MouseClick:Connect(function(player)
-		Geodes.TryCrack(player, i)
+		Geodes.TryCrack(player, id)
 	end)
 
 	TweenService:Create(seam, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.75 }):Play()
 
 	model.Parent = workspace.CrackAGeode.Nodes
-	nodes[i] = { model = model, rock = rock, seam = seam, alive = true, size = size, pos = pos }
+	nodes[id] = { model = model, rock = rock, seam = seam, alive = true, size = size, pos = pos,
+		valueMult = region.valueMult or 1, unlock = region.unlock or 0, regionKey = region.key }
 end
 
 -- Golden Geode: personal jackpot node by the crater (dev product / streak day 7)
@@ -328,8 +338,14 @@ function Geodes.Init(services)
 	S = services
 	Config, Remotes, Data, Econ = S.Config, S.Remotes, S.Data, S.Econ
 
-	for i = 1, Config.Balance.NodeCount do
-		buildNode(i)
+	-- Build a themed geode ring for every region (hub + unlockable biomes).
+	local nextId = 0
+	for _, region in ipairs(Config.Regions) do
+		local count = region.nodeCount or Config.Balance.NodeCount
+		for k = 1, count do
+			nextId += 1
+			buildNode(nextId, k, count, region)
+		end
 	end
 
 	Players.PlayerRemoving:Connect(function(player)

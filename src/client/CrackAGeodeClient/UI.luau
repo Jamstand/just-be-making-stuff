@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
+local SG = require(game:GetService("ReplicatedStorage"):WaitForChild("StyleGuide"))
 
 local UI = {}
 local Config, Remotes
@@ -13,12 +14,12 @@ local gui
 local snap = nil
 local displayGems = 0
 
-local BG = Color3.fromRGB(20, 17, 32)
-local BG2 = Color3.fromRGB(34, 29, 54)
-local ACCENT = Color3.fromRGB(150, 110, 255)
-local GOOD = Color3.fromRGB(70, 200, 120)
-local TEXT = Color3.fromRGB(238, 235, 252)
-local MUTED = Color3.fromRGB(165, 160, 190)
+local BG = SG.Color.Bg1
+local BG2 = SG.Color.Bg2
+local ACCENT = SG.Color.Violet
+local GOOD = SG.Color.Green
+local TEXT = SG.Color.Text
+local MUTED = SG.Color.TextDim
 
 local panels = {}
 local refs = {}
@@ -41,10 +42,10 @@ local function mk(class, props, parent)
 	return inst
 end
 local function corner(el, px)
-	mk("UICorner", { CornerRadius = UDim.new(0, px or 10) }, el)
+	mk("UICorner", { CornerRadius = UDim.new(0, px or 14) }, el)
 end
 local function stroke(el, color, thickness)
-	mk("UIStroke", { Color = color or ACCENT, Thickness = thickness or 1.4, Transparency = 0.3 }, el)
+	mk("UIStroke", { Color = color or ACCENT, Thickness = thickness or 2, Transparency = 0.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, el)
 end
 local function label(props, parent)
 	props.BackgroundTransparency = props.BackgroundTransparency or 1
@@ -166,16 +167,20 @@ end
 function UI.TogglePanel(name)
 	for n, panel in pairs(panels) do
 		if n == name then
-			panel.Visible = not panel.Visible
-		else
-			panel.Visible = false
+			if panel.Visible then SG.close(panel) else SG.open(panel) end
+		elseif panel.Visible then
+			SG.close(panel)
 		end
 	end
 end
 
 function UI.ShowPanel(name)
 	for n, panel in pairs(panels) do
-		panel.Visible = (n == name)
+		if n == name then
+			if not panel.Visible then SG.open(panel) end
+		elseif panel.Visible then
+			SG.close(panel)
+		end
 	end
 end
 
@@ -456,7 +461,7 @@ end
 -- ===== collection index panel =====
 local MUT_TAGS = { "⬜", "✨", "💟", "🌟" }
 local function buildIndex()
-	local panel = makeScrollPanel("Index", "📖 COLLECTION INDEX", 480)
+	local panel = makeScrollPanel("Index", "📖 COLLECTION INDEX", 522)
 	refs.indexHeader = label({
 		Position = UDim2.fromOffset(18, 40), Size = UDim2.new(1, -36, 0, 20),
 		Text = "0/28 collected • each full row = +10% Luck", TextColor3 = MUTED,
@@ -481,6 +486,9 @@ local function buildIndex()
 			refs.cells[(r - 1) * 4 + m] = { frame = cell, label = cl, rarity = r, mutation = m }
 		end
 	end
+	refs.zonePctLabel = label({ Position = UDim2.fromOffset(18, 450), Size = UDim2.new(1, -36, 0, 56),
+		Text = "", TextColor3 = MUTED, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true, ZIndex = 21 }, panel)
 end
 
 local function refreshIndex()
@@ -501,6 +509,13 @@ local function refreshIndex()
 		end
 	end
 	refs.indexHeader.Text = count .. "/28 collected • each full row = +10% Luck • ⬜ normal ✨ Glowing 💟 Giant 🌟 Celestial"
+	if refs.zonePctLabel and snap.zoneIndexPct and Config.Zones then
+		local parts = {}
+		for _, zone in ipairs(Config.Zones.list) do
+			parts[#parts + 1] = zone.icon .. " " .. math.floor((snap.zoneIndexPct[zone.key] or 0) * 100) .. "%"
+		end
+		refs.zonePctLabel.Text = "PER-ZONE COMPLETION:  " .. table.concat(parts, "   ")
+	end
 end
 
 -- ===== daily panel (login rewards + quests) =====
@@ -646,6 +661,41 @@ local function buildPets()
 		y += 56
 		refs.petRows[i] = { row = row, icon = icon, name = name, sub = sub, btn = btn }
 	end
+
+	-- COLLECTIBLE PETS (drops + fusion, Phase 3)
+	y += 8
+	label({ Position = UDim2.fromOffset(14, y), Size = UDim2.new(1, -28, 0, 20),
+		Text = "✨ COLLECTIBLES — fuse 3 → next tier", TextColor3 = GOLD, Font = Enum.Font.GothamBlack,
+		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 23 }, panel)
+	y += 24
+	refs.collectHeader = label({ Position = UDim2.fromOffset(14, y), Size = UDim2.new(1, -28, 0, 16),
+		Text = "Crack geodes to find zone pets!", TextColor3 = MUTED, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 23 }, panel)
+	y += 22
+	refs.collectRows = {}
+	for i = 1, 5 do
+		local row = mk("Frame", { Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 50),
+			BackgroundColor3 = BG2, BackgroundTransparency = 0.1, Visible = false, ZIndex = 23 }, panel)
+		corner(row, 10)
+		local icon = label({ Position = UDim2.fromOffset(8, 0), Size = UDim2.fromOffset(40, 50), Text = "", ZIndex = 24 }, row)
+		local nm = label({ Position = UDim2.fromOffset(52, 6), Size = UDim2.new(1, -170, 0, 20), Text = "",
+			TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.GothamBold, ZIndex = 24 }, row)
+		local counts = label({ Position = UDim2.fromOffset(52, 28), Size = UDim2.new(1, -170, 0, 16), Text = "",
+			TextColor3 = MUTED, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 24 }, row)
+		local btn = mk("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0),
+			Size = UDim2.fromOffset(104, 40), BackgroundColor3 = BG, Text = "", TextColor3 = TEXT,
+			Font = Enum.Font.GothamBold, TextScaled = true, ZIndex = 24 }, row)
+		corner(btn, 8)
+		mk("UITextSizeConstraint", { MaxTextSize = 14 }, btn)
+		refs.collectRows[i] = { row = row, icon = icon, name = nm, counts = counts, btn = btn, zone = nil, fuseVariant = nil }
+		btn.MouseButton1Click:Connect(function()
+			local rr = refs.collectRows[i]
+			if not (rr.zone and rr.fuseVariant) then return end
+			local res = Remotes.FusePet:InvokeServer(rr.zone, rr.fuseVariant)
+			UI.Toast(res.ok and "✨ Fused!" or (res.err or "Can't fuse"), res.ok and GOLD or MUTED)
+		end)
+		y += 56
+	end
+
 	panel.CanvasSize = UDim2.fromOffset(0, y + 12)
 end
 
@@ -672,6 +722,97 @@ local function refreshPets()
 	refs.petsHeader.Text = pt.nextName
 		and ("🎯 Next: " .. pt.nextName .. " at Rebirth " .. pt.nextReq .. "   (you're at Rebirth " .. pt.rebirths .. ")")
 		or "🏆 All pets unlocked — you're a legend!"
+
+	local cp = snap.collectPets
+	if cp and refs.collectRows then
+		refs.collectHeader.Text = (#cp.pets > 0) and ("Active bonus: +" .. math.floor(cp.bonus * 100) .. "% Coins  (best owned pet)") or "Crack geodes to find zone pets!"
+		for i, rr in ipairs(refs.collectRows) do
+			local cpp = cp.pets[i]
+			if cpp then
+				rr.row.Visible = true
+				rr.zone = cpp.zone
+				rr.icon.Text = cpp.emoji
+				rr.name.Text = cpp.name
+				rr.name.TextColor3 = Color3.fromRGB(cpp.color[1], cpp.color[2], cpp.color[3])
+				rr.counts.Text = "N×" .. cpp.counts[1] .. "  ✨G×" .. cpp.counts[2] .. "  🌈R×" .. cpp.counts[3]
+				local fv = nil
+				if cpp.counts[1] >= 3 then fv = 1 elseif cpp.counts[2] >= 3 then fv = 2 end
+				rr.fuseVariant = fv
+				if fv then
+					rr.btn.Text = fv == 1 and "FUSE→G" or "FUSE→R"; rr.btn.BackgroundColor3 = GOOD; rr.btn.AutoButtonColor = true
+				else
+					rr.btn.Text = "Need 3"; rr.btn.BackgroundColor3 = BG; rr.btn.AutoButtonColor = false
+				end
+			else
+				rr.row.Visible = false
+				rr.zone = nil
+			end
+		end
+	end
+end
+
+-- ===== achievements panel =====
+local function buildAchievements()
+	local panel = makeScrollPanel("Achievements", "🏅 ACHIEVEMENTS", 520)
+	panel.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	panel.CanvasSize = UDim2.new()
+	mk("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Center }, panel)
+	mk("UIPadding", { PaddingTop = UDim.new(0, 48), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 12) }, panel)
+	refs.achRows = {}
+	for i = 1, 8 do
+		local card = mk("Frame", { Size = UDim2.new(1, -6, 0, 72), BackgroundColor3 = BG2, BackgroundTransparency = 0.1, LayoutOrder = i, Visible = false, ZIndex = 22 }, panel)
+		corner(card, 12)
+		local icon = label({ Position = UDim2.fromOffset(8, 6), Size = UDim2.fromOffset(44, 44), Text = "", ZIndex = 23 }, card)
+		local name = label({ Position = UDim2.fromOffset(58, 6), Size = UDim2.new(1, -186, 0, 20), Text = "", TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.GothamBold, ZIndex = 23 }, card)
+		local prog = label({ Position = UDim2.fromOffset(58, 28), Size = UDim2.new(1, -186, 0, 14), Text = "", TextColor3 = MUTED, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 23 }, card)
+		local barBG = mk("Frame", { Position = UDim2.fromOffset(58, 48), Size = UDim2.new(1, -196, 0, 8), BackgroundColor3 = BG, ZIndex = 23 }, card)
+		corner(barBG, 4)
+		local fill = mk("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = GOLD, ZIndex = 24 }, barBG)
+		corner(fill, 4)
+		local btn = mk("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(120, 46), BackgroundColor3 = BG, Text = "", TextColor3 = TEXT, Font = Enum.Font.GothamBlack, TextScaled = true, ZIndex = 23 }, card)
+		corner(btn, 9)
+		mk("UITextSizeConstraint", { MaxTextSize = 16 }, btn)
+		refs.achRows[i] = { card = card, icon = icon, name = name, prog = prog, fill = fill, btn = btn, key = nil }
+		btn.MouseButton1Click:Connect(function()
+			local key = refs.achRows[i].key
+			if not key then return end
+			local res = Remotes.ClaimAchievement:InvokeServer(key)
+			UI.Toast(res.ok and ("🏅 +" .. Config.Fmt(res.gems) .. " 💎!") or (res.err or "Not yet"), res.ok and GOLD or MUTED)
+		end)
+	end
+end
+
+local function refreshAchievements()
+	local list = snap and snap.achievements
+	if not (list and refs.achRows) then return end
+	for i, rowRef in ipairs(refs.achRows) do
+		local a = list[i]
+		if a then
+			rowRef.card.Visible = true
+			rowRef.key = a.key
+			rowRef.icon.Text = a.icon
+			rowRef.name.Text = a.name
+			local done = 0
+			for _, t in ipairs(a.tiers) do if t.claimed then done += 1 end end
+			local nextTier = a.tiers[done + 1]
+			if nextTier then
+				rowRef.prog.Text = a.cur .. " / " .. nextTier.goal .. "   →  +" .. Config.Fmt(nextTier.gems) .. " 💎   (Tier " .. (done + 1) .. "/" .. #a.tiers .. ")"
+				rowRef.fill.Size = UDim2.fromScale(math.clamp(a.cur / math.max(1, nextTier.goal), 0, 1), 1)
+				if a.claimable then
+					rowRef.btn.Text = "CLAIM"; rowRef.btn.BackgroundColor3 = GOOD; rowRef.btn.AutoButtonColor = true
+				else
+					rowRef.btn.Text = "Tier " .. (done + 1); rowRef.btn.BackgroundColor3 = BG; rowRef.btn.AutoButtonColor = false
+				end
+			else
+				rowRef.prog.Text = "✅ All tiers complete!"
+				rowRef.fill.Size = UDim2.fromScale(1, 1)
+				rowRef.btn.Text = "✓ DONE"; rowRef.btn.BackgroundColor3 = Color3.fromRGB(60, 90, 70); rowRef.btn.AutoButtonColor = false
+			end
+		else
+			rowRef.card.Visible = false
+			rowRef.key = nil
+		end
+	end
 end
 
 -- ===== HUD =====
@@ -717,6 +858,7 @@ local function buildHUD()
 	chip("chipStreak", Color3.fromRGB(255, 170, 110))
 	chip("chipServer", Color3.fromRGB(140, 255, 180))
 	chip("chipGolden", Color3.fromRGB(255, 220, 120))
+	chip("shardChip", Color3.fromRGB(90, 230, 210))
 
 	-- right-side menu buttons (thumb-reachable on the right edge). Compact on touch
 	-- so the 4-button column fits a short landscape phone without clipping the top.
@@ -725,7 +867,7 @@ local function buildHUD()
 	local pad = IS_TOUCH and 5 or 7
 	local col = mk("Frame", {
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -6, 0.5, 0),
-		Size = UDim2.fromOffset(btnW, (btnH + pad) * 6), BackgroundTransparency = 1,
+		Size = UDim2.fromOffset(btnW, (btnH + pad) * 7), BackgroundTransparency = 1,
 	}, gui)
 	mk("UIListLayout", { Padding = UDim.new(0, pad), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Right }, col)
 	local function sideBtn(icon, text, cb)
@@ -745,6 +887,7 @@ local function buildHUD()
 	refs.shopBtn = sideBtn("🛒", "Shop", function() UI.TogglePanel("Shop") end)
 	sideBtn("⛏️", "Upgrades", function() UI.TogglePanel("Upgrades") end)
 	sideBtn("📖", "Index", function() UI.TogglePanel("Index") end)
+	refs.achBtn = sideBtn("🏅", "Awards", function() UI.TogglePanel("Achievements") end)
 	refs.harvestBtn = sideBtn("🌱", "Garden", function()
 		local res = Remotes.HarvestGarden:InvokeServer()
 		if not res.ok then UI.Toast(res.err or "Nothing to harvest", MUTED) end
@@ -883,8 +1026,16 @@ function UI.Update(newSnap)
 		refs.goalCard.Visible = false
 	end
 
+	-- Grotto shard counter (Sunken explorer gate)
+	if refs.shardChip then
+		local sc = (snap.zoneShards and snap.zoneShards.Sunken) or 0
+		refs.shardChip.Visible = (sc > 0 and sc < 5)
+		if refs.shardChip.Visible then refs.shardChip.Text = "🔹 Grotto Shards " .. sc .. "/5" end
+	end
+
 	refreshDaily()
 	refreshPets()
+	refreshAchievements()
 end
 
 function UI.OnCrack(data)
@@ -893,6 +1044,16 @@ function UI.OnCrack(data)
 	if pulse then
 		pulse.Scale = 1.15
 		TweenService:Create(pulse, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	end
+	-- crack-result pass advertising: on a rare find, if 2× Coins isn't owned yet,
+	-- show what the pass WOULD have paid — throttled so it informs, never nags.
+	if snap and data.rarity and data.rarity >= Config.LuckyTierIndex
+		and data.gained and snap.passes and not snap.passes.DoubleGems then
+		local now = os.clock()
+		if not UI._lastUpsell or now - UI._lastUpsell > 45 then
+			UI._lastUpsell = now
+			UI.Toast("💰 2× Coins pass would've made that " .. Config.Fmt(data.gained * 2) .. "!", GOLD)
+		end
 	end
 end
 
@@ -976,6 +1137,19 @@ function UI.Init(config, remotes)
 	buildIndex()
 	buildDaily()
 	buildPets()
+	buildAchievements()
+
+	-- Neon Geode: chunky glossy look + press-punch on every button, from the shared style
+	for _, d in ipairs(gui:GetDescendants()) do
+		if d:IsA("TextButton") then
+			d.AutoButtonColor = false
+			if not d:FindFirstChildOfClass("UICorner") then SG.corner(d, "md") end
+			if d.BackgroundTransparency < 0.6 and not d:FindFirstChildOfClass("UIGradient") then
+				SG.gradient(d, SG.lighten(d.BackgroundColor3, 0.2), d.BackgroundColor3, 90)
+			end
+			SG.pressFX(d)
+		end
+	end
 
 	UI._RefreshPanels()
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(UI._RefreshPanels)

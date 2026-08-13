@@ -140,6 +140,26 @@ function Monetize.GrantProduct(player, key, targetUserId)
 		if S.Data.SaveSoon then S.Data.SaveSoon(player) end
 		S.Econ.Push(player) -- unlocks the Starter Sprite pet (derived from the flag)
 		return "⭐ Starter Pack unlocked — Coins + exclusive Starter Sprite pet!"
+	elseif string.sub(key, 1, 7) == "Unlock_" then
+		-- Paid zone skip-unlock. The zone is still fully earnable via its gate; this
+		-- just flips the per-player purchased flag Zones.IsUnlocked also honours.
+		local item = S.Config.ProductByKey(key)
+		local zoneKey = item and item.zone
+		if not zoneKey then return nil end
+		local p = S.Data.WaitFor(player, 5)
+		if not p then return "Purchase pending…" end
+		local zone = S.Config.Zones.Get(zoneKey)
+		p.zonesPurchased = p.zonesPurchased or {}
+		if p.zonesPurchased[zoneKey] then return "You already unlocked " .. (zone and zone.name or zoneKey) .. "!" end
+		p.zonesPurchased[zoneKey] = true
+		if S.Data.SaveSoon then S.Data.SaveSoon(player) end
+		S.Econ.Push(player)
+		S.Remotes.Announce:FireAllClients({
+			kind = "zone",
+			text = "🗺️ " .. player.DisplayName .. " unlocked " .. (zone and zone.name or zoneKey) .. "!",
+			color = (zone and zone.theme and zone.theme.accent) or Color3.fromRGB(150, 220, 255),
+		})
+		return "🗺️ " .. (zone and zone.name or zoneKey) .. " unlocked — warp in from the Nexus!"
 	end
 	return nil
 end

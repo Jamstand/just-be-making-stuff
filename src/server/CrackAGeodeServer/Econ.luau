@@ -35,6 +35,7 @@ function Econ.IncomeMult(player)
 	local mult = (Config.Balance.RebirthMultBase ^ p.rebirths) * (Config.Balance.AscendMult ^ p.ascensions)
 	if Econ.OwnsPass(player, "DoubleGems") then mult *= 2 end
 	if S.Pets then mult *= (1 + S.Pets.Bonus(player)) end -- equipped pet's permanent bonus
+	if S.CollectPets then mult *= (1 + S.CollectPets.Bonus(player)) end -- best collectible pet bonus
 	return mult
 end
 
@@ -130,10 +131,10 @@ function Econ.AwardRaw(player, amount)
 	return final
 end
 
-function Econ.RegisterFind(player, rarityIdx, mutIdx)
+function Econ.RegisterFind(player, rarityIdx, mutIdx, valueMult, zoneKey)
 	local p = Data.Cache[player]
 	if not p then return 0, false end
-	local base = Config.Rarities[rarityIdx].value * Config.Mutations[mutIdx].mult
+	local base = Config.Rarities[rarityIdx].value * Config.Mutations[mutIdx].mult * (valueMult or 1)
 	local gained = Econ.AwardGems(player, base)
 	if rarityIdx > p.bestRarity then p.bestRarity = rarityIdx end
 	local bitIndex = (rarityIdx - 1) * 4 + (mutIdx - 1)
@@ -141,6 +142,10 @@ function Econ.RegisterFind(player, rarityIdx, mutIdx)
 	if newEntry then
 		p.indexMask = bit32.bor(p.indexMask, bit32.lshift(1, bitIndex))
 		Remotes.OrbitSync:FireAllClients({ userId = player.UserId, mask = p.indexMask, best = p.bestRarity })
+	end
+	if zoneKey then -- per-zone collection index (Phase 3)
+		p.zoneIndex = p.zoneIndex or {}
+		p.zoneIndex[zoneKey] = bit32.bor(p.zoneIndex[zoneKey] or 0, bit32.lshift(1, bitIndex))
 	end
 	Econ.RecomputeRate(player)
 	return gained, newEntry
@@ -216,6 +221,17 @@ function Econ.Buy(player, what)
 	return { ok = true }
 end
 
+function Econ.ZoneIndexPct(p)
+	local out = {}
+	for _, zone in ipairs(Config.Zones.list) do
+		local mask = (p.zoneIndex and p.zoneIndex[zone.key]) or 0
+		local bits = 0
+		for i = 0, 27 do if bit32.band(mask, bit32.lshift(1, i)) ~= 0 then bits += 1 end end
+		out[zone.key] = bits / 28
+	end
+	return out
+end
+
 function Econ.Snapshot(player)
 	local p = Data.Cache[player]
 	if not p then return nil end
@@ -242,6 +258,11 @@ function Econ.Snapshot(player)
 		daily = (S.Dailies and S.Dailies.State(player)) or nil,
 		pets = (S.Pets and S.Pets.Snapshot(player)) or nil,
 		starterOffered = (S.Monetize and S.Monetize.StarterOffered(player)) or false,
+		zoneShards = p.zoneShards,
+		zonesPurchased = p.zonesPurchased, -- Phase 4: paid zone skip-unlocks (the gate UI reads this)
+		collectPets = (S.CollectPets and S.CollectPets.Snapshot(player)) or nil,
+		achievements = (S.Achievements and S.Achievements.State(player)) or nil,
+		zoneIndexPct = Econ.ZoneIndexPct(p),
 		now = os.time(),
 	}
 end

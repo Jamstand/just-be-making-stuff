@@ -13,7 +13,7 @@ for _, name in ipairs({ "Announce", "CrackFX", "StatsChanged", "MeteorState", "O
 	r.Name = name
 	r.Parent = remotes
 end
-for _, name in ipairs({ "GetState", "Buy", "Purchase", "HarvestGarden", "ClaimDaily", "EquipPet" }) do
+for _, name in ipairs({ "GetState", "Buy", "Purchase", "HarvestGarden", "ClaimDaily", "EquipPet", "FusePet", "ClaimAchievement" }) do
 	local r = Instance.new("RemoteFunction")
 	r.Name = name
 	r.Parent = remotes
@@ -24,7 +24,7 @@ local S = {}
 S.Config = require(ReplicatedStorage:WaitForChild("Config"))
 S.Remotes = remotes
 
-for _, name in ipairs({ "Data", "Buffs", "Econ", "Geodes", "Garden", "Monetize", "Meteor", "Boards", "Pickaxe", "Onboarding", "Dailies", "Pets" }) do
+for _, name in ipairs({ "Data", "Buffs", "Econ", "Geodes", "Garden", "Monetize", "Meteor", "Boards", "Pickaxe", "Onboarding", "Dailies", "Pets", "Regions", "Decor", "Stations", "Shards", "CollectPets", "Achievements" }) do
 	S[name] = require(script:WaitForChild(name))
 end
 
@@ -33,6 +33,9 @@ S.Data.Init(S)
 S.Buffs.Init(S)
 S.Econ.Init(S)
 S.Geodes.Init(S)
+S.Regions.Init(S) -- biome arenas + Warp Nexus (reads the same Config.Regions)
+S.Decor.Init(S)   -- hub environment detail (crystals, stalagmites, veins, dust)
+S.Stations.Init(S) -- station legibility: bright boards, color identities, crater beacon
 S.Garden.Init(S)
 S.Monetize.Init(S)
 S.Meteor.Init(S)
@@ -41,6 +44,9 @@ S.Pickaxe.Init(S)
 S.Onboarding.Init(S)
 S.Dailies.Init(S)
 S.Pets.Init(S)
+S.Shards.Init(S) -- explorer-gate hidden shards in Zone 1
+S.CollectPets.Init(S) -- Phase 3: collectible pets (fusion + variants)
+S.Achievements.Init(S) -- Phase 3: achievements board
 
 -- All modules initialized: only now may client-facing remote handlers run, so a
 -- request that arrives mid-bootstrap can't call into a module before its Init.
@@ -102,6 +108,18 @@ if RunService:IsStudio() then
 			return true
 		elseif action == "snapshot" then
 			return S.Econ.Snapshot(player)
+		elseif action == "grantPet" then
+			return S.CollectPets.Grant(player, args[1], args[2])
+		elseif action == "fusePet" then
+			return S.CollectPets.Fuse(player, args[1], args[2])
+		elseif action == "grantVip" then
+			return S.CollectPets.GrantVIP(player, args[1])
+		elseif action == "maybeVip" then
+			return S.CollectPets.MaybeVIP(player, args[1])
+		elseif action == "zoneUnlocked" then
+			return S.Config.Zones.IsUnlocked(S.Config.Zones.Get(args[1]), S.Config.Zones.StatsFor(p))
+		elseif action == "claimAch" then
+			return S.Achievements.Claim(player, args[1])
 		end
 		return "unknown action: " .. tostring(action)
 	end

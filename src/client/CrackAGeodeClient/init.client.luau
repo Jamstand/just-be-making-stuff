@@ -11,6 +11,8 @@ local Effects = require(script:WaitForChild("Effects"))
 local Orbit = require(script:WaitForChild("Orbit"))
 local Quality = require(script:WaitForChild("Quality"))
 local PetView = require(script:WaitForChild("PetView"))
+local RegionFX = require(script:WaitForChild("RegionFX"))
+local NexusFX = require(script:WaitForChild("NexusFX"))
 
 local player = Players.LocalPlayer
 local state = nil
@@ -19,6 +21,8 @@ UI.Init(Config, Remotes)
 Effects.Init(Config)
 Orbit.Init(Config)
 PetView.Init()
+RegionFX.Init(Config)
+NexusFX.Init()
 task.spawn(Quality.Init)
 
 -- VIP chat tag: prepend a gold [VIP] to messages from players who own the VIP pass
@@ -42,6 +46,7 @@ Remotes.StatsChanged.OnClientEvent:Connect(function(snap)
 	state = snap
 	UI.Update(snap)
 	PetView.Set(snap.pets and snap.pets.active)
+	NexusFX.Update(snap)
 end)
 
 Remotes.Announce.OnClientEvent:Connect(function(data)
@@ -84,6 +89,7 @@ task.spawn(function()
 		state = snap
 		UI.Update(snap)
 		PetView.Set(snap.pets and snap.pets.active)
+		NexusFX.Update(snap)
 	end
 end)
 

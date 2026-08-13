@@ -115,6 +115,33 @@ Config.Balance = {
 	ClickRange = 16,
 }
 
+-- ===== Zones (biomes) =====
+-- Zone data now lives in the data-driven ReplicatedStorage.Zones module — the
+-- single source of truth (typed unlocks, drop tables, exclusive pets, multipliers).
+-- These aliases keep existing consumers reading from Zones. Adding a zone = one
+-- entry in Zones (plus decoration) — nothing to edit here.
+local Zones = require(game:GetService("ReplicatedStorage"):WaitForChild("Zones"))
+Config.Zones = Zones
+Config.Regions = Zones.list       -- back-compat alias (spatial/theme/light data)
+Config.RegionByKey = Zones.Get    -- back-compat alias
+
+-- Phase 4: auto-derive one skip-unlock dev product per gated zone, straight from
+-- its data. The zone stays fully EARNABLE via its unlock condition — this product
+-- only lets a player pay Robux to open it now. Add a zone with an unlockPrice and
+-- its product appears automatically; nothing else to edit. Create each on the
+-- Creator Dashboard and paste its Product ID over the 0 to go live.
+for _, z in ipairs(Zones.list) do
+	if z.unlockPrice and z.unlockPrice > 0 then
+		table.insert(Config.DevProducts, {
+			key = "Unlock_" .. z.key, id = 0, price = z.unlockPrice, icon = z.icon,
+			name = "Unlock " .. z.name,
+			desc = "Open " .. z.name .. " instantly (×" .. z.multiplier .. " Coins). Or earn it free: " .. string.lower(Zones.UnlockText(z)) .. ".",
+			zone = z.key,        -- consumed by Monetize.GrantProduct
+			zoneUnlock = true,   -- lets the shop UI skip these; they surface on the zone gate instead
+		})
+	end
+end
+
 -- ===== Formulas =====
 function Config.PowerCost(level)
 	return math.floor(Config.Balance.PowerCostBase * Config.Balance.PowerCostGrowth ^ level)

@@ -60,6 +60,9 @@ local DEFAULT = {
 	boostUntil = 0, streakLuckUntil = 0,
 	lastVIPBoostDate = "",
 	equippedPet = 0,
+	zoneShards = {}, foundShards = {}, -- explorer-gate: Sunken Grotto shard progress
+	petInv = {}, zoneIndex = {}, achClaimed = {}, -- Phase 3: collectible pets / per-zone index / achievements
+	zonesPurchased = {}, zoneVipPets = {}, -- Phase 4: paid zone skip-unlocks / owned zone-exclusive VIP pets
 	firstJoinRecorded = false, starterPackBought = false,
 	onboardStep = 0, onboardDone = false,
 	testPasses = {}, receipts = {},
