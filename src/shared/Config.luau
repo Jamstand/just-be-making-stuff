@@ -13,26 +13,26 @@ Config.Version = 1
 -- Dashboard, then paste its numeric Pass ID here (see the walkthrough). The
 -- internal `key` is what the code uses — do not change it; only edit id/price/text.
 Config.GamePasses = {
-	{ key = "DoubleGems", id = 0, price = 149, icon = "💰", name = "2× Coins",   desc = "Permanently DOUBLE all Coin income — every crack, garden harvest & meteor." },
-	{ key = "AutoCrack",  id = 0, price = 49,  icon = "🤖", name = "Auto-Crack", desc = "Auto-cracks nearby geodes for you — hands-free, great for idle & mobile." },
-	{ key = "DoubleLuck", id = 0, price = 199, icon = "🍀", name = "Lucky",      desc = "Permanently boosts your odds of Rare crystals (Emerald & up)." },
-	{ key = "VIP",        id = 0, price = 399, icon = "👑", name = "VIP",        desc = "Daily Coin bonus + [VIP] chat tag + exclusive Royal pet + gold aura & +2 Garden plots." },
+	{ key = "DoubleGems", id = 1947680333, price = 149, icon = "💰", name = "2× Coins",   desc = "Permanently DOUBLE all Coin income — every crack, garden harvest & meteor." },
+	{ key = "AutoCrack",  id = 1949360316, price = 49,  icon = "🤖", name = "Auto-Crack", desc = "Auto-cracks nearby geodes for you — hands-free, great for idle & mobile." },
+	{ key = "DoubleLuck", id = 1950950318, price = 199, icon = "🍀", name = "Lucky",      desc = "Permanently boosts your odds of Rare crystals (Emerald & up)." },
+	{ key = "VIP",        id = 1948736326, price = 399, icon = "👑", name = "VIP",        desc = "Daily Coin bonus + [VIP] chat tag + exclusive Royal pet + gold aura & +2 Garden plots." },
 }
 
 -- Developer products (consumable, re-buyable via ProcessReceipt). `id` stays 0
 -- until you create each on the Creator Dashboard, then paste the Product ID here.
 Config.DevProducts = {
-	{ key = "LuckyBoost",    id = 0, price = 19, icon = "⚡", name = "Lucky Boost (5 min)", desc = "+100% Luck for 5 minutes. Stacks to 15." },
-	{ key = "GiftBoost",     id = 0, price = 25, icon = "🎁", name = "Gift a Boost",        desc = "Gift a Lucky Boost AND give the whole server +10% Luck!" },
-	{ key = "InstantRegrow", id = 0, price = 29, icon = "🌱", name = "Instant Regrow",      desc = "Instantly matures ALL your Garden plots." },
-	{ key = "GoldenGeode",   id = 0, price = 79, icon = "🌟", name = "Golden Geode",        desc = "Spawn a giant golden geode — guaranteed Ruby+ inside!" },
+	{ key = "LuckyBoost",    id = 3707941537, price = 19, icon = "⚡", name = "Lucky Boost (5 min)", desc = "+100% Luck for 5 minutes. Stacks to 15." },
+	{ key = "GiftBoost",     id = 3707941703, price = 25, icon = "🎁", name = "Gift a Boost",        desc = "Gift a Lucky Boost AND give the whole server +10% Luck!" },
+	{ key = "InstantRegrow", id = 3707941759, price = 29, icon = "🌱", name = "Instant Regrow",      desc = "Instantly matures ALL your Garden plots." },
+	{ key = "GoldenGeode",   id = 3707941808, price = 79, icon = "🌟", name = "Golden Geode",        desc = "Spawn a giant golden geode — guaranteed Ruby+ inside!" },
 	-- coin packs (3 price points; `coins` = amount granted)
-	{ key = "CoinsSmall",  id = 0, price = 25,  icon = "💰", name = "Coin Pouch", desc = "+12,500 Coins instantly.",        coins = 12500 },
-	{ key = "CoinsMedium", id = 0, price = 99,  icon = "💰", name = "Coin Sack",  desc = "+80,000 Coins — better value!",   coins = 80000 },
-	{ key = "CoinsLarge",  id = 0, price = 399, icon = "💰", name = "Coin Vault", desc = "+600,000 Coins — best value!",     coins = 600000 },
+	{ key = "CoinsSmall",  id = 3707941838, price = 25,  icon = "💰", name = "Coin Pouch", desc = "+12,500 Coins instantly.",        coins = 12500 },
+	{ key = "CoinsMedium", id = 3707941875, price = 99,  icon = "💰", name = "Coin Sack",  desc = "+80,000 Coins — better value!",   coins = 80000 },
+	{ key = "CoinsLarge",  id = 3707941917, price = 399, icon = "💰", name = "Coin Vault", desc = "+600,000 Coins — best value!",     coins = 600000 },
 	-- one-time discounted starter pack (offered only during a player's FIRST session).
 	-- starter=true hides it from the normal shop list; it renders as a special offer card.
-	{ key = "StarterPack", id = 0, price = 49, icon = "⭐", name = "Starter Pack",
+	{ key = "StarterPack", id = 3707941969, price = 49, icon = "⭐", name = "Starter Pack",
 		desc = "40,000 Coins + the exclusive Starter Sprite pet (+15% forever). One-time only!",
 		coins = 40000, starter = true },
 }
@@ -133,7 +133,7 @@ Config.RegionByKey = Zones.Get    -- back-compat alias
 for _, z in ipairs(Zones.list) do
 	if z.unlockPrice and z.unlockPrice > 0 then
 		table.insert(Config.DevProducts, {
-			key = "Unlock_" .. z.key, id = 0, price = z.unlockPrice, icon = z.icon,
+			key = "Unlock_" .. z.key, id = z.unlockProductId or 0, price = z.unlockPrice, icon = z.icon,
 			name = "Unlock " .. z.name,
 			desc = "Open " .. z.name .. " instantly (×" .. z.multiplier .. " Coins). Or earn it free: " .. string.lower(Zones.UnlockText(z)) .. ".",
 			zone = z.key,        -- consumed by Monetize.GrantProduct

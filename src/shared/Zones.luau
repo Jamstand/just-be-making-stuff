@@ -50,7 +50,7 @@ Zones.list = {
 		key = "Frost", name = "Frost Hollow", icon = "❄️",
 		center = Vector3.new(1000, 0, 0), nodeCount = 14, radius = 48,
 		unlock = { type = "cracks", value = 250 }, -- grinder gate
-		multiplier = 3, valueMult = 3, unlockPrice = 79, -- Robux skip-unlock (still earnable free via the gate)
+		multiplier = 3, valueMult = 3, unlockPrice = 79, unlockProductId = 3707942040, -- Robux skip-unlock (still earnable free via the gate)
 		exclusivePet = { name = "Frost Fawn", emoji = "❄️", color = C(150, 225, 255), bonus = 0.40 },
 		vipPet = { name = "Glacier Guardian", emoji = "👑", color = C(150, 225, 255), bonus = 0.60 },
 		geodes = {
@@ -74,7 +74,7 @@ Zones.list = {
 		key = "Sunken", name = "Sunken Grotto", icon = "🐚",
 		center = Vector3.new(0, 0, -1000), nodeCount = 14, radius = 48,
 		unlock = { type = "shards", value = 5 }, -- explorer gate (find 5 hidden shards in Zone 1)
-		multiplier = 5, valueMult = 5, unlockPrice = 99,
+		multiplier = 5, valueMult = 5, unlockPrice = 99, unlockProductId = 3707942088,
 		exclusivePet = { name = "Grotto Jelly", emoji = "🪺", color = C(90, 230, 210), bonus = 0.55 },
 		vipPet = { name = "Abyssal Warden", emoji = "👑", color = C(90, 230, 210), bonus = 0.85 },
 		geodes = {
@@ -98,7 +98,7 @@ Zones.list = {
 		key = "Magma", name = "Magma Depths", icon = "🌋",
 		center = Vector3.new(0, 0, 1000), nodeCount = 14, radius = 48,
 		unlock = { type = "rebirths", value = 3 }, -- progression gate
-		multiplier = 9, valueMult = 9, unlockPrice = 149,
+		multiplier = 9, valueMult = 9, unlockPrice = 149, unlockProductId = 3707942132,
 		exclusivePet = { name = "Ember Drake", emoji = "🔥", color = C(255, 120, 60), bonus = 0.70 },
 		vipPet = { name = "Inferno Titan", emoji = "👑", color = C(255, 120, 60), bonus = 1.10 },
 		geodes = {
@@ -122,7 +122,7 @@ Zones.list = {
 		key = "Astral", name = "Astral Void", icon = "🌌",
 		center = Vector3.new(-1000, 0, 0), nodeCount = 16, radius = 50,
 		unlock = { type = "indexPct", value = 0.8 }, -- collector endgame gate
-		multiplier = 25, valueMult = 25, unlockPrice = 249,
+		multiplier = 25, valueMult = 25, unlockPrice = 249, unlockProductId = 3707942181,
 		exclusivePet = { name = "Void Wisp", emoji = "🌌", color = C(200, 130, 255), bonus = 1.20 },
 		vipPet = { name = "Cosmic Sovereign", emoji = "👑", color = C(200, 130, 255), bonus = 1.80 },
 		geodes = {
