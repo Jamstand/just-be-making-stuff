@@ -72,10 +72,15 @@ function Ask-Fix {
     $answer = Read-Host "  Apply this fix? Type y for yes, anything else to skip"
     if ($answer -match '^[Yy]') {
         try {
+            $global:LASTEXITCODE = 0
             & $Action
-            Write-Host "  Done." -ForegroundColor Green
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  A command in this fix reported a problem - it may not have fully applied. See any messages above." -ForegroundColor Yellow
+            } else {
+                Write-Host "  Done." -ForegroundColor Green
+            }
         } catch {
-            Write-Host ("  That fix hit an error (nothing was harmed): {0}" -f $_.Exception.Message) -ForegroundColor Red
+            Write-Host ("  That fix hit an error and may have only partly applied: {0}" -f $_.Exception.Message) -ForegroundColor Red
         }
     } else {
         Write-Host "  Skipped." -ForegroundColor DarkGray
@@ -244,10 +249,18 @@ try {
     if (-not $proxySuspicious) {
         Write-Finding OK "No proxy is configured (good - traffic goes straight to the internet)."
     } else {
-        Ask-Fix -Description "Remove the proxy settings (ONLY do this if you/your workplace did not deliberately set up a proxy)" -Action {
+        Ask-Fix -Description "Remove the proxy settings, including the system-wide (WinHTTP) proxy (ONLY do this if you/your workplace did not deliberately set up a proxy)" -Action {
+            Write-Host ("  Current values, saved in the Desktop report in case you ever need them back: ProxyServer='{0}'  AutoConfigURL='{1}'" -f $proxyReg.ProxyServer, $proxyReg.AutoConfigURL) -ForegroundColor Gray
             Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -Name ProxyEnable -Value 0
             Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -Name AutoConfigURL -ErrorAction SilentlyContinue
-            netsh winhttp reset proxy | Out-Null
+            if ($script:IsAdmin) {
+                netsh winhttp reset proxy | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "  Could not reset the system-wide (WinHTTP) proxy." -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "  Browser proxy removed. Re-run as Administrator to also reset the system-wide (WinHTTP) proxy." -ForegroundColor Yellow
+            }
         }
     }
 } catch {
@@ -283,25 +296,35 @@ try {
 
 # ------------------------------------------------ 3. live speed measurements ---
 
-Write-Section "3. Measuring your actual speeds (takes ~30 seconds)"
+Write-Section "3. Measuring your actual speeds (takes up to ~30 seconds)"
 
 # ping / latency
 try {
-    $pings = Test-Connection -ComputerName 1.1.1.1 -Count 4 -ErrorAction Stop
+    $pings = @(Test-Connection -ComputerName 1.1.1.1 -Count 4 -ErrorAction SilentlyContinue)
+} catch {
+    $pings = @()
+}
+if ($pings.Count -eq 0) {
+    Write-Finding BAD "Could not ping the internet at all. If web pages also do not load, restart your router first, then re-run this."
+} else {
+    if ($pings.Count -lt 4) {
+        Write-Finding WARN ("{0} of 4 pings never came back - intermittent packet loss, common on weak Wi-Fi." -f (4 - $pings.Count))
+    }
     $avgPing = [math]::Round(($pings | Measure-Object -Property ResponseTime -Average).Average, 0)
     if ($avgPing -gt 100) {
         Write-Finding WARN ("Ping (response time) to the internet: {0} ms - that is high. Common on weak Wi-Fi or a congested/overloaded router." -f $avgPing)
     } else {
         Write-Finding OK ("Ping (response time) to the internet: {0} ms" -f $avgPing)
     }
-} catch {
-    Write-Finding BAD "Could not ping the internet at all. If web pages also do not load, restart your router first, then re-run this."
 }
 
 # DNS lookup speed
 $dnsSlow = $false
 try {
-    $dnsMs = [math]::Round((Measure-Command { Resolve-DnsName www.microsoft.com -ErrorAction Stop }).TotalMilliseconds, 0)
+    # Warm-up query first, so the one-time cost of loading the DNS tools is not
+    # counted as "slow DNS"; then time a different name so the cache can't answer.
+    Resolve-DnsName www.microsoft.com -ErrorAction SilentlyContinue | Out-Null
+    $dnsMs = [math]::Round((Measure-Command { Resolve-DnsName www.bing.com -ErrorAction Stop }).TotalMilliseconds, 0)
     if ($dnsMs -gt 300) {
         $dnsSlow = $true
         Write-Finding WARN ("DNS lookups (turning website names into addresses) took {0} ms - slow. This makes every site feel sluggish to start." -f $dnsMs)
@@ -313,18 +336,34 @@ try {
     Write-Finding WARN "A DNS lookup failed. Your DNS server may be having problems."
 }
 
-# actual download speed test (50 MB from Cloudflare)
+# actual download speed test: stream from Cloudflare for up to 15 seconds and
+# measure what actually arrived (never hangs, even on a very slow connection)
 $measuredMbps = $null
 try {
-    Write-Host "  Downloading a 50 MB test file from Cloudflare, please wait..." -ForegroundColor Gray
+    Write-Host "  Downloading test data from Cloudflare for up to 15 seconds, please wait..." -ForegroundColor Gray
     $wc = New-Object System.Net.WebClient
     $wc.Headers.Add('User-Agent', 'SpeedFix-Diagnostic')
+    $totalBytes = 0
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $bytes = $wc.DownloadData('https://speed.cloudflare.com/__down?bytes=52428800')
-    $sw.Stop()
-    $wc.Dispose()
-    $measuredMbps = [math]::Round(($bytes.Length * 8) / $sw.Elapsed.TotalSeconds / 1MB, 1)
-    if ($measuredMbps -lt 10) {
+    $stream = $wc.OpenRead('https://speed.cloudflare.com/__down?bytes=104857600')
+    try {
+        $buf = New-Object byte[] 65536
+        while ($sw.Elapsed.TotalSeconds -lt 15) {
+            $n = $stream.Read($buf, 0, $buf.Length)
+            if ($n -le 0) { break }
+            $totalBytes += $n
+        }
+    } finally {
+        $sw.Stop()
+        $stream.Close()
+        $wc.Dispose()
+    }
+    if ($totalBytes -gt 0 -and $sw.Elapsed.TotalSeconds -gt 0.5) {
+        $measuredMbps = [math]::Round(($totalBytes * 8) / $sw.Elapsed.TotalSeconds / 1e6, 1)
+    }
+    if ($null -eq $measuredMbps) {
+        Write-Finding WARN "The download speed test could not get a reliable reading. You can test manually at https://speed.cloudflare.com"
+    } elseif ($measuredMbps -lt 10) {
         Write-Finding BAD ("Measured download speed: {0} Mbps - genuinely slow. The findings above (Wi-Fi signal, VPN, proxy, TCP tuning) are the usual suspects." -f $measuredMbps)
     } elseif ($measuredMbps -lt 50) {
         Write-Finding WARN ("Measured download speed: {0} Mbps - usable but modest. Compare this to the speed your internet plan promises." -f $measuredMbps)
@@ -332,7 +371,7 @@ try {
         Write-Finding OK ("Measured download speed: {0} Mbps. If a specific app downloads much slower than this, the problem is that app or its server - not your PC or internet." -f $measuredMbps)
     }
 } catch {
-    Write-Finding WARN "The download speed test could not run (the test server may be unreachable). You can test manually at https://speed.cloudflare.com"
+    Write-Finding WARN "The download speed test could not run. The test server may be unreachable, or a proxy/security program on this PC may be blocking it. You can test manually at https://speed.cloudflare.com"
 }
 
 # --------------------------------------------- 4. background bandwidth use ---
@@ -412,7 +451,9 @@ Ask-Fix -Description "Flush the DNS cache (clears out stale website-address look
 }
 
 if ($dnsSlow) {
-    Ask-Fix -Description "Switch DNS to Cloudflare's fast public resolver 1.1.1.1 (often noticeably faster; to undo later run: Get-DnsClientServerAddress to view, or set your adapter back to 'Obtain DNS automatically' in Control Panel)" -NeedsAdmin -Action {
+    Ask-Fix -Description "Switch DNS to Cloudflare's fast public resolver 1.1.1.1 (often noticeably faster). Your current DNS settings are shown first and saved in the Desktop report. To undo later, run as Administrator: Set-DnsClientServerAddress -InterfaceIndex <number> -ResetServerAddresses  (returns the adapter to automatic DNS)" -NeedsAdmin -Action {
+        Write-Host "  Your DNS settings before this change (also saved in the Desktop report):" -ForegroundColor Gray
+        Get-DnsClientServerAddress -AddressFamily IPv4 | Format-Table -AutoSize | Out-String | Write-Host
         Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Virtual -eq $false } | ForEach-Object {
             Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ServerAddresses '1.1.1.1','1.0.0.1'
         }
@@ -436,10 +477,26 @@ Ask-Fix -NeedsAdmin -Description "Stop Windows from turning off your network ada
     }
 }
 
-Ask-Fix -NeedsAdmin -Description "Reset the Windows network stack (Winsock + TCP/IP). The classic deep fix for stubborn network weirdness. Harmless, but you MUST restart the PC afterward, and you may need to re-enter your Wi-Fi password" -Action {
-    netsh winsock reset | Out-Null
-    netsh int ip reset | Out-Null
-    Write-Host "  Network stack reset. RESTART YOUR PC to finish this fix." -ForegroundColor Yellow
+Ask-Fix -NeedsAdmin -Description "Reset the Windows network stack (Winsock + TCP/IP). The classic deep fix for stubborn network weirdness - but note: it erases any static IP address, custom DNS, or custom routes (everything goes back to automatic), and a few VPN/antivirus programs may need reinstalling afterward. Your current settings are saved to the Desktop report first. Only choose this if problems persist after the other fixes. You MUST restart the PC afterward" -Action {
+    Write-Host "  Saving your current network settings into the Desktop report first..." -ForegroundColor Gray
+    ipconfig /all | Out-String | Write-Host
+    $staticIfs = @(Get-NetIPInterface -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.Dhcp -eq 'Disabled' -and $_.ConnectionState -eq 'Connected' })
+    $proceed = $true
+    if ($staticIfs.Count -gt 0) {
+        Write-Host ("  CAUTION: these connections use manually-set (static) addresses that WILL be erased: {0}" -f (($staticIfs | Select-Object -ExpandProperty InterfaceAlias) -join ', ')) -ForegroundColor Yellow
+        Write-Host "  If a technician or your workplace set those up, skip this fix." -ForegroundColor Yellow
+        $sure = Read-Host "  Still reset the network stack? Type y to confirm"
+        if ($sure -notmatch '^[Yy]') {
+            $proceed = $false
+            Write-Host "  The reset was NOT performed." -ForegroundColor DarkGray
+        }
+    }
+    if ($proceed) {
+        netsh winsock reset
+        netsh int ip reset
+        Write-Host "  Network stack reset. RESTART YOUR PC to finish this fix." -ForegroundColor Yellow
+    }
 }
 
 # ----------------------------------------------------------------- summary ---

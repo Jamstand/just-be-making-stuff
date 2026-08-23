@@ -22,6 +22,12 @@ explain what they find in plain English, and offer to fix them.
    (open the file on GitHub → click the **Download raw file** button, the
    down-arrow icon at the top right of the file view). It lands in your
    **Downloads** folder.
+
+   > Your browser may warn that this kind of file "may be dangerous" or "was
+   > blocked" — Chrome and Edge show that warning for **all** PowerShell
+   > files, it is not a judgment about this one. Open the download's **⋯**
+   > menu and choose **Keep** (Edge: **Keep** → **Keep anyway**) so the file
+   > actually finishes downloading.
 2. Right-click the **Start button** → choose **Terminal (Admin)** or
    **Windows PowerShell (Admin)** → click **Yes** when Windows asks.
 3. Copy-paste this line and press Enter:

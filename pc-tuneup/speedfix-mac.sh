@@ -62,7 +62,7 @@ ask_fix() {       # ask_fix <description> <command...>
     if "$@"; then
       say "  Done."
     else
-      say "  That fix hit an error (nothing was harmed)."
+      say "  That fix hit an error and may have only partly applied."
     fi
   else
     say "  Skipped."
@@ -93,8 +93,13 @@ if command -v sw_vers >/dev/null 2>&1; then
 fi
 finding INFO "Uptime: $(uptime | sed 's/.*up */up /; s/,.*user.*//')"
 
-DISK_PCT=$(df -P / | awk 'NR==2 {gsub("%",""); print $5}')
-DISK_AVAIL=$(df -Ph / | awk 'NR==2 {print $4}')
+# On modern macOS the user's files live on /System/Volumes/Data, not /
+DISK_TARGET=/
+if [ -d /System/Volumes/Data ] && df -P /System/Volumes/Data >/dev/null 2>&1; then
+  DISK_TARGET=/System/Volumes/Data
+fi
+DISK_PCT=$(df -P "$DISK_TARGET" | awk 'NR==2 {gsub("%",""); print $5}')
+DISK_AVAIL=$(df -Ph "$DISK_TARGET" | awk 'NR==2 {print $4}')
 if [ -n "$DISK_PCT" ] && [ "$DISK_PCT" -ge 90 ] 2>/dev/null; then
   finding BAD "The startup disk is ${DISK_PCT}% full (only ${DISK_AVAIL} free). Macs slow down badly when the disk is this full. Open  > About This Mac > Storage to clean up."
 else
@@ -147,9 +152,12 @@ if command -v scutil >/dev/null 2>&1; then
   fi
 fi
 
-# VPN check
-if ifconfig 2>/dev/null | grep -qE '^(utun[0-9]+|ppp0|ipsec0).*<UP' ; then
-  finding INFO "A VPN-style tunnel may be active (utun interface up). Note: macOS also uses these for iCloud Private Relay. If you use a VPN app, try turning it off and re-testing - VPNs often cut speed in half."
+# VPN check (plain "utun exists" is useless - every modern Mac has several;
+# require an actual connected VPN session, or a utun holding an IPv4 address)
+if scutil --nc list 2>/dev/null | grep -q '(Connected)'; then
+  finding INFO "A VPN is connected. Try turning it off and re-testing - VPNs often cut speed in half."
+elif ifconfig 2>/dev/null | awk '/^utun[0-9]+:/{u=1;next} /^[a-z]/{u=0} u && $1=="inet"{found=1;exit} END{exit !found}'; then
+  finding INFO "A third-party VPN-style tunnel appears active. If you use a VPN app, try turning it off and re-testing - VPNs often cut speed in half."
 fi
 
 # ------------------------------------------- 3. live speed measurements -----
@@ -188,6 +196,12 @@ fi
 # actual download speed test (50 MB from Cloudflare)
 say "  Downloading a 50 MB test file from Cloudflare, please wait..."
 SPEED_BPS=$(curl -sS --max-time 90 -o /dev/null -w '%{speed_download}' 'https://speed.cloudflare.com/__down?bytes=52428800' 2>/dev/null)
+CURL_RC=$?
+# curl prints "0" for speed even on total failure - only trust the number if the
+# transfer actually ran (exit 0, or a --max-time cutoff with real bytes moved)
+if [ "$CURL_RC" -ne 0 ] && [ "${SPEED_BPS%%.*}" = "0" ]; then
+  SPEED_BPS=""
+fi
 if [ -n "$SPEED_BPS" ]; then
   MBPS=$(printf '%s' "$SPEED_BPS" | awk '{printf "%.1f", $1 * 8 / 1000000}')
   MBPS_INT=$(printf '%s' "$MBPS" | cut -d. -f1)
@@ -213,24 +227,32 @@ ask_fix "Flush the DNS cache (clears out stale website-address lookups; complete
 
 if [ "$DNS_SLOW" = "1" ] && command -v networksetup >/dev/null 2>&1; then
   set_fast_dns() {
-    local svc changed=0
+    local svc prev changed=0
     while IFS= read -r svc; do
       case "$svc" in "An asterisk"*|\**) continue ;; esac
+      prev=$(networksetup -getdnsservers "$svc" 2>/dev/null | tr '\n' ' ')
       if networksetup -setdnsservers "$svc" 1.1.1.1 1.0.0.1 2>/dev/null; then
         changed=1
-        say "  DNS updated for: $svc"
+        say "  DNS updated for: $svc (was: $prev)"
+        case "$prev" in
+          *"aren't any"*) say "  To undo later, run: networksetup -setdnsservers \"$svc\" empty" ;;
+          *)              say "  To undo later, run: networksetup -setdnsservers \"$svc\" $prev" ;;
+        esac
       fi
     done < <(networksetup -listallnetworkservices 2>/dev/null | tail -n +2)
     [ "$changed" = "1" ]
   }
-  ask_fix "Switch DNS to Cloudflare's fast public resolver 1.1.1.1 (often noticeably faster; to undo later run: networksetup -setdnsservers \"Wi-Fi\" empty)" set_fast_dns
+  ask_fix "Switch DNS to Cloudflare's fast public resolver 1.1.1.1 (often noticeably faster). Your current DNS is shown and saved to the report first, with an exact undo command for every connection changed" set_fast_dns
 fi
 
-if [ -n "$IFACE" ] && command -v ipconfig >/dev/null 2>&1 && [ "$(uname)" = "Darwin" ]; then
+# Only offer a DHCP renew when the connection already uses DHCP - on a
+# manually-configured (static) connection this would discard those settings.
+if [ -n "$IFACE" ] && command -v ipconfig >/dev/null 2>&1 && [ "$(uname)" = "Darwin" ] \
+   && [ -n "$(ipconfig getoption "$IFACE" lease_time 2>/dev/null)" ]; then
   renew_dhcp() {
     sudo ipconfig set "$IFACE" DHCP
   }
-  ask_fix "Ask the router for a fresh network address (renew DHCP; briefly interrupts the connection for a few seconds)" renew_dhcp
+  ask_fix "Ask the router for a fresh network address (renew DHCP; interrupts the connection for a few seconds - if it does not come back within a minute, turn Wi-Fi off and on again to restore your saved settings)" renew_dhcp
 fi
 
 # ------------------------------------------------------------- summary ------
