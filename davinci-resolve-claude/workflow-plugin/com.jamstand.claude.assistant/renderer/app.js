@@ -1,0 +1,187 @@
+// Renderer logic: transcript, approvals, settings. All DOM building goes
+// through document.createElement + textContent — model output is never
+// interpreted as HTML, so nothing it says can script this window.
+"use strict";
+/* global assistant */
+
+const chat = document.getElementById("chat");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const statusEl = document.getElementById("status");
+const dot = document.getElementById("dot");
+const approvalBox = document.getElementById("approval");
+
+let busy = false;
+let approvalPending = false;
+let toolCount = 0;
+let turnStart = 0;
+let tick = null;
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function scroll() { chat.scrollTop = chat.scrollHeight; }
+
+function card(kind, who, text) {
+  const box = el("div", "card " + kind);
+  box.appendChild(el("span", "who", who));
+  // Minimal markdown: **bold** and `code`, built as nodes, never innerHTML.
+  const body = el("div");
+  for (const part of String(text).split(/(\*\*[^*]+\*\*|`[^`\n]+`)/g)) {
+    if (part.startsWith("**") && part.endsWith("**"))
+      body.appendChild(el("b", "", part.slice(2, -2)));
+    else if (part.startsWith("`") && part.endsWith("`"))
+      body.appendChild(el("code", "", part.slice(1, -1)));
+    else body.appendChild(document.createTextNode(part));
+  }
+  box.appendChild(body);
+  chat.appendChild(box);
+  scroll();
+}
+
+function toolLine(name, args) {
+  toolCount += 1;
+  if (name === "run_javascript" && args && args.code) {
+    const code = el("div", "codecard");
+    const head = el("div", "head");
+    head.appendChild(el("span", "", "JAVASCRIPT"));
+    code.appendChild(head);
+    code.appendChild(el("pre", "", String(args.code)));
+    chat.appendChild(code);
+  } else {
+    const line = el("div", "toolline");
+    line.appendChild(el("span", "glyph", "›"));
+    line.appendChild(el("span", "", name));
+    const summary = Object.entries(args || {})
+      .map(([k, v]) => k + ": " + JSON.stringify(v)).join(", ");
+    line.appendChild(el("span", "args", summary.slice(0, 160)));
+    chat.appendChild(line);
+  }
+  setStatus();
+  scroll();
+}
+
+function setStatus() {
+  if (busy) {
+    const secs = Math.floor((Date.now() - turnStart) / 1000);
+    statusEl.textContent = "Claude is working… " + secs + "s · " +
+      toolCount + " tool" + (toolCount === 1 ? "" : "s");
+    dot.className = "busy";
+  } else if (toolCount) {
+    const secs = Math.floor((Date.now() - turnStart) / 1000);
+    statusEl.textContent = "Ready · " + toolCount + " tool call" +
+      (toolCount === 1 ? "" : "s") + " · " + secs + "s";
+    dot.className = "";
+  } else {
+    statusEl.textContent = "Ready";
+    dot.className = "";
+  }
+}
+
+function setBusy(value) {
+  busy = value;
+  sendBtn.disabled = value && !approvalPending;
+  if (value) { turnStart = turnStart || Date.now();
+               tick = tick || setInterval(setStatus, 500); }
+  else { clearInterval(tick); tick = null; }
+  setStatus();
+}
+
+function showApproval(payload) {
+  approvalPending = true;
+  document.getElementById("ap-title").textContent =
+    "Approval — " + payload.name;
+  const args = payload.input || {};
+  document.getElementById("ap-detail").textContent =
+    args.code ? String(args.code) : JSON.stringify(args, null, 2);
+  approvalBox.hidden = false;
+  input.placeholder = "1 = yes · 2 = yes for this session · 3 = no — or type guidance";
+  sendBtn.disabled = false;
+  scroll();
+}
+
+function answerApproval(decision, guidance) {
+  if (!approvalPending) return;
+  approvalPending = false;
+  approvalBox.hidden = true;
+  input.placeholder = "Ask Claude…  (Enter to send)";
+  assistant.approval(decision, guidance || "");
+  card("notice", "NOTE", decision === "decline"
+    ? "Declined." + (guidance ? " Sent your guidance to Claude." : "")
+    : decision === "always" ? "Approved for the rest of this session."
+    : "Approved — running.");
+  setBusy(busy);
+}
+
+document.getElementById("ap-run").onclick = () => answerApproval("run");
+document.getElementById("ap-always").onclick = () => answerApproval("always");
+document.getElementById("ap-no").onclick = () => answerApproval("decline");
+document.addEventListener("keydown", (evt) => {
+  if (approvalPending && evt.key === "Escape") answerApproval("decline");
+});
+
+function submit() {
+  const text = input.value.trim();
+  if (approvalPending) {
+    input.value = "";
+    if (text === "" || text === "1" || /^y(es)?$/i.test(text)) answerApproval("run");
+    else if (text === "2") answerApproval("always");
+    else if (text === "3" || /^no?$/i.test(text)) answerApproval("decline");
+    else answerApproval("decline", text);
+    return;
+  }
+  if (busy || !text) return;
+  input.value = "";
+  toolCount = 0; turnStart = Date.now();
+  setBusy(true);
+  assistant.send({ text,
+    model: document.getElementById("model").value,
+    effort: document.getElementById("effort").value,
+    permissionMode: document.getElementById("mode").value });
+}
+
+sendBtn.onclick = submit;
+input.addEventListener("keydown", (evt) => {
+  if (evt.key === "Enter") submit();
+});
+
+document.getElementById("newchat").onclick = () => {
+  assistant.newChat();
+  chat.replaceChildren();
+  toolCount = 0; turnStart = 0;
+  card("notice", "NOTE", "New chat — Claude's memory of this session is cleared.");
+  setStatus();
+};
+
+assistant.onEvent(({ kind, payload }) => {
+  if (kind === "you") card("you", "YOU", payload);
+  else if (kind === "assistant") card("claude", "CLAUDE", payload);
+  else if (kind === "error") card("error", "ERROR", payload);
+  else if (kind === "notice") card("notice", "NOTE", payload);
+  else if (kind === "toolcall") toolLine(payload.name, payload.input);
+  else if (kind === "approval") showApproval(payload);
+  else if (kind === "done") setBusy(false);
+});
+
+assistant.config().then(({ models, efforts, modes }) => {
+  const fill = (id, values, chosen) => {
+    const select = document.getElementById(id);
+    for (const value of values) {
+      const opt = el("option", "", value);
+      opt.value = value;
+      select.appendChild(opt);
+    }
+    const saved = localStorage.getItem("ca-" + id);
+    select.value = values.includes(saved) ? saved : chosen;
+    select.onchange = () => localStorage.setItem("ca-" + id, select.value);
+  };
+  fill("model", models, models[0]);
+  fill("effort", efforts, "medium");
+  fill("mode", modes, "Ask before edits");
+  card("notice", "NOTE", "Connected. Ask me anything — e.g. \"add a red " +
+    "marker at every cut on V1\" or \"what's in my media pool?\"");
+});

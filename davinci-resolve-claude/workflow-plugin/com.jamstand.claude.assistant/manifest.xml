@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+    <Plugin>
+        <Id>com.jamstand.claude.assistant</Id>
+        <Name>Claude Assistant</Name>
+        <Version>1.0</Version>
+        <Description>Chat panel that drives Resolve through Claude, on your Claude subscription</Description>
+        <FilePath>main.js</FilePath>
+    </Plugin>
+</BlackmagicDesign>

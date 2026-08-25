@@ -1,0 +1,9 @@
+{
+  "name": "claude-assistant-resolve-plugin",
+  "version": "1.0.0",
+  "main": "main.js",
+  "description": "Claude Assistant as a DaVinci Resolve Workflow Integration (Electron)",
+  "scripts": {
+    "test": "node test_plugin.js"
+  }
+}
