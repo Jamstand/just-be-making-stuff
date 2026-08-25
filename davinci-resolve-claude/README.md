@@ -31,11 +31,19 @@ color (current clip / LUTs), and the render queue — plus an optional
 Or run the installer from this folder:
 
 ```bash
-# macOS / Linux
+# macOS — installs everything (Scripts menu, plus optional Workflow
+# Integrations entry and the Electron plugin, both offered interactively)
+./install-mac.sh
+
+# Linux (Scripts menu only)
 ./install.sh
 
-# Windows (PowerShell)
+# Windows (PowerShell): Scripts menu
 .\install.ps1
+# Windows: Scripts + Workflow Integrations entry (admin)
+.\Install-WorkflowIntegration.ps1
+# Windows: the Electron plugin (admin)
+.\workflow-plugin\Install-Plugin.ps1
 ```
 
 **2. Choose how the panel reaches Claude** — either works:
