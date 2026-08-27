@@ -34,8 +34,9 @@ edition does not load workflow integrations) and the Claude Code CLI
 | Tools | 70, incl. grading/Fusion/Higgsfield | 19 core (incl. `grab_still` — Claude sees frames) + `run_javascript` |
 | Approvals | buttons above the input | real inline amber card, per the design |
 | UI | Qt rich-text subset | full HTML/CSS (the design file, faithfully) |
-| History browser / themes / drop folder | yes | not yet |
-| Session resume | across restarts | within a run (`--resume`), cwd pinned |
+| History browser | yes | yes — autosaved chats, reopen + resume, transcript recap when the session expired |
+| Themes / drop folder | yes | not yet |
+| Session resume | across restarts | across restarts (saved session id, recap fallback) |
 
 `run_javascript` narrows the tool gap substantially: the JS scripting object
 is the same API as Python's (`project.GetMediaPool()`, `timeline.AddMarker`,

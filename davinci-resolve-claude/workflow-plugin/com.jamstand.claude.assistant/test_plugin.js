@@ -260,6 +260,52 @@ async function main() {
                              && typeof p.ms === "number"),
         JSON.stringify(bridgeEvents));
 
+  // -- history persistence ------------------------------------------------
+  const historyLib = require("./history");
+  const histDir = fsmod.mkdtempSync(path.join(osmod.tmpdir(), "hist-"));
+  const hist = historyLib.makeHistory(histDir);
+
+  check("empty chats are not saved",
+        hist.save({ id: "h0", events: [{ kind: "notice", payload: "n" }] }) === null
+        && fsmod.readdirSync(histDir).length === 0);
+
+  const events1 = [{ kind: "you", payload: "sort my clips please" },
+                   { kind: "toolcall", payload: { name: "add_marker" } },
+                   { kind: "toolresult", payload: { name: "add_marker", ok: true } },
+                   { kind: "assistant", payload: "done" }];
+  const file1 = hist.save({ id: "h1", events: events1,
+                            sessionId: "sess-9", model: "claude-opus-5" });
+  check("chat saved atomically, no temp corpses",
+        !!file1 && !fsmod.readdirSync(histDir).some((n) => n.includes(".tmp")));
+  const loaded = hist.load("h1");
+  check("session id and events survive the round trip",
+        loaded.sessionId === "sess-9" && loaded.events.length === 4
+        && loaded.title === "sort my clips please");
+  const created1 = loaded.created;
+  hist.save({ id: "h1", events: events1.concat([{ kind: "you", payload: "more" }]),
+              sessionId: "sess-9", model: "claude-opus-5" });
+  check("created stable across resaves", hist.load("h1").created === created1);
+
+  hist.save({ id: "h2", events: [{ kind: "you", payload: "second chat" }] });
+  fsmod.writeFileSync(path.join(histDir, "broken.json"), "{nope");
+  const histRows = hist.list();
+  check("list is newest-first and skips corrupt files",
+        histRows.length === 2 && histRows[0].id === "h2"
+        && histRows[0].turns === 1 && histRows[1].turns === 2,
+        JSON.stringify(histRows));
+  check("delete removes", hist.remove("h2") && hist.list().length === 1);
+  check("delete missing is calm", hist.remove("ghost") === false);
+
+  const recap = historyLib.buildRecap(events1);
+  check("recap keeps only the dialogue",
+        recap.includes("User: sort my clips") && recap.includes("Claude: done")
+        && !recap.includes("add_marker"), recap.slice(0, 120));
+  check("empty transcript -> empty recap",
+        historyLib.buildRecap([{ kind: "toolcall", payload: {} }]) === "");
+  check("recap capped",
+        historyLib.buildRecap(Array.from({ length: 80 }, () =>
+          ({ kind: "you", payload: "w".repeat(900) }))).length < 8000);
+
   console.log(failures ? "\n" + failures + " FAILURES"
                        : "\nALL PLUGIN CHECKS PASSED (" +
                          tools.TOOLS.length + " JS tools)");

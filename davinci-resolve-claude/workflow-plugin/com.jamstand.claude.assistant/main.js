@@ -23,6 +23,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const tools = require("./tools");
+const historyLib = require("./history");
 
 const PLUGIN_ID = "com.jamstand.claude.assistant";
 const MODELS = ["claude-opus-5", "claude-fable-5", "claude-sonnet-5",
@@ -35,6 +36,20 @@ let state = null;              // tools.js state (resolve handle, approvals)
 let bridge = null;             // {server, port, token}
 let sessionId = null;          // claude CLI session for --resume
 let busy = false;
+let history = null;            // historyLib.makeHistory(userData/chats)
+let chatId = historyLib.newChatId();
+let msgLog = [];               // persisted {kind, payload} transcript events
+let pendingRecap = "";         // injected once when a saved session is gone
+let currentModel = "";
+const PERSISTED_KINDS = new Set(["you", "assistant", "error", "notice",
+                                 "toolcall", "toolresult"]);
+
+function autosave() {
+  try {
+    if (history) history.save({ id: chatId, events: msgLog,
+                                sessionId, model: currentModel });
+  } catch (e) { log("autosave failed: " + e.message); }
+}
 
 function log(msg) { console.error("[claude-assistant] " + msg); }
 
@@ -44,7 +59,9 @@ function loadWorkflowIntegration() {
   return require(path.join(__dirname, "WorkflowIntegration.node"));
 }
 
-function sendUI(kind, payload) {
+function sendUI(kind, payload, persist) {
+  if (persist !== false && PERSISTED_KINDS.has(kind))
+    msgLog.push({ kind, payload });
   if (win && !win.isDestroyed()) win.webContents.send("event", { kind, payload });
 }
 
@@ -125,6 +142,11 @@ function runTurn(model, effort, text) {
     return;
   }
   const workdir = path.join(app.getPath("userData"), "turn-" + Date.now());
+  if (!sessionId && pendingRecap) {
+    // Reopened chat whose CLI session is gone: rebuild context from the
+    // saved transcript instead. Cleared once a turn succeeds.
+    text = pendingRecap + "\n\n" + text;
+  }
   const { argv, prompt } = buildTurn(workdir, model, effort, text);
   // Stable cwd so CLI sessions survive Resolve restarts (session store is
   // keyed to the working directory).
@@ -166,6 +188,7 @@ function runTurn(model, effort, text) {
     }
     busy = false;
     sendUI("done", {});
+    autosave();                          // chats save after every turn
   });
 }
 
@@ -190,6 +213,8 @@ function handleCliEvent(event) {
   }
   if (event.type === "result") {
     if (event.session_id) sessionId = event.session_id;
+    if (!event.is_error && String(event.subtype || "").indexOf("error") !== 0)
+      pendingRecap = "";                 // context re-established server-side
     if (event.is_error || String(event.subtype || "").indexOf("error") === 0) {
       let detail = String(event.result || "").trim();
       if (!detail) detail = (event.errors || []).map(String).join("\n");
@@ -206,6 +231,7 @@ function handleCliEvent(event) {
 
 // ---------------------------------------------------------------- lifecycle
 function shutdown() {
+  try { autosave(); } catch (e) {}
   try { if (bridge) bridge.server.close(); } catch (e) {}
   try { if (wi) wi.CleanUp(); } catch (e) {}
   try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
@@ -213,6 +239,7 @@ function shutdown() {
 }
 
 app.whenReady().then(async () => {
+  history = historyLib.makeHistory(path.join(app.getPath("userData"), "chats"));
   try {
     wi = loadWorkflowIntegration();
     const ok = wi.Initialize(PLUGIN_ID);
@@ -260,6 +287,7 @@ ipcMain.handle("send", (evt, { text, model, effort, permissionMode }) => {
   if (busy || !text || !String(text).trim()) return false;
   if (state && tools.PERMISSION_MODES.includes(permissionMode))
     state.permissionMode = permissionMode;
+  currentModel = model;
   busy = true;
   sendUI("you", String(text).trim());
   runTurn(MODELS.includes(model) ? model : MODELS[0],
@@ -274,9 +302,39 @@ ipcMain.handle("approval", (evt, { decision, guidance }) => {
 });
 
 ipcMain.handle("newchat", () => {
+  autosave();                            // archive the outgoing conversation
+  chatId = historyLib.newChatId();
+  msgLog = [];
   sessionId = null;
+  pendingRecap = "";
   if (state) state.approveAllEdits = false;
   return true;
+});
+
+ipcMain.handle("history", (evt, { action, id }) => {
+  if (!history) return null;
+  if (action === "list") return history.list();
+  if (action === "delete") {
+    history.remove(id);
+    if (id === chatId)
+      chatId = historyLib.newChatId();   // or autosave resurrects the file
+    return history.list();
+  }
+  if (action === "open") {
+    if (busy) return { busy: true };
+    if (id === chatId) return { current: true };
+    autosave();                          // keep the chat we're leaving
+    const data = history.load(id);
+    if (!data) return null;
+    chatId = data.id;
+    msgLog = data.events || [];
+    sessionId = data.sessionId || null;
+    pendingRecap = historyLib.buildRecap(msgLog);
+    if (data.model) currentModel = data.model;
+    return { events: msgLog, model: data.model || null,
+             title: data.title || "chat" };
+  }
+  return null;
 });
 
 ipcMain.handle("config", () => ({ models: MODELS, efforts: EFFORTS,

@@ -202,7 +202,7 @@ document.getElementById("newchat").onclick = () => {
   setStatus();
 };
 
-assistant.onEvent(({ kind, payload }) => {
+function dispatch(kind, payload) {
   if (kind === "you") card("you", "YOU", payload);
   else if (kind === "assistant") card("claude", "CLAUDE", payload);
   else if (kind === "error") card("error", "ERROR", payload);
@@ -211,7 +211,70 @@ assistant.onEvent(({ kind, payload }) => {
   else if (kind === "toolresult") toolResult(payload.name, payload.ok, payload.ms);
   else if (kind === "approval") showApproval(payload);
   else if (kind === "done") setBusy(false);
-});
+}
+assistant.onEvent(({ kind, payload }) => dispatch(kind, payload));
+
+// ---------------------------------------------------------------- history
+const histPanel = document.getElementById("histpanel");
+const histList = document.getElementById("histlist");
+
+async function refreshHistory() {
+  const chats = (await assistant.history("list")) || [];
+  histList.replaceChildren();
+  if (!chats.length)
+    histList.appendChild(el("div", "hp-empty",
+      "No saved chats yet — chats save themselves after each reply."));
+  for (const chat of chats) {
+    const row = el("div", "hp-row");
+    const main = el("div", "hp-main");
+    main.appendChild(el("div", "hp-title", chat.title));
+    main.appendChild(el("div", "hp-meta",
+      new Date(chat.updated).toLocaleString() + " · " + chat.turns +
+      " turn" + (chat.turns === 1 ? "" : "s")));
+    main.onclick = () => openChat(chat.id);
+    row.appendChild(main);
+    const del = el("button", "hp-del", "✕");
+    del.title = "Delete this chat";
+    del.onclick = async (evt) => {
+      evt.stopPropagation();
+      await assistant.history("delete", chat.id);
+      refreshHistory();
+    };
+    row.appendChild(del);
+    histList.appendChild(row);
+  }
+}
+
+async function openChat(id) {
+  const data = await assistant.history("open", id);
+  if (!data) return;
+  if (data.busy) { card("notice", "NOTE",
+    "Wait for the current turn to finish before switching chats."); return; }
+  histPanel.hidden = true;
+  if (data.current) return;              // already on screen
+  chat.replaceChildren();
+  toolCount = 0; turnStart = 0;
+  for (const e of data.events || []) {
+    if (e.kind === "toolresult")
+      toolResult(e.payload.name, e.payload.ok, e.payload.ms);
+    else if (e.kind !== "approval" && e.kind !== "done")
+      dispatch(e.kind, e.payload);
+  }
+  if (data.model) {
+    const select = document.getElementById("model");
+    if ([...select.options].some((o) => o.value === data.model))
+      select.value = data.model;
+  }
+  card("notice", "NOTE", "Restored “" + (data.title || "chat") +
+    "” — continue where you left off.");
+  setStatus();
+}
+
+document.getElementById("historybtn").onclick = () => {
+  histPanel.hidden = !histPanel.hidden;
+  if (!histPanel.hidden) refreshHistory();
+};
+document.getElementById("histclose").onclick = () => { histPanel.hidden = true; };
 
 assistant.config().then(({ models, efforts, modes }) => {
   const fill = (id, values, chosen) => {

@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("assistant", {
   approval: (decision, guidance) =>
     ipcRenderer.invoke("approval", { decision, guidance }),
   newChat: () => ipcRenderer.invoke("newchat"),
+  history: (action, id) => ipcRenderer.invoke("history", { action, id }),
   config: () => ipcRenderer.invoke("config"),
   onEvent: (fn) => ipcRenderer.on("event", (evt, data) => fn(data)),
 });
