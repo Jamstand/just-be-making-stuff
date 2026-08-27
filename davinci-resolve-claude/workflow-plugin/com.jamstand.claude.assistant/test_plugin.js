@@ -16,17 +16,29 @@ function check(label, ok, detail) {
 function fakeResolve() {
   const markers = {};
   const grabState = { calls: 0, exported: [], deleted: [], pages: [],
-                      timecodes: [] };
+                      timecodes: [], versionOps: [] };
   const album = {
     ExportStills: (stills, dir, prefix, fmt) => {
       // Real Resolve: unpredictable filename + a .drx sidecar.
-      const png = path.join(dir, prefix + "_1.20260827.png");
-      fsmod.writeFileSync(png, Buffer.from("89504e470d0a1a0a0011", "hex"));
+      const file = path.join(dir, prefix + "_1.20260827." + fmt);
+      fsmod.writeFileSync(file, fmt === "tif" ? buildTiff16()
+        : Buffer.from("89504e470d0a1a0a0011", "hex"));
       fsmod.writeFileSync(path.join(dir, prefix + "_1.drx"), "sidecar");
-      grabState.exported.push(png);
+      grabState.exported.push(file);
       return true;
     },
     DeleteStills: (stills) => { grabState.deleted.push(stills); return true; },
+  };
+  const currentItem = {
+    GetName: () => "C0797.MP4",
+    AddVersion: (name) => { grabState.versionOps.push("add:" + name); return true; },
+    DeleteVersionByName: (name) => {
+      grabState.versionOps.push("del:" + name); return true;
+    },
+    GetMediaPoolItem: () => ({
+      GetClipProperty: (k) =>
+        (k === "Input Color Space" ? "S-Gamut3.Cine/S-Log3" : ""),
+    }),
   };
   const timeline = {
     GetName: () => "Timeline 1",
@@ -35,8 +47,10 @@ function fakeResolve() {
     SetCurrentTimecode: (tc) => { grabState.timecodes.push(tc); return tc !== "bad"; },
     GrabStill: () => {                    // intermittently falsy, like life
       grabState.calls += 1;
+      grabState.versionOps.push("grab");
       return grabState.calls < 2 ? null : { still: true };
     },
+    GetCurrentVideoItem: () => currentItem,
     GetTrackCount: () => 1,
     AddMarker: (frame, color, name, note, dur) => {
       if (markers[frame]) return false;
@@ -87,6 +101,34 @@ function fakeResolve() {
 }
 const fsmod = require("fs");
 const osmod = require("os");
+
+function buildTiff16() {
+  // Minimal little-endian uncompressed 2x1 RGB16 TIFF: samples
+  // [0,8000,16000, 24000,40000,65535] -> 2 distinct values per channel.
+  const entries = 9, ifd = 8, dataOff = ifd + 2 + entries * 12 + 4;
+  const bpsOff = dataOff, stripOff = dataOff + 6;
+  const buf = Buffer.alloc(stripOff + 12);
+  buf.write("II", 0); buf.writeUInt16LE(42, 2); buf.writeUInt32LE(ifd, 4);
+  buf.writeUInt16LE(entries, ifd);
+  const tag = (i, id, type, count, value) => {
+    const o = ifd + 2 + i * 12;
+    buf.writeUInt16LE(id, o); buf.writeUInt16LE(type, o + 2);
+    buf.writeUInt32LE(count, o + 4); buf.writeUInt32LE(value, o + 8);
+  };
+  tag(0, 256, 4, 1, 2);                  // width
+  tag(1, 257, 4, 1, 1);                  // height
+  tag(2, 258, 3, 3, bpsOff);             // bits per sample -> offset
+  tag(3, 259, 3, 1, 1);                  // compression: none
+  tag(4, 262, 3, 1, 2);                  // photometric: RGB
+  tag(5, 273, 4, 1, stripOff);           // strip offset
+  tag(6, 277, 3, 1, 3);                  // samples per pixel
+  tag(7, 278, 4, 1, 1);                  // rows per strip
+  tag(8, 279, 4, 1, 12);                 // strip byte count
+  for (let i = 0; i < 3; i++) buf.writeUInt16LE(16, bpsOff + i * 2);
+  [0, 8000, 16000, 24000, 40000, 65535].forEach((v, i) =>
+    buf.writeUInt16LE(v, stripOff + i * 2));
+  return buf;
+}
 
 async function main() {
   const resolve = fakeResolve();
@@ -146,6 +188,51 @@ async function main() {
         String(fsmod.readdirSync(stillDir)));
   check("gallery still deleted after export",
         resolve._grab.deleted.length === 1);
+
+  // 16-bit measurement path: header truth + census + pre-grade versions
+  check("default grab is TIFF with parsed 16-bit depth",
+        r.text.includes('"bits_per_sample":16')
+        && r.text.includes(".tif"), r.text);
+  check("census counts distinct levels per channel",
+        r.text.includes('"unique_values_rgb":[2,2,2]'), r.text);
+  check("clip input colour space rides along",
+        r.text.includes("S-Gamut3.Cine/S-Log3"), r.text);
+  check("proxy png attached for vision, tif for numbers",
+        Array.isArray(r.images) && r.images[0].media_type === "image/png"
+        && r.text.includes('"measurement_file"'), r.text);
+
+  const preOps = [];
+  resolve._grab.versionOps.length = 0;
+  const rPre = await tools.executeTool(state, "grab_still",
+    { pre_grade: true, out_dir: stillDir });
+  check("pre_grade grab succeeds", rPre.ok, rPre.text);
+  const ops = resolve._grab.versionOps;
+  check("temp version added before grab, deleted after",
+        ops.findIndex((o) => o.startsWith("add:claude_pregrade")) === 0
+        && ops.indexOf("grab") > 0
+        && ops.findIndex((o) => o.startsWith("del:claude_pregrade"))
+           > ops.indexOf("grab"), JSON.stringify(ops));
+  check("pre_grade flagged in the result",
+        rPre.text.includes('"pre_grade":true'), rPre.text);
+
+  // parser units: EXR header and depth labels
+  const exr = Buffer.concat([
+    Buffer.from([0x76, 0x2f, 0x31, 0x01, 2, 0, 0, 0]),
+    Buffer.from("compression\0compression\0"),
+    Buffer.from([1, 0, 0, 0, 4]),
+    Buffer.from("channels\0chlist\0"),
+    Buffer.from([8, 0, 0, 0]),
+    Buffer.from("R\0"), Buffer.from([1, 0, 0, 0, 0]),
+    Buffer.from([0]),
+  ]);
+  const exrInfo = tools.parseExr(exr);
+  check("exr header parsed (half-float, piz)",
+        exrInfo && exrInfo.pixelType === "half-float 16"
+        && exrInfo.compression === "piz", JSON.stringify(exrInfo));
+  check("depth labels honest",
+        tools.effectiveDepthLabel([250, 250, 250]).startsWith("8 bit")
+        && tools.effectiveDepthLabel([900, 800, 700]).startsWith("~10 bit")
+        && tools.effectiveDepthLabel([60000, 1, 1]).startsWith("~14-16"));
 
   // -- approvals --------------------------------------------------------
   state.permissionMode = "Ask before edits";
@@ -286,6 +373,7 @@ async function main() {
               sessionId: "sess-9", model: "claude-opus-5" });
   check("created stable across resaves", hist.load("h1").created === created1);
 
+  await new Promise((res) => setTimeout(res, 5));   // distinct updated stamps
   hist.save({ id: "h2", events: [{ kind: "you", payload: "second chat" }] });
   fsmod.writeFileSync(path.join(histDir, "broken.json"), "{nope");
   const histRows = hist.list();

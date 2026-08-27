@@ -295,6 +295,125 @@ tool("get_render_status", "Progress of render jobs.", {}, [], (state) => ({
   jobs: jsonSafe(project(state).GetRenderJobList()),
 }));
 
+// --------------------------------------------------- still-file inspection
+// Phase 1 of the colour suite: never trust the intended bit depth, read it.
+// parseTiff reads the header; tiffCensus counts DISTINCT values per channel
+// on uncompressed data — 8-bit data smuggled in a 16-bit container shows
+// <=256 levels, real 10-bit <=1024. That census, not the file extension,
+// answers "is this the data I think it is".
+
+function parseTiff(buffer) {
+  if (buffer.length < 8) return null;
+  const le = buffer[0] === 0x49 && buffer[1] === 0x49;      // 'II' vs 'MM'
+  if (!le && !(buffer[0] === 0x4d && buffer[1] === 0x4d)) return null;
+  const u16 = (o) => (le ? buffer.readUInt16LE(o) : buffer.readUInt16BE(o));
+  const u32 = (o) => (le ? buffer.readUInt32LE(o) : buffer.readUInt32BE(o));
+  if (u16(2) !== 42) return null;
+  const info = { littleEndian: le, bitsPerSample: null, compression: null,
+                 width: null, height: null, samplesPerPixel: 3,
+                 stripOffsets: null, stripByteCounts: null };
+  let ifd = u32(4);
+  if (ifd + 2 > buffer.length) return info;
+  const count = u16(ifd);
+  for (let i = 0; i < count; i++) {
+    const entry = ifd + 2 + i * 12;
+    if (entry + 12 > buffer.length) break;
+    const tag = u16(entry), type = u16(entry + 2), n = u32(entry + 4);
+    const short = (o) => u16(o);
+    const inline = entry + 8;
+    const valueAt = (idx) => {
+      const size = type === 3 ? 2 : 4;
+      const base = (n * size <= 4) ? inline : u32(inline);
+      const off = base + idx * size;
+      if (off + size > buffer.length) return null;
+      return type === 3 ? short(off) : u32(off);
+    };
+    if (tag === 256) info.width = valueAt(0);
+    else if (tag === 257) info.height = valueAt(0);
+    else if (tag === 258) info.bitsPerSample = valueAt(0);
+    else if (tag === 259) info.compression = valueAt(0);
+    else if (tag === 277) info.samplesPerPixel = valueAt(0);
+    else if (tag === 273)
+      info.stripOffsets = Array.from({ length: n }, (_, k) => valueAt(k));
+    else if (tag === 279)
+      info.stripByteCounts = Array.from({ length: n }, (_, k) => valueAt(k));
+  }
+  return info;
+}
+
+function tiffCensus(buffer, info) {
+  if (!info || info.compression !== 1 || !info.stripOffsets ||
+      !info.stripByteCounts)
+    return { skipped: "census needs uncompressed strip TIFF (compression=" +
+                      (info && info.compression) + ")" };
+  const bits = info.bitsPerSample;
+  if (bits !== 8 && bits !== 16)
+    return { skipped: "census handles 8/16 bits, file says " + bits };
+  const channels = Math.max(1, Math.min(4, info.samplesPerPixel || 3));
+  const seen = Array.from({ length: channels },
+                          () => new Uint8Array(65536 >> 3));
+  const unique = new Array(channels).fill(0);
+  const le = info.littleEndian;
+  let index = 0;
+  for (let s = 0; s < info.stripOffsets.length; s++) {
+    const start = info.stripOffsets[s];
+    const end = Math.min(buffer.length, start + info.stripByteCounts[s]);
+    const step = bits >> 3;
+    for (let o = start; o + step <= end; o += step) {
+      const v = bits === 8 ? buffer[o]
+                : (le ? buffer.readUInt16LE(o) : buffer.readUInt16BE(o));
+      const c = index % channels;
+      index += 1;
+      if (!((seen[c][v >> 3] >> (v & 7)) & 1)) {
+        seen[c][v >> 3] |= 1 << (v & 7);
+        unique[c] += 1;
+      }
+    }
+  }
+  return { unique_per_channel: unique.slice(0, 3),
+           samples_counted: index };
+}
+
+function effectiveDepthLabel(unique) {
+  const top = Math.max.apply(null, unique || [0]);
+  if (top > 4096) return "~14-16 bit (" + top + " distinct levels)";
+  if (top > 1024) return "~12 bit (" + top + " distinct levels)";
+  if (top > 256) return "~10 bit (" + top + " distinct levels)";
+  if (top > 64) return "8 bit (" + top + " distinct levels)";
+  return "suspiciously flat (" + top + " distinct levels)";
+}
+
+function parseExr(buffer) {
+  if (buffer.length < 8 || buffer.readUInt32LE(0) !== 0x01312f76) return null;
+  const out = { pixelType: null, compression: null };
+  let o = 8;
+  const readStr = () => {
+    const start = o;
+    while (o < buffer.length && buffer[o] !== 0) o++;
+    const s = buffer.toString("latin1", start, o); o++; return s;
+  };
+  const COMP = ["none", "rle", "zips", "zip", "piz", "pxr24", "b44", "b44a"];
+  while (o < buffer.length) {
+    const name = readStr();
+    if (!name) break;                     // end of header
+    readStr();                            // attribute type
+    const size = buffer.readInt32LE(o); o += 4;
+    const data = o; o += size;
+    if (name === "compression") out.compression = COMP[buffer[data]] || buffer[data];
+    if (name === "channels") {
+      let c = data;
+      while (c < data + size && buffer[c] !== 0) {
+        while (buffer[c] !== 0) c++;
+        c++;
+        const pt = buffer.readInt32LE(c);
+        out.pixelType = ["uint32", "half-float 16", "float 32"][pt] || pt;
+        break;                            // first channel is representative
+      }
+    }
+  }
+  return out;
+}
+
 function frameToTimecode(frame, fps) {
   // Nominal-rate, non-drop conversion (59.94 -> 60): fine for parking on a
   // frame to grab it; not an editorial-accuracy TC calculator.
@@ -308,22 +427,51 @@ function frameToTimecode(frame, fps) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+async function exportOneStill(album, still, dir, prefix, format) {
+  const before = new Set(fs.readdirSync(dir));
+  album.ExportStills([still], dir, prefix, format);
+  await sleep(200);                       // export is not always synchronous
+  // Filenames are unpredictable — diff the directory instead.
+  const fresh = fs.readdirSync(dir).filter((n) => !before.has(n));
+  for (const sidecar of fresh)            // a .drx sidecar always appears
+    if (sidecar.toLowerCase().endsWith(".drx")) {
+      try { fs.unlinkSync(path.join(dir, sidecar)); } catch (e) {}
+    }
+  const wanted = fresh.find((n) => {
+    const low = n.toLowerCase();
+    return format === "tif" ? (low.endsWith(".tif") || low.endsWith(".tiff"))
+                            : low.endsWith("." + format);
+  });
+  return wanted ? path.join(dir, wanted) : null;
+}
+
 tool("grab_still",
-  "Grab a still of the current timeline frame and SEE it: parks the " +
-  "playhead (optional frame/timecode), grabs on the Color page, exports a " +
-  "PNG (to /tmp by default; falls back to a home folder if Resolve cannot " +
-  "write there), and returns the image to your vision. The temporary " +
-  "gallery still is cleaned up afterwards.",
+  "Grab a still of the current timeline frame for ANALYSIS and viewing. " +
+  "Exports a measurement file (format 'tif' default — 16-bit intent, " +
+  "'exr', or 'png') plus an 8-bit PNG proxy that is returned to your " +
+  "vision; measurements must use the measurement file, never the proxy. " +
+  "The result reports the file's ACTUAL bit depth (parsed from its header) " +
+  "and a distinct-value census per channel, so quantised or clipped data " +
+  "is caught instead of assumed away. pre_grade=true grabs the clip with " +
+  "its grade removed via a temporary local color version (created, grabbed, " +
+  "deleted — non-destructive; input colour management still applies). " +
+  "Optional frame/timecode parks the playhead first.",
   { frame: { type: "number",
              description: "Absolute timeline frame to park on (optional)." },
     timecode: { type: "string",
                 description: "Or a timecode like 01:00:12:03 (optional)." },
+    format: { type: "string", enum: ["tif", "exr", "png"],
+              description: "Measurement export format; default tif." },
+    pre_grade: { type: "boolean",
+                 description: "Grab with the clip's grade bypassed via a "
+                              + "temporary color version." },
     out_dir: { type: "string",
                description: "Export directory; default /tmp." } },
   [], async (state, a) => {
     const resolve = state.resolve;
     const proj = project(state);
     const tl = timeline(state);
+    const format = ["tif", "exr", "png"].includes(a.format) ? a.format : "tif";
     let tc = a.timecode ? String(a.timecode) : null;
     if (!tc && a.frame !== undefined && a.frame !== null)
       tc = frameToTimecode(a.frame, tl.GetSetting("timelineFrameRate"));
@@ -332,7 +480,22 @@ tool("grab_still",
 
     const previousPage = resolve.GetCurrentPage();
     resolve.OpenPage("color");            // GrabStill only works from Color
+    let tempVersion = null, item = null;
     try {
+      item = tl.GetCurrentVideoItem && tl.GetCurrentVideoItem();
+      if (a.pre_grade) {
+        if (!item)
+          throw new ResolveError("pre_grade needs a clip under the playhead.");
+        tempVersion = "claude_pregrade_" + Date.now().toString(36);
+        // AddVersion creates AND switches to a clean local grade; deleting
+        // it afterwards drops Resolve back to the previous version.
+        if (!item.AddVersion(tempVersion, 0)) {
+          tempVersion = null;
+          throw new ResolveError("Could not create a temporary color version "
+            + "for the pre-grade grab (AddVersion returned false).");
+        }
+      }
+
       const gallery = proj.GetGallery();
       const album = gallery && gallery.GetCurrentStillAlbum();
       if (!album)
@@ -347,40 +510,78 @@ tool("grab_still",
         throw new ResolveError("GrabStill kept returning nothing — is a "
                                + "timeline open with a clip at the playhead?");
 
-      const prefix = "claude_" + Date.now().toString(36);
+      const stamp = Date.now().toString(36);
       const dirs = [String(a.out_dir || (process.platform === "win32"
                                          ? os.tmpdir() : "/tmp")),
                     path.join(os.homedir(), "ClaudeAssistantStills")];
-      let exported = null, usedDir = null;
+      let measurePath = null, proxyPath = null, usedDir = null;
       for (const dir of dirs) {
         try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { continue; }
-        const before = new Set(fs.readdirSync(dir));
-        album.ExportStills([still], dir, prefix, "png");
-        await sleep(200);                 // export is not always synchronous
-        // Filenames are unpredictable — diff the directory instead.
-        const fresh = fs.readdirSync(dir).filter((n) => !before.has(n));
-        const png = fresh.find((n) => n.toLowerCase().endsWith(".png"));
-        for (const sidecar of fresh)      // a .drx sidecar always appears
-          if (sidecar.toLowerCase().endsWith(".drx")) {
-            try { fs.unlinkSync(path.join(dir, sidecar)); } catch (e) {}
-          }
-        if (png) { exported = path.join(dir, png); usedDir = dir; break; }
+        measurePath = await exportOneStill(album, still, dir,
+                                           "claude_m" + stamp, format);
+        if (!measurePath) continue;
+        usedDir = dir;
+        proxyPath = format === "png" ? measurePath
+          : await exportOneStill(album, still, dir, "claude_p" + stamp, "png");
+        break;
       }
       try { album.DeleteStills([still]); } catch (e) {}
-      if (!exported)
-        throw new ResolveError("Resolve exported no PNG into " +
+      if (!measurePath)
+        throw new ResolveError("Resolve exported no " + format + " into " +
           dirs.join(" or ") + " — macOS Resolve sometimes cannot write to "
           + "system temp dirs; both attempts failed.");
 
-      const bytes = fs.readFileSync(exported);
-      if (bytes.length > 4500000)
-        throw new ResolveError("The still is " + bytes.length + " bytes — too "
-          + "large to attach. It is saved at " + exported + ".");
-      return { _images: [{ data: bytes.toString("base64"),
-                           media_type: "image/png" }],
-               path: exported, dir: usedDir, bytes: bytes.length,
-               timecode: tl.GetCurrentTimecode() };
+      // Never trust the intended depth — read the file's own header.
+      const bytes = fs.readFileSync(measurePath);
+      const analysis = { format, bytes: bytes.length };
+      if (format === "tif") {
+        const info = parseTiff(bytes);
+        analysis.bits_per_sample = info ? info.bitsPerSample : "unparsed";
+        analysis.compression = info ? info.compression : null;
+        const census = info ? tiffCensus(bytes, info) : { skipped: "unparsed" };
+        if (census.unique_per_channel) {
+          analysis.unique_values_rgb = census.unique_per_channel;
+          analysis.effective_depth =
+            effectiveDepthLabel(census.unique_per_channel);
+        } else {
+          analysis.census_skipped = census.skipped;
+        }
+      } else if (format === "exr") {
+        const info = parseExr(bytes);
+        analysis.pixel_type = info ? info.pixelType : "unparsed";
+        analysis.compression = info ? info.compression : null;
+        analysis.census_skipped = "EXR census not implemented; pixel type "
+                                  + "read from header instead";
+      } else {
+        analysis.bits_per_sample = 8;
+        analysis.note = "PNG is 8-bit — fine for looking, wrong for "
+                        + "measuring log footage.";
+      }
+
+      const out = { measurement_file: measurePath, dir: usedDir,
+                    analysis, pre_grade: !!a.pre_grade,
+                    timecode: tl.GetCurrentTimecode() };
+      try {
+        const mpItem = item && item.GetMediaPoolItem && item.GetMediaPoolItem();
+        if (mpItem)
+          out.clip = { name: item.GetName(),
+                       input_color_space:
+                         mpItem.GetClipProperty("Input Color Space") };
+      } catch (e) {}
+      if (proxyPath) {
+        const proxyBytes = fs.readFileSync(proxyPath);
+        out.proxy_png = proxyPath;
+        if (proxyBytes.length <= 4500000)
+          out._images = [{ data: proxyBytes.toString("base64"),
+                           media_type: "image/png" }];
+        else out.proxy_note = "proxy too large to attach; saved on disk";
+      }
+      return out;
     } finally {
+      if (tempVersion && item) {
+        // Removes the temp version; Resolve falls back to the prior one.
+        try { item.DeleteVersionByName(tempVersion, 0); } catch (e) {}
+      }
       if (previousPage && previousPage !== "color") {
         try { resolve.OpenPage(previousPage); } catch (e) {}
       }
@@ -484,4 +685,5 @@ module.exports = {
   PERMISSION_MODES, READONLY_TOOLS, APPROVAL_TIMEOUT_MS, ResolveError,
   makeState, needsApproval, requestApproval, executeTool, toolSchemas,
   startBridge, TOOLS,
+  parseTiff, tiffCensus, parseExr, effectiveDepthLabel,
 };
