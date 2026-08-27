@@ -26,43 +26,88 @@ function el(tag, cls, text) {
 
 function scroll() { chat.scrollTop = chat.scrollHeight; }
 
+function inline(target, text) {
+  // **bold** and `code`, as DOM nodes — model output is never HTML.
+  for (const part of String(text).split(/(\*\*[^*]+\*\*|`[^`\n]+`)/g)) {
+    if (part.startsWith("**") && part.endsWith("**"))
+      target.appendChild(el("b", "", part.slice(2, -2)));
+    else if (part.startsWith("`") && part.endsWith("`") && part.length > 2)
+      target.appendChild(el("code", "", part.slice(1, -1)));
+    else target.appendChild(document.createTextNode(part));
+  }
+}
+
+function codeCard(codeText, language) {
+  const box = el("div", "codecard");
+  const head = el("div", "head");
+  head.appendChild(el("span", "", (language || "code").toUpperCase()));
+  box.appendChild(head);
+  box.appendChild(el("pre", "", String(codeText)));
+  return box;
+}
+
+function markdown(container, text) {
+  // Fenced blocks become code cards; prose keeps its line structure
+  // (paragraphs, dashed lists) via pre-wrap styling in CSS.
+  // One captured group means split() yields text, lang, text, lang, text…
+  // — odd slots are fence tags, and the even slots alternate prose / code
+  // (the same trap the Python renderer's review caught: never assume a
+  // 3-cycle here).
+  const parts = String(text).split(/^[ \t]*```([\w+-]*)[ \t]*$\n?/m);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) continue;                 // language tag
+    const isCode = (i / 2) % 2 === 1;
+    if (isCode) {
+      container.appendChild(codeCard(parts[i].replace(/\n$/, ""), parts[i - 1]));
+    } else if (parts[i]) {
+      const prose = el("div", "prose");
+      inline(prose, parts[i].replace(/^\n+|\n+$/g, ""));
+      if (prose.childNodes.length) container.appendChild(prose);
+    }
+  }
+}
+
 function card(kind, who, text) {
   const box = el("div", "card " + kind);
   box.appendChild(el("span", "who", who));
-  // Minimal markdown: **bold** and `code`, built as nodes, never innerHTML.
-  const body = el("div");
-  for (const part of String(text).split(/(\*\*[^*]+\*\*|`[^`\n]+`)/g)) {
-    if (part.startsWith("**") && part.endsWith("**"))
-      body.appendChild(el("b", "", part.slice(2, -2)));
-    else if (part.startsWith("`") && part.endsWith("`"))
-      body.appendChild(el("code", "", part.slice(1, -1)));
-    else body.appendChild(document.createTextNode(part));
-  }
+  const body = el("div", "body");
+  markdown(body, text);
   box.appendChild(body);
   chat.appendChild(box);
   scroll();
 }
 
+const openToolLines = {};              // name -> [status spans awaiting result]
+
 function toolLine(name, args) {
   toolCount += 1;
+  const line = el("div", "toolline");
+  line.appendChild(el("span", "glyph", "›"));
+  line.appendChild(el("span", "", name));
   if (name === "run_javascript" && args && args.code) {
-    const code = el("div", "codecard");
-    const head = el("div", "head");
-    head.appendChild(el("span", "", "JAVASCRIPT"));
-    code.appendChild(head);
-    code.appendChild(el("pre", "", String(args.code)));
-    chat.appendChild(code);
+    line.appendChild(el("span", "args", "" ));
+    chat.appendChild(line);
+    chat.appendChild(codeCard(String(args.code), "javascript"));
   } else {
-    const line = el("div", "toolline");
-    line.appendChild(el("span", "glyph", "›"));
-    line.appendChild(el("span", "", name));
     const summary = Object.entries(args || {})
       .map(([k, v]) => k + ": " + JSON.stringify(v)).join(", ");
     line.appendChild(el("span", "args", summary.slice(0, 160)));
     chat.appendChild(line);
   }
+  const status = el("span", "status", "…");
+  line.appendChild(status);
+  (openToolLines[name] = openToolLines[name] || []).push(status);
   setStatus();
   scroll();
+}
+
+function toolResult(name, ok, ms) {
+  const waiting = openToolLines[name];
+  const status = waiting && waiting.shift();
+  if (!status) return;
+  status.textContent = (ok ? "✓" : "✕") +
+    (ms >= 100 ? " " + (ms / 1000).toFixed(1) + "s" : "");
+  status.className = "status " + (ok ? "ok" : "bad");
 }
 
 function setStatus() {
@@ -163,6 +208,7 @@ assistant.onEvent(({ kind, payload }) => {
   else if (kind === "error") card("error", "ERROR", payload);
   else if (kind === "notice") card("notice", "NOTE", payload);
   else if (kind === "toolcall") toolLine(payload.name, payload.input);
+  else if (kind === "toolresult") toolResult(payload.name, payload.ok, payload.ms);
   else if (kind === "approval") showApproval(payload);
   else if (kind === "done") setBusy(false);
 });

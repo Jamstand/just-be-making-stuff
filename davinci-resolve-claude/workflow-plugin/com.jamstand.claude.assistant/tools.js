@@ -355,8 +355,11 @@ function startBridge(state, onEvent) {
           reply = { ok: true, tools: toolSchemas() };
         } else if (msg.op === "call") {
           const args = msg.arguments || msg.input || {};
-          if (onEvent) onEvent("tool", msg.name, args);
+          if (onEvent) onEvent("call", msg.name, args);
+          const started = Date.now();
           const r = await executeTool(state, msg.name, args);
+          if (onEvent) onEvent("result", msg.name,
+                               { ok: r.ok, ms: Date.now() - started });
           reply = { ok: r.ok, content: r.text };   // wire format of bridge.js
         } else {
           reply = { ok: false, error: "unknown op" };

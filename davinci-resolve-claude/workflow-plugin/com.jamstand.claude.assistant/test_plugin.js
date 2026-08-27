@@ -129,9 +129,24 @@ async function main() {
   check("session-wide consent sticks", r.ok && after.ok, after.text);
   state.approveAllEdits = false;
 
+  // -- renderer fence-split contract (the 2-cycle, not a 3-cycle) --------
+  const md = "before\n```js\nx=1\n```\nafter\n```\ny=2\n```\nend";
+  const parts = md.split(/^[ \t]*```([\w+-]*)[ \t]*$\n?/m);
+  const codeSegs = parts.filter((p, i) => i % 2 === 0 && (i / 2) % 2 === 1);
+  const proseSegs = parts.filter((p, i) => i % 2 === 0 && (i / 2) % 2 === 0);
+  check("fence split: code segments extracted",
+        codeSegs.length === 2 && codeSegs[0].includes("x=1")
+        && codeSegs[1].includes("y=2"), JSON.stringify(codeSegs));
+  check("fence split: prose survives around fences",
+        proseSegs.join("|").includes("before")
+        && proseSegs.join("|").includes("after")
+        && proseSegs.join("|").includes("end"), JSON.stringify(proseSegs));
+
   // -- bridge round trip through the real bridge.js child ----------------
   state.permissionMode = "Never ask";
-  const bridge = await tools.startBridge(state, () => {});
+  const bridgeEvents = [];
+  const bridge = await tools.startBridge(state, (kind, name, payload) =>
+    bridgeEvents.push([kind, name, payload]));
   const child = spawn(process.execPath, [path.join(__dirname, "bridge.js")], {
     env: Object.assign({}, process.env, {
       CLAUDE_RESOLVE_BRIDGE_PORT: String(bridge.port),
@@ -173,6 +188,12 @@ async function main() {
   check("tools/call round-trips into the fake Resolve",
         call && !call.isError && resolve._markers[99],
         JSON.stringify(call));
+  check("bridge emits call + result events for the UI",
+        bridgeEvents.some(([k, n]) => k === "call" && n === "add_marker")
+        && bridgeEvents.some(([k, n, p]) => k === "result"
+                             && n === "add_marker" && p.ok === true
+                             && typeof p.ms === "number"),
+        JSON.stringify(bridgeEvents));
 
   console.log(failures ? "\n" + failures + " FAILURES"
                        : "\nALL PLUGIN CHECKS PASSED (" +

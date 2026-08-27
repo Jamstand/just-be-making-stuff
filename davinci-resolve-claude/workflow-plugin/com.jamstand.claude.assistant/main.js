@@ -69,6 +69,12 @@ function cliEnv() {
   delete env.ANTHROPIC_AUTH_TOKEN;
   env.CLAUDE_RESOLVE_BRIDGE_PORT = String(bridge.port);
   env.CLAUDE_RESOLVE_BRIDGE_TOKEN = bridge.token;
+  // GUI-launched processes get a minimal PATH on macOS; give the CLI the
+  // places node/npm actually live so its own spawns can work too.
+  if (process.platform !== "win32") {
+    env.PATH = [env.PATH || "", "/opt/homebrew/bin", "/usr/local/bin",
+                path.join(os.homedir(), ".local", "bin")].join(path.delimiter);
+  }
   return env;
 }
 
@@ -89,11 +95,16 @@ function buildTurn(workdir, model, effort, prompt) {
   fs.mkdirSync(workdir, { recursive: true });
   const mcpPath = path.join(workdir, "mcp.json");
   const sysPath = path.join(workdir, "system.txt");
-  // "node" is always on PATH wherever the claude CLI works (the CLI itself
-  // runs on it) — never point this at Electron's own execPath.
+  // Resolve launches this plugin with the bare GUI PATH (no /opt/homebrew/bin
+  // on macOS), so "node" may not resolve for the CLI's MCP spawn. Electron
+  // itself IS node when ELECTRON_RUN_AS_NODE=1 — fully self-contained.
   fs.writeFileSync(mcpPath, JSON.stringify({
-    mcpServers: { resolve: { command: "node",
-                             args: [path.join(__dirname, "bridge.js")] } },
+    mcpServers: { resolve: {
+      command: process.execPath,
+      args: [path.join(__dirname, "bridge.js")],
+      env: { ELECTRON_RUN_AS_NODE: "1",
+             CLAUDE_RESOLVE_BRIDGE_PORT: String(bridge.port),
+             CLAUDE_RESOLVE_BRIDGE_TOKEN: bridge.token } } },
   }));
   fs.writeFileSync(sysPath, SYSTEM_PROMPT);
   const argv = ["-p", "--output-format", "stream-json", "--verbose",
@@ -217,8 +228,9 @@ app.whenReady().then(async () => {
   }
 
   if (state) {
-    bridge = await tools.startBridge(state, (kind, name, input) => {
-      // tool activity flows to the transcript as it happens
+    bridge = await tools.startBridge(state, (kind, name, payload) => {
+      if (kind === "result") sendUI("toolresult", { name, ok: payload.ok,
+                                                    ms: payload.ms });
     });
     state.onApprovalNeeded = (pending) =>
       sendUI("approval", { name: pending.name, input: pending.input });
