@@ -15,11 +15,28 @@ function check(label, ok, detail) {
 // ------------------------------------------------------------ fake Resolve
 function fakeResolve() {
   const markers = {};
+  const grabState = { calls: 0, exported: [], deleted: [], pages: [],
+                      timecodes: [] };
+  const album = {
+    ExportStills: (stills, dir, prefix, fmt) => {
+      // Real Resolve: unpredictable filename + a .drx sidecar.
+      const png = path.join(dir, prefix + "_1.20260827.png");
+      fsmod.writeFileSync(png, Buffer.from("89504e470d0a1a0a0011", "hex"));
+      fsmod.writeFileSync(path.join(dir, prefix + "_1.drx"), "sidecar");
+      grabState.exported.push(png);
+      return true;
+    },
+    DeleteStills: (stills) => { grabState.deleted.push(stills); return true; },
+  };
   const timeline = {
     GetName: () => "Timeline 1",
     GetSetting: (k) => (k === "timelineFrameRate" ? "24" : ""),
     GetCurrentTimecode: () => "01:00:00:00",
-    SetCurrentTimecode: (tc) => tc !== "bad",
+    SetCurrentTimecode: (tc) => { grabState.timecodes.push(tc); return tc !== "bad"; },
+    GrabStill: () => {                    // intermittently falsy, like life
+      grabState.calls += 1;
+      return grabState.calls < 2 ? null : { still: true };
+    },
     GetTrackCount: () => 1,
     AddMarker: (frame, color, name, note, dur) => {
       if (markers[frame]) return false;
@@ -54,15 +71,22 @@ function fakeResolve() {
     GetRenderPresetList: () => ["YouTube 1080p"],
     IsRenderingInProgress: () => false,
     GetRenderJobList: () => [],
+    GetGallery: () => ({ GetCurrentStillAlbum: () => album }),
   };
   return {
     GetProjectManager: () => ({ GetCurrentProject: () => project }),
     GetCurrentPage: () => "edit",
-    OpenPage: (p) => ["media", "cut", "edit", "fusion", "color",
-                      "fairlight", "deliver"].includes(p),
+    OpenPage: (p) => {
+      grabState.pages.push(p);
+      return ["media", "cut", "edit", "fusion", "color",
+              "fairlight", "deliver"].includes(p);
+    },
     _markers: markers,
+    _grab: grabState,
   };
 }
+const fsmod = require("fs");
+const osmod = require("os");
 
 async function main() {
   const resolve = fakeResolve();
@@ -92,6 +116,36 @@ async function main() {
 
   r = await tools.executeTool(state, "nope", {});
   check("unknown tool is friendly", !r.ok && r.text.includes("Unknown"), r.text);
+
+  // -- grab_still: frame parking, retry, sidecar cleanup, image channel --
+  const stillDir = fsmod.mkdtempSync(path.join(osmod.tmpdir(), "stills-"));
+  r = await tools.executeTool(state, "grab_still",
+                              { frame: 120, out_dir: stillDir });
+  check("grab_still succeeds", r.ok, r.text);
+  check("frame parked via nominal timecode",
+        resolve._grab.timecodes.includes("00:00:05:00"),
+        String(resolve._grab.timecodes));
+  check("color page visited, previous page restored",
+        resolve._grab.pages[0] === "color"
+        && resolve._grab.pages[resolve._grab.pages.length - 1] === "edit",
+        String(resolve._grab.pages));
+  check("falsy GrabStill retried", resolve._grab.calls === 2,
+        String(resolve._grab.calls));
+  check("image side channel populated",
+        Array.isArray(r.images) && r.images.length === 1
+        && r.images[0].media_type === "image/png"
+        && Buffer.from(r.images[0].data, "base64").slice(0, 4)
+             .equals(Buffer.from("89504e47", "hex")),
+        JSON.stringify(r.images && r.images[0] &&
+                       Object.keys(r.images[0])));
+  check("image bytes kept out of the JSON text",
+        !r.text.includes("89504e47") && !r.text.includes("_images")
+        && r.text.includes(stillDir), r.text);
+  check("drx sidecar cleaned up",
+        !fsmod.readdirSync(stillDir).some((n) => n.endsWith(".drx")),
+        String(fsmod.readdirSync(stillDir)));
+  check("gallery still deleted after export",
+        resolve._grab.deleted.length === 1);
 
   // -- approvals --------------------------------------------------------
   state.permissionMode = "Ask before edits";
@@ -171,11 +225,14 @@ async function main() {
   rpc({ jsonrpc: "2.0", id: 2, method: "tools/call",
         params: { name: "add_marker",
                   arguments: { frame: 99, color: "Green" } } });
-  await new Promise((res) => setTimeout(res, 700));
+  const stillDir2 = fsmod.mkdtempSync(path.join(osmod.tmpdir(), "stills2-"));
+  rpc({ jsonrpc: "2.0", id: 3, method: "tools/call",
+        params: { name: "grab_still", arguments: { out_dir: stillDir2 } } });
+  await new Promise((res) => setTimeout(res, 1500));
   child.kill();
   bridge.server.close();
 
-  check("mcp replies: no reply to the notification", replies.length === 3,
+  check("mcp replies: no reply to the notification", replies.length === 4,
         String(replies.length));
   check("initialize echoes id 0 + version",
         replies[0] && replies[0].id === 0 &&
@@ -188,6 +245,14 @@ async function main() {
   check("tools/call round-trips into the fake Resolve",
         call && !call.isError && resolve._markers[99],
         JSON.stringify(call));
+  const still = replies[3] && replies[3].result;
+  check("grab_still arrives as an MCP image block",
+        still && !still.isError
+        && still.content.some((c) => c.type === "image"
+                                     && c.mimeType === "image/png"
+                                     && c.data.length > 4)
+        && still.content.some((c) => c.type === "text"),
+        JSON.stringify(still).slice(0, 200));
   check("bridge emits call + result events for the UI",
         bridgeEvents.some(([k, n]) => k === "call" && n === "add_marker")
         && bridgeEvents.some(([k, n, p]) => k === "result"

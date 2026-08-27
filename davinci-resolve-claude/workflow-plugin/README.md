@@ -9,7 +9,7 @@ can be installed side by side; they are separate entries in the menu.
 renderer (HTML chat UI, the design-file look)
    ↕ IPC
 main.js — WorkflowIntegration.node → live Resolve object
-        — tools.js: 18 JS tools + run_javascript escape hatch
+        — tools.js: 19 JS tools (incl. grab_still vision) + run_javascript escape hatch
         — spawns claude CLI (-p, stream-json) on your subscription
              └─ bridge.js (MCP stdio) → TCP loopback → tools.js
 ```
@@ -31,7 +31,7 @@ edition does not load workflow integrations) and the Claude Code CLI
 
 | | Python panel (Scripts menu) | This plugin |
 |---|---|---|
-| Tools | 70, incl. grading/Fusion/Higgsfield | 18 core + `run_javascript` escape hatch |
+| Tools | 70, incl. grading/Fusion/Higgsfield | 19 core (incl. `grab_still` — Claude sees frames) + `run_javascript` |
 | Approvals | buttons above the input | real inline amber card, per the design |
 | UI | Qt rich-text subset | full HTML/CSS (the design file, faithfully) |
 | History browser / themes / drop folder | yes | not yet |

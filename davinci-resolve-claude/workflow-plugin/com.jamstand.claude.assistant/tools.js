@@ -13,6 +13,9 @@
 "use strict";
 const net = require("net");
 const crypto = require("crypto");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 const PERMISSION_MODES = ["Ask before edits", "Always ask", "Never ask"];
 const APPROVAL_TIMEOUT_MS = 120000;
@@ -21,6 +24,9 @@ const READONLY_TOOLS = new Set([
   "get_workspace_overview", "list_media_pool", "get_clip_properties",
   "list_timelines", "list_markers", "list_render_presets",
   "get_render_status", "move_playhead", "open_page",
+  // grab_still LOOKS at a frame: the gallery still it makes is deleted
+  // again after export, so treating it as a read keeps vision friction-free.
+  "grab_still",
 ]);
 
 function jsonSafe(value, depth) {
@@ -289,6 +295,98 @@ tool("get_render_status", "Progress of render jobs.", {}, [], (state) => ({
   jobs: jsonSafe(project(state).GetRenderJobList()),
 }));
 
+function frameToTimecode(frame, fps) {
+  // Nominal-rate, non-drop conversion (59.94 -> 60): fine for parking on a
+  // frame to grab it; not an editorial-accuracy TC calculator.
+  const nominal = Math.max(1, Math.round(Number(fps) || 24));
+  const f = Math.max(0, Math.floor(Number(frame)));
+  const pad = (n) => String(n).padStart(2, "0");
+  return pad(Math.floor(f / (3600 * nominal))) + ":" +
+         pad(Math.floor(f / (60 * nominal)) % 60) + ":" +
+         pad(Math.floor(f / nominal) % 60) + ":" + pad(f % nominal);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+tool("grab_still",
+  "Grab a still of the current timeline frame and SEE it: parks the " +
+  "playhead (optional frame/timecode), grabs on the Color page, exports a " +
+  "PNG (to /tmp by default; falls back to a home folder if Resolve cannot " +
+  "write there), and returns the image to your vision. The temporary " +
+  "gallery still is cleaned up afterwards.",
+  { frame: { type: "number",
+             description: "Absolute timeline frame to park on (optional)." },
+    timecode: { type: "string",
+                description: "Or a timecode like 01:00:12:03 (optional)." },
+    out_dir: { type: "string",
+               description: "Export directory; default /tmp." } },
+  [], async (state, a) => {
+    const resolve = state.resolve;
+    const proj = project(state);
+    const tl = timeline(state);
+    let tc = a.timecode ? String(a.timecode) : null;
+    if (!tc && a.frame !== undefined && a.frame !== null)
+      tc = frameToTimecode(a.frame, tl.GetSetting("timelineFrameRate"));
+    if (tc && !tl.SetCurrentTimecode(tc))
+      throw new ResolveError("Resolve rejected timecode " + tc);
+
+    const previousPage = resolve.GetCurrentPage();
+    resolve.OpenPage("color");            // GrabStill only works from Color
+    try {
+      const gallery = proj.GetGallery();
+      const album = gallery && gallery.GetCurrentStillAlbum();
+      if (!album)
+        throw new ResolveError("No gallery album available — open the Color "
+                               + "page gallery once so Resolve creates one.");
+      let still = null;
+      for (let attempt = 0; attempt < 3 && !still; attempt++) {
+        still = tl.GrabStill();           // intermittently falsy: retry
+        if (!still) await sleep(400);
+      }
+      if (!still)
+        throw new ResolveError("GrabStill kept returning nothing — is a "
+                               + "timeline open with a clip at the playhead?");
+
+      const prefix = "claude_" + Date.now().toString(36);
+      const dirs = [String(a.out_dir || (process.platform === "win32"
+                                         ? os.tmpdir() : "/tmp")),
+                    path.join(os.homedir(), "ClaudeAssistantStills")];
+      let exported = null, usedDir = null;
+      for (const dir of dirs) {
+        try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { continue; }
+        const before = new Set(fs.readdirSync(dir));
+        album.ExportStills([still], dir, prefix, "png");
+        await sleep(200);                 // export is not always synchronous
+        // Filenames are unpredictable — diff the directory instead.
+        const fresh = fs.readdirSync(dir).filter((n) => !before.has(n));
+        const png = fresh.find((n) => n.toLowerCase().endsWith(".png"));
+        for (const sidecar of fresh)      // a .drx sidecar always appears
+          if (sidecar.toLowerCase().endsWith(".drx")) {
+            try { fs.unlinkSync(path.join(dir, sidecar)); } catch (e) {}
+          }
+        if (png) { exported = path.join(dir, png); usedDir = dir; break; }
+      }
+      try { album.DeleteStills([still]); } catch (e) {}
+      if (!exported)
+        throw new ResolveError("Resolve exported no PNG into " +
+          dirs.join(" or ") + " — macOS Resolve sometimes cannot write to "
+          + "system temp dirs; both attempts failed.");
+
+      const bytes = fs.readFileSync(exported);
+      if (bytes.length > 4500000)
+        throw new ResolveError("The still is " + bytes.length + " bytes — too "
+          + "large to attach. It is saved at " + exported + ".");
+      return { _images: [{ data: bytes.toString("base64"),
+                           media_type: "image/png" }],
+               path: exported, dir: usedDir, bytes: bytes.length,
+               timecode: tl.GetCurrentTimecode() };
+    } finally {
+      if (previousPage && previousPage !== "color") {
+        try { resolve.OpenPage(previousPage); } catch (e) {}
+      }
+    }
+  });
+
 tool("run_javascript",
   "Escape hatch when no tool fits: run a short JavaScript snippet against " +
   "the live Resolve scripting objects. In scope: resolve, projectManager, " +
@@ -316,7 +414,12 @@ async function executeTool(state, name, input) {
   }
   try {
     const result = await entry.fn(state, input || {});
-    return { ok: true, text: JSON.stringify(result) };
+    let images = null;
+    if (result && typeof result === "object" && result._images) {
+      images = result._images;            // picture side channel, kept out of
+      delete result._images;              // the JSON text (25k-token cap)
+    }
+    return { ok: true, text: JSON.stringify(result), images };
   } catch (err) {
     if (err instanceof ResolveError) return { ok: false, text: err.message };
     return { ok: false, text: "Tool " + name + " crashed: " + (err && err.stack || err) };
@@ -361,6 +464,7 @@ function startBridge(state, onEvent) {
           if (onEvent) onEvent("result", msg.name,
                                { ok: r.ok, ms: Date.now() - started });
           reply = { ok: r.ok, content: r.text };   // wire format of bridge.js
+          if (r.images) reply.images = r.images;   // -> MCP image blocks
         } else {
           reply = { ok: false, error: "unknown op" };
         }
