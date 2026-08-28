@@ -107,6 +107,24 @@ behaviour; extend them when adding tools.
     be numeric; "Type" values worth switching on: Video, Audio,
     "Video + Audio", Still.
 
+### Color-suite live findings (Electron plugin, Mac)
+
+- Gallery ExportStills accepts ONLY dpx/cin/tif/jpg/png/ppm/bmp/xpm — no
+  EXR. TIFF comes out 16-bit uncompressed; a distinct-value census on real
+  a6700 footage shows ~10-bit effective data (source-limited, pipeline OK).
+- **AddVersion COPIES the current grade** (CDL slammed on node 1 survived
+  into the "fresh" version byte-for-byte). A true pre-grade image requires
+  a FRESH timeline item: grab_still pre_grade builds a throwaway timeline
+  from the same media pool clip, parks the matching source frame, grabs,
+  deletes it. It's a write → approval-gated via needsApproval's carve-out.
+- SetCurrentTimecode is rejected while the Edit page is frontmost — park
+  after OpenPage("color").
+- SetCDL takes SPACE-SEPARATED STRINGS ("2.0 0.6 0.3"), not arrays.
+- 1080p photographic PNG proxies exceed the 4.5MB attach cap: shrinkProxy
+  (Electron nativeImage → 1280px JPEG-80) runs first; plain node falls
+  back to raw PNG. compare_stills settles same-image questions by bytes +
+  per-channel pixel stats.
+
 ## Approvals (the design's 1d flow)
 
 - Chokepoint: execute_tool → needs_approval(name) → request_approval blocks

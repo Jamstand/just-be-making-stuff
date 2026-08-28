@@ -16,7 +16,7 @@ function check(label, ok, detail) {
 function fakeResolve() {
   const markers = {};
   const grabState = { calls: 0, exported: [], deleted: [], pages: [],
-                      timecodes: [], versionOps: [] };
+                      timecodes: [], timelineOps: [] };
   const album = {
     ExportStills: (stills, dir, prefix, fmt) => {
       // Real Resolve: unpredictable filename + a .drx sidecar.
@@ -31,10 +31,8 @@ function fakeResolve() {
   };
   const currentItem = {
     GetName: () => "C0797.MP4",
-    AddVersion: (name) => { grabState.versionOps.push("add:" + name); return true; },
-    DeleteVersionByName: (name) => {
-      grabState.versionOps.push("del:" + name); return true;
-    },
+    GetStart: () => 86400,
+    GetLeftOffset: () => 100,
     GetMediaPoolItem: () => ({
       GetClipProperty: (k) =>
         (k === "Input Color Space" ? "S-Gamut3.Cine/S-Log3" : ""),
@@ -47,7 +45,6 @@ function fakeResolve() {
     SetCurrentTimecode: (tc) => { grabState.timecodes.push(tc); return tc !== "bad"; },
     GrabStill: () => {                    // intermittently falsy, like life
       grabState.calls += 1;
-      grabState.versionOps.push("grab");
       return grabState.calls < 2 ? null : { still: true };
     },
     GetCurrentVideoItem: () => currentItem,
@@ -69,9 +66,29 @@ function fakeResolve() {
                    GetClipProperty: () => ({ FPS: 24, Type: "Video" }) }];
   const root = { GetName: () => "Master",
                  GetClipList: () => clips, GetSubFolderList: () => [] };
+  const makeTempTimeline = (name) => ({
+    GetName: () => name,
+    GetSetting: (k) => (k === "timelineFrameRate" ? "24" : ""),
+    GetStartFrame: () => 0,
+    GetCurrentTimecode: () => grabState.tempParked || "00:00:00:00",
+    SetCurrentTimecode: (tc) => {
+      grabState.tempParked = tc;
+      grabState.timelineOps.push("park:" + tc);
+      return true;
+    },
+    GrabStill: () => { grabState.timelineOps.push("grab"); return { s: 1 }; },
+  });
   const mediaPool = {
     GetRootFolder: () => root,
     AppendToTimeline: (items) => items.map(() => ({})),
+    CreateTimelineFromClips: (name, items) => {
+      grabState.timelineOps.push("create:" + items.length);
+      return makeTempTimeline(name);
+    },
+    DeleteTimelines: (tls) => {
+      grabState.timelineOps.push("delete:" + tls.length);
+      return true;
+    },
     ImportMedia: (paths) => paths.map((p) => ({ GetName: () => path.basename(p) })),
     AddSubFolder: (parent, name) => ({ GetName: () => name }),
   };
@@ -81,7 +98,10 @@ function fakeResolve() {
     GetMediaPool: () => mediaPool,
     GetTimelineCount: () => 1,
     GetTimelineByIndex: () => timeline,
-    SetCurrentTimeline: () => true,
+    SetCurrentTimeline: (t) => {
+      grabState.timelineOps.push("setcur:" + t.GetName());
+      return true;
+    },
     GetRenderPresetList: () => ["YouTube 1080p"],
     IsRenderingInProgress: () => false,
     GetRenderJobList: () => [],
@@ -201,19 +221,28 @@ async function main() {
         Array.isArray(r.images) && r.images[0].media_type === "image/png"
         && r.text.includes('"measurement_file"'), r.text);
 
-  const preOps = [];
-  resolve._grab.versionOps.length = 0;
+  resolve._grab.timelineOps.length = 0;
   const rPre = await tools.executeTool(state, "grab_still",
-    { pre_grade: true, out_dir: stillDir });
+    { pre_grade: true, timecode: "01:00:01:14", out_dir: stillDir });
   check("pre_grade grab succeeds", rPre.ok, rPre.text);
-  const ops = resolve._grab.versionOps;
-  check("temp version added before grab, deleted after",
-        ops.findIndex((o) => o.startsWith("add:claude_pregrade")) === 0
-        && ops.indexOf("grab") > 0
-        && ops.findIndex((o) => o.startsWith("del:claude_pregrade"))
-           > ops.indexOf("grab"), JSON.stringify(ops));
+  const ops = resolve._grab.timelineOps
+    .map((o) => o.replace(/claude_pregrade_\w+/, "claude_pregrade"));
+  // Main timeline reads 01:00:00:00 (fake), item starts at 86400 with
+  // left offset 100 -> source frame 100 -> temp timeline TC 00:00:04:04.
+  check("pre_grade: temp timeline built, parked on source frame, grabbed, "
+        + "then deleted with the original timeline restored",
+        JSON.stringify(ops) === JSON.stringify(
+          ["create:1", "setcur:claude_pregrade",
+           "park:00:00:04:04", "grab",
+           "setcur:Timeline 1", "delete:1"]),
+        JSON.stringify(ops));
   check("pre_grade flagged in the result",
         rPre.text.includes('"pre_grade":true'), rPre.text);
+  check("pre_grade grab is a write under Ask-before-edits, plain grab a read",
+        tools.needsApproval({ permissionMode: "Ask before edits" },
+                            "grab_still", { pre_grade: true }) === true
+        && tools.needsApproval({ permissionMode: "Ask before edits" },
+                               "grab_still", {}) === false);
 
   // compare_stills: identical, metadata-only, and genuinely different
   const cmpA = path.join(stillDir, "cmp_a.tif");

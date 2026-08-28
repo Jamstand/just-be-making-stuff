@@ -70,11 +70,14 @@ function timeline(state) {
 }
 
 // ---------------------------------------------------------------- approvals
-function needsApproval(state, name) {
+function needsApproval(state, name, input) {
   const mode = state.permissionMode;
   if (mode === "Always ask") return true;
   if (mode !== "Ask before edits") return false;
   if (state.approveAllEdits) return false;
+  // pre_grade grabs briefly create/delete a temp timeline in the project:
+  // that is a write, even though a plain grab_still is a read.
+  if (name === "grab_still" && input && input.pre_grade) return true;
   return !READONLY_TOOLS.has(name);
 }
 
@@ -414,6 +417,14 @@ function parseExr(buffer) {
   return out;
 }
 
+function timecodeToFrame(tc, fps) {
+  const nominal = Math.max(1, Math.round(Number(fps) || 24));
+  const p = String(tc || "").replace(/;/g, ":").split(":")
+    .map((n) => parseInt(n, 10) || 0);
+  while (p.length < 4) p.unshift(0);
+  return ((p[0] * 60 + p[1]) * 60 + p[2]) * nominal + p[3];
+}
+
 function frameToTimecode(frame, fps) {
   // Nominal-rate, non-drop conversion (59.94 -> 60): fine for parking on a
   // frame to grab it; not an editorial-accuracy TC calculator.
@@ -473,9 +484,11 @@ tool("grab_still",
   "vision; measurements must use the measurement file, never the proxy. " +
   "The result reports the file's ACTUAL bit depth (parsed from its header) " +
   "and a distinct-value census per channel, so quantised or clipped data " +
-  "is caught instead of assumed away. pre_grade=true grabs the clip with " +
-  "its grade removed via a temporary local color version (created, grabbed, " +
-  "deleted — non-destructive; input colour management still applies). " +
+  "is caught instead of assumed away. pre_grade=true grabs the SOURCE " +
+  "image by placing the same clip on a temporary timeline (fresh " +
+  "placements carry no grade; AddVersion copies grades, live-verified) " +
+  "parked on the matching source frame, then deleting that timeline — " +
+  "non-destructive, but it is a write and asks for approval. " +
   "Optional frame/timecode parks the playhead first.",
   { frame: { type: "number",
              description: "Absolute timeline frame to park on (optional)." },
@@ -484,8 +497,8 @@ tool("grab_still",
     format: { type: "string", enum: ["tif", "png"],
               description: "Measurement export format; default tif." },
     pre_grade: { type: "boolean",
-                 description: "Grab with the clip's grade bypassed via a "
-                              + "temporary color version." },
+                 description: "Grab the ungraded source via a temporary "
+                              + "timeline (created and deleted again)." },
     out_dir: { type: "string",
                description: "Export directory; default /tmp." } },
   [], async (state, a) => {
@@ -496,25 +509,48 @@ tool("grab_still",
     let tc = a.timecode ? String(a.timecode) : null;
     if (!tc && a.frame !== undefined && a.frame !== null)
       tc = frameToTimecode(a.frame, tl.GetSetting("timelineFrameRate"));
-    if (tc && !tl.SetCurrentTimecode(tc))
-      throw new ResolveError("Resolve rejected timecode " + tc);
 
     const previousPage = resolve.GetCurrentPage();
     resolve.OpenPage("color");            // GrabStill only works from Color
-    let tempVersion = null, item = null;
+    // Park AFTER the page switch: SetCurrentTimecode is rejected from the
+    // Edit page (live-verified).
+    if (tc && !tl.SetCurrentTimecode(tc))
+      throw new ResolveError("Resolve rejected timecode " + tc);
+    let tempTimeline = null, grabTl = tl, item = null;
     try {
       item = tl.GetCurrentVideoItem && tl.GetCurrentVideoItem();
       if (a.pre_grade) {
         if (!item)
           throw new ResolveError("pre_grade needs a clip under the playhead.");
-        tempVersion = "claude_pregrade_" + Date.now().toString(36);
-        // AddVersion creates AND switches to a clean local grade; deleting
-        // it afterwards drops Resolve back to the previous version.
-        if (!item.AddVersion(tempVersion, 0)) {
-          tempVersion = null;
-          throw new ResolveError("Could not create a temporary color version "
-            + "for the pre-grade grab (AddVersion returned false).");
-        }
+        const mpItem = item.GetMediaPoolItem && item.GetMediaPoolItem();
+        if (!mpItem)
+          throw new ResolveError("pre_grade: this timeline item has no media "
+            + "pool clip to re-place (title or generator?).");
+        // AddVersion COPIES the current grade (live-verified: a CDL slammed
+        // on node 1 survived into the "fresh" version byte-for-byte), so the
+        // only honest pre-grade source is a NEW timeline item — fresh
+        // placements carry no grade. Same clip, same SOURCE frame, its own
+        // throwaway timeline.
+        const fps = tl.GetSetting("timelineFrameRate");
+        const here = timecodeToFrame(tl.GetCurrentTimecode(), fps);
+        const srcFrame = (item.GetLeftOffset ? item.GetLeftOffset() : 0)
+                         + Math.max(0, here - item.GetStart());
+        const mediaPool = proj.GetMediaPool();
+        tempTimeline = mediaPool.CreateTimelineFromClips(
+          "claude_pregrade_" + Date.now().toString(36), [mpItem]);
+        if (!tempTimeline)
+          throw new ResolveError("pre_grade: CreateTimelineFromClips "
+            + "returned nothing — cannot build the temporary timeline.");
+        if (!proj.SetCurrentTimeline(tempTimeline))
+          throw new ResolveError("pre_grade: could not switch to the "
+            + "temporary timeline.");
+        grabTl = tempTimeline;
+        const dest = frameToTimecode(
+          (grabTl.GetStartFrame ? grabTl.GetStartFrame() : 0) + srcFrame,
+          grabTl.GetSetting("timelineFrameRate") || fps);
+        if (!grabTl.SetCurrentTimecode(dest))
+          throw new ResolveError("pre_grade: Resolve rejected timecode "
+            + dest + " on the temporary timeline.");
       }
 
       const gallery = proj.GetGallery();
@@ -524,7 +560,7 @@ tool("grab_still",
                                + "page gallery once so Resolve creates one.");
       let still = null;
       for (let attempt = 0; attempt < 3 && !still; attempt++) {
-        still = tl.GrabStill();           // intermittently falsy: retry
+        still = grabTl.GrabStill();       // intermittently falsy: retry
         if (!still) await sleep(400);
       }
       if (!still)
@@ -575,7 +611,7 @@ tool("grab_still",
 
       const out = { measurement_file: measurePath, dir: usedDir,
                     analysis, pre_grade: !!a.pre_grade,
-                    timecode: tl.GetCurrentTimecode() };
+                    timecode: grabTl.GetCurrentTimecode() };
       try {
         const mpItem = item && item.GetMediaPoolItem && item.GetMediaPoolItem();
         if (mpItem)
@@ -600,9 +636,10 @@ tool("grab_still",
       }
       return out;
     } finally {
-      if (tempVersion && item) {
-        // Removes the temp version; Resolve falls back to the prior one.
-        try { item.DeleteVersionByName(tempVersion, 0); } catch (e) {}
+      if (tempTimeline) {
+        try { proj.SetCurrentTimeline(tl); } catch (e) {}
+        try { proj.GetMediaPool().DeleteTimelines([tempTimeline]); }
+        catch (e) {}
       }
       if (previousPage && previousPage !== "color") {
         try { resolve.OpenPage(previousPage); } catch (e) {}
@@ -718,7 +755,7 @@ tool("run_javascript",
 async function executeTool(state, name, input) {
   const entry = TOOLS.find((t) => t.name === name);
   if (!entry) return { ok: false, text: "Unknown tool: " + name };
-  if (needsApproval(state, name)) {
+  if (needsApproval(state, name, input)) {
     const declined = await requestApproval(state, name, input || {});
     if (declined) return { ok: false, text: declined };
   }
