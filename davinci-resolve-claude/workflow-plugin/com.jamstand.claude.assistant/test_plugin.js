@@ -34,14 +34,17 @@ function fakeResolve() {
     GetStart: () => 86400,
     GetLeftOffset: () => 100,
     GetMediaPoolItem: () => ({
+      // 60fps media in the 24fps timeline: pre_grade must convert clocks.
       GetClipProperty: (k) =>
-        (k === "Input Color Space" ? "S-Gamut3.Cine/S-Log3" : ""),
+        (k === "Input Color Space" ? "S-Gamut3.Cine/S-Log3"
+         : k === "FPS" ? 60 : ""),
     }),
   };
   const timeline = {
     GetName: () => "Timeline 1",
     GetSetting: (k) => (k === "timelineFrameRate" ? "24" : ""),
-    GetCurrentTimecode: () => "01:00:00:00",
+    GetCurrentTimecode: () =>
+      grabState.timecodes[grabState.timecodes.length - 1] || "01:00:00:00",
     SetCurrentTimecode: (tc) => { grabState.timecodes.push(tc); return tc !== "bad"; },
     GrabStill: () => {                    // intermittently falsy, like life
       grabState.calls += 1;
@@ -227,17 +230,21 @@ async function main() {
   check("pre_grade grab succeeds", rPre.ok, rPre.text);
   const ops = resolve._grab.timelineOps
     .map((o) => o.replace(/claude_pregrade_\w+/, "claude_pregrade"));
-  // Main timeline reads 01:00:00:00 (fake), item starts at 86400 with
-  // left offset 100 -> source frame 100 -> temp timeline TC 00:00:04:04.
+  // Parked at 01:00:01:14 = 38 timeline frames into the item; 60fps media
+  // in the 24 timeline -> source frame 100 + 38*2.5 = 195 -> temp frame
+  // 195*(24/60) = 78 -> 00:00:03:06. The clocks must convert, not mix.
   check("pre_grade: temp timeline built, parked on source frame, grabbed, "
         + "then deleted with the original timeline restored",
         JSON.stringify(ops) === JSON.stringify(
           ["create:1", "setcur:claude_pregrade",
-           "park:00:00:04:04", "grab",
+           "park:00:00:03:06", "grab",
            "setcur:Timeline 1", "delete:1"]),
         JSON.stringify(ops));
   check("pre_grade flagged in the result",
         rPre.text.includes('"pre_grade":true'), rPre.text);
+  check("pre_grade_map reports the parking math and confirms the park",
+        rPre.text.includes('"source_frame":195')
+        && rPre.text.includes('"parked":true'), rPre.text);
   check("pre_grade grab is a write under Ask-before-edits, plain grab a read",
         tools.needsApproval({ permissionMode: "Ask before edits" },
                             "grab_still", { pre_grade: true }) === true

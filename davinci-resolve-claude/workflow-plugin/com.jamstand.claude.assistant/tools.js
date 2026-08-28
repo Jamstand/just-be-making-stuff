@@ -516,7 +516,7 @@ tool("grab_still",
     // Edit page (live-verified).
     if (tc && !tl.SetCurrentTimecode(tc))
       throw new ResolveError("Resolve rejected timecode " + tc);
-    let tempTimeline = null, grabTl = tl, item = null;
+    let tempTimeline = null, grabTl = tl, item = null, preMap = null;
     try {
       item = tl.GetCurrentVideoItem && tl.GetCurrentVideoItem();
       if (a.pre_grade) {
@@ -531,10 +531,17 @@ tool("grab_still",
         // only honest pre-grade source is a NEW timeline item — fresh
         // placements carry no grade. Same clip, same SOURCE frame, its own
         // throwaway timeline.
-        const fps = tl.GetSetting("timelineFrameRate");
-        const here = timecodeToFrame(tl.GetCurrentTimecode(), fps);
-        const srcFrame = (item.GetLeftOffset ? item.GetLeftOffset() : 0)
-                         + Math.max(0, here - item.GetStart());
+        const tlFps = Number(tl.GetSetting("timelineFrameRate")) || 24;
+        const here = timecodeToFrame(tl.GetCurrentTimecode(), tlFps);
+        // Timeline frames and SOURCE frames are different clocks when the
+        // clip rate differs from the timeline rate (59.94 media in a 24
+        // timeline advances ~2.5 source frames per timeline frame) —
+        // convert through seconds, never mix the two.
+        const srcFps = Number(mpItem.GetClipProperty
+                              && mpItem.GetClipProperty("FPS")) || tlFps;
+        const srcFrame = Math.round(
+          (item.GetLeftOffset ? item.GetLeftOffset() : 0)
+          + Math.max(0, here - item.GetStart()) * (srcFps / tlFps));
         const mediaPool = proj.GetMediaPool();
         tempTimeline = mediaPool.CreateTimelineFromClips(
           "claude_pregrade_" + Date.now().toString(36), [mpItem]);
@@ -545,12 +552,32 @@ tool("grab_still",
           throw new ResolveError("pre_grade: could not switch to the "
             + "temporary timeline.");
         grabTl = tempTimeline;
-        const dest = frameToTimecode(
-          (grabTl.GetStartFrame ? grabTl.GetStartFrame() : 0) + srcFrame,
-          grabTl.GetSetting("timelineFrameRate") || fps);
+        const tempFps = Number(grabTl.GetSetting("timelineFrameRate"))
+                        || tlFps;
+        const destFrame = (grabTl.GetStartFrame ? grabTl.GetStartFrame() : 0)
+                          + Math.round(srcFrame * (tempFps / srcFps));
+        const dest = frameToTimecode(destFrame, tempFps);
         if (!grabTl.SetCurrentTimecode(dest))
           throw new ResolveError("pre_grade: Resolve rejected timecode "
             + dest + " on the temporary timeline.");
+        // The seek after a timeline switch is asynchronous: the call
+        // returns true while the viewer is still travelling, and GrabStill
+        // captures whatever frame is on screen (live-verified — three runs,
+        // three different frames). Wait for the readback, then settle.
+        let readback = null;
+        for (let i = 0; i < 10; i++) {
+          readback = grabTl.GetCurrentTimecode();
+          if (readback === dest) break;
+          await sleep(200);
+        }
+        await sleep(400);
+        preMap = { main_timecode: tl.GetCurrentTimecode(),
+                   item_start: item.GetStart(),
+                   left_offset: item.GetLeftOffset ? item.GetLeftOffset() : 0,
+                   timeline_fps: tlFps, source_fps: srcFps,
+                   source_frame: srcFrame, temp_timecode: dest,
+                   temp_readback: readback,
+                   parked: readback === dest };
       }
 
       const gallery = proj.GetGallery();
@@ -612,6 +639,7 @@ tool("grab_still",
       const out = { measurement_file: measurePath, dir: usedDir,
                     analysis, pre_grade: !!a.pre_grade,
                     timecode: grabTl.GetCurrentTimecode() };
+      if (preMap) out.pre_grade_map = preMap;
       try {
         const mpItem = item && item.GetMediaPoolItem && item.GetMediaPoolItem();
         if (mpItem)
