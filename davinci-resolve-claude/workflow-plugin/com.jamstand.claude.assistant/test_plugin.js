@@ -234,6 +234,11 @@ async function main() {
         && tools.effectiveDepthLabel([900, 800, 700]).startsWith("~10 bit")
         && tools.effectiveDepthLabel([60000, 1, 1]).startsWith("~14-16"));
 
+  // Under plain node there is no electron module: shrinkProxy must degrade
+  // to null quietly so grab_still falls back to the raw-PNG attach path.
+  check("shrinkProxy degrades to null without Electron",
+        tools.shrinkProxy("/nonexistent.png") === null);
+
   // -- approvals --------------------------------------------------------
   state.permissionMode = "Ask before edits";
   check("readonly free in ask mode", !tools.needsApproval(state, "list_markers"));

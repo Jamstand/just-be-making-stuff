@@ -445,6 +445,26 @@ async function exportOneStill(album, still, dir, prefix, format) {
   return wanted ? path.join(dir, wanted) : null;
 }
 
+// A 1080p photographic PNG routinely blows past the MCP image budget, and a
+// proxy nobody can see defeats grab_still's purpose. Inside Resolve's
+// Electron, downscale + JPEG the proxy (measurement never touches it — the
+// TIFF/EXR is the data path); under plain node (tests) electron does not
+// exist and the caller falls back to the raw PNG when it is small enough.
+function shrinkProxy(proxyPath) {
+  let nativeImage;
+  try { nativeImage = require("electron").nativeImage; }
+  catch (e) { return null; }
+  try {
+    let img = nativeImage.createFromPath(proxyPath);
+    if (!img || img.isEmpty()) return null;
+    if (img.getSize().width > 1280) img = img.resize({ width: 1280 });
+    const jpeg = img.toJPEG(80);
+    if (jpeg && jpeg.length && jpeg.length <= 4500000)
+      return { data: jpeg.toString("base64"), media_type: "image/jpeg" };
+  } catch (e) {}
+  return null;
+}
+
 tool("grab_still",
   "Grab a still of the current timeline frame for ANALYSIS and viewing. " +
   "Exports a measurement file (format 'tif' default — 16-bit intent, " +
@@ -569,12 +589,17 @@ tool("grab_still",
                          mpItem.GetClipProperty("Input Color Space") };
       } catch (e) {}
       if (proxyPath) {
-        const proxyBytes = fs.readFileSync(proxyPath);
         out.proxy_png = proxyPath;
-        if (proxyBytes.length <= 4500000)
-          out._images = [{ data: proxyBytes.toString("base64"),
-                           media_type: "image/png" }];
-        else out.proxy_note = "proxy too large to attach; saved on disk";
+        const shrunk = shrinkProxy(proxyPath);
+        if (shrunk) out._images = [shrunk];
+        else {
+          const proxyBytes = fs.readFileSync(proxyPath);
+          if (proxyBytes.length <= 4500000)
+            out._images = [{ data: proxyBytes.toString("base64"),
+                             media_type: "image/png" }];
+          else out.proxy_note = "proxy too large to attach and no Electron "
+            + "image codec available to shrink it; view it on disk";
+        }
       }
       return out;
     } finally {
@@ -685,5 +710,5 @@ module.exports = {
   PERMISSION_MODES, READONLY_TOOLS, APPROVAL_TIMEOUT_MS, ResolveError,
   makeState, needsApproval, requestApproval, executeTool, toolSchemas,
   startBridge, TOOLS,
-  parseTiff, tiffCensus, parseExr, effectiveDepthLabel,
+  parseTiff, tiffCensus, parseExr, effectiveDepthLabel, shrinkProxy,
 };
