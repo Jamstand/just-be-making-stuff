@@ -148,3 +148,8 @@ footer { border-top: 1px solid #2c2c32; background: #202025; }
   border-radius: 6px; font-size: 12px; font-weight: 600; color: #1c1210;
 }
 #send:disabled { background: #3a3a41; color: #77777f; }
+
+/* The hidden attribute only has user-agent priority: any author display
+   rule (like #histpanel's flex) silently defeats it. This reset makes
+   hidden mean hidden, for every current and future panel. */
+[hidden] { display: none !important; }
