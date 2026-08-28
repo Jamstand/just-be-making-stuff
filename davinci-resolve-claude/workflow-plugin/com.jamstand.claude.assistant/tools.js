@@ -467,8 +467,9 @@ function shrinkProxy(proxyPath) {
 
 tool("grab_still",
   "Grab a still of the current timeline frame for ANALYSIS and viewing. " +
-  "Exports a measurement file (format 'tif' default — 16-bit intent, " +
-  "'exr', or 'png') plus an 8-bit PNG proxy that is returned to your " +
+  "Exports a measurement file (format 'tif' default — 16-bit intent — " +
+  "or 'png'; Resolve's gallery export cannot write EXR, live-verified) " +
+  "plus an 8-bit PNG proxy that is returned to your " +
   "vision; measurements must use the measurement file, never the proxy. " +
   "The result reports the file's ACTUAL bit depth (parsed from its header) " +
   "and a distinct-value census per channel, so quantised or clipped data " +
@@ -480,7 +481,7 @@ tool("grab_still",
              description: "Absolute timeline frame to park on (optional)." },
     timecode: { type: "string",
                 description: "Or a timecode like 01:00:12:03 (optional)." },
-    format: { type: "string", enum: ["tif", "exr", "png"],
+    format: { type: "string", enum: ["tif", "png"],
               description: "Measurement export format; default tif." },
     pre_grade: { type: "boolean",
                  description: "Grab with the clip's grade bypassed via a "
@@ -491,7 +492,7 @@ tool("grab_still",
     const resolve = state.resolve;
     const proj = project(state);
     const tl = timeline(state);
-    const format = ["tif", "exr", "png"].includes(a.format) ? a.format : "tif";
+    const format = ["tif", "png"].includes(a.format) ? a.format : "tif";
     let tc = a.timecode ? String(a.timecode) : null;
     if (!tc && a.frame !== undefined && a.frame !== null)
       tc = frameToTimecode(a.frame, tl.GetSetting("timelineFrameRate"));
@@ -566,12 +567,6 @@ tool("grab_still",
         } else {
           analysis.census_skipped = census.skipped;
         }
-      } else if (format === "exr") {
-        const info = parseExr(bytes);
-        analysis.pixel_type = info ? info.pixelType : "unparsed";
-        analysis.compression = info ? info.compression : null;
-        analysis.census_skipped = "EXR census not implemented; pixel type "
-                                  + "read from header instead";
       } else {
         analysis.bits_per_sample = 8;
         analysis.note = "PNG is 8-bit — fine for looking, wrong for "
