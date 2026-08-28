@@ -26,7 +26,7 @@ const READONLY_TOOLS = new Set([
   "get_render_status", "move_playhead", "open_page",
   // grab_still LOOKS at a frame: the gallery still it makes is deleted
   // again after export, so treating it as a read keeps vision friction-free.
-  "grab_still",
+  "grab_still", "compare_stills",
 ]);
 
 function jsonSafe(value, depth) {
@@ -586,12 +586,14 @@ tool("grab_still",
       if (proxyPath) {
         out.proxy_png = proxyPath;
         const shrunk = shrinkProxy(proxyPath);
-        if (shrunk) out._images = [shrunk];
+        if (shrunk) { out._images = [shrunk]; out.proxy_attach = "jpeg-shrunk"; }
         else {
           const proxyBytes = fs.readFileSync(proxyPath);
-          if (proxyBytes.length <= 4500000)
+          if (proxyBytes.length <= 4500000) {
             out._images = [{ data: proxyBytes.toString("base64"),
                              media_type: "image/png" }];
+            out.proxy_attach = "png-raw";
+          }
           else out.proxy_note = "proxy too large to attach and no Electron "
             + "image codec available to shrink it; view it on disk";
         }
@@ -606,6 +608,93 @@ tool("grab_still",
         try { resolve.OpenPage(previousPage); } catch (e) {}
       }
     }
+  });
+
+// Settles "are these two grabs the same image?" with arithmetic instead of
+// eyeballs — the model's JS sandbox has no fs, but this process does.
+function tiffDiffStats(bufA, infoA, bufB, infoB) {
+  const comparable = infoA && infoB && infoA.compression === 1
+    && infoB.compression === 1 && infoA.bitsPerSample === infoB.bitsPerSample
+    && infoA.width === infoB.width && infoA.height === infoB.height
+    && infoA.stripOffsets && infoB.stripOffsets;
+  if (!comparable)
+    return { skipped: "pixel stats need two uncompressed TIFFs of the "
+                      + "same size and depth" };
+  const bits = infoA.bitsPerSample, step = bits >> 3;
+  const channels = Math.max(1, Math.min(4, infoA.samplesPerPixel || 3));
+  const flat = (buf, info) => {
+    const spans = [];
+    for (let i = 0; i < info.stripOffsets.length; i++)
+      spans.push([info.stripOffsets[i],
+                  Math.min(buf.length,
+                           info.stripOffsets[i] + info.stripByteCounts[i])]);
+    return spans;
+  };
+  const read = (buf, info, spans, cursor) => {
+    while (cursor.s < spans.length && cursor.o + step > spans[cursor.s][1]) {
+      cursor.s += 1; cursor.o = cursor.s < spans.length
+                                 ? spans[cursor.s][0] : 0;
+    }
+    if (cursor.s >= spans.length) return null;
+    const o = cursor.o; cursor.o += step;
+    return bits === 8 ? buf[o]
+      : (info.littleEndian ? buf.readUInt16LE(o) : buf.readUInt16BE(o));
+  };
+  const spansA = flat(bufA, infoA), spansB = flat(bufB, infoB);
+  const curA = { s: 0, o: spansA.length ? spansA[0][0] : 0 };
+  const curB = { s: 0, o: spansB.length ? spansB[0][0] : 0 };
+  const sumAbs = new Array(channels).fill(0);
+  const maxAbs = new Array(channels).fill(0);
+  let samples = 0, differing = 0, c = 0;
+  for (;;) {
+    const va = read(bufA, infoA, spansA, curA);
+    const vb = read(bufB, infoB, spansB, curB);
+    if (va === null || vb === null) break;
+    const d = Math.abs(va - vb);
+    if (d) differing += 1;
+    sumAbs[c] += d; if (d > maxAbs[c]) maxAbs[c] = d;
+    samples += 1; c = (c + 1) % channels;
+  }
+  const per = samples / channels || 1;
+  const full = bits === 8 ? 255 : 65535;
+  return {
+    samples_compared: samples,
+    differing_samples_pct: +(100 * differing / (samples || 1)).toFixed(3),
+    mean_abs_diff_rgb_pct: sumAbs.slice(0, 3)
+      .map((v) => +(100 * v / per / full).toFixed(4)),
+    max_abs_diff_rgb_pct: maxAbs.slice(0, 3)
+      .map((v) => +(100 * v / full).toFixed(3)),
+  };
+}
+
+tool("compare_stills",
+  "Compare two exported still files by bytes and (for uncompressed TIFFs "
+  + "of matching size/depth) by pixels: % of samples differing, mean and "
+  + "max per-channel difference as % of full scale. Use this to verify "
+  + "whether two grabs are the same image — e.g. the graded vs pre_grade "
+  + "honesty check — instead of guessing from file sizes.",
+  { path_a: { type: "string", description: "First file (absolute path)." },
+    path_b: { type: "string", description: "Second file (absolute path)." } },
+  ["path_a", "path_b"], async (state, a) => {
+    let bufA, bufB;
+    try { bufA = fs.readFileSync(String(a.path_a)); }
+    catch (e) { throw new ResolveError("Cannot read " + a.path_a + ": "
+                                       + e.message); }
+    try { bufB = fs.readFileSync(String(a.path_b)); }
+    catch (e) { throw new ResolveError("Cannot read " + a.path_b + ": "
+                                       + e.message); }
+    const out = { size_a: bufA.length, size_b: bufB.length,
+                  byte_identical: bufA.length === bufB.length
+                                  && bufA.equals(bufB) };
+    if (!out.byte_identical)
+      out.pixel_stats = tiffDiffStats(bufA, parseTiff(bufA),
+                                      bufB, parseTiff(bufB));
+    out.verdict = out.byte_identical
+      ? "byte-identical: the exact same image"
+      : (out.pixel_stats && out.pixel_stats.differing_samples_pct === 0
+         ? "same pixels, different bytes (metadata differs)"
+         : "images differ");
+    return out;
   });
 
 tool("run_javascript",

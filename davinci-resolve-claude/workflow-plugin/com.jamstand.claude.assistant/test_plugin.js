@@ -215,6 +215,29 @@ async function main() {
   check("pre_grade flagged in the result",
         rPre.text.includes('"pre_grade":true'), rPre.text);
 
+  // compare_stills: identical, metadata-only, and genuinely different
+  const cmpA = path.join(stillDir, "cmp_a.tif");
+  const cmpB = path.join(stillDir, "cmp_b.tif");
+  fsmod.writeFileSync(cmpA, buildTiff16());
+  fsmod.writeFileSync(cmpB, buildTiff16());
+  let rc = await tools.executeTool(state, "compare_stills",
+                                   { path_a: cmpA, path_b: cmpB });
+  check("compare_stills: identical files byte-identical",
+        rc.ok && rc.text.includes('"byte_identical":true'), rc.text);
+  const tweaked = buildTiff16();
+  tweaked.writeUInt16LE(65535, tweaked.length - 12);   // one sample to full
+  fsmod.writeFileSync(cmpB, tweaked);
+  rc = await tools.executeTool(state, "compare_stills",
+                               { path_a: cmpA, path_b: cmpB });
+  check("compare_stills: a changed sample is caught with stats",
+        rc.ok && rc.text.includes('"byte_identical":false')
+        && rc.text.includes('"differing_samples_pct"')
+        && rc.text.includes('"verdict":"images differ"'), rc.text);
+  rc = await tools.executeTool(state, "compare_stills",
+                               { path_a: cmpA, path_b: "/nope.tif" });
+  check("compare_stills: unreadable path is a plain error",
+        !rc.ok && rc.text.includes("Cannot read"), rc.text);
+
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
     Buffer.from([0x76, 0x2f, 0x31, 0x01, 2, 0, 0, 0]),
