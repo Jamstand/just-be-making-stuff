@@ -1576,13 +1576,12 @@ tool("design_look",
   });
 
 tool("apply_vignette",
-  "EXPERIMENTAL (round 2): a static power-window-style vignette via the "
-  + "clip's Fusion comp. Live round 1 proved the JS proxy hands back "
-  + "HOLLOW Fusion tool handles (AddTool works, SetInput/SetAttrs don't "
-  + "exist on the result), so this build drives everything through "
-  + "comp.Execute() running Lua INSIDE Fusion — the comp object's own "
-  + "methods were fully populated. Verification is limited to FindTool "
-  + "existence + your eyes on the frame. No tracking — the mask is "
+  "LIVE-VERIFIED: a static power-window-style vignette via the clip's "
+  + "Fusion comp, driven as Lua through comp.Execute() (the JS proxy's "
+  + "tool handles are hollow; Execute inside Fusion works — confirmed by "
+  + "a 57%-of-samples corner-darkening pixel diff). Execute's RETURN "
+  + "value cannot marshal back across the bridge, so success is judged "
+  + "by FindTool + pixels, never the return. No tracking — the mask is "
   + "static. action 'remove' deletes the named tools the same way.",
   { amount: { type: "number",
               description: "Darkening outside the ellipse, 0-1 (default "
@@ -1626,8 +1625,12 @@ tool("apply_vignette",
         + "route left to configure Fusion tools. The vignette must be "
         + "built by hand (Fusion EllipseMask, or a Color page power "
         + "window).");
+    // Execute's return value fails to marshal ("Unknown object type for
+    // key:result") even when the Lua ran fine — live-verified. Swallow
+    // that; the FindTool check below is the real verdict.
+    const runLua = (lua) => { try { comp.Execute(lua); } catch (e) {} };
     if (a.action === "remove") {
-      comp.Execute(
+      runLua(
         'for _, nm in ipairs({"ClaudeVignetteMask", "ClaudeVignetteBC"}) '
         + 'do local t = comp:FindTool(nm); if t then t:Delete() end end');
       const still = comp.FindTool && (comp.FindTool("ClaudeVignetteBC")
@@ -1661,7 +1664,7 @@ tool("apply_vignette",
       "end",
       "comp:Unlock()",
     ].join("\n");
-    comp.Execute(lua);
+    runLua(lua);
     const present = comp.FindTool
       && !!comp.FindTool("ClaudeVignetteBC");
     return { clip: item.GetName(), amount, softness: soft, size: sizeV,

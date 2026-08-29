@@ -133,8 +133,10 @@ behaviour; extend them when adding tools.
   guidance. Fusion via the JS proxy: comp objects are fully populated
   (~90 methods) but TOOL handles come back HOLLOW (no SetInput/SetAttrs);
   AddFusionComp works, DeleteFusionCompByName always false. apply_vignette
-  round 2 drives tools through comp.Execute(lua) instead — unverified
-  live; verify by grabbing a frame, never by Execute's return.
+  drives tools through comp.Execute(lua) — LIVE-VERIFIED working (57%
+  corner-darkening pixel diff). Execute's return value never marshals
+  (Parse: Unknown object type for key:result) even on success: swallow
+  the throw, verify via FindTool + a grabbed frame.
 - 1080p photographic PNG proxies exceed the 4.5MB attach cap: shrinkProxy
   (Electron nativeImage → 1280px JPEG-80) runs first; plain node falls
   back to raw PNG. compare_stills settles same-image questions by bytes +
