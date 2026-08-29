@@ -1064,6 +1064,8 @@ tool("qc_scan",
     const rcm = /colormanaged/i.test(sci);
     const outSpace = (() => { try { return String(proj.GetSetting(
       "colorSpaceOutput") || ""); } catch (e) { return ""; } })();
+    const drt = (() => { try { return String(proj.GetSetting(
+      "outputDRT") || ""); } catch (e) { return ""; } })();
     const grabEntry = TOOLS.find((t) => t.name === "grab_still");
     const clips = [];
     const batch = items.slice(first - 1, first - 1 + cap);
@@ -1118,12 +1120,16 @@ tool("qc_scan",
     // invertible while outputDRT is None): stops = 2.4*log2(level ratio).
     // slog3 = unmanaged project handing over raw S-Log3: stops = delta/7.7.
     // percent = no defensible stop conversion; raw percentages only.
+    // A tone-mapping DRT bends the curve: 2.4*log2 stays midtone-usable
+    // but is no longer exact, and the model name must say so.
     const exposureModel = rcm
-      ? (/gamma 2\.4/i.test(outSpace) ? "gamma24" : "percent")
+      ? (/gamma 2\.4/i.test(outSpace)
+         ? (!drt || /none/i.test(drt) ? "gamma24" : "gamma24-approx")
+         : "percent")
       : (clips.some((c) => c.slog3) ? "slog3" : "percent");
     const stopsFrom = (level) => {
       if (median === null || !level) return null;
-      if (exposureModel === "gamma24")
+      if (exposureModel === "gamma24" || exposureModel === "gamma24-approx")
         return +(2.4 * Math.log2(level / median)).toFixed(2);
       if (exposureModel === "slog3")
         return +((level - median) / SLOG3_PCT_PER_STOP).toFixed(2);
@@ -1155,8 +1161,11 @@ tool("qc_scan",
               + "median " + median + "%"
               + (st !== null
                  ? " ≈ " + (st > 0 ? "+" : "") + st + " stops ("
-                   + (exposureModel === "gamma24"
-                      ? "via output gamma 2.4" : "S-Log3 slope") + ")"
+                   + (exposureModel === "gamma24" ? "via output gamma 2.4"
+                      : exposureModel === "gamma24-approx"
+                      ? "midtone approximation — tone mapping bends the "
+                        + "curve, highlights read compressed"
+                      : "S-Log3 slope") + ")"
                  : " (no stop conversion for this pipeline)") });
       }
       if (c.cast && (Math.abs(c.cast.r_minus_g_pct) > 3
@@ -1174,6 +1183,7 @@ tool("qc_scan",
                          : "graded timeline render",
       measurement_space: rcm
         ? "RCM output-referred (" + (outSpace || "unknown output space")
+          + "; outputDRT " + (drt || "None")
           + ") — the display transform is baked into every number"
         : "raw source code values (unmanaged project)",
       exposure_model: exposureModel,
