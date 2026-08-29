@@ -1746,6 +1746,37 @@ tool("grade_template",
           out.container = "zip — needs an unzip step before patching";
       } catch (e) { out.decompress_error = e.message; }
       out.compressed = bodies.length > 1 ? bodies[1].layer : "none detected";
+      // DaVinci XML often wraps its real payload as base64 (frequently
+      // zlib-compressed) inside the envelope — live case: labels round-trip
+      // through the file (+68 bytes) yet match nothing on the surface.
+      // Hunt embedded blobs and search inside them too.
+      const text = raw.toString("latin1");
+      const b64re = /[A-Za-z0-9+\/]{200,}={0,2}/g;
+      let run, blobs = 0;
+      out.base64_blobs = [];
+      while ((run = b64re.exec(text)) && blobs < 20) {
+        blobs += 1;
+        let decoded = null;
+        try { decoded = Buffer.from(run[0], "base64"); } catch (e) {}
+        if (!decoded || !decoded.length) continue;
+        const tag = "base64@" + run.index;
+        const blob = { at: run.index, b64_chars: run[0].length,
+                       decoded_bytes: decoded.length,
+                       decoded_magic: decoded.slice(0, 2).toString("hex") };
+        bodies.push({ layer: tag, buf: decoded });
+        try {
+          const zlib2 = require("zlib");
+          let inner = null;
+          if (decoded[0] === 0x78) inner = zlib2.inflateSync(decoded);
+          else if (decoded[0] === 0x1f && decoded[1] === 0x8b)
+            inner = zlib2.gunzipSync(decoded);
+          if (inner) {
+            bodies.push({ layer: tag + ":decompressed", buf: inner });
+            blob.decompressed_bytes = inner.length;
+          }
+        } catch (e) {}
+        out.base64_blobs.push(blob);
+      }
       out.matches = [];
       for (const term of a.search || []) {
         for (const body of bodies) {

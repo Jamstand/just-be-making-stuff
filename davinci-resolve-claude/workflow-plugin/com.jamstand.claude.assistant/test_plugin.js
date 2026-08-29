@@ -542,6 +542,20 @@ async function main() {
     { action: "apply", name: "does not exist" });
   check("grade_template apply of a missing name is a plain error",
         !rT.ok && rT.text.includes("No template named"), rT.text);
+  // a drx whose payload hides inside base64(zlib(...)), like real DaVinci
+  const zlib3 = require("zlib");
+  const hidden = "<?xml version=\"1.0\"?><g><blob>"
+    + zlib3.deflateSync(Buffer.from("node label EXP here")).toString("base64")
+    .padEnd(220, "A")            // long enough to look like a blob run
+    + "</blob></g>";
+  fsmod.writeFileSync(path.join(tmplDir, "wrapped.drx"), hidden);
+  let rW = await tools.executeTool(state, "grade_template",
+    { action: "inspect", name: "wrapped", search: ["EXP"] });
+  check("inspect decodes base64+zlib blobs and searches inside",
+        rW.ok && rW.text.includes("base64@")
+        && rW.text.includes('"term":"EXP"'), rW.text);
+  try { fsmod.unlinkSync(path.join(tmplDir, "wrapped.drx")); } catch (e) {}
+
   rT = await tools.executeTool(state, "grade_template",
     { action: "inspect", name: "four node layout",
       search: ["sidecar", "EXP"] });
