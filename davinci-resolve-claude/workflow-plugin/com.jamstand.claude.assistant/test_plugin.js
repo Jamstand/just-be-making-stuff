@@ -34,6 +34,7 @@ function fakeResolve(mediaDir) {
     GetStart: () => 86400,
     GetLeftOffset: () => 100,
     GetLUT: (i) => (i === 2 ? "/luts/SL3SG3Ctos709.cube" : ""),
+    GetDuration: () => 84,
     GetMediaPoolItem: () => ({
       // 60fps media in the 24fps timeline: pre_grade must convert clocks.
       GetClipProperty: (k) =>
@@ -345,6 +346,24 @@ async function main() {
   check("doctor: API walls stated",
         rDoc.text.includes("OFX nodes")
         && rDoc.text.includes("cannot"), rDoc.text);
+
+  // Phase 3: QC scanner on the fake's known pixel values
+  const st = tools.tiffStats(buildTiff16(), tools.parseTiff(buildTiff16()));
+  check("tiffStats: exact per-channel stats from known samples",
+        st.channels[0].min === 0 && st.channels[0].max === 24000
+        && st.channels[0].mean_pct === 18.31
+        && st.channels[0].at_exact_max_pct === 50
+        && st.channels[2].max === 65535, JSON.stringify(st));
+  const rQc = await tools.executeTool(state, "qc_scan", { out_dir: stillDir });
+  check("qc_scan walks the track and measures at full depth",
+        rQc.ok && rQc.text.includes('"clips_scanned":1')
+        && rQc.text.includes('"measured":"pre-grade source pixels'),
+        rQc.text);
+  check("qc_scan flags plateaus and cast with thresholds stated",
+        rQc.text.includes("clipped-highlights")
+        && rQc.text.includes("crushed-shadows")
+        && rQc.text.includes("colour-cast")
+        && rQc.text.includes('"plateau_pct":0.5'), rQc.text);
 
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([

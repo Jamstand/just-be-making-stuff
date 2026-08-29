@@ -947,6 +947,202 @@ tool("pipeline_doctor",
     };
   });
 
+// ------------------------------------------------------- Phase 3: QC scanner
+// Full-depth pixel statistics from a single histogram pass. Interpretation
+// thresholds are heuristics and say so in the report; the numbers are exact.
+function tiffStats(buffer, info) {
+  if (!info || info.compression !== 1 || !info.stripOffsets ||
+      !info.stripByteCounts)
+    return { skipped: "stats need an uncompressed strip TIFF" };
+  const bits = info.bitsPerSample;
+  if (bits !== 8 && bits !== 16)
+    return { skipped: "stats handle 8/16 bits, file says " + bits };
+  const channels = Math.max(1, Math.min(4, info.samplesPerPixel || 3));
+  const hist = Array.from({ length: channels },
+                          () => new Uint32Array(65536));
+  const step = bits >> 3;
+  let index = 0;
+  for (let st = 0; st < info.stripOffsets.length; st++) {
+    const start = info.stripOffsets[st];
+    const end = Math.min(buffer.length, start + info.stripByteCounts[st]);
+    for (let o = start; o + step <= end; o += step) {
+      const v = bits === 8 ? buffer[o]
+        : (info.littleEndian ? buffer.readUInt16LE(o)
+                             : buffer.readUInt16BE(o));
+      hist[index % channels][v] += 1;
+      index += 1;
+    }
+  }
+  const full = bits === 8 ? 255 : 65535;
+  const out = { channels: [],
+                samples_per_channel: Math.floor(index / channels) };
+  for (let c = 0; c < Math.min(channels, 3); c++) {
+    const h = hist[c];
+    let min = -1, max = -1, sum = 0, n = 0;
+    for (let v = 0; v <= full; v++) {
+      const k = h[v];
+      if (!k) continue;
+      if (min < 0) min = v;
+      max = v; sum += v * k; n += k;
+    }
+    let lo = 0, hi = 0;
+    const loEnd = Math.round(full * 0.01), hiStart = Math.round(full * 0.99);
+    for (let v = 0; v <= loEnd; v++) lo += h[v];
+    for (let v = hiStart; v <= full; v++) hi += h[v];
+    const pct = (x) => +(100 * x / (n || 1)).toFixed(3);
+    out.channels.push({
+      min, max,
+      mean_pct: +((100 * sum) / (n || 1) / full).toFixed(2),
+      // A hard clip is a PLATEAU: many samples at one exact code value.
+      at_exact_min_pct: pct(min < 0 ? 0 : h[min]),
+      at_exact_max_pct: pct(max < 0 ? 0 : h[max]),
+      bottom_1pct_of_scale_pct: pct(lo),
+      top_1pct_of_scale_pct: pct(hi),
+    });
+  }
+  return out;
+}
+
+// ~7.7% of full scale per stop: S-Log3's log segment slope (261.5/1023 code
+// per decade => 261.5*log10(2)/1023 of scale per doubling). Only quoted for
+// S-Log3 material; other spaces get raw percentages, no fake stop numbers.
+const SLOG3_PCT_PER_STOP = 7.7;
+
+tool("qc_scan",
+  "Phase 3 QC: walk the current timeline's clips, grab a measurement TIFF "
+  + "from each (pre_grade source pixels by default — real camera data on "
+  + "true source frames, immune to retime synthesis), and report per clip: "
+  + "clipped-highlight / crushed-shadow plateaus (% of samples at one exact "
+  + "rail value), exposure (mean level, flagged against the timeline "
+  + "median, in stops for S-Log3), and colour cast (R-G / B-G balance). "
+  + "Numbers are exact full-depth statistics; the clip/crush/cast FLAGS use "
+  + "stated heuristic thresholds. Creates and deletes a temporary timeline "
+  + "per clip in pre_grade mode, so it asks for approval once. Slow: "
+  + "roughly 2-4s per clip — use max_clips/start_index to batch.",
+  { track: { type: "number", description: "Video track (default 1)." },
+    pre_grade: { type: "boolean",
+                 description: "Measure ungraded source pixels (default "
+                              + "true). false = measure the graded render." },
+    max_clips: { type: "number",
+                 description: "Scan at most this many clips (default 25)." },
+    start_index: { type: "number",
+                   description: "1-based first clip (default 1) for "
+                                + "batching long timelines." },
+    out_dir: { type: "string",
+               description: "Export directory; default /tmp." } },
+  [], async (state, a) => {
+    const proj = project(state);
+    const tl = timeline(state);
+    const track = Number(a.track) || 1;
+    const preGrade = a.pre_grade !== false;
+    const first = Math.max(1, Number(a.start_index) || 1);
+    const cap = Math.max(1, Number(a.max_clips) || 25);
+    const items = tl.GetItemListInTrack("video", track) || [];
+    if (!items.length)
+      throw new ResolveError("No clips on video track " + track + ".");
+    const tlFps = Number(tl.GetSetting("timelineFrameRate")) || 24;
+    const grabEntry = TOOLS.find((t) => t.name === "grab_still");
+    const clips = [];
+    const batch = items.slice(first - 1, first - 1 + cap);
+    for (let i = 0; i < batch.length; i++) {
+      const item = batch[i];
+      const row = { index: first + i, name: item.GetName() };
+      try {
+        const mid = item.GetStart()
+                    + Math.floor((Number(item.GetDuration()) || 2) / 2);
+        // Direct fn call: qc_scan itself carried the approval; per-grab
+        // prompts would turn one consented scan into N nag cards.
+        const grab = await grabEntry.fn(state, {
+          timecode: frameToTimecode(mid, tlFps),
+          format: "tif", pre_grade: preGrade,
+          out_dir: a.out_dir,
+        });
+        delete grab._images;               // numbers only; proxies stay on disk
+        row.measurement_file = grab.measurement_file;
+        row.timecode = grab.timecode;
+        const stats = tiffStats(fs.readFileSync(grab.measurement_file),
+                                parseTiff(fs.readFileSync(
+                                  grab.measurement_file)));
+        row.stats = stats;
+        if (stats.channels) {
+          row.mean_level_pct = +(stats.channels
+            .reduce((t, c) => t + c.mean_pct, 0) / 3).toFixed(2);
+          row.cast = {
+            r_minus_g_pct: +(stats.channels[0].mean_pct
+                             - stats.channels[1].mean_pct).toFixed(2),
+            b_minus_g_pct: +(stats.channels[2].mean_pct
+                             - stats.channels[1].mean_pct).toFixed(2),
+          };
+        }
+        const mp = item.GetMediaPoolItem && item.GetMediaPoolItem();
+        const ics = mp ? String(clipProp(mp, "Input Color Space")) : "";
+        row.slog3 = /s-?log3/i.test(ics)
+          || (grab.clip && /s-?log3/i.test(
+                String(grab.clip.input_color_space || "")));
+      } catch (e) {
+        row.error = e.message;             // one bad clip must not kill a scan
+      }
+      clips.push(row);
+    }
+
+    // Timeline-level flags, thresholds stated inline.
+    const flags = [];
+    const levels = clips.filter((c) => c.mean_level_pct !== undefined)
+                        .map((c) => c.mean_level_pct).sort((x, y) => x - y);
+    const median = levels.length
+      ? levels[Math.floor(levels.length / 2)] : null;
+    for (const c of clips) {
+      if (!c.stats || !c.stats.channels) continue;
+      for (let ch = 0; ch < 3; ch++) {
+        const cs = c.stats.channels[ch], name = "RGB"[ch];
+        if (cs.at_exact_max_pct > 0.5)
+          flags.push({ clip: c.name, kind: "clipped-highlights",
+            detail: name + ": " + cs.at_exact_max_pct + "% of samples sit "
+              + "on one plateau at code " + cs.max
+              + " (threshold 0.5%) — flat sensor/encode ceiling." });
+        if (cs.at_exact_min_pct > 0.5)
+          flags.push({ clip: c.name, kind: "crushed-shadows",
+            detail: name + ": " + cs.at_exact_min_pct + "% of samples on "
+              + "the floor at code " + cs.min + " (threshold 0.5%)." });
+      }
+      if (median !== null && c.mean_level_pct !== undefined) {
+        const d = +(c.mean_level_pct - median).toFixed(2);
+        if (Math.abs(d) > SLOG3_PCT_PER_STOP) {
+          const flag = { clip: c.name, kind: "exposure-outlier",
+            detail: (d > 0 ? "+" : "") + d + "% of scale vs timeline "
+              + "median " + median + "%" };
+          if (c.slog3)
+            flag.detail += " ≈ " + (d > 0 ? "+" : "")
+              + (d / SLOG3_PCT_PER_STOP).toFixed(1)
+              + " stops (S-Log3 slope)";
+          flags.push(flag);
+        }
+      }
+      if (c.cast && (Math.abs(c.cast.r_minus_g_pct) > 3
+                     || Math.abs(c.cast.b_minus_g_pct) > 3))
+        flags.push({ clip: c.name, kind: "colour-cast",
+          detail: "R-G " + c.cast.r_minus_g_pct + "%, B-G "
+            + c.cast.b_minus_g_pct + "% (threshold 3%): "
+            + (c.cast.r_minus_g_pct > 3 ? "warm/red lean"
+               : c.cast.b_minus_g_pct > 3 ? "cool/blue lean"
+               : "green/magenta imbalance") + "." });
+    }
+    return {
+      timeline: tl.GetName(), track,
+      measured: preGrade ? "pre-grade source pixels (true source frames)"
+                         : "graded timeline render",
+      clips_scanned: clips.length,
+      clips_total: items.length,
+      remaining_hint: first - 1 + clips.length < items.length
+        ? "continue with start_index: " + (first + clips.length) : null,
+      timeline_median_level_pct: median,
+      clips, flags,
+      thresholds: { plateau_pct: 0.5, cast_pct: 3,
+                    exposure_outlier: "1 S-Log3 stop ("
+                      + SLOG3_PCT_PER_STOP + "% of scale)" },
+    };
+  });
+
 // Settles "are these two grabs the same image?" with arithmetic instead of
 // eyeballs — the model's JS sandbox has no fs, but this process does.
 function tiffDiffStats(bufA, infoA, bufB, infoB) {
@@ -1132,5 +1328,5 @@ module.exports = {
   makeState, needsApproval, requestApproval, executeTool, toolSchemas,
   startBridge, TOOLS,
   parseTiff, tiffCensus, parseExr, effectiveDepthLabel, shrinkProxy,
-  parseSonySidecar,
+  parseSonySidecar, tiffStats,
 };

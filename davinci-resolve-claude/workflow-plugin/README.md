@@ -9,7 +9,7 @@ can be installed side by side; they are separate entries in the menu.
 renderer (HTML chat UI, the design-file look)
    ↕ IPC
 main.js — WorkflowIntegration.node → live Resolve object
-        — tools.js: 19 JS tools (incl. grab_still vision) + run_javascript escape hatch
+        — tools.js: 21 JS tools + run_javascript (grab_still vision, compare_stills, pipeline_doctor, qc_scan)
         — spawns claude CLI (-p, stream-json) on your subscription
              └─ bridge.js (MCP stdio) → TCP loopback → tools.js
 ```
@@ -31,7 +31,7 @@ edition does not load workflow integrations) and the Claude Code CLI
 
 | | Python panel (Scripts menu) | This plugin |
 |---|---|---|
-| Tools | 70, incl. grading/Fusion/Higgsfield | 19 core (incl. `grab_still` — Claude sees frames) + `run_javascript` |
+| Tools | 70, incl. grading/Fusion/Higgsfield | 22 incl. `grab_still` vision, colour suite (`pipeline_doctor`, `qc_scan`, `compare_stills`) + `run_javascript` |
 | Approvals | buttons above the input | real inline amber card, per the design |
 | UI | Qt rich-text subset | full HTML/CSS (the design file, faithfully) |
 | History browser | yes | yes — autosaved chats, reopen + resume, transcript recap when the session expired |
@@ -49,7 +49,7 @@ transcript and gated by approvals.
   sandboxed Electron pattern, `WorkflowIntegration.node` API) and the same
   CLI/bridge architecture the Python panel has proven live — but this plugin
   has NOT yet run inside a real Resolve. The tool layer and MCP bridge are
-  fully tested headlessly (`node test_plugin.js`, 17 checks). First-launch
+  fully tested headlessly (`node test_plugin.js`). First-launch
   issues will show in the plugin window; report what you see.
 - Quit handling calls `CleanUp()` and destroys the window on close and on
   Resolve quit — the known Windows failure mode is an orphaned electron.exe
