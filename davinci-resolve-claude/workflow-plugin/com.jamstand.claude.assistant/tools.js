@@ -1694,8 +1694,14 @@ tool("grade_template",
   + "saved template onto a clip — WARNING: this REPLACES that clip's "
   + "entire grade and node graph, which is the mechanism, not a bug. "
   + "'list' shows saved templates. Templates live in ~/ClaudeNodeTemplates.",
-  { action: { type: "string", enum: ["save", "apply", "list"],
-              description: "What to do." },
+  { action: { type: "string", enum: ["save", "apply", "list", "inspect"],
+              description: "What to do. 'inspect' reports a saved "
+                + "template's file format (magic bytes, compression) and "
+                + "searches it for given strings in utf8/utf16 — the "
+                + "recon step toward programmatic label rewriting." },
+    search: { type: "array", items: { type: "string" },
+              description: "inspect: strings to hunt for (e.g. the "
+                           + "hand-typed node labels)." },
     name: { type: "string",
             description: "Template name (save/apply)." },
     clip: { type: "number",
@@ -1720,6 +1726,53 @@ tool("grade_template",
     if (!a.name) throw new ResolveError("'" + a.action
                                         + "' needs a template name.");
     const file = path.join(TEMPLATE_DIR, safe(a.name) + ".drx");
+    if (a.action === "inspect") {
+      if (!fs.existsSync(file))
+        throw new ResolveError("No template named '" + safe(a.name)
+                               + "'.");
+      const raw = fs.readFileSync(file);
+      const zlib = require("zlib");
+      const out = { file, bytes: raw.length,
+                    magic: raw.slice(0, 4).toString("hex") };
+      let bodies = [{ layer: "raw", buf: raw }];
+      // .drx internals are undocumented — detect the common wrappers.
+      try {
+        if (raw[0] === 0x1f && raw[1] === 0x8b)
+          bodies.push({ layer: "gunzipped",
+                        buf: zlib.gunzipSync(raw) });
+        else if (raw[0] === 0x78)
+          bodies.push({ layer: "inflated", buf: zlib.inflateSync(raw) });
+        else if (raw.slice(0, 2).toString() === "PK")
+          out.container = "zip — needs an unzip step before patching";
+      } catch (e) { out.decompress_error = e.message; }
+      out.compressed = bodies.length > 1 ? bodies[1].layer : "none detected";
+      out.matches = [];
+      for (const term of a.search || []) {
+        for (const body of bodies) {
+          for (const enc of ["utf8", "utf16le"]) {
+            const needle = Buffer.from(String(term), enc);
+            let at = body.buf.indexOf(needle), hits = 0, first = -1;
+            while (at !== -1 && hits < 50) {
+              if (first < 0) first = at;
+              hits += 1;
+              at = body.buf.indexOf(needle, at + 1);
+            }
+            if (hits) out.matches.push({ term, layer: body.layer,
+                                         encoding: enc, hits,
+                                         first_offset: first });
+          }
+        }
+      }
+      if (!out.matches.length && (a.search || []).length)
+        out.verdict = "None of the search strings appear in raw, "
+          + "gunzipped, or inflated form (utf8/utf16) — labels are "
+          + "stored some other way and byte-patching is off the table "
+          + "without deeper format work.";
+      else if (out.matches.length)
+        out.verdict = "Strings found — programmatic relabelling looks "
+          + "feasible; report these findings back.";
+      return out;
+    }
     const tl = timeline(state);
     if (a.action === "save") {
       const resolve = state.resolve;

@@ -542,6 +542,14 @@ async function main() {
     { action: "apply", name: "does not exist" });
   check("grade_template apply of a missing name is a plain error",
         !rT.ok && rT.text.includes("No template named"), rT.text);
+  rT = await tools.executeTool(state, "grade_template",
+    { action: "inspect", name: "four node layout",
+      search: ["sidecar", "EXP"] });
+  check("grade_template inspect reports format and finds strings",
+        rT.ok && rT.text.includes('"term":"sidecar"')
+        && rT.text.includes('"encoding":"utf8"')
+        && !rT.text.includes('"term":"EXP"')
+        && rT.text.includes("feasible"), rT.text);
   try { fsmod.unlinkSync(path.join(tmplDir, "four_node_layout.drx")); }
   catch (e) {}
 
