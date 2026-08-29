@@ -1764,10 +1764,11 @@ tool("grade_template",
         }
       }
       if (!out.matches.length && (a.search || []).length)
-        out.verdict = "None of the search strings appear in raw, "
-          + "gunzipped, or inflated form (utf8/utf16) — labels are "
-          + "stored some other way and byte-patching is off the table "
-          + "without deeper format work.";
+        out.verdict = "No search string appears (utf8/utf16, raw or "
+          + "decompressed). Two readings — the values are stored some "
+          + "other way, OR the source clip simply never had them (an "
+          + "unlabelled node has no label to store). Only a source that "
+          + "verifiably contains the values can distinguish the two.";
       else if (out.matches.length)
         out.verdict = "Strings found — programmatic relabelling looks "
           + "feasible; report these findings back.";
