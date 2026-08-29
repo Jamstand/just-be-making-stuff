@@ -136,7 +136,14 @@ behaviour; extend them when adding tools.
   drives tools through comp.Execute(lua) — LIVE-VERIFIED working (57%
   corner-darkening pixel diff). Execute's return value never marshals
   (Parse: Unknown object type for key:result) even on success: swallow
-  the throw, verify via FindTool + a grabbed frame. Fusion state reads
+  the throw, verify via FindTool + a grabbed frame. CAUTION: that parse
+  error is AMBIGUOUS — for comp.Execute/Undo the call worked and only
+  the return was lost, but graph.ResetNode throws it while doing
+  NOTHING (pixels byte-identical, live-verified on six signatures).
+  Never treat the error as success; verify by pixels/readback per call.
+  ResetNode is inert on this install; per-node grade clearing is
+  UI-only (node labels survive a hand reset, so clear-then-resave is
+  the clean-scaffold path). Fusion state reads
   LAG behind Execute (tool count read in the same breath was stale by
   one) — always re-read in a separate call. fu.TIME_UNDEFINED is not
   valid in Execute scope; plain SetInput(name, value) works. Known-good
