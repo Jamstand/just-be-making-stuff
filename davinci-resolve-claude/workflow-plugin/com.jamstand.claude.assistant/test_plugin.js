@@ -77,6 +77,11 @@ function fakeResolve(mediaDir) {
   };
   const timeline = {
     GetName: () => "Timeline 1",
+    ApplyGradeFromDRX: (file, mode, item) => {
+      grabState.drxApplied = { file, mode,
+                               clip: item && item.GetName() };
+      return true;
+    },
     GetSetting: (k) => (k === "timelineFrameRate" ? "24" : ""),
     GetCurrentTimecode: () => {                 // seek lands one read late,
       const held = grabState.staleReads || 0;   // like real Resolve
@@ -500,6 +505,33 @@ async function main() {
     { action: "remove" });
   check("apply_vignette remove executes and confirms absence",
         rVigOff.ok && rVigOff.text.includes('"removed":true'), rVigOff.text);
+
+  // node graph templates via .drx
+  const os2 = require("os");
+  const tmplDir = path.join(os2.homedir(), "ClaudeNodeTemplates");
+  let rT = await tools.executeTool(state, "grade_template",
+    { action: "save", name: "four node layout" });
+  check("grade_template save captures the drx sidecar",
+        rT.ok && fsmod.existsSync(path.join(tmplDir,
+                                            "four_node_layout.drx")),
+        rT.text);
+  rT = await tools.executeTool(state, "grade_template", { action: "list" });
+  check("grade_template list finds it",
+        rT.ok && rT.text.includes("four_node_layout"), rT.text);
+  rT = await tools.executeTool(state, "grade_template",
+    { action: "apply", name: "four node layout", clip: 2 });
+  check("grade_template apply stamps via ApplyGradeFromDRX",
+        rT.ok && resolve._grab.drxApplied
+        && resolve._grab.drxApplied.clip === "C0572.MP4"
+        && resolve._grab.drxApplied.mode === 0
+        && resolve._grab.drxApplied.file.endsWith("four_node_layout.drx"),
+        rT.text);
+  rT = await tools.executeTool(state, "grade_template",
+    { action: "apply", name: "does not exist" });
+  check("grade_template apply of a missing name is a plain error",
+        !rT.ok && rT.text.includes("No template named"), rT.text);
+  try { fsmod.unlinkSync(path.join(tmplDir, "four_node_layout.drx")); }
+  catch (e) {}
 
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([

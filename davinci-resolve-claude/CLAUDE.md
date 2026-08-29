@@ -137,6 +137,10 @@ behaviour; extend them when adding tools.
   corner-darkening pixel diff). Execute's return value never marshals
   (Parse: Unknown object type for key:result) even on success: swallow
   the throw, verify via FindTool + a grabbed frame.
+- Node creation stays walled, but grade_template routes around it: a .drx
+  sidecar carries the FULL node graph, and Timeline.ApplyGradeFromDRX
+  stamps it onto clips (whole-grade REPLACEMENT — structure setup, not
+  in-place edits). Save layouts built by hand once; stamp forever.
 - 1080p photographic PNG proxies exceed the 4.5MB attach cap: shrinkProxy
   (Electron nativeImage → 1280px JPEG-80) runs first; plain node falls
   back to raw PNG. compare_stills settles same-image questions by bytes +
@@ -202,7 +206,7 @@ behaviour; extend them when adding tools.
   `project` global. STUDIO-ONLY — and free 19.1+ blocks fusion.UIManager
   everywhere, so this panel is effectively Studio-targeted on current
   versions. Install-WorkflowIntegration.ps1 deploys both launch points.
-  The Electron plugin now EXISTS: workflow-plugin/ (25 JS tools incl.
+  The Electron plugin now EXISTS: workflow-plugin/ (26 JS tools incl.
   run_javascript and the colour suite, real approval card, reused bridge.js; headless-tested,
   NOT yet run in real Resolve). Verified platform facts: Resolve Studio
   bundles its own

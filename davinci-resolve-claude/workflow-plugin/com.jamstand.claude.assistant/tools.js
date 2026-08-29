@@ -1677,6 +1677,120 @@ tool("apply_vignette",
              revert: "apply_vignette with action 'remove'" };
   });
 
+// --------------------------------------------------- node graph templates
+// The API cannot create/delete/rearrange Color-page nodes directly — but a
+// .drx (which every gallery still export writes) carries the ENTIRE node
+// graph, and Timeline.ApplyGradeFromDRX stamps it onto clips. So node
+// structure becomes scriptable the honest way: build a layout by hand
+// ONCE, save it as a named template, stamp any clip ever after. Stamping
+// REPLACES the target's whole grade — structure setup, not in-place edits.
+const TEMPLATE_DIR = path.join(os.homedir(), "ClaudeNodeTemplates");
+
+tool("grade_template",
+  "Save, list, and apply Color-page NODE GRAPH templates via .drx — the "
+  + "one scriptable route to node creation/rearrangement. 'save' captures "
+  + "the CURRENT clip's full grade + node layout under a name (build the "
+  + "layout by hand first, e.g. 4 empty serial nodes). 'apply' stamps a "
+  + "saved template onto a clip — WARNING: this REPLACES that clip's "
+  + "entire grade and node graph, which is the mechanism, not a bug. "
+  + "'list' shows saved templates. Templates live in ~/ClaudeNodeTemplates.",
+  { action: { type: "string", enum: ["save", "apply", "list"],
+              description: "What to do." },
+    name: { type: "string",
+            description: "Template name (save/apply)." },
+    clip: { type: "number",
+            description: "apply: 1-based track position; default: clip "
+                         + "under the playhead." },
+    track: { type: "number", description: "Video track (default 1)." } },
+  ["action"], async (state, a) => {
+    fs.mkdirSync(TEMPLATE_DIR, { recursive: true });
+    const safe = (n) => String(n || "").replace(/[^\w.-]+/g, "_")
+      .slice(0, 60);
+    if (a.action === "list") {
+      const rows = fs.readdirSync(TEMPLATE_DIR)
+        .filter((n) => n.toLowerCase().endsWith(".drx"))
+        .map((n) => ({ name: n.replace(/\.drx$/i, ""),
+                       saved: fs.statSync(path.join(TEMPLATE_DIR, n))
+                                .mtime.toISOString() }));
+      return { templates: rows, dir: TEMPLATE_DIR,
+               note: rows.length ? undefined
+                 : "None yet — park on a clip whose node layout you want "
+                   + "to reuse and run action 'save'." };
+    }
+    if (!a.name) throw new ResolveError("'" + a.action
+                                        + "' needs a template name.");
+    const file = path.join(TEMPLATE_DIR, safe(a.name) + ".drx");
+    const tl = timeline(state);
+    if (a.action === "save") {
+      const resolve = state.resolve;
+      const proj = project(state);
+      const previousPage = resolve.GetCurrentPage();
+      resolve.OpenPage("color");
+      try {
+        const gallery = proj.GetGallery();
+        const album = gallery && gallery.GetCurrentStillAlbum();
+        if (!album) throw new ResolveError("No gallery album available.");
+        let still = null;
+        for (let i = 0; i < 3 && !still; i++) {
+          still = tl.GrabStill();
+          if (!still) await sleep(400);
+        }
+        if (!still) throw new ResolveError("GrabStill returned nothing — "
+          + "park on the clip whose layout you want to save.");
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ca-drx-"));
+        const before = new Set(fs.readdirSync(tmp));
+        album.ExportStills([still], tmp, "tmpl", "png");
+        await sleep(300);
+        const drx = fs.readdirSync(tmp).find((n) =>
+          !before.has(n) && n.toLowerCase().endsWith(".drx"));
+        try { album.DeleteStills([still]); } catch (e) {}
+        if (!drx) throw new ResolveError("Export produced no .drx sidecar "
+          + "— cannot capture the node graph.");
+        fs.copyFileSync(path.join(tmp, drx), file);
+        try { for (const n of fs.readdirSync(tmp))
+                fs.unlinkSync(path.join(tmp, n));
+              fs.rmdirSync(tmp); } catch (e) {}
+        const item = tl.GetCurrentVideoItem && tl.GetCurrentVideoItem();
+        return { saved: safe(a.name), file,
+                 from_clip: item ? item.GetName() : "unknown",
+                 note: "Template captures the FULL grade + node layout as "
+                   + "it is right now. For a structure-only template, "
+                   + "save from a clip whose nodes are empty." };
+      } finally {
+        if (previousPage && previousPage !== "color") {
+          try { resolve.OpenPage(previousPage); } catch (e) {}
+        }
+      }
+    }
+    // apply
+    if (!fs.existsSync(file))
+      throw new ResolveError("No template named '" + safe(a.name)
+        + "'. Run action 'list' to see what exists.");
+    let item;
+    if (a.clip !== undefined) {
+      const items = tl.GetItemListInTrack("video", Number(a.track) || 1)
+                    || [];
+      item = items[Number(a.clip) - 1];
+      if (!item) throw new ResolveError("No clip at position " + a.clip
+                                        + ".");
+    } else {
+      item = tl.GetCurrentVideoItem && tl.GetCurrentVideoItem();
+      if (!item) throw new ResolveError("No clip under the playhead.");
+    }
+    if (typeof tl.ApplyGradeFromDRX !== "function")
+      throw new ResolveError("This Resolve exposes no ApplyGradeFromDRX "
+        + "on timelines — template stamping unavailable.");
+    const ok = tl.ApplyGradeFromDRX(file, 0, item);
+    if (!ok)
+      throw new ResolveError("ApplyGradeFromDRX returned false for "
+        + item.GetName() + " — the clip's previous grade is untouched.");
+    return { applied: safe(a.name), to_clip: item.GetName(),
+             replaced: "the clip's ENTIRE previous grade and node graph",
+             note: "Node indexes from the template are now addressable by "
+               + "set-CDL/LUT tools. No undo via API — use the Color "
+               + "page's own undo if this was a mistake." };
+  });
+
 // Settles "are these two grabs the same image?" with arithmetic instead of
 // eyeballs — the model's JS sandbox has no fs, but this process does.
 function tiffDiffStats(bufA, infoA, bufB, infoB) {
