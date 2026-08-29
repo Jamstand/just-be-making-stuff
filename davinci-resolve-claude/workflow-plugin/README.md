@@ -9,7 +9,7 @@ can be installed side by side; they are separate entries in the menu.
 renderer (HTML chat UI, the design-file look)
    ↕ IPC
 main.js — WorkflowIntegration.node → live Resolve object
-        — tools.js: 25 JS tools + run_javascript (grab_still vision, colour suite: pipeline_doctor, qc_scan, match_shot, design_look, apply_vignette)
+        — tools.js: 26 JS tools + run_javascript (grab_still vision, colour suite: pipeline_doctor, qc_scan, match_shot, design_look, apply_vignette)
         — spawns claude CLI (-p, stream-json) on your subscription
              └─ bridge.js (MCP stdio) → TCP loopback → tools.js
 ```
@@ -31,7 +31,7 @@ edition does not load workflow integrations) and the Claude Code CLI
 
 | | Python panel (Scripts menu) | This plugin |
 |---|---|---|
-| Tools | 70, incl. grading/Fusion/Higgsfield | 26 incl. `grab_still` vision, colour suite (`pipeline_doctor`, `qc_scan`, `match_shot`, `design_look`, `apply_vignette`) + `run_javascript` |
+| Tools | 70, incl. grading/Fusion/Higgsfield | 27 incl. `grab_still` vision, colour suite (`pipeline_doctor`, `qc_scan`, `match_shot`, `design_look`, `apply_vignette`) + `run_javascript` |
 | Approvals | buttons above the input | real inline amber card, per the design |
 | UI | Qt rich-text subset | full HTML/CSS (the design file, faithfully) |
 | History browser | yes | yes — autosaved chats, reopen + resume, transcript recap when the session expired |

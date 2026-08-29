@@ -1804,6 +1804,58 @@ tool("grade_template",
                + "page's own undo if this was a mistake." };
   });
 
+tool("label_nodes",
+  "Label Color-page nodes (e.g. 1=EXP, 2=WB, 3=LOOK, 4=SPARE). Tries the "
+  + "node graph's SetNodeLabel if this Resolve exposes one "
+  + "(undocumented; feature-detected, never assumed) and reports label "
+  + "readback per node. If the setter is missing, the reliable route is "
+  + "returned instead: label the nodes BY HAND once, then grade_template "
+  + "save — a .drx carries labels, so every stamped clip inherits them.",
+  { labels: { type: "object",
+              description: "Node index -> label, e.g. {\"1\": \"EXP\", "
+                           + "\"2\": \"WB\"}." },
+    clip: { type: "number",
+            description: "1-based track position; default: clip under "
+                         + "the playhead." },
+    track: { type: "number", description: "Video track (default 1)." } },
+  ["labels"], async (state, a) => {
+    const tl = timeline(state);
+    let item;
+    if (a.clip !== undefined) {
+      const items = tl.GetItemListInTrack("video", Number(a.track) || 1)
+                    || [];
+      item = items[Number(a.clip) - 1];
+      if (!item) throw new ResolveError("No clip at position " + a.clip
+                                        + ".");
+    } else {
+      item = tl.GetCurrentVideoItem && tl.GetCurrentVideoItem();
+      if (!item) throw new ResolveError("No clip under the playhead.");
+    }
+    const ng = typeof item.GetNodeGraph === "function"
+               ? item.GetNodeGraph() : null;
+    if (!ng)
+      throw new ResolveError("No node graph API on this item.");
+    if (typeof ng.SetNodeLabel !== "function")
+      return { clip: item.GetName(), settable: false,
+               manual_route: "This Resolve exposes no SetNodeLabel "
+                 + "(GetNodeLabel reads fine). Label the nodes by hand "
+                 + "(double-click each node, type the name), then "
+                 + "grade_template save — the .drx carries labels, so "
+                 + "every clip you stamp inherits EXP/WB/etc. "
+                 + "automatically." };
+    const results = {};
+    for (const [idx, label] of Object.entries(a.labels || {})) {
+      const n = Number(idx);
+      if (!n) continue;
+      const ok = ng.SetNodeLabel(n, String(label));
+      const back = typeof ng.GetNodeLabel === "function"
+                   ? ng.GetNodeLabel(n) : null;
+      results[n] = { requested: String(label), set: !!ok,
+                     readback: back };
+    }
+    return { clip: item.GetName(), settable: true, nodes: results };
+  });
+
 // Settles "are these two grabs the same image?" with arithmetic instead of
 // eyeballs — the model's JS sandbox has no fs, but this process does.
 function tiffDiffStats(bufA, infoA, bufB, infoB) {

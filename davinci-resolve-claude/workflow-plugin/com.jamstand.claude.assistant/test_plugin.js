@@ -17,7 +17,8 @@ function fakeResolve(mediaDir) {
   const markers = {};
   const grabState = { calls: 0, exported: [], deleted: [], pages: [],
                       timecodes: [], timelineOps: [], cdls: [],
-                      setLuts: {}, fusionOps: [], lutReject: false };
+                      setLuts: {}, fusionOps: [], lutReject: false,
+                      nodeLabels: {} };
   // Real Resolve hands back HOLLOW tool handles (live-verified), so the
   // fake comp only exposes what worked live: comp-level methods + Execute.
   grabState.vignettePresent = false;
@@ -58,6 +59,7 @@ function fakeResolve(mediaDir) {
       grabState.setLuts[i] = lutPath; return true;
     },
     GetDuration: () => 84,
+    GetNodeGraph: () => ({ GetNodeLabel: () => "" }),  // no setter, like life
     GetFusionCompByIndex: () => grabState.fusionComp,
     GetMediaPoolItem: () => ({
       // 60fps media in the 24fps timeline: pre_grade must convert clocks.
@@ -74,6 +76,9 @@ function fakeResolve(mediaDir) {
                                  route: "node graph" };
         return true;
       },
+      SetNodeLabel: (n, label) => { grabState.nodeLabels[n] = label;
+                                    return true; },
+      GetNodeLabel: (n) => grabState.nodeLabels[n] || "",
     }),
     GetStart: () => 86484,
     GetDuration: () => 84,
@@ -539,6 +544,18 @@ async function main() {
         !rT.ok && rT.text.includes("No template named"), rT.text);
   try { fsmod.unlinkSync(path.join(tmplDir, "four_node_layout.drx")); }
   catch (e) {}
+
+  // node labels
+  let rL = await tools.executeTool(state, "label_nodes",
+    { labels: { 1: "EXP", 2: "WB" }, clip: 2 });
+  check("label_nodes sets and reads back when the setter exists",
+        rL.ok && resolve._grab.nodeLabels[1] === "EXP"
+        && rL.text.includes('"readback":"WB"'), rL.text);
+  rL = await tools.executeTool(state, "label_nodes",
+    { labels: { 1: "EXP" } });          // currentItem: no SetNodeLabel
+  check("label_nodes hands back the manual .drx route otherwise",
+        rL.ok && rL.text.includes('"settable":false')
+        && rL.text.includes("grade_template save"), rL.text);
 
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
