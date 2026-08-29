@@ -22,6 +22,7 @@ const APPROVAL_TIMEOUT_MS = 120000;
 
 const READONLY_TOOLS = new Set([
   "get_workspace_overview", "list_media_pool", "get_clip_properties",
+  "pipeline_doctor",
   "list_timelines", "list_markers", "list_render_presets",
   "get_render_status", "move_playhead", "open_page",
   // grab_still LOOKS at a frame: the gallery still it makes is deleted
@@ -694,6 +695,258 @@ tool("grab_still",
     }
   });
 
+// --------------------------------------------------- Phase 2: pipeline doctor
+// The camera's Sony XML sidecar (C0797.MP4 -> C0797M01.XML) is ground truth
+// for what a clip IS: live-verified that Resolve leaves Gamma Notes empty
+// for a6700 AVC while the sidecar plainly says s-log3-cine/s-gamut3-cine
+// (the H.264 stream itself claims rec709 coding, which is only the encode
+// matrix — the classic Sony misread).
+const SONY_GAMMA = { "s-log3-cine": "S-Log3", "s-log3": "S-Log3",
+                     "s-log2": "S-Log2" };
+const SONY_GAMUT = { "s-gamut3-cine": "S-Gamut3.Cine",
+                     "s-gamut3": "S-Gamut3" };
+
+function parseSonySidecar(xml) {
+  const grab = (re) => { const m = re.exec(xml); return m ? m[1] : null; };
+  const gamma = grab(/name="CaptureGammaEquation"\s+value="([^"]*)"/);
+  const gamut = grab(/name="CaptureColorPrimaries"\s+value="([^"]*)"/);
+  const out = {
+    capture_gamma: gamma, capture_gamut: gamut,
+    capture_fps: grab(/captureFps="([^"]*)"/),
+    camera: grab(/<Device[^>]*modelName="([^"]*)"/),
+    camera_lut: grab(/RelatedTo\s+file="([^"]*)"\s+rel="LUT"/),
+  };
+  const g = gamma && SONY_GAMMA[gamma.toLowerCase()];
+  const p = gamut && SONY_GAMUT[gamut.toLowerCase()];
+  if (g && p) out.expected_input_color_space = p + "/" + g;
+  return out;
+}
+
+function findSidecar(clipPath) {
+  const dir = path.dirname(clipPath);
+  const base = path.basename(clipPath).replace(/\.[^.]+$/, "");
+  for (const name of [base + "M01.XML", base + "M01.xml",
+                      base + ".XML", base + ".xml"]) {
+    const full = path.join(dir, name);
+    try { if (fs.statSync(full).isFile()) return full; } catch (e) {}
+  }
+  try {
+    const hit = fs.readdirSync(dir).find((n) =>
+      n.startsWith(base) && /\.xml$/i.test(n));
+    if (hit) return path.join(dir, hit);
+  } catch (e) {}
+  return null;
+}
+
+function clipProp(clip, key) {
+  let v = null;
+  try { v = clip.GetClipProperty(key); } catch (e) { return ""; }
+  if (v && typeof v === "object") v = v[key];   // some builds return the map
+  return v === null || v === undefined ? "" : v;
+}
+
+function itemLuts(item) {
+  try {
+    if (typeof item.GetNodeGraph === "function") {
+      const g = item.GetNodeGraph();
+      if (g && typeof g.GetNumNodes === "function") {
+        const n = Number(g.GetNumNodes()) || 0;
+        const luts = [];
+        for (let i = 1; i <= n; i++) {
+          let l = null;
+          try { l = g.GetLUT(i); } catch (e) {}
+          if (typeof l === "string" && l) luts.push({ node: i, lut: l });
+        }
+        return { method: "node graph", nodes: n, luts };
+      }
+    }
+  } catch (e) {}
+  if (typeof item.GetLUT === "function") {
+    const luts = [];
+    for (let i = 1; i <= 8; i++) {
+      let l = null;
+      try { l = item.GetLUT(i); } catch (e) {}
+      if (typeof l === "string" && l) luts.push({ node: i, lut: l });
+    }
+    return { method: "GetLUT probe of nodes 1-8", nodes: null, luts };
+  }
+  return { method: "unavailable", nodes: null, luts: [] };
+}
+
+tool("pipeline_doctor",
+  "Audit the project for colour-management mistakes. READ-ONLY: changes "
+  + "nothing. Reads project/timeline colour settings, every media pool "
+  + "clip's Input Color Space and Gamma Notes, the Sony XML sidecar next "
+  + "to each media file (camera ground truth for capture gamma/gamut), "
+  + "node LUTs where this Resolve exposes them, and clip-vs-timeline "
+  + "frame-rate mixes. Findings come with plain-English 'why it matters'. "
+  + "Honest limits are listed in api_walls — the API cannot see OFX nodes, "
+  + "so CST double-conversion checks are heuristic at best.",
+  {}, [], (state) => {
+    const proj = project(state);
+    const setting = (k) => { try { return proj.GetSetting(k) || ""; }
+                             catch (e) { return ""; } };
+    const cm = {
+      color_science: setting("colorScienceMode"),
+      project_input_color_space: setting("colorSpaceInput"),
+      timeline_color_space: setting("colorSpaceTimeline"),
+      output_color_space: setting("colorSpaceOutput"),
+    };
+    const managed = /colormanaged/i.test(String(cm.color_science));
+    const findings = [];
+    const norm = (v) => String(v || "").toLowerCase().replace(/[\s._-]/g, "");
+
+    if (!managed)
+      findings.push({ severity: "warning", where: "project",
+        what: "Colour science is " + (cm.color_science || "unknown")
+              + " — not colour managed.",
+        why: "Input Color Space tags (clip and project) are inert in this "
+             + "mode. Log clips display untransformed unless a node "
+             + "LUT/CST converts them, and every input-space check below "
+             + "reports what WOULD happen if RCM were enabled." });
+
+    // ---- media pool walk
+    const clips = [];
+    const walk = (folder, prefix) => {
+      for (const c of folder.GetClipList() || []) {
+        const type = String(clipProp(c, "Type"));
+        const row = { bin: prefix, name: c.GetName(), type,
+                      input_color_space: clipProp(c, "Input Color Space"),
+                      gamma_notes: clipProp(c, "Gamma Notes"),
+                      fps: clipProp(c, "FPS") };
+        if (/video/i.test(type)) {
+          const file = String(clipProp(c, "File Path"));
+          const side = file && findSidecar(file);
+          if (side) {
+            try {
+              row.sidecar = parseSonySidecar(fs.readFileSync(side, "utf8"));
+              row.sidecar.file = side;
+            } catch (e) { row.sidecar_error = e.message; }
+          } else if (file) {
+            row.sidecar = null;
+            findings.push({ severity: "info", where: row.name,
+              what: "No Sony XML sidecar found next to the media file.",
+              why: "Without it the only gamma evidence is Resolve's own "
+                   + "metadata, which is blank for these files — the clip "
+                   + "cannot be verified against camera ground truth." });
+          }
+          const expected = row.sidecar
+                           && row.sidecar.expected_input_color_space;
+          if (expected) {
+            if (!row.gamma_notes)
+              findings.push({ severity: "info", where: row.name,
+                what: "Resolve's Gamma Notes is empty; the camera sidecar "
+                      + "says " + row.sidecar.capture_gamma + "/"
+                      + row.sidecar.capture_gamut + ".",
+                why: "Resolve did not read the Sony sidecar. Anything "
+                     + "keying off clip metadata will treat this log clip "
+                     + "as ordinary Rec.709 video." });
+            const effective = row.input_color_space
+                              && row.input_color_space !== "Project"
+                              ? row.input_color_space
+                              : (cm.project_input_color_space
+                                 || "(project default)");
+            row.effective_input_color_space = effective;
+            if (norm(effective) !== norm(expected))
+              findings.push({
+                severity: managed ? "problem" : "warning", where: row.name,
+                what: "Camera recorded " + expected + " but the effective "
+                      + "input colour space is " + effective
+                      + (row.input_color_space === "Project"
+                         ? " (inherited from the project default)" : "") + ".",
+                why: managed
+                  ? "RCM is decoding this log clip with the wrong input "
+                    + "transform: shadows lift, highlights clamp, colours "
+                    + "skew before any grade is applied. Fix: set the "
+                    + "clip's Input Color Space to " + expected + "."
+                  : "Inert today (project not colour managed), but the "
+                    + "moment RCM is enabled this clip decodes wrongly. "
+                    + "Set the clip tag to " + expected
+                    + " so the project is safe to migrate." });
+          }
+        }
+        clips.push(row);
+      }
+      for (const sub of folder.GetSubFolderList() || [])
+        walk(sub, prefix + sub.GetName() + "/");
+    };
+    walk(proj.GetMediaPool().GetRootFolder(), "/");
+
+    // ---- current timeline: rates and node LUTs
+    const tl = proj.GetCurrentTimeline();
+    let timeline = null;
+    if (tl) {
+      const tlFps = Number(tl.GetSetting("timelineFrameRate")) || null;
+      timeline = { name: tl.GetName(), fps: tlFps, items: [] };
+      const tracks = Number(tl.GetTrackCount("video")) || 0;
+      for (let t = 1; t <= tracks; t++) {
+        for (const item of tl.GetItemListInTrack("video", t) || []) {
+          const row = { track: t, name: item.GetName() };
+          const mp = item.GetMediaPoolItem && item.GetMediaPoolItem();
+          const clipFps = mp ? Number(clipProp(mp, "FPS")) : null;
+          if (clipFps && tlFps && Math.abs(clipFps - tlFps) > 0.01) {
+            row.fps_mismatch = clipFps + " media in a " + tlFps
+                               + " timeline";
+            findings.push({ severity: "warning", where: row.name,
+              what: "Frame-rate mix: " + row.fps_mismatch + ".",
+              why: "Every timeline frame lands between source frames, so "
+                   + "Retime Process (nearest/frame-blend/optical flow) "
+                   + "decides what you see — blends and optical-flow "
+                   + "artifacts masquerade as motion blur, and QC "
+                   + "measurements sample synthesised frames "
+                   + "(live-verified on this very setup)." });
+          }
+          const lutInfo = itemLuts(item);
+          row.node_luts = lutInfo;
+          for (const l of lutInfo.luts) {
+            const lutName = path.basename(l.lut);
+            const toRec709 = /to.?s?709|s?log.?to|709\.cube$/i
+                             .test(lutName);
+            if (managed)
+              findings.push({ severity: "warning",
+                where: row.name + " node " + l.node,
+                what: "Node LUT " + lutName + " while RCM is active.",
+                why: "RCM already handles the log-to-working conversion; "
+                     + (toRec709
+                        ? "this looks like a log-to-709 conversion LUT, "
+                          + "which would convert a second time — double "
+                          + "transform."
+                        : "if this LUT also converts colour space the "
+                          + "image is transformed twice. Creative LUTs "
+                          + "expecting log input will also misbehave "
+                          + "after RCM's conversion.") });
+            else if (toRec709)
+              findings.push({ severity: "info",
+                where: row.name + " node " + l.node,
+                what: "Conversion LUT " + lutName
+                      + " is doing the log-to-709 work.",
+                why: "Consistent with an unmanaged project — but if you "
+                     + "enable RCM later, remove this LUT or it will "
+                     + "double-convert." });
+          }
+          if (lutInfo.method === "unavailable")
+            timeline.node_lut_note = "This Resolve exposes no node LUT "
+              + "readback API; LUT checks skipped.";
+          timeline.items.push(row);
+        }
+      }
+    }
+
+    return {
+      color_management: cm,
+      managed,
+      clips, timeline, findings,
+      api_walls: [
+        "OFX nodes (incl. Color Space Transform) are invisible to the "
+        + "scripting API: 'manual CST while RCM active' and 'LUT after "
+        + "CST-out' cannot be checked directly — LUT findings above are "
+        + "the honest subset.",
+        "Grades are write-only (SetCDL has no readback), so node "
+        + "contents beyond LUT paths cannot be inspected.",
+      ],
+    };
+  });
+
 // Settles "are these two grabs the same image?" with arithmetic instead of
 // eyeballs — the model's JS sandbox has no fs, but this process does.
 function tiffDiffStats(bufA, infoA, bufB, infoB) {
@@ -879,4 +1132,5 @@ module.exports = {
   makeState, needsApproval, requestApproval, executeTool, toolSchemas,
   startBridge, TOOLS,
   parseTiff, tiffCensus, parseExr, effectiveDepthLabel, shrinkProxy,
+  parseSonySidecar,
 };

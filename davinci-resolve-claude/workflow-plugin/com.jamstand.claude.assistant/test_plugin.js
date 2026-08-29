@@ -13,7 +13,7 @@ function check(label, ok, detail) {
 }
 
 // ------------------------------------------------------------ fake Resolve
-function fakeResolve() {
+function fakeResolve(mediaDir) {
   const markers = {};
   const grabState = { calls: 0, exported: [], deleted: [], pages: [],
                       timecodes: [], timelineOps: [] };
@@ -33,6 +33,7 @@ function fakeResolve() {
     GetName: () => "C0797.MP4",
     GetStart: () => 86400,
     GetLeftOffset: () => 100,
+    GetLUT: (i) => (i === 2 ? "/luts/SL3SG3Ctos709.cube" : ""),
     GetMediaPoolItem: () => ({
       // 60fps media in the 24fps timeline: pre_grade must convert clocks.
       GetClipProperty: (k) =>
@@ -51,6 +52,8 @@ function fakeResolve() {
       return grabState.calls < 2 ? null : { still: true };
     },
     GetCurrentVideoItem: () => currentItem,
+    GetItemListInTrack: (kind, idx) =>
+      (kind === "video" && idx === 1 ? [currentItem] : []),
     GetTrackCount: () => 1,
     AddMarker: (frame, color, name, note, dur) => {
       if (markers[frame]) return false;
@@ -67,6 +70,16 @@ function fakeResolve() {
   };
   const clips = [{ GetName: () => "A001.mov",
                    GetClipProperty: () => ({ FPS: 24, Type: "Video" }) }];
+  if (mediaDir)
+    clips.push({
+      GetName: () => "C0797.MP4",
+      GetClipProperty: (k) =>
+        (k === "File Path" ? path.join(mediaDir, "C0797.MP4")
+         : k === "Input Color Space" ? "Project"
+         : k === "Gamma Notes" ? ""
+         : k === "FPS" ? "59.94"
+         : k === "Type" ? "Video" : ""),
+    });
   const root = { GetName: () => "Master",
                  GetClipList: () => clips, GetSubFolderList: () => [] };
   const makeTempTimeline = (name) => ({
@@ -100,6 +113,10 @@ function fakeResolve() {
   };
   const project = {
     GetName: () => "Demo",
+    GetSetting: (k) => ({ colorScienceMode: "davinciYRGB",
+                          colorSpaceInput: "Rec.709 Gamma 2.4",
+                          colorSpaceTimeline: "Rec.709 (Scene)",
+                          colorSpaceOutput: "Rec.709 (Scene)" }[k] || ""),
     GetCurrentTimeline: () => timeline,
     GetMediaPool: () => mediaPool,
     GetTimelineCount: () => 1,
@@ -127,6 +144,26 @@ function fakeResolve() {
 }
 const fsmod = require("fs");
 const osmod = require("os");
+
+const SONY_SIDECAR = `<?xml version="1.0" encoding="UTF-8"?>
+<NonRealTimeMeta xmlns="urn:schemas-professionalDisc:nonRealTimeMeta:ver.2.20" lastUpdate="2026-08-06T22:27:17-05:00">
+\t<Duration value="210"/>
+\t<VideoFormat>
+\t\t<VideoFrame videoCodec="AVC50_1920_1080_H422P@L42" captureFps="59.94p" formatFps="59.94p"/>
+\t</VideoFormat>
+\t<Device manufacturer="Sony" modelName="ILCE-6700" serialNo="4294967295"/>
+\t<Lens modelName="FE 28-70mm F3.5-5.6 OSS"/>
+\t<AcquisitionRecord>
+\t\t<Group name="CameraUnitMetadataSet">
+\t\t\t<Item name="CaptureGammaEquation" value="s-log3-cine"/>
+\t\t\t<Item name="CaptureColorPrimaries" value="s-gamut3-cine"/>
+\t\t\t<Item name="CodingEquations" value="rec709"/>
+\t\t</Group>
+\t</AcquisitionRecord>
+\t<RelevantFiles>
+\t\t<RelatedTo file="SL3SG3Ctos709.cube" rel="LUT"/>
+\t</RelevantFiles>
+</NonRealTimeMeta>`;
 
 function buildTiff16() {
   // Minimal little-endian uncompressed 2x1 RGB16 TIFF: samples
@@ -157,7 +194,9 @@ function buildTiff16() {
 }
 
 async function main() {
-  const resolve = fakeResolve();
+  const mediaDir = fsmod.mkdtempSync(path.join(osmod.tmpdir(), "ca-media-"));
+  fsmod.writeFileSync(path.join(mediaDir, "C0797M01.XML"), SONY_SIDECAR);
+  const resolve = fakeResolve(mediaDir);
   const state = tools.makeState(resolve);
   state.permissionMode = "Never ask";
 
@@ -278,6 +317,34 @@ async function main() {
                                { path_a: cmpA, path_b: "/nope.tif" });
   check("compare_stills: unreadable path is a plain error",
         !rc.ok && rc.text.includes("Cannot read"), rc.text);
+
+  // Phase 2: the pipeline doctor
+  const side = tools.parseSonySidecar(SONY_SIDECAR);
+  check("sony sidecar parsed to camera ground truth",
+        side.capture_gamma === "s-log3-cine"
+        && side.expected_input_color_space === "S-Gamut3.Cine/S-Log3"
+        && side.capture_fps === "59.94p" && side.camera === "ILCE-6700"
+        && side.camera_lut === "SL3SG3Ctos709.cube",
+        JSON.stringify(side));
+  const rDoc = await tools.executeTool(state, "pipeline_doctor", {});
+  check("doctor runs read-only and reports", rDoc.ok, rDoc.text);
+  check("doctor: unmanaged project flagged",
+        rDoc.text.includes("not colour managed"), rDoc.text);
+  check("doctor: sidecar-vs-input mismatch found with the fix named",
+        rDoc.text.includes("Camera recorded S-Gamut3.Cine/S-Log3")
+        && rDoc.text.includes("Rec.709 Gamma 2.4")
+        && rDoc.text.includes("inherited from the project default"),
+        rDoc.text);
+  check("doctor: empty Gamma Notes traced to unread sidecar",
+        rDoc.text.includes("Gamma Notes is empty"), rDoc.text);
+  check("doctor: frame-rate mix warning",
+        rDoc.text.includes("60 media in a 24 timeline"), rDoc.text);
+  check("doctor: conversion LUT on node 2 spotted via GetLUT probe",
+        rDoc.text.includes("SL3SG3Ctos709.cube")
+        && rDoc.text.includes("log-to-709"), rDoc.text);
+  check("doctor: API walls stated",
+        rDoc.text.includes("OFX nodes")
+        && rDoc.text.includes("cannot"), rDoc.text);
 
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
