@@ -1777,14 +1777,27 @@ tool("grade_template",
       item = tl.GetCurrentVideoItem && tl.GetCurrentVideoItem();
       if (!item) throw new ResolveError("No clip under the playhead.");
     }
-    if (typeof tl.ApplyGradeFromDRX !== "function")
-      throw new ResolveError("This Resolve exposes no ApplyGradeFromDRX "
-        + "on timelines — template stamping unavailable.");
-    const ok = tl.ApplyGradeFromDRX(file, 0, item);
+    // Live-verified: on this install the method lives on the NODE GRAPH
+    // object (item.GetNodeGraph().ApplyGradeFromDRX(path, 0)); the
+    // timeline-level signature is the documented fallback for others.
+    let ok = false, route = null;
+    const ng = typeof item.GetNodeGraph === "function"
+               ? item.GetNodeGraph() : null;
+    if (ng && typeof ng.ApplyGradeFromDRX === "function") {
+      ok = ng.ApplyGradeFromDRX(file, 0);
+      route = "node graph";
+    } else if (typeof tl.ApplyGradeFromDRX === "function") {
+      ok = tl.ApplyGradeFromDRX(file, 0, item);
+      route = "timeline";
+    } else {
+      throw new ResolveError("Neither the node graph nor the timeline "
+        + "exposes ApplyGradeFromDRX here — template stamping "
+        + "unavailable.");
+    }
     if (!ok)
       throw new ResolveError("ApplyGradeFromDRX returned false for "
         + item.GetName() + " — the clip's previous grade is untouched.");
-    return { applied: safe(a.name), to_clip: item.GetName(),
+    return { applied: safe(a.name), to_clip: item.GetName(), route,
              replaced: "the clip's ENTIRE previous grade and node graph",
              note: "Node indexes from the template are now addressable by "
                + "set-CDL/LUT tools. No undo via API — use the Color "

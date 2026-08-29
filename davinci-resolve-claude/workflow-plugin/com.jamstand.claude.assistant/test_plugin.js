@@ -68,6 +68,13 @@ function fakeResolve(mediaDir) {
   };
   const secondItem = {
     GetName: () => "C0572.MP4",
+    GetNodeGraph: () => ({
+      ApplyGradeFromDRX: (file, mode) => {
+        grabState.drxApplied = { file, mode, clip: "C0572.MP4",
+                                 route: "node graph" };
+        return true;
+      },
+    }),
     GetStart: () => 86484,
     GetDuration: () => 84,
     GetLeftOffset: () => 0,
@@ -520,12 +527,12 @@ async function main() {
         rT.ok && rT.text.includes("four_node_layout"), rT.text);
   rT = await tools.executeTool(state, "grade_template",
     { action: "apply", name: "four node layout", clip: 2 });
-  check("grade_template apply stamps via ApplyGradeFromDRX",
+  check("grade_template apply stamps via the node graph route",
         rT.ok && resolve._grab.drxApplied
-        && resolve._grab.drxApplied.clip === "C0572.MP4"
+        && resolve._grab.drxApplied.route === "node graph"
         && resolve._grab.drxApplied.mode === 0
-        && resolve._grab.drxApplied.file.endsWith("four_node_layout.drx"),
-        rT.text);
+        && resolve._grab.drxApplied.file.endsWith("four_node_layout.drx")
+        && rT.text.includes('"route":"node graph"'), rT.text);
   rT = await tools.executeTool(state, "grade_template",
     { action: "apply", name: "does not exist" });
   check("grade_template apply of a missing name is a plain error",

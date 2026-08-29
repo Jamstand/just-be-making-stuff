@@ -141,6 +141,9 @@ behaviour; extend them when adding tools.
   sidecar carries the FULL node graph, and Timeline.ApplyGradeFromDRX
   stamps it onto clips (whole-grade REPLACEMENT — structure setup, not
   in-place edits). Save layouts built by hand once; stamp forever.
+  LIVE-VERIFIED 1->4 nodes: on the Mac install the method lives on
+  item.GetNodeGraph().ApplyGradeFromDRX(path, 0) — NOT the timeline
+  object; ResetAllGrades() also works there, and GetNodeLabel reads.
 - 1080p photographic PNG proxies exceed the 4.5MB attach cap: shrinkProxy
   (Electron nativeImage → 1280px JPEG-80) runs first; plain node falls
   back to raw PNG. compare_stills settles same-image questions by bytes +
