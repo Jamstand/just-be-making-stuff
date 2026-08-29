@@ -552,10 +552,27 @@ tool("grab_still",
           throw new ResolveError("pre_grade: could not switch to the "
             + "temporary timeline.");
         grabTl = tempTimeline;
-        const tempFps = Number(grabTl.GetSetting("timelineFrameRate"))
-                        || tlFps;
-        const destFrame = (grabTl.GetStartFrame ? grabTl.GetStartFrame() : 0)
-                          + Math.round(srcFrame * (tempFps / srcFps));
+        // No silent fallback here: live round 5 proved that guessing the
+        // temp timeline's rate parks on the wrong source frame while
+        // reporting success. If it won't tell us, we stop.
+        const tempFpsRaw = grabTl.GetSetting("timelineFrameRate");
+        const tempFps = Number(tempFpsRaw);
+        if (!tempFps)
+          throw new ResolveError("pre_grade: the temporary timeline did not "
+            + "report a usable frame rate (got " + JSON.stringify(tempFpsRaw)
+            + ") — refusing to guess where to park.");
+        const track = grabTl.GetItemListInTrack
+                      && grabTl.GetItemListInTrack("video", 1);
+        const tempItem = track && track[0];
+        if (!tempItem)
+          throw new ResolveError("pre_grade: no clip on the temporary "
+            + "timeline's video track 1.");
+        // Park via the temp item's own geometry, not assumptions about
+        // where CreateTimelineFromClips placed it.
+        const tempLeft = tempItem.GetLeftOffset
+                         ? tempItem.GetLeftOffset() : 0;
+        const destFrame = tempItem.GetStart()
+          + Math.round((srcFrame - tempLeft) * (tempFps / srcFps));
         const dest = frameToTimecode(destFrame, tempFps);
         if (!grabTl.SetCurrentTimecode(dest))
           throw new ResolveError("pre_grade: Resolve rejected timecode "
@@ -575,8 +592,10 @@ tool("grab_still",
                    item_start: item.GetStart(),
                    left_offset: item.GetLeftOffset ? item.GetLeftOffset() : 0,
                    timeline_fps: tlFps, source_fps: srcFps,
-                   source_frame: srcFrame, temp_timecode: dest,
-                   temp_readback: readback,
+                   source_frame: srcFrame,
+                   temp_fps: tempFps, temp_item_start: tempItem.GetStart(),
+                   temp_left_offset: tempLeft, dest_frame: destFrame,
+                   temp_timecode: dest, temp_readback: readback,
                    parked: readback === dest };
       }
 

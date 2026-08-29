@@ -80,6 +80,9 @@ function fakeResolve() {
       return true;
     },
     GrabStill: () => { grabState.timelineOps.push("grab"); return { s: 1 }; },
+    GetItemListInTrack: (kind, idx) =>
+      (kind === "video" && idx === 1
+       ? [{ GetStart: () => 0, GetLeftOffset: () => 0 }] : []),
   });
   const mediaPool = {
     GetRootFolder: () => root,
@@ -244,6 +247,8 @@ async function main() {
         rPre.text.includes('"pre_grade":true'), rPre.text);
   check("pre_grade_map reports the parking math and confirms the park",
         rPre.text.includes('"source_frame":195')
+        && rPre.text.includes('"temp_fps":24')
+        && rPre.text.includes('"dest_frame":78')
         && rPre.text.includes('"parked":true'), rPre.text);
   check("pre_grade grab is a write under Ask-before-edits, plain grab a read",
         tools.needsApproval({ permissionMode: "Ask before edits" },
