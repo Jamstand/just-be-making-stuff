@@ -192,7 +192,7 @@ behaviour; extend them when adding tools.
   `project` global. STUDIO-ONLY — and free 19.1+ blocks fusion.UIManager
   everywhere, so this panel is effectively Studio-targeted on current
   versions. Install-WorkflowIntegration.ps1 deploys both launch points.
-  The Electron plugin now EXISTS: workflow-plugin/ (23 JS tools incl.
+  The Electron plugin now EXISTS: workflow-plugin/ (25 JS tools incl.
   run_javascript and the colour suite, real approval card, reused bridge.js; headless-tested,
   NOT yet run in real Resolve). Verified platform facts: Resolve Studio
   bundles its own

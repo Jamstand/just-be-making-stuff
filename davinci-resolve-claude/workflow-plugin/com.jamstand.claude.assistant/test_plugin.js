@@ -16,7 +16,24 @@ function check(label, ok, detail) {
 function fakeResolve(mediaDir) {
   const markers = {};
   const grabState = { calls: 0, exported: [], deleted: [], pages: [],
-                      timecodes: [], timelineOps: [], cdls: [] };
+                      timecodes: [], timelineOps: [], cdls: [],
+                      setLuts: {}, fusionOps: [] };
+  const fusionTool = (id) => ({
+    _id: id,
+    SetAttrs: (attrs) => grabState.fusionOps.push("name:" + id + ":"
+      + (attrs && attrs.TOOLS_Name)),
+    SetInput: (k, v) => grabState.fusionOps.push("set:" + id + ":" + k
+      + "=" + v),
+    ConnectInput: (k, src) => grabState.fusionOps.push("wire:" + id + ":"
+      + k + "<-" + (src && src._id)),
+    Delete: () => grabState.fusionOps.push("del:" + id),
+  });
+  grabState.fusionComp = {
+    AddTool: (id) => { grabState.fusionOps.push("add:" + id);
+                       return fusionTool(id); },
+    FindTool: (nm) => (nm === "MediaIn1" || nm === "MediaOut1"
+                       ? fusionTool(nm) : null),
+  };
   const album = {
     ExportStills: (stills, dir, prefix, fmt) => {
       // Real Resolve: unpredictable filename + a .drx sidecar.
@@ -33,8 +50,11 @@ function fakeResolve(mediaDir) {
     GetName: () => "C0797.MP4",
     GetStart: () => 86400,
     GetLeftOffset: () => 100,
-    GetLUT: (i) => (i === 2 ? "/luts/SL3SG3Ctos709.cube" : ""),
+    GetLUT: (i) => (i === 2 ? "/luts/SL3SG3Ctos709.cube"
+                    : grabState.setLuts[i] || ""),
+    SetLUT: (i, lutPath) => { grabState.setLuts[i] = lutPath; return true; },
     GetDuration: () => 84,
+    GetFusionCompByIndex: () => grabState.fusionComp,
     GetMediaPoolItem: () => ({
       // 60fps media in the 24fps timeline: pre_grade must convert clocks.
       GetClipProperty: (k) =>
@@ -424,6 +444,52 @@ async function main() {
   check("match_shot attaches both proxies for eyeballing",
         Array.isArray(rMatch.images) && rMatch.images.length === 2,
         JSON.stringify((rMatch.images || []).length));
+
+  // Phase 5: look designer
+  const ident = tools.generateCube({}, 9).trim().split("\n");
+  check("empty look generates an identity LUT",
+        ident[1] === "LUT_3D_SIZE 9"
+        && ident[2] === "0.000000 0.000000 0.000000"
+        && ident[ident.length - 1] === "1.000000 1.000000 1.000000"
+        && ident.length === 2 + 9 * 9 * 9, ident.length + " lines");
+  check("applyLook identity holds mid-lattice",
+        tools.applyLook([0.4, 0.5, 0.6], {})
+          .every((v, i) => Math.abs(v - [0.4, 0.5, 0.6][i]) < 1e-9));
+  check("warmth pushes red up and blue down",
+        (() => { const w = tools.applyLook([0.5, 0.5, 0.5], { warmth: 1 });
+                 return w[0] > 0.5 && w[2] < 0.5
+                        && Math.abs(w[1] - 0.5) < 1e-9; })());
+  check("hue adjustment desaturates only the targeted hue",
+        (() => { const L = { hue_adjustments: [{ hue: 0, width: 30,
+                                                 sat: 0 }] };
+                 const red = tools.applyLook([0.8, 0.2, 0.2], L);
+                 const blue = tools.applyLook([0.2, 0.2, 0.8], L);
+                 return Math.abs(red[0] - red[1]) < 0.01
+                        && Math.abs(blue[2] - 0.8) < 1e-6; })());
+  check("di round-trip", Math.abs(tools.diDecode(0.336) - 0.18) < 0.01);
+  const rLook = await tools.executeTool(state, "design_look",
+    { look: { warmth: 0.5, contrast: 1.1 }, name: "test look",
+      size: 9, out_dir: stillDir });
+  check("design_look writes, applies, and verifies the cube",
+        rLook.ok && rLook.text.includes('"verified":true')
+        && fsmod.readFileSync(
+             JSON.parse(rLook.text).lut_file, "utf8")
+             .startsWith("# Generated"), rLook.text);
+  const rVig = await tools.executeTool(state, "apply_vignette",
+    { amount: 0.4 });
+  check("apply_vignette wires mask -> BC -> MediaOut",
+        rVig.ok
+        && resolve._grab.fusionOps.includes("add:EllipseMask")
+        && resolve._grab.fusionOps.includes("set:EllipseMask:Invert=1")
+        && resolve._grab.fusionOps.includes(
+             "wire:BrightnessContrast:EffectMask<-EllipseMask")
+        && resolve._grab.fusionOps.includes(
+             "wire:MediaOut1:Input<-BrightnessContrast"), rVig.text);
+  const rVigOff = await tools.executeTool(state, "apply_vignette",
+    { action: "remove" });
+  check("apply_vignette remove is calm when nothing matches",
+        rVigOff.ok && rVigOff.text.includes("No Claude vignette"),
+        rVigOff.text);
 
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
