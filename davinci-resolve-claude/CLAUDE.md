@@ -136,7 +136,12 @@ behaviour; extend them when adding tools.
   drives tools through comp.Execute(lua) — LIVE-VERIFIED working (57%
   corner-darkening pixel diff). Execute's return value never marshals
   (Parse: Unknown object type for key:result) even on success: swallow
-  the throw, verify via FindTool + a grabbed frame.
+  the throw, verify via FindTool + a grabbed frame. Fusion state reads
+  LAG behind Execute (tool count read in the same breath was stale by
+  one) — always re-read in a separate call. fu.TIME_UNDEFINED is not
+  valid in Execute scope; plain SetInput(name, value) works. Known-good
+  recipe: SoftGlow before MediaOut, luminance-keyed (Threshold ~0.88,
+  Gain ~0.26) = per-frame light-source glow with no mask or tracking.
 - Node creation stays walled, but grade_template routes around it: a .drx
   sidecar carries the FULL node graph, and Timeline.ApplyGradeFromDRX
   stamps it onto clips (whole-grade REPLACEMENT — structure setup, not
