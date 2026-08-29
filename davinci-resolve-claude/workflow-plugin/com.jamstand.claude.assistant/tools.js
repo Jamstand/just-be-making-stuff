@@ -515,8 +515,17 @@ tool("grab_still",
     resolve.OpenPage("color");            // GrabStill only works from Color
     // Park AFTER the page switch: SetCurrentTimecode is rejected from the
     // Edit page (live-verified).
-    if (tc && !tl.SetCurrentTimecode(tc))
-      throw new ResolveError("Resolve rejected timecode " + tc);
+    if (tc) {
+      if (!tl.SetCurrentTimecode(tc))
+        throw new ResolveError("Resolve rejected timecode " + tc);
+      // This seek is ALSO asynchronous (live-verified by the 9-clip QC
+      // scan: reading the playhead straight back returned the previous
+      // position, clamping clips 3-9 to their first source frame). Wait
+      // for the park to land before grabbing or computing from it.
+      for (let i = 0; i < 10 && tl.GetCurrentTimecode() !== tc; i++)
+        await sleep(200);
+      await sleep(300);
+    }
     let tempTimeline = null, grabTl = tl, item = null, preMap = null;
     try {
       item = tl.GetCurrentVideoItem && tl.GetCurrentVideoItem();
@@ -533,7 +542,10 @@ tool("grab_still",
         // placements carry no grade. Same clip, same SOURCE frame, its own
         // throwaway timeline.
         const tlFps = Number(tl.GetSetting("timelineFrameRate")) || 24;
-        const here = timecodeToFrame(tl.GetCurrentTimecode(), tlFps);
+        // Trust the REQUESTED timecode over a playhead readback that can
+        // still be in flight; fall back to the readback only when the
+        // caller didn't park.
+        const here = timecodeToFrame(tc || tl.GetCurrentTimecode(), tlFps);
         // Timeline frames and SOURCE frames are different clocks when the
         // clip rate differs from the timeline rate (59.94 media in a 24
         // timeline advances ~2.5 source frames per timeline frame) —

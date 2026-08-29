@@ -45,9 +45,22 @@ function fakeResolve(mediaDir) {
   const timeline = {
     GetName: () => "Timeline 1",
     GetSetting: (k) => (k === "timelineFrameRate" ? "24" : ""),
-    GetCurrentTimecode: () =>
-      grabState.timecodes[grabState.timecodes.length - 1] || "01:00:00:00",
-    SetCurrentTimecode: (tc) => { grabState.timecodes.push(tc); return tc !== "bad"; },
+    GetCurrentTimecode: () => {                 // seek lands one read late,
+      const held = grabState.staleReads || 0;   // like real Resolve
+      if (held > 0) {
+        grabState.staleReads = held - 1;
+        return grabState.prevTimecode || "01:00:00:00";
+      }
+      return grabState.timecodes[grabState.timecodes.length - 1]
+             || "01:00:00:00";
+    },
+    SetCurrentTimecode: (tc) => {
+      grabState.prevTimecode =
+        grabState.timecodes[grabState.timecodes.length - 1] || "01:00:00:00";
+      grabState.timecodes.push(tc);
+      grabState.staleReads = 1;
+      return tc !== "bad";
+    },
     GrabStill: () => {                    // intermittently falsy, like life
       grabState.calls += 1;
       return grabState.calls < 2 ? null : { still: true };
