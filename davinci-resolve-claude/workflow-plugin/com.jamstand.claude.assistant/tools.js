@@ -990,13 +990,15 @@ function tiffStats(buffer, info) {
                 samples_per_channel: Math.floor(index / channels) };
   for (let c = 0; c < Math.min(channels, 3); c++) {
     const h = hist[c];
-    let min = -1, max = -1, sum = 0, n = 0;
+    let min = -1, max = -1, sum = 0, sq = 0, n = 0;
     for (let v = 0; v <= full; v++) {
       const k = h[v];
       if (!k) continue;
       if (min < 0) min = v;
-      max = v; sum += v * k; n += k;
+      max = v; sum += v * k; sq += v * v * k; n += k;
     }
+    const meanV = sum / (n || 1);
+    const stdV = Math.sqrt(Math.max(0, sq / (n || 1) - meanV * meanV));
     let lo = 0, hi = 0;
     const loEnd = Math.round(full * 0.01), hiStart = Math.round(full * 0.99);
     for (let v = 0; v <= loEnd; v++) lo += h[v];
@@ -1004,7 +1006,8 @@ function tiffStats(buffer, info) {
     const pct = (x) => +(100 * x / (n || 1)).toFixed(3);
     out.channels.push({
       min, max,
-      mean_pct: +((100 * sum) / (n || 1) / full).toFixed(2),
+      mean_pct: +((100 * meanV) / full).toFixed(2),
+      std_pct: +((100 * stdV) / full).toFixed(2),
       // A hard clip is a PLATEAU: many samples at one exact code value.
       at_exact_min_pct: pct(min < 0 ? 0 : h[min]),
       at_exact_max_pct: pct(max < 0 ? 0 : h[max]),
@@ -1200,6 +1203,191 @@ tool("qc_scan",
     };
   });
 
+// ------------------------------------------------------ Phase 4: shot matcher
+// Closed-loop Reinhard matching. The grabs are display-referred (Rec.709
+// Gamma 2.4 through the DaVinci DRT — not invertible in closed form), but
+// the CDL node operates in the timeline working space (DaVinci
+// WG/Intermediate log). So: estimate DI-log statistics by pushing display
+// stats through gamma-2.4 decode + the published DI encode, derive
+// slope/offset there, apply, RE-GRAB, and let the measured residual correct
+// the approximation. Iteration is what makes the unknown DRT harmless.
+const DI = {          // DaVinci Intermediate log constants (Blackmagic doc)
+  A: 0.0075, B: 7.0, C: 0.07329248, M: 10.44426855, CUT: 0.00262409,
+};
+function diEncode(lin) {
+  return lin <= DI.CUT ? lin * DI.M
+                       : (Math.log2(lin + DI.A) + DI.B) * DI.C;
+}
+function displayPctToDi(pct) {
+  // Display level (0-100% of Rec.709 Gamma 2.4) -> approximate DI-log value.
+  // The DRT bends this — the closed loop absorbs that error.
+  return diEncode(Math.pow(Math.max(0, pct) / 100, 2.4));
+}
+
+// Should these two shots be matched at all? Refuses the night-vs-day case
+// instead of inventing a grade that fakes it.
+function matchGate(refCh, tgtCh) {
+  const mean = (chs) => chs.reduce((t, c) => t + c.mean_pct, 0) / chs.length;
+  const rM = mean(refCh), tM = mean(tgtCh);
+  if (rM <= 0.5 || tM <= 0.5)
+    return { refuse: true, reason: "One of the frames is essentially "
+             + "black — nothing statistical to match." };
+  const stops = 2.4 * Math.log2(rM / tM);
+  if (Math.abs(stops) > 2.5)
+    return { refuse: true, stops_apart: +stops.toFixed(2),
+      reason: "Exposure regimes are " + Math.abs(stops).toFixed(1)
+        + " stops apart (limit 2.5). Forcing a match would fake a "
+        + "different scene, not correct this one — expose or grade it "
+        + "deliberately instead." };
+  const sd = (chs) => chs.reduce((t, c) => t + c.std_pct, 0) / chs.length;
+  const ratio = sd(refCh) / Math.max(0.01, sd(tgtCh));
+  if (ratio > 4 || ratio < 0.25)
+    return { refuse: true, contrast_ratio: +ratio.toFixed(2),
+      reason: "Contrast regimes differ by " + ratio.toFixed(1)
+        + "x (limits 0.25-4): these are different kinds of images "
+        + "(e.g. flat overcast vs hard night contrast)." };
+  return { refuse: false, stops_apart: +stops.toFixed(2) };
+}
+
+// Per-channel Reinhard in estimated DI space:
+//   out = (in - mu_t) * (sigma_r / sigma_t) + mu_r  ==  slope*in + offset
+function deriveCdl(refCh, tgtCh) {
+  const slope = [], offset = [];
+  for (let c = 0; c < 3; c++) {
+    const rMu = displayPctToDi(refCh[c].mean_pct);
+    const tMu = displayPctToDi(tgtCh[c].mean_pct);
+    const rSg = displayPctToDi(refCh[c].mean_pct + refCh[c].std_pct) - rMu;
+    const tSg = displayPctToDi(tgtCh[c].mean_pct + tgtCh[c].std_pct) - tMu;
+    const sl = Math.min(4, Math.max(0.25,
+      tSg > 1e-6 ? rSg / tSg : 1));
+    slope.push(sl);
+    offset.push(rMu - tMu * sl);
+  }
+  return { slope, offset };
+}
+const cdlStr = (v) => v.map((x) => x.toFixed(4)).join(" ");
+
+tool("match_shot",
+  "Phase 4: match one clip's colour to a reference clip using per-channel "
+  + "Reinhard statistics (mean/stddev) computed in the CDL's own working "
+  + "space (DaVinci Intermediate log, estimated from display-referred "
+  + "grabs and refined by a measure-apply-regrab loop). Writes the result "
+  + "as CDL slope/offset on ONE node of the target (power 1, saturation "
+  + "1) — non-destructive, revert values included, every write logged to "
+  + "a JSON sidecar. REFUSES to match shots in different exposure or "
+  + "contrast regimes (night vs day) instead of faking it. WARNING: any "
+  + "CDL already on that node is overwritten and cannot be read back "
+  + "first (API has no grade readback) — point node_index at a spare "
+  + "node. Clips are addressed by their 1-based position on the track.",
+  { reference: { type: "number",
+                 description: "1-based track position of the reference "
+                              + "clip." },
+    target: { type: "number",
+              description: "1-based track position of the clip to match." },
+    track: { type: "number", description: "Video track (default 1)." },
+    node_index: { type: "number",
+                  description: "Target node for the CDL (default 1). Use "
+                               + "a spare node — existing CDL there is "
+                               + "overwritten." },
+    max_iterations: { type: "number",
+                      description: "Measure-apply-regrab rounds (default "
+                                   + "3)." },
+    dry_run: { type: "boolean",
+               description: "true = measure, gate, and propose the CDL "
+                            + "without writing anything." },
+    out_dir: { type: "string",
+               description: "Grab/log directory; default /tmp." } },
+  ["reference", "target"], async (state, a) => {
+    const tl = timeline(state);
+    const track = Number(a.track) || 1;
+    const items = tl.GetItemListInTrack("video", track) || [];
+    const refItem = items[Number(a.reference) - 1];
+    const tgtItem = items[Number(a.target) - 1];
+    if (!refItem || !tgtItem)
+      throw new ResolveError("Track " + track + " has " + items.length
+        + " clips; reference/target must be 1-based positions on it.");
+    if (refItem === tgtItem)
+      throw new ResolveError("Reference and target are the same clip.");
+    const tlFps = Number(tl.GetSetting("timelineFrameRate")) || 24;
+    const nodeIndex = Number(a.node_index) || 1;
+    const grabEntry = TOOLS.find((t) => t.name === "grab_still");
+    const midTc = (item) => frameToTimecode(item.GetStart()
+      + Math.floor((Number(item.GetDuration()) || 2) / 2), tlFps);
+    const measure = async (item) => {
+      const g = await grabEntry.fn(state, { timecode: midTc(item),
+                                            format: "tif",
+                                            out_dir: a.out_dir });
+      const buf = fs.readFileSync(g.measurement_file);
+      const st = tiffStats(buf, parseTiff(buf));
+      if (!st.channels)
+        throw new ResolveError("Could not measure " + item.GetName() + ": "
+                               + (st.skipped || "no stats"));
+      return { stats: st.channels, proxy: (g._images || [])[0],
+               file: g.measurement_file };
+    };
+
+    const ref = await measure(refItem);
+    let tgt = await measure(tgtItem);
+    const gate = matchGate(ref.stats, tgt.stats);
+    const out = { reference: refItem.GetName(), target: tgtItem.GetName(),
+                  gate };
+    if (gate.refuse) {
+      out.refused = true;
+      out._images = [ref.proxy, tgt.proxy].filter(Boolean);
+      return out;                       // nothing written, and we say why
+    }
+
+    let cdl = deriveCdl(ref.stats, tgt.stats);
+    out.proposed_cdl = { node: nodeIndex, slope: cdlStr(cdl.slope),
+                         offset: cdlStr(cdl.offset), power: "1 1 1",
+                         saturation: "1" };
+    if (a.dry_run) {
+      out.dry_run = true;
+      out._images = [ref.proxy, tgt.proxy].filter(Boolean);
+      return out;
+    }
+
+    const iterations = [];
+    const maxIter = Math.min(5, Math.max(1, Number(a.max_iterations) || 3));
+    for (let i = 1; i <= maxIter; i++) {
+      const okWrite = tgtItem.SetCDL({
+        NodeIndex: String(nodeIndex), Slope: cdlStr(cdl.slope),
+        Offset: cdlStr(cdl.offset), Power: "1 1 1", Saturation: "1" });
+      if (!okWrite)
+        throw new ResolveError("SetCDL returned false on node " + nodeIndex
+          + " of " + tgtItem.GetName() + " (iteration " + i + ").");
+      tgt = await measure(tgtItem);
+      const resid = ref.stats.map((rc, c) =>
+        +(rc.mean_pct - tgt.stats[c].mean_pct).toFixed(2));
+      iterations.push({ iteration: i,
+        cdl: { slope: cdlStr(cdl.slope), offset: cdlStr(cdl.offset) },
+        residual_mean_pct_rgb: resid });
+      if (Math.max.apply(null, resid.map(Math.abs)) < 0.75) break;
+      // Compose the residual correction onto the running CDL.
+      const corr = deriveCdl(ref.stats, tgt.stats);
+      cdl = { slope: cdl.slope.map((sl, c) => Math.min(4, Math.max(0.25,
+                sl * corr.slope[c]))),
+              offset: cdl.offset.map((of, c) =>
+                of * corr.slope[c] + corr.offset[c]) };
+    }
+    out.iterations = iterations;
+    out.final_cdl = iterations[iterations.length - 1].cdl;
+    out.final_residual_mean_pct_rgb =
+      iterations[iterations.length - 1].residual_mean_pct_rgb;
+    out.revert = { NodeIndex: String(nodeIndex), Slope: "1 1 1",
+                   Offset: "0 0 0", Power: "1 1 1", Saturation: "1" };
+    const logDir = String(a.out_dir || (process.platform === "win32"
+                                        ? os.tmpdir() : "/tmp"));
+    try {
+      const logFile = path.join(logDir, "cdl_match_"
+        + Date.now().toString(36) + ".json");
+      fs.writeFileSync(logFile, JSON.stringify(out, null, 2));
+      out.log_file = logFile;           // grades are write-only: this JSON
+    } catch (e) {}                      // is the only readable record
+    out._images = [ref.proxy, tgt.proxy].filter(Boolean);
+    return out;
+  });
+
 // Settles "are these two grabs the same image?" with arithmetic instead of
 // eyeballs — the model's JS sandbox has no fs, but this process does.
 function tiffDiffStats(bufA, infoA, bufB, infoB) {
@@ -1385,5 +1573,5 @@ module.exports = {
   makeState, needsApproval, requestApproval, executeTool, toolSchemas,
   startBridge, TOOLS,
   parseTiff, tiffCensus, parseExr, effectiveDepthLabel, shrinkProxy,
-  parseSonySidecar, tiffStats,
+  parseSonySidecar, tiffStats, matchGate, deriveCdl, displayPctToDi,
 };

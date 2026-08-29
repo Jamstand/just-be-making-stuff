@@ -120,6 +120,13 @@ behaviour; extend them when adding tools.
 - SetCurrentTimecode is rejected while the Edit page is frontmost — park
   after OpenPage("color").
 - SetCDL takes SPACE-SEPARATED STRINGS ("2.0 0.6 0.3"), not arrays.
+- RCM v2 pipeline truth (live A/B x3): outputDRT DaVinci only rolls off
+  highlights when timelineWorkingLuminanceMode gives it over-range room
+  (HDR 1000). DRT + SDR 100 = identity mapping + uniform darkening — the
+  HDR 1000 setting is LOAD-BEARING with an SDR output. Gallery grabs are
+  display-referred under RCM (raw source code values only when unmanaged);
+  "Input Color Space" is only writable under RCM. qc_scan/match_shot pick
+  their measurement model from the live pipeline.
 - 1080p photographic PNG proxies exceed the 4.5MB attach cap: shrinkProxy
   (Electron nativeImage → 1280px JPEG-80) runs first; plain node falls
   back to raw PNG. compare_stills settles same-image questions by bytes +
@@ -185,7 +192,7 @@ behaviour; extend them when adding tools.
   `project` global. STUDIO-ONLY — and free 19.1+ blocks fusion.UIManager
   everywhere, so this panel is effectively Studio-targeted on current
   versions. Install-WorkflowIntegration.ps1 deploys both launch points.
-  The Electron plugin now EXISTS: workflow-plugin/ (22 JS tools incl.
+  The Electron plugin now EXISTS: workflow-plugin/ (23 JS tools incl.
   run_javascript and the colour suite, real approval card, reused bridge.js; headless-tested,
   NOT yet run in real Resolve). Verified platform facts: Resolve Studio
   bundles its own

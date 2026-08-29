@@ -16,7 +16,7 @@ function check(label, ok, detail) {
 function fakeResolve(mediaDir) {
   const markers = {};
   const grabState = { calls: 0, exported: [], deleted: [], pages: [],
-                      timecodes: [], timelineOps: [] };
+                      timecodes: [], timelineOps: [], cdls: [] };
   const album = {
     ExportStills: (stills, dir, prefix, fmt) => {
       // Real Resolve: unpredictable filename + a .drx sidecar.
@@ -41,6 +41,15 @@ function fakeResolve(mediaDir) {
         (k === "Input Color Space" ? "S-Gamut3.Cine/S-Log3"
          : k === "FPS" ? 60 : ""),
     }),
+  };
+  const secondItem = {
+    GetName: () => "C0572.MP4",
+    GetStart: () => 86484,
+    GetDuration: () => 84,
+    GetLeftOffset: () => 0,
+    GetLUT: () => "",
+    GetMediaPoolItem: currentItem.GetMediaPoolItem,
+    SetCDL: (m) => { grabState.cdls.push(m); return true; },
   };
   const timeline = {
     GetName: () => "Timeline 1",
@@ -67,7 +76,7 @@ function fakeResolve(mediaDir) {
     },
     GetCurrentVideoItem: () => currentItem,
     GetItemListInTrack: (kind, idx) =>
-      (kind === "video" && idx === 1 ? [currentItem] : []),
+      (kind === "video" && idx === 1 ? [currentItem, secondItem] : []),
     GetTrackCount: () => 1,
     AddMarker: (frame, color, name, note, dur) => {
       if (markers[frame]) return false;
@@ -369,7 +378,7 @@ async function main() {
         && st.channels[2].max === 65535, JSON.stringify(st));
   const rQc = await tools.executeTool(state, "qc_scan", { out_dir: stillDir });
   check("qc_scan walks the track and measures at full depth",
-        rQc.ok && rQc.text.includes('"clips_scanned":1')
+        rQc.ok && rQc.text.includes('"clips_scanned":2')
         && rQc.text.includes('"measured":"pre-grade source pixels'),
         rQc.text);
   check("qc_scan names its measurement space and exposure model",
@@ -380,6 +389,41 @@ async function main() {
         && rQc.text.includes("crushed-shadows")
         && rQc.text.includes("colour-cast")
         && rQc.text.includes('"plateau_pct":0.5'), rQc.text);
+
+  // Phase 4: the matcher's gate, math, and closed loop
+  const mkCh = (m, sd) => [0, 1, 2].map(() => ({ mean_pct: m, std_pct: sd }));
+  check("matchGate refuses a 6-stop day/night gap",
+        tools.matchGate(mkCh(44, 10), mkCh(7.5, 5)).refuse === true
+        && /stops apart/.test(
+             tools.matchGate(mkCh(44, 10), mkCh(7.5, 5)).reason));
+  check("matchGate refuses a 10x contrast regime gap",
+        tools.matchGate(mkCh(44, 20), mkCh(44, 2)).refuse === true
+        && /Contrast regimes/.test(
+             tools.matchGate(mkCh(44, 20), mkCh(44, 2)).reason));
+  check("matchGate passes near-neighbours",
+        tools.matchGate(mkCh(44, 10), mkCh(40, 9)).refuse === false);
+  check("deriveCdl on identical stats is the identity grade",
+        (() => { const c = tools.deriveCdl(mkCh(44, 10), mkCh(44, 10));
+                 return c.slope.every((v) => Math.abs(v - 1) < 1e-9)
+                     && c.offset.every((v) => Math.abs(v) < 1e-9); })());
+  const rMatch = await tools.executeTool(state, "match_shot",
+    { reference: 1, target: 2, out_dir: stillDir });
+  check("match_shot runs the closed loop and converges",
+        rMatch.ok && rMatch.text.includes('"refuse":false')
+        && rMatch.text.includes('"final_cdl"'), rMatch.text);
+  check("identical frames produce a neutral CDL write",
+        resolve._grab.cdls.length === 1
+        && resolve._grab.cdls[0].Slope === "1.0000 1.0000 1.0000"
+        && resolve._grab.cdls[0].Offset === "0.0000 0.0000 0.0000"
+        && resolve._grab.cdls[0].NodeIndex === "1",
+        JSON.stringify(resolve._grab.cdls));
+  check("match_shot logs the write and hands back the revert",
+        rMatch.text.includes('"log_file"')
+        && rMatch.text.includes('"revert"')
+        && rMatch.text.includes('"Slope":"1 1 1"'), rMatch.text);
+  check("match_shot attaches both proxies for eyeballing",
+        Array.isArray(rMatch.images) && rMatch.images.length === 2,
+        JSON.stringify((rMatch.images || []).length));
 
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
