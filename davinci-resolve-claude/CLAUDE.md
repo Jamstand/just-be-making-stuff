@@ -127,6 +127,14 @@ behaviour; extend them when adding tools.
   display-referred under RCM (raw source code values only when unmanaged);
   "Input Color Space" is only writable under RCM. qc_scan/match_shot pick
   their measurement model from the live pipeline.
+- SetLUT resolves NO path on the Mac install (absolute, relative, Resolve
+  LUT dir, even Blackmagic-shipped LUTs; SetLUT(n,"") returns true) —
+  design_look treats the .cube file as the deliverable with manual-load
+  guidance. Fusion via the JS proxy: comp objects are fully populated
+  (~90 methods) but TOOL handles come back HOLLOW (no SetInput/SetAttrs);
+  AddFusionComp works, DeleteFusionCompByName always false. apply_vignette
+  round 2 drives tools through comp.Execute(lua) instead — unverified
+  live; verify by grabbing a frame, never by Execute's return.
 - 1080p photographic PNG proxies exceed the 4.5MB attach cap: shrinkProxy
   (Electron nativeImage → 1280px JPEG-80) runs first; plain node falls
   back to raw PNG. compare_stills settles same-image questions by bytes +

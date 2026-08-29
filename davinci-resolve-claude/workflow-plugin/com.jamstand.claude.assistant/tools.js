@@ -1554,30 +1554,36 @@ tool("design_look",
     const applied = item.SetLUT(nodeIndex, file);
     const readback = typeof item.GetLUT === "function"
       ? item.GetLUT(nodeIndex) : null;
-    if (!applied)
-      throw new ResolveError("SetLUT refused " + file + " on node "
-        + nodeIndex + ". Some Resolve versions only accept LUTs inside "
-        + "the Resolve LUT folder — copy the file there, refresh LUT "
-        + "list, and retry (the .cube is written and valid).");
-    return { clip: item.GetName(), node: nodeIndex, lut_file: file,
-             verified: readback ? path.basename(String(readback))
-                                  === path.basename(file)
-                                : "no GetLUT readback in this Resolve",
-             look: a.look || {},
-             revert: "set_lut node " + nodeIndex + " with empty path, or "
-                     + "clear the node LUT in the UI" };
+    const out = { clip: item.GetName(), node: nodeIndex, lut_file: file,
+                  applied: !!applied, look: a.look || {} };
+    if (applied) {
+      out.verified = readback
+        ? path.basename(String(readback)) === path.basename(file)
+        : "no GetLUT readback in this Resolve";
+      out.revert = "set_lut node " + nodeIndex + " with empty path, or "
+                   + "clear the node LUT in the UI";
+    } else {
+      // Live-verified on the Mac install: SetLUT resolves NO path at all
+      // (not even Blackmagic-shipped LUTs), so the .cube file itself is
+      // the deliverable. Never fail the call over a broken applicator.
+      out.manual_load = "SetLUT cannot resolve paths on this install "
+        + "(live-verified, all path forms). Load it by hand: copy "
+        + file + " into /Library/Application Support/Blackmagic Design/"
+        + "DaVinci Resolve/LUT/, update the LUT list in Project Settings, "
+        + "then right-click the node > LUT. The file is valid and ready.";
+    }
+    return out;
   });
 
 tool("apply_vignette",
-  "EXPERIMENTAL first-live-run tool: a static power-window-style vignette "
-  + "via the clip's Fusion comp (the one spatial surface the API can "
-  + "script — Fusion sits upstream of the Color page). Adds an "
-  + "EllipseMask-driven Brightness/Contrast darkening outside the "
-  + "ellipse. No tracking — the mask does not follow subjects; that wall "
-  + "stands. action 'remove' deletes the tools this call added (their "
-  + "names are returned). Live behaviour of the Fusion scripting proxy "
-  + "is the least-verified part of this plugin: expect and report "
-  + "failures honestly.",
+  "EXPERIMENTAL (round 2): a static power-window-style vignette via the "
+  + "clip's Fusion comp. Live round 1 proved the JS proxy hands back "
+  + "HOLLOW Fusion tool handles (AddTool works, SetInput/SetAttrs don't "
+  + "exist on the result), so this build drives everything through "
+  + "comp.Execute() running Lua INSIDE Fusion — the comp object's own "
+  + "methods were fully populated. Verification is limited to FindTool "
+  + "existence + your eyes on the frame. No tracking — the mask is "
+  + "static. action 'remove' deletes the named tools the same way.",
   { amount: { type: "number",
               description: "Darkening outside the ellipse, 0-1 (default "
                            + "0.35)." },
@@ -1603,52 +1609,69 @@ tool("apply_vignette",
     if (typeof item.GetFusionCompByIndex !== "function")
       throw new ResolveError("This timeline item exposes no Fusion comp "
                              + "API — vignette unavailable here.");
-    const comp = item.GetFusionCompByIndex(1);
+    let comp = item.GetFusionCompByIndex(1);
+    let createdComp = false;
+    if (!comp && a.action !== "remove"
+        && typeof item.AddFusionComp === "function") {
+      comp = item.AddFusionComp();
+      createdComp = true;               // NOTE: script deletion of comps
+    }                                   // returns false (live-verified)
     if (!comp)
-      throw new ResolveError("No Fusion comp on " + item.GetName() + ".");
+      throw new ResolveError("No Fusion comp on " + item.GetName()
+                             + (a.action === "remove"
+                                ? " — nothing to remove." : "."));
+    if (typeof comp.Execute !== "function")
+      throw new ResolveError("comp.Execute is not exposed here — with "
+        + "hollow tool handles (live-verified) there is no scriptable "
+        + "route left to configure Fusion tools. The vignette must be "
+        + "built by hand (Fusion EllipseMask, or a Color page power "
+        + "window).");
     if (a.action === "remove") {
-      const removed = [];
-      for (const nm of ["ClaudeVignetteMask", "ClaudeVignetteBC"]) {
-        try {
-          const t = comp.FindTool(nm);
-          if (t) { t.Delete(); removed.push(nm); }
-        } catch (e) {}
-      }
-      return { clip: item.GetName(), removed,
-               note: removed.length ? "Vignette tools deleted."
-                     : "No Claude vignette tools found on this comp." };
+      comp.Execute(
+        'for _, nm in ipairs({"ClaudeVignetteMask", "ClaudeVignetteBC"}) '
+        + 'do local t = comp:FindTool(nm); if t then t:Delete() end end');
+      const still = comp.FindTool && (comp.FindTool("ClaudeVignetteBC")
+                                      || comp.FindTool("ClaudeVignetteMask"));
+      return { clip: item.GetName(),
+               removed: !still,
+               note: still ? "Execute ran but the tools are still "
+                             + "present — remove them by hand in Fusion."
+                           : "Vignette tools deleted (or none existed)." };
     }
     const amount = Math.max(0, Math.min(1, Number(a.amount) || 0.35));
     const soft = Math.max(0, Math.min(1, Number(a.softness) || 0.4));
     const sizeV = Math.max(0.1, Math.min(1.5, Number(a.size) || 0.85));
-    const mask = comp.AddTool("EllipseMask");
-    const bc = comp.AddTool("BrightnessContrast");
-    if (!mask || !bc)
-      throw new ResolveError("Fusion AddTool failed — the comp refused "
-                             + "new tools (page not initialised?).");
-    try { mask.SetAttrs({ TOOLS_Name: "ClaudeVignetteMask" }); }
-    catch (e) {}
-    try { bc.SetAttrs({ TOOLS_Name: "ClaudeVignetteBC" }); } catch (e) {}
-    mask.SetInput("Width", sizeV);
-    mask.SetInput("Height", sizeV * 0.75);
-    mask.SetInput("SoftEdge", soft * 0.25);
-    mask.SetInput("Invert", 1);          // darken OUTSIDE the ellipse
-    bc.SetInput("Gain", 1 - amount);
-    const mediaIn = comp.FindTool("MediaIn1");
-    const mediaOut = comp.FindTool("MediaOut1");
-    if (!mediaIn || !mediaOut)
-      throw new ResolveError("Comp has no MediaIn1/MediaOut1 — cannot "
-        + "wire the vignette (tools were added; remove via action "
-        + "'remove').");
-    bc.ConnectInput("Input", mediaIn);
-    bc.ConnectInput("EffectMask", mask);
-    mediaOut.ConnectInput("Input", bc);
-    return { clip: item.GetName(),
-             added: ["ClaudeVignetteMask", "ClaudeVignetteBC"],
-             amount, softness: soft, size: sizeV,
-             revert: "apply_vignette with action 'remove'",
-             honesty: "static mask only — no tracking; check the Fusion "
-                      + "page to confirm the wiring took." };
+    const lua = [
+      "comp:Lock()",
+      'local m = comp:AddTool("EllipseMask", -32768, -32768)',
+      'local b = comp:AddTool("BrightnessContrast", -32768, -32768)',
+      'm:SetAttrs({TOOLS_Name = "ClaudeVignetteMask"})',
+      'b:SetAttrs({TOOLS_Name = "ClaudeVignetteBC"})',
+      "m.Width = " + sizeV.toFixed(4),
+      "m.Height = " + (sizeV * 0.75).toFixed(4),
+      "m.SoftEdge = " + (soft * 0.25).toFixed(4),
+      "m.Invert = 1",
+      "b.Gain = " + (1 - amount).toFixed(4),
+      'local mi = comp:FindTool("MediaIn1")',
+      'local mo = comp:FindTool("MediaOut1")',
+      "if mi and mo then",
+      "  b.Input = mi.Output",
+      "  b.EffectMask = m.Mask",
+      "  mo.Input = b.Output",
+      "end",
+      "comp:Unlock()",
+    ].join("\n");
+    comp.Execute(lua);
+    const present = comp.FindTool
+      && !!comp.FindTool("ClaudeVignetteBC");
+    return { clip: item.GetName(), amount, softness: soft, size: sizeV,
+             created_comp: createdComp || undefined,
+             tools_present_after_execute: present,
+             verification: "FindTool existence only — grab a still and "
+               + "LOOK to confirm the darkening actually renders; if the "
+               + "frame is unchanged, the wiring silently failed and "
+               + "this wall stands.",
+             revert: "apply_vignette with action 'remove'" };
   });
 
 // Settles "are these two grabs the same image?" with arithmetic instead of

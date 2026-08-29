@@ -17,22 +17,23 @@ function fakeResolve(mediaDir) {
   const markers = {};
   const grabState = { calls: 0, exported: [], deleted: [], pages: [],
                       timecodes: [], timelineOps: [], cdls: [],
-                      setLuts: {}, fusionOps: [] };
-  const fusionTool = (id) => ({
-    _id: id,
-    SetAttrs: (attrs) => grabState.fusionOps.push("name:" + id + ":"
-      + (attrs && attrs.TOOLS_Name)),
-    SetInput: (k, v) => grabState.fusionOps.push("set:" + id + ":" + k
-      + "=" + v),
-    ConnectInput: (k, src) => grabState.fusionOps.push("wire:" + id + ":"
-      + k + "<-" + (src && src._id)),
-    Delete: () => grabState.fusionOps.push("del:" + id),
-  });
+                      setLuts: {}, fusionOps: [], lutReject: false };
+  // Real Resolve hands back HOLLOW tool handles (live-verified), so the
+  // fake comp only exposes what worked live: comp-level methods + Execute.
+  grabState.vignettePresent = false;
   grabState.fusionComp = {
-    AddTool: (id) => { grabState.fusionOps.push("add:" + id);
-                       return fusionTool(id); },
-    FindTool: (nm) => (nm === "MediaIn1" || nm === "MediaOut1"
-                       ? fusionTool(nm) : null),
+    AddTool: () => ({}),                        // hollow, like life
+    FindTool: (nm) => {
+      if (nm === "MediaIn1" || nm === "MediaOut1") return {};
+      if ((nm === "ClaudeVignetteBC" || nm === "ClaudeVignetteMask")
+          && grabState.vignettePresent) return {};
+      return null;
+    },
+    Execute: (lua) => {
+      grabState.fusionOps.push(lua);
+      if (/AddTool/.test(lua)) grabState.vignettePresent = true;
+      if (/Delete/.test(lua)) grabState.vignettePresent = false;
+    },
   };
   const album = {
     ExportStills: (stills, dir, prefix, fmt) => {
@@ -52,7 +53,10 @@ function fakeResolve(mediaDir) {
     GetLeftOffset: () => 100,
     GetLUT: (i) => (i === 2 ? "/luts/SL3SG3Ctos709.cube"
                     : grabState.setLuts[i] || ""),
-    SetLUT: (i, lutPath) => { grabState.setLuts[i] = lutPath; return true; },
+    SetLUT: (i, lutPath) => {
+      if (grabState.lutReject) return false;
+      grabState.setLuts[i] = lutPath; return true;
+    },
     GetDuration: () => 84,
     GetFusionCompByIndex: () => grabState.fusionComp,
     GetMediaPoolItem: () => ({
@@ -475,21 +479,27 @@ async function main() {
         && fsmod.readFileSync(
              JSON.parse(rLook.text).lut_file, "utf8")
              .startsWith("# Generated"), rLook.text);
+  resolve._grab.lutReject = true;       // the Mac install's live behaviour
+  const rLook2 = await tools.executeTool(state, "design_look",
+    { look: {}, size: 9, out_dir: stillDir });
+  check("design_look degrades to manual-load when SetLUT is dead",
+        rLook2.ok && rLook2.text.includes('"applied":false')
+        && rLook2.text.includes("manual_load"), rLook2.text);
+  resolve._grab.lutReject = false;
   const rVig = await tools.executeTool(state, "apply_vignette",
     { amount: 0.4 });
-  check("apply_vignette wires mask -> BC -> MediaOut",
+  check("apply_vignette drives Fusion via Execute lua, then verifies",
         rVig.ok
-        && resolve._grab.fusionOps.includes("add:EllipseMask")
-        && resolve._grab.fusionOps.includes("set:EllipseMask:Invert=1")
-        && resolve._grab.fusionOps.includes(
-             "wire:BrightnessContrast:EffectMask<-EllipseMask")
-        && resolve._grab.fusionOps.includes(
-             "wire:MediaOut1:Input<-BrightnessContrast"), rVig.text);
+        && resolve._grab.fusionOps.some((l) =>
+             /AddTool\("EllipseMask"/.test(l) && /m\.Invert = 1/.test(l)
+             && /b\.Gain = 0\.6000/.test(l)
+             && /mo\.Input = b\.Output/.test(l))
+        && rVig.text.includes('"tools_present_after_execute":true'),
+        rVig.text);
   const rVigOff = await tools.executeTool(state, "apply_vignette",
     { action: "remove" });
-  check("apply_vignette remove is calm when nothing matches",
-        rVigOff.ok && rVigOff.text.includes("No Claude vignette"),
-        rVigOff.text);
+  check("apply_vignette remove executes and confirms absence",
+        rVigOff.ok && rVigOff.text.includes('"removed":true'), rVigOff.text);
 
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
