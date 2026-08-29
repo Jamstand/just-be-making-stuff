@@ -372,6 +372,9 @@ async function main() {
         rQc.ok && rQc.text.includes('"clips_scanned":1')
         && rQc.text.includes('"measured":"pre-grade source pixels'),
         rQc.text);
+  check("qc_scan names its measurement space and exposure model",
+        rQc.text.includes('"measurement_space":"raw source code values')
+        && rQc.text.includes('"exposure_model":"slog3"'), rQc.text);
   check("qc_scan flags plateaus and cast with thresholds stated",
         rQc.text.includes("clipped-highlights")
         && rQc.text.includes("crushed-shadows")

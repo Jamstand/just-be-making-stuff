@@ -1053,6 +1053,17 @@ tool("qc_scan",
     if (!items.length)
       throw new ResolveError("No clips on video track " + track + ".");
     const tlFps = Number(tl.GetSetting("timelineFrameRate")) || 24;
+    // The measurement SPACE depends on the project: under RCM every grab is
+    // display-referred (input transform + working space + output transform),
+    // so S-Log3 arithmetic on the tagged clips would be exactly wrong.
+    // Unmanaged projects hand us raw source code values (live-verified:
+    // rails at the S-Log3 legal-range footprint pre-migration, and a 99%
+    // pixel shift the moment RCM was enabled).
+    const sci = (() => { try { return String(proj.GetSetting(
+      "colorScienceMode") || ""); } catch (e) { return ""; } })();
+    const rcm = /colormanaged/i.test(sci);
+    const outSpace = (() => { try { return String(proj.GetSetting(
+      "colorSpaceOutput") || ""); } catch (e) { return ""; } })();
     const grabEntry = TOOLS.find((t) => t.name === "grab_still");
     const clips = [];
     const batch = items.slice(first - 1, first - 1 + cap);
@@ -1103,6 +1114,21 @@ tool("qc_scan",
                         .map((c) => c.mean_level_pct).sort((x, y) => x - y);
     const median = levels.length
       ? levels[Math.floor(levels.length / 2)] : null;
+    // Exposure model: gamma24 = grabs are Rec.709 Gamma 2.4 (RCM output,
+    // invertible while outputDRT is None): stops = 2.4*log2(level ratio).
+    // slog3 = unmanaged project handing over raw S-Log3: stops = delta/7.7.
+    // percent = no defensible stop conversion; raw percentages only.
+    const exposureModel = rcm
+      ? (/gamma 2\.4/i.test(outSpace) ? "gamma24" : "percent")
+      : (clips.some((c) => c.slog3) ? "slog3" : "percent");
+    const stopsFrom = (level) => {
+      if (median === null || !level) return null;
+      if (exposureModel === "gamma24")
+        return +(2.4 * Math.log2(level / median)).toFixed(2);
+      if (exposureModel === "slog3")
+        return +((level - median) / SLOG3_PCT_PER_STOP).toFixed(2);
+      return null;
+    };
     for (const c of clips) {
       if (!c.stats || !c.stats.channels) continue;
       for (let ch = 0; ch < 3; ch++) {
@@ -1119,16 +1145,19 @@ tool("qc_scan",
       }
       if (median !== null && c.mean_level_pct !== undefined) {
         const d = +(c.mean_level_pct - median).toFixed(2);
-        if (Math.abs(d) > SLOG3_PCT_PER_STOP) {
-          const flag = { clip: c.name, kind: "exposure-outlier",
+        const st = stopsFrom(c.mean_level_pct);
+        const over = st !== null ? Math.abs(st) > 1
+                                 : Math.abs(d) > 10;
+        if (st !== null) c.exposure_stops_vs_median = st;
+        if (over)
+          flags.push({ clip: c.name, kind: "exposure-outlier",
             detail: (d > 0 ? "+" : "") + d + "% of scale vs timeline "
-              + "median " + median + "%" };
-          if (c.slog3)
-            flag.detail += " ≈ " + (d > 0 ? "+" : "")
-              + (d / SLOG3_PCT_PER_STOP).toFixed(1)
-              + " stops (S-Log3 slope)";
-          flags.push(flag);
-        }
+              + "median " + median + "%"
+              + (st !== null
+                 ? " ≈ " + (st > 0 ? "+" : "") + st + " stops ("
+                   + (exposureModel === "gamma24"
+                      ? "via output gamma 2.4" : "S-Log3 slope") + ")"
+                 : " (no stop conversion for this pipeline)") });
       }
       if (c.cast && (Math.abs(c.cast.r_minus_g_pct) > 3
                      || Math.abs(c.cast.b_minus_g_pct) > 3))
@@ -1143,6 +1172,11 @@ tool("qc_scan",
       timeline: tl.GetName(), track,
       measured: preGrade ? "pre-grade source pixels (true source frames)"
                          : "graded timeline render",
+      measurement_space: rcm
+        ? "RCM output-referred (" + (outSpace || "unknown output space")
+          + ") — the display transform is baked into every number"
+        : "raw source code values (unmanaged project)",
+      exposure_model: exposureModel,
       clips_scanned: clips.length,
       clips_total: items.length,
       remaining_hint: first - 1 + clips.length < items.length
@@ -1150,8 +1184,9 @@ tool("qc_scan",
       timeline_median_level_pct: median,
       clips, flags,
       thresholds: { plateau_pct: 0.5, cast_pct: 3,
-                    exposure_outlier: "1 S-Log3 stop ("
-                      + SLOG3_PCT_PER_STOP + "% of scale)" },
+                    exposure_outlier: exposureModel === "percent"
+                      ? "10% of scale (no stop conversion available)"
+                      : "1 stop (" + exposureModel + " model)" },
     };
   });
 
