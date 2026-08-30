@@ -22,7 +22,7 @@ const APPROVAL_TIMEOUT_MS = 120000;
 
 const READONLY_TOOLS = new Set([
   "get_workspace_overview", "list_media_pool", "get_clip_properties",
-  "pipeline_doctor",
+  "pipeline_doctor", "study_edit",
   "list_timelines", "list_markers", "list_render_presets",
   "get_render_status", "move_playhead", "open_page",
   // grab_still LOOKS at a frame: the gallery still it makes is deleted
@@ -1941,6 +1941,206 @@ tool("label_nodes",
     return { clip: item.GetName(), settable: true, nodes: results };
   });
 
+// ------------------------------------------------------ Phase 6: study_edit
+// "Training" done honestly: break a finished edit down into measurable
+// style — cut rhythm, shot lengths, exposure and cast tendencies — and
+// persist it as a profile future sessions read. No model weights change;
+// the profile file IS the memory, and the user can open and correct it.
+const STYLE_DIR = path.join(os.homedir(), "ClaudeAssistantStyle");
+
+function percentile(sorted, p) {
+  if (!sorted.length) return null;
+  const at = Math.min(sorted.length - 1,
+                      Math.max(0, Math.round(p * (sorted.length - 1))));
+  return sorted[at];
+}
+
+// diffs[i] = mean abs pixel difference between samples i and i+1 (% of
+// full scale, RGB-averaged). A run of over-threshold entries is ONE cut
+// (a cut plus settling, or a whip pan) — collapse it.
+function detectCuts(diffs, threshold) {
+  const cuts = [];
+  let inRun = false;
+  for (let i = 0; i < diffs.length; i++) {
+    if (diffs[i] >= threshold) { if (!inRun) cuts.push(i); inRun = true; }
+    else inRun = false;
+  }
+  return cuts;
+}
+
+function styleAggregate(edits) {
+  const lens = edits.flatMap((e) => e.shot_lengths_s || [])
+                    .sort((x, y) => x - y);
+  const levels = edits.flatMap((e) => (e.shots || [])
+                       .map((sh) => sh.mean_level_pct))
+                      .filter((v) => v !== null && v !== undefined)
+                      .sort((x, y) => x - y);
+  const casts = edits.flatMap((e) => (e.shots || []));
+  const totalS = edits.reduce((t, e) => t + (e.duration_s || 0), 0);
+  const totalCuts = edits.reduce((t, e) => t + (e.cuts || 0), 0);
+  const warm = casts.filter((sh) => (sh.cast_rg || 0) > 1).length;
+  const cool = casts.filter((sh) => (sh.cast_bg || 0) > 1).length;
+  return {
+    edits_studied: edits.length,
+    total_duration_s: +totalS.toFixed(1),
+    cuts_per_minute: totalS ? +(60 * totalCuts / totalS).toFixed(1) : null,
+    shot_length_s: { median: percentile(lens, 0.5),
+                     p25: percentile(lens, 0.25),
+                     p75: percentile(lens, 0.75),
+                     shortest: lens[0] || null,
+                     longest: lens[lens.length - 1] || null },
+    mean_level_pct_median: percentile(levels, 0.5),
+    dark_shot_fraction: casts.length
+      ? +(casts.filter((sh) => (sh.mean_level_pct || 0) < 25).length
+          / casts.length).toFixed(2) : null,
+    cast_tendency: casts.length
+      ? (warm > cool * 1.5 ? "warm-leaning"
+         : cool > warm * 1.5 ? "cool-leaning" : "mixed/neutral")
+      : null,
+  };
+}
+
+tool("study_edit",
+  "Study a finished edit on the current timeline and distill its style "
+  + "into a persistent profile (~/ClaudeAssistantStyle/<name>.json) that "
+  + "future assemble/grade work reads. Samples frames at interval_frames "
+  + "(default half a second), detects cuts as big neighbour-sample pixel "
+  + "diffs (cut_threshold, default 8% mean — a heuristic: calibrate "
+  + "against the returned diff_series on the first run), measures each "
+  + "shot at full depth (exposure, cast), and merges the findings into "
+  + "the profile. Grab files are deleted as it goes. SLOW (~2-3s per "
+  + "sample) and batched: max_samples per call (default 40), resume via "
+  + "start_frame from the previous result's next_start_frame until it "
+  + "returns null, then the edit's entry is finalised.",
+  { name: { type: "string",
+            description: "Profile name (default 'car-edits')." },
+    source: { type: "string",
+              description: "Label for what's being studied (default the "
+                           + "timeline name)." },
+    interval_frames: { type: "number",
+                       description: "Sampling stride in frames (default "
+                                    + "fps/2 = 0.5s)." },
+    cut_threshold: { type: "number",
+                     description: "Mean pixel diff (%) that counts as a "
+                                  + "cut; default 8." },
+    max_samples: { type: "number",
+                   description: "Samples this call (default 40, cap "
+                                + "400)." },
+    start_frame: { type: "number",
+                   description: "Resume cursor from the previous call's "
+                                + "next_start_frame." },
+    out_dir: { type: "string",
+               description: "Scratch dir for grabs; default /tmp." } },
+  [], async (state, a) => {
+    const tl = timeline(state);
+    const fps = Number(tl.GetSetting("timelineFrameRate")) || 24;
+    const interval = Math.max(1, Math.round(Number(a.interval_frames)
+                                            || fps / 2));
+    const tlStart = typeof tl.GetStartFrame === "function"
+                    ? Number(tl.GetStartFrame()) : 0;
+    const tlEnd = typeof tl.GetEndFrame === "function"
+                  ? Number(tl.GetEndFrame()) : tlStart;
+    const startF = a.start_frame !== undefined
+                   ? Number(a.start_frame) : tlStart;
+    const maxSamples = Math.max(2, Math.min(400,
+                                            Number(a.max_samples) || 40));
+    const threshold = Number(a.cut_threshold) || 8;
+    const grabEntry = TOOLS.find((t) => t.name === "grab_still");
+    const samples = [];
+    const diffs = [];
+    let prev = null;
+    let frame = startF;
+    for (let n = 0; n < maxSamples && frame <= tlEnd;
+         n++, frame += interval) {
+      const g = await grabEntry.fn(state, {
+        timecode: frameToTimecode(frame, fps), format: "tif",
+        out_dir: a.out_dir });
+      const buf = fs.readFileSync(g.measurement_file);
+      const info = parseTiff(buf);
+      // Delete immediately — a study pass would otherwise strand GBs.
+      try { fs.unlinkSync(g.measurement_file); } catch (e) {}
+      if (g.proxy_png && g.proxy_png !== g.measurement_file) {
+        try { fs.unlinkSync(g.proxy_png); } catch (e) {}
+      }
+      const st = tiffStats(buf, info);
+      const ch = st.channels;
+      samples.push({
+        frame,
+        mean_level_pct: ch
+          ? +(ch.reduce((t, c) => t + c.mean_pct, 0) / 3).toFixed(2)
+          : null,
+        cast_rg: ch ? +(ch[0].mean_pct - ch[1].mean_pct).toFixed(2) : null,
+        cast_bg: ch ? +(ch[2].mean_pct - ch[1].mean_pct).toFixed(2) : null,
+      });
+      if (prev && prev.info && info) {
+        const d = tiffDiffStats(prev.buf, prev.info, buf, info);
+        diffs.push(d.mean_abs_diff_rgb_pct
+          ? +(d.mean_abs_diff_rgb_pct.reduce((t, v) => t + v, 0) / 3)
+              .toFixed(2)
+          : 0);
+      }
+      prev = { buf, info };
+    }
+    const done = frame > tlEnd;
+    const cuts = detectCuts(diffs, threshold);
+    // Shot spans between cut boundaries, measured at their middle sample.
+    const bounds = [0].concat(cuts.map((c) => c + 1));
+    bounds.push(samples.length);
+    const shots = [];
+    for (let b = 0; b + 1 < bounds.length; b++) {
+      const from = bounds[b], to = bounds[b + 1] - 1;
+      if (to < from) continue;
+      const mid = samples[Math.floor((from + to) / 2)];
+      shots.push({
+        start_timecode: frameToTimecode(samples[from].frame, fps),
+        length_s: +(((to - from + 1) * interval) / fps).toFixed(2),
+        mean_level_pct: mid.mean_level_pct,
+        cast_rg: mid.cast_rg, cast_bg: mid.cast_bg,
+      });
+    }
+    // Merge into the persistent profile.
+    fs.mkdirSync(STYLE_DIR, { recursive: true });
+    const profName = String(a.name || "car-edits")
+      .replace(/[^\w.-]+/g, "_").slice(0, 60);
+    const profFile = path.join(STYLE_DIR, profName + ".json");
+    let profile = { name: profName, edits: [] };
+    try { profile = JSON.parse(fs.readFileSync(profFile, "utf8")); }
+    catch (e) {}
+    const source = String(a.source || tl.GetName());
+    let entry = profile.edits.find((e) => e.source === source
+                                          && !e.complete);
+    if (!entry) {
+      entry = { source, studied: new Date().toISOString(),
+                duration_s: 0, cuts: 0, shot_lengths_s: [], shots: [] };
+      profile.edits.push(entry);
+    }
+    entry.duration_s = +(entry.duration_s
+      + (samples.length * interval) / fps).toFixed(1);
+    entry.cuts += cuts.length;
+    for (const sh of shots) {
+      entry.shot_lengths_s.push(sh.length_s);
+      entry.shots.push(sh);
+    }
+    if (done) entry.complete = true;
+    profile.aggregate = styleAggregate(profile.edits);
+    profile.updated = new Date().toISOString();
+    fs.writeFileSync(profFile, JSON.stringify(profile, null, 2));
+    return {
+      studied: source, samples: samples.length,
+      interval_frames: interval, cut_threshold: threshold,
+      cuts_this_batch: cuts.length,
+      shots_this_batch: shots.slice(0, 50),
+      diff_series: diffs.slice(0, 150),
+      next_start_frame: done ? null : frame,
+      batch_note: done
+        ? "Edit fully studied — profile entry finalised."
+        : "More timeline remains: call again with start_frame "
+          + frame + ".",
+      profile_file: profFile,
+      aggregate: profile.aggregate,
+    };
+  });
+
 // Settles "are these two grabs the same image?" with arithmetic instead of
 // eyeballs — the model's JS sandbox has no fs, but this process does.
 function tiffDiffStats(bufA, infoA, bufB, infoB) {
@@ -2127,5 +2327,6 @@ module.exports = {
   startBridge, TOOLS,
   parseTiff, tiffCensus, parseExr, effectiveDepthLabel, shrinkProxy,
   parseSonySidecar, tiffStats, matchGate, deriveCdl, displayPctToDi,
-  diDecode, applyLook, generateCube,
+  diDecode, applyLook, generateCube, detectCuts, styleAggregate,
+  percentile,
 };

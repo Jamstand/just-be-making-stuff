@@ -115,6 +115,8 @@ function fakeResolve(mediaDir) {
       grabState.calls += 1;
       return grabState.calls < 2 ? null : { still: true };
     },
+    GetStartFrame: () => 86400,
+    GetEndFrame: () => 86448,
     GetCurrentVideoItem: () => currentItem,
     GetItemListInTrack: (kind, idx) =>
       (kind === "video" && idx === 1 ? [currentItem, secondItem] : []),
@@ -578,6 +580,49 @@ async function main() {
   check("label_nodes hands back the manual .drx route otherwise",
         rL.ok && rL.text.includes('"settable":false')
         && rL.text.includes("grade_template save"), rL.text);
+
+  // study_edit: cut detection units + profile round trip
+  check("detectCuts collapses runs and respects the threshold",
+        JSON.stringify(tools.detectCuts([1, 2, 50, 3, 60, 61, 2], 8))
+          === "[2,4]"
+        && tools.detectCuts([1, 2, 3], 8).length === 0);
+  check("styleAggregate summarises across edits",
+        (() => { const ag = tools.styleAggregate([
+            { duration_s: 30, cuts: 10,
+              shot_lengths_s: [1, 2, 3],
+              shots: [{ mean_level_pct: 20, cast_rg: 2, cast_bg: 0 }] },
+            { duration_s: 30, cuts: 20,
+              shot_lengths_s: [0.5, 1.5],
+              shots: [{ mean_level_pct: 60, cast_rg: 3, cast_bg: -1 }] }]);
+          return ag.edits_studied === 2 && ag.cuts_per_minute === 30
+                 && ag.shot_length_s.median === 1.5
+                 && ag.cast_tendency === "warm-leaning"; })());
+  const styleFile = path.join(osmod.homedir(), "ClaudeAssistantStyle",
+                              "test_profile.json");
+  try { fsmod.unlinkSync(styleFile); } catch (e) {}
+  const tifsBefore = fsmod.readdirSync(stillDir)
+    .filter((n) => n.endsWith(".tif")).length;
+  let rS = await tools.executeTool(state, "study_edit",
+    { name: "test profile", source: "unit-edit", out_dir: stillDir,
+      max_samples: 3, interval_frames: 12 });
+  check("study_edit samples, detects, and writes the profile",
+        rS.ok && rS.text.includes('"samples":3')
+        && rS.text.includes('"cuts_this_batch":0')
+        && fsmod.existsSync(styleFile), rS.text);
+  check("study_edit deletes its grab files as it goes",
+        fsmod.readdirSync(stillDir).filter((n) => n.endsWith(".tif"))
+          .length === tifsBefore,
+        String(fsmod.readdirSync(stillDir)));
+  rS = await tools.executeTool(state, "study_edit",
+    { name: "test profile", source: "unit-edit", out_dir: stillDir,
+      max_samples: 3, interval_frames: 12,
+      start_frame: JSON.parse(rS.text).next_start_frame || 86436 });
+  const prof = JSON.parse(fsmod.readFileSync(styleFile, "utf8"));
+  check("study_edit resumes into the same entry and finalises",
+        rS.ok && prof.edits.length === 1
+        && prof.edits[0].complete === true
+        && prof.aggregate.edits_studied === 1, JSON.stringify(prof));
+  try { fsmod.unlinkSync(styleFile); } catch (e) {}
 
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
