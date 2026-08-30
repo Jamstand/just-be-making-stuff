@@ -112,17 +112,39 @@ both `acs.exe` and `acs_x86.exe` unchanged.
 
 ## If it doesn't show up
 
-An AC app that throws an exception doesn't report an error — it just silently
-never appears in the sidebar. Check, in order:
+Run **`check-gearspeedo.ps1`** (right-click → Run with PowerShell). It's
+read-only — it just looks at your files and tells you which step is wrong. If
+it can't find your AC folder, pass it in:
 
-1. `Documents\Assetto Corsa\logs\py_log.txt` — tracebacks land here, prefixed
-   with the app name. This app also logs `GearSpeedo: loaded` on a good start,
-   so if you don't see that line it never got off the ground.
-2. `Documents\Assetto Corsa\logs\log.txt` — search for `GearSpeedo`.
-3. The in-game console — the **Home** key toggles it.
+```powershell
+.\check-gearspeedo.ps1 -AcRoot "D:\Steam\steamapps\common\assettocorsa"
+```
 
-Common causes: the folder isn't named exactly `GearSpeedo`, or **Enable Python
-apps** is off, or the app is installed but not ticked in the activated list.
+To do it by hand instead, the app writes two markers to
+`Documents\Assetto Corsa\logs\py_log.txt`, and which ones are present tells
+you exactly where it broke:
+
+| In py_log.txt | Meaning |
+| --- | --- |
+| neither marker | AC never loaded the app — it isn't activated, or the files aren't in `apps/python/GearSpeedo/` |
+| `module imported` only | the file loaded but `acMain` failed — a traceback will be right after it |
+| `module imported` + `loaded` | the app is running fine; it's a "where is it on screen" problem, not a loading one |
+
+An AC app that throws never reports an error in-game — it just silently doesn't
+appear — so the log is the only place that tells you the truth.
+
+The three usual causes, in order of likelihood:
+
+1. **Not ticked.** Content Manager → Settings → Assetto Corsa → Apps →
+   find Gear Speedo in the activated list and tick it.
+2. **Python apps off entirely.** Same page, the **Enable Python apps** switch.
+3. **Wrong folder.** It must be exactly
+   `<AC root>/apps/python/GearSpeedo/GearSpeedo.py` — folder name and file name
+   matching. A zip extracted one level too deep (`.../GearSpeedo/GearSpeedo/`)
+   is the classic one.
+
+Also worth knowing: apps are loaded when a **session starts**, so tick the box
+and then start a new session — it won't appear in one already running.
 
 ## Notes
 

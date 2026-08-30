@@ -20,6 +20,12 @@ import acsys
 import os
 import traceback
 
+# Logged the moment AC imports this file, before anything can go wrong. If
+# py_log.txt has this line but not "loaded", the module imported and acMain
+# failed. If it has neither, AC never loaded the app at all -- which means it
+# is not activated, or not in apps/python/GearSpeedo/GearSpeedo.py.
+ac.log("GearSpeedo: module imported")
+
 
 # ---------------------------------------------------------------- constants
 
