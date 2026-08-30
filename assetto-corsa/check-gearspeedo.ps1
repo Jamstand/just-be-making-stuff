@@ -149,7 +149,13 @@ if (Test-Path $pyLog) {
         if ($failed) {
             Say ""
             Info "Error detail from py_log.txt (send this to Claude):"
-            $hits | Select-Object -Last 25 | ForEach-Object { Info ("  " + $_.Line) }
+            # The traceback lines under a failure do not contain 'GearSpeedo',
+            # so pull each failure line WITH the lines that follow it.
+            $detail = Select-String -Path $pyLog -Pattern "GearSpeedo.*failed" -Context 0,10
+            foreach ($d in ($detail | Select-Object -Last 2)) {
+                Info ("  " + $d.Line)
+                $d.Context.PostContext | ForEach-Object { Info ("  " + $_) }
+            }
         }
     }
 } else {
