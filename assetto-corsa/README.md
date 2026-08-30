@@ -3,6 +3,34 @@
 A small in-game dashboard for Assetto Corsa: the gear you're in, road speed,
 and an 18-segment RPM bar with shift lights.
 
+**Two builds. Pick one:**
+
+| | Install to | Use when |
+| --- | --- | --- |
+| **Lua** (recommended) | `apps/lua/GearSpeedo/` | You have Custom Shaders Patch. Shows up in the CSP app list on its own, no activation step. Window is draggable and resizable natively, and it reads the rev limit straight from the sim. |
+| **Python** | `apps/python/GearSpeedo/` | No CSP, or you prefer the stock app system. Needs enabling in Content Manager first. |
+
+They look and behave the same. If you have CSP, use the Lua one — it's fewer
+moving parts and there is nothing to switch on.
+
+## Lua version (CSP)
+
+Copy `apps/lua/GearSpeedo/` into `<AC root>/apps/lua/`, so you end up with:
+
+```
+<AC root>/apps/lua/GearSpeedo/GearSpeedo.lua
+<AC root>/apps/lua/GearSpeedo/manifest.ini
+<AC root>/apps/lua/GearSpeedo/icon.png
+```
+
+That's the whole install. Start a session, open the app list, and **Gear
+Speedo** is under *Your apps* — no ini editing and no activation checkbox,
+because CSP picks up Lua apps from the folder directly.
+
+Drag the window to move it, drag its edge to resize it (everything scales
+with the window). The gear icon in its title bar opens settings: speed on/off,
+KM/H or MPH, and where the shift light kicks in.
+
 ![Gear Speedo in each of its states](preview.png)
 
 The gear is the hero — big, centre-left, and it turns red when you should be
