@@ -426,6 +426,38 @@ function timecodeToFrame(tc, fps) {
   return ((p[0] * 60 + p[1]) * 60 + p[2]) * nominal + p[3];
 }
 
+// Drop-frame conversion (29.97/59.94 families): true frame count ->
+// "hh:mm:ss;ff". Heidelberger algorithm; unit-tested against the standard
+// vectors (29.97 frame 1800 -> 00:01:00;02, 59.94 frame 3600 -> 00:01:00;04).
+function dropFrameTimecode(frame, fps) {
+  const fpsInt = Math.round(fps);
+  const drop = Math.round(fpsInt / 15);           // 2 for 29.97, 4 for 59.94
+  const perMin = fpsInt * 60 - drop;
+  const per10 = fpsInt * 600 - drop * 9;
+  const tens = Math.floor(frame / per10);
+  const rem = frame % per10;
+  let fn = frame + drop * 9 * tens;
+  if (rem > drop) fn += drop * Math.floor((rem - drop) / perMin);
+  const pad = (n) => String(n).padStart(2, "0");
+  return pad(Math.floor(fn / (fpsInt * 3600))) + ":" +
+         pad(Math.floor(fn / (fpsInt * 60)) % 60) + ":" +
+         pad(Math.floor(fn / fpsInt) % 60) + ";" + pad(fn % fpsInt);
+}
+
+// The label a given TIMELINE actually uses for a frame: drop-frame when the
+// timeline says so (a nominal non-drop label on a DF timeline lands on
+// dropped numbers and never matches the readback — review-confirmed).
+function timelineLabel(tl, frame) {
+  const fps = Number(tl.GetSetting("timelineFrameRate")) || 24;
+  let drop = false;
+  try { drop = String(tl.GetSetting("timelineDropFrameTimecode")) === "1"; }
+  catch (e) {}
+  const dfFamily = Math.abs(fps - 29.97) < 0.05
+                   || Math.abs(fps - 59.94) < 0.1;
+  return drop && dfFamily ? dropFrameTimecode(frame, fps)
+                          : frameToTimecode(frame, fps);
+}
+
 function frameToTimecode(frame, fps) {
   // Nominal-rate, non-drop conversion (59.94 -> 60): fine for parking on a
   // frame to grab it; not an editorial-accuracy TC calculator.
@@ -501,7 +533,11 @@ tool("grab_still",
                  description: "Grab the ungraded source via a temporary "
                               + "timeline (created and deleted again)." },
     out_dir: { type: "string",
-               description: "Export directory; default /tmp." } },
+               description: "Export directory; default /tmp." },
+    no_proxy: { type: "boolean",
+                description: "Skip the vision proxy entirely — for "
+                             + "measurement sweeps that only read numbers "
+                             + "(halves the per-grab cost)." } },
   [], async (state, a) => {
     const resolve = state.resolve;
     const proj = project(state);
@@ -509,7 +545,7 @@ tool("grab_still",
     const format = ["tif", "png"].includes(a.format) ? a.format : "tif";
     let tc = a.timecode ? String(a.timecode) : null;
     if (!tc && a.frame !== undefined && a.frame !== null)
-      tc = frameToTimecode(a.frame, tl.GetSetting("timelineFrameRate"));
+      tc = timelineLabel(tl, Math.floor(Number(a.frame)));
 
     const previousPage = resolve.GetCurrentPage();
     resolve.OpenPage("color");            // GrabStill only works from Color
@@ -522,7 +558,9 @@ tool("grab_still",
       // scan: reading the playhead straight back returned the previous
       // position, clamping clips 3-9 to their first source frame). Wait
       // for the park to land before grabbing or computing from it.
-      for (let i = 0; i < 10 && tl.GetCurrentTimecode() !== tc; i++)
+      const normTc = (t) => String(t || "").replace(/;/g, ":");
+      for (let i = 0; i < 10 && normTc(tl.GetCurrentTimecode())
+                                !== normTc(tc); i++)
         await sleep(200);
       await sleep(300);
     }
@@ -595,9 +633,10 @@ tool("grab_still",
         // captures whatever frame is on screen (live-verified — three runs,
         // three different frames). Wait for the readback, then settle.
         let readback = null;
+        const normDest = String(dest).replace(/;/g, ":");
         for (let i = 0; i < 10; i++) {
           readback = grabTl.GetCurrentTimecode();
-          if (readback === dest) break;
+          if (String(readback || "").replace(/;/g, ":") === normDest) break;
           await sleep(200);
         }
         await sleep(400);
@@ -609,7 +648,8 @@ tool("grab_still",
                    temp_fps: tempFps, temp_item_start: tempItem.GetStart(),
                    temp_left_offset: tempLeft, dest_frame: destFrame,
                    temp_timecode: dest, temp_readback: readback,
-                   parked: readback === dest };
+                   parked: String(readback || "").replace(/;/g, ":")
+                           === normDest };
       }
 
       const gallery = proj.GetGallery();
@@ -637,8 +677,10 @@ tool("grab_still",
                                            "claude_m" + stamp, format);
         if (!measurePath) continue;
         usedDir = dir;
-        proxyPath = format === "png" ? measurePath
-          : await exportOneStill(album, still, dir, "claude_p" + stamp, "png");
+        proxyPath = a.no_proxy ? null
+          : format === "png" ? measurePath
+          : await exportOneStill(album, still, dir, "claude_p" + stamp,
+                                 "png");
         break;
       }
       try { album.DeleteStills([still]); } catch (e) {}
@@ -1081,11 +1123,9 @@ tool("qc_scan",
         // Direct fn call: qc_scan itself carried the approval; per-grab
         // prompts would turn one consented scan into N nag cards.
         const grab = await grabEntry.fn(state, {
-          timecode: frameToTimecode(mid, tlFps),
-          format: "tif", pre_grade: preGrade,
-          out_dir: a.out_dir,
+          frame: mid, format: "tif", pre_grade: preGrade,
+          out_dir: a.out_dir, no_proxy: true,
         });
-        delete grab._images;               // numbers only; proxies stay on disk
         row.measurement_file = grab.measurement_file;
         row.timecode = grab.timecode;
         const stats = tiffStats(fs.readFileSync(grab.measurement_file),
@@ -1311,10 +1351,10 @@ tool("match_shot",
     const tlFps = Number(tl.GetSetting("timelineFrameRate")) || 24;
     const nodeIndex = Number(a.node_index) || 1;
     const grabEntry = TOOLS.find((t) => t.name === "grab_still");
-    const midTc = (item) => frameToTimecode(item.GetStart()
-      + Math.floor((Number(item.GetDuration()) || 2) / 2), tlFps);
+    const midFrame = (item) => item.GetStart()
+      + Math.floor((Number(item.GetDuration()) || 2) / 2);
     const measure = async (item) => {
-      const g = await grabEntry.fn(state, { timecode: midTc(item),
+      const g = await grabEntry.fn(state, { frame: midFrame(item),
                                             format: "tif",
                                             out_dir: a.out_dir });
       const buf = fs.readFileSync(g.measurement_file);
@@ -2019,13 +2059,17 @@ tool("study_edit",
                            + "timeline name)." },
     interval_frames: { type: "number",
                        description: "Sampling stride in frames (default "
-                                    + "fps/2 = 0.5s)." },
+                                    + "fps/2 = 0.5s). Cuts faster than "
+                                    + "one per stride merge together — "
+                                    + "shrink this for machine-gun "
+                                    + "editing." },
     cut_threshold: { type: "number",
                      description: "Mean pixel diff (%) that counts as a "
                                   + "cut; default 8." },
     max_samples: { type: "number",
                    description: "Samples this call (default 40, cap "
-                                + "400)." },
+                                + "400; a ~90s wall-clock budget stops "
+                                + "the batch early regardless)." },
     start_frame: { type: "number",
                    description: "Resume cursor from the previous call's "
                                 + "next_start_frame." },
@@ -2038,107 +2082,193 @@ tool("study_edit",
                                             || fps / 2));
     const tlStart = typeof tl.GetStartFrame === "function"
                     ? Number(tl.GetStartFrame()) : 0;
+    // GetEndFrame is one PAST the last content frame (review-confirmed):
+    // the walk stays strictly below it.
     const tlEnd = typeof tl.GetEndFrame === "function"
-                  ? Number(tl.GetEndFrame()) : tlStart;
-    const startF = a.start_frame !== undefined
-                   ? Number(a.start_frame) : tlStart;
+                  ? Number(tl.GetEndFrame()) : tlStart + 1;
     const maxSamples = Math.max(2, Math.min(400,
                                             Number(a.max_samples) || 40));
     const threshold = Number(a.cut_threshold) || 8;
     const grabEntry = TOOLS.find((t) => t.name === "grab_still");
-    const samples = [];
-    const diffs = [];
-    let prev = null;
-    let frame = startF;
-    for (let n = 0; n < maxSamples && frame <= tlEnd;
-         n++, frame += interval) {
-      const g = await grabEntry.fn(state, {
-        timecode: frameToTimecode(frame, fps), format: "tif",
-        out_dir: a.out_dir });
-      const buf = fs.readFileSync(g.measurement_file);
-      const info = parseTiff(buf);
-      // Delete immediately — a study pass would otherwise strand GBs.
-      try { fs.unlinkSync(g.measurement_file); } catch (e) {}
-      if (g.proxy_png && g.proxy_png !== g.measurement_file) {
-        try { fs.unlinkSync(g.proxy_png); } catch (e) {}
-      }
-      const st = tiffStats(buf, info);
-      const ch = st.channels;
-      samples.push({
-        frame,
-        mean_level_pct: ch
-          ? +(ch.reduce((t, c) => t + c.mean_pct, 0) / 3).toFixed(2)
-          : null,
-        cast_rg: ch ? +(ch[0].mean_pct - ch[1].mean_pct).toFixed(2) : null,
-        cast_bg: ch ? +(ch[2].mean_pct - ch[1].mean_pct).toFixed(2) : null,
-      });
-      if (prev && prev.info && info) {
-        const d = tiffDiffStats(prev.buf, prev.info, buf, info);
-        diffs.push(d.mean_abs_diff_rgb_pct
-          ? +(d.mean_abs_diff_rgb_pct.reduce((t, v) => t + v, 0) / 3)
-              .toFixed(2)
-          : 0);
-      }
-      prev = { buf, info };
-    }
-    const done = frame > tlEnd;
-    const cuts = detectCuts(diffs, threshold);
-    // Shot spans between cut boundaries, measured at their middle sample.
-    const bounds = [0].concat(cuts.map((c) => c + 1));
-    bounds.push(samples.length);
-    const shots = [];
-    for (let b = 0; b + 1 < bounds.length; b++) {
-      const from = bounds[b], to = bounds[b + 1] - 1;
-      if (to < from) continue;
-      const mid = samples[Math.floor((from + to) / 2)];
-      shots.push({
-        start_timecode: frameToTimecode(samples[from].frame, fps),
-        length_s: +(((to - from + 1) * interval) / fps).toFixed(2),
-        mean_level_pct: mid.mean_level_pct,
-        cast_rg: mid.cast_rg, cast_bg: mid.cast_bg,
-      });
-    }
-    // Merge into the persistent profile.
+    const t0 = Date.now();
+    const TIME_BUDGET_MS = 90000;
+
+    // ---- profile load, with corruption survival (never clobber silently)
     fs.mkdirSync(STYLE_DIR, { recursive: true });
     const profName = String(a.name || "car-edits")
       .replace(/[^\w.-]+/g, "_").slice(0, 60);
     const profFile = path.join(STYLE_DIR, profName + ".json");
-    let profile = { name: profName, edits: [] };
-    try { profile = JSON.parse(fs.readFileSync(profFile, "utf8")); }
-    catch (e) {}
+    let profile = null, recoveredFrom = null;
+    if (fs.existsSync(profFile)) {
+      try {
+        profile = JSON.parse(fs.readFileSync(profFile, "utf8"));
+        if (!profile || !Array.isArray(profile.edits))
+          throw new Error("profile has no edits array");
+      } catch (e) {
+        // Keep the damaged bytes — hours of study may be recoverable by
+        // hand; never overwrite them wholesale.
+        recoveredFrom = profFile + ".corrupt-" + Date.now().toString(36);
+        try { fs.renameSync(profFile, recoveredFrom); } catch (e2) {}
+        profile = null;
+      }
+    }
+    if (!profile) profile = { name: profName, edits: [] };
+
     const source = String(a.source || tl.GetName());
+    // A resume must name the exact cursor the previous batch handed back;
+    // anything else is a FRESH study (Number(null) === 0 must not send us
+    // to frame zero — review-confirmed footgun).
+    const wantsResume = a.start_frame !== undefined
+                        && a.start_frame !== null
+                        && Number.isFinite(Number(a.start_frame));
     let entry = profile.edits.find((e) => e.source === source
-                                          && !e.complete);
-    if (!entry) {
+                                          && !e.complete && e.pending);
+    let resuming = false;
+    if (wantsResume && entry
+        && Number(a.start_frame) === entry.pending.next_frame) {
+      resuming = true;
+    } else {
+      if (entry)                       // stale partial: replace, don't blend
+        profile.edits = profile.edits.filter((e) => e !== entry);
       entry = { source, studied: new Date().toISOString(),
-                duration_s: 0, cuts: 0, shot_lengths_s: [], shots: [] };
+                samples_counted: 0, duration_s: 0, cuts: 0,
+                shot_lengths_s: [], shots: [],
+                interval_frames: interval };
       profile.edits.push(entry);
     }
-    entry.duration_s = +(entry.duration_s
-      + (samples.length * interval) / fps).toFixed(1);
-    entry.cuts += cuts.length;
-    for (const sh of shots) {
-      entry.shot_lengths_s.push(sh.length_s);
-      entry.shots.push(sh);
+
+    // ---- streaming shot/cut state, persisted across batches in pending
+    let shot = null, inRun = false, prev = null;
+    let frame = resuming ? entry.pending.next_frame : tlStart;
+    if (resuming) {
+      inRun = !!entry.pending.in_run;
+      shot = entry.pending.shot || null;
+      // Rejoin the seam: re-grab the previous batch's last sample so the
+      // boundary diff exists (its absence silently ate seam cuts and split
+      // every seam-spanning shot — review-confirmed with pixels).
+      try {
+        const g0 = await grabEntry.fn(state, {
+          frame: entry.pending.prev_frame, format: "tif",
+          out_dir: a.out_dir, no_proxy: true });
+        const buf0 = fs.readFileSync(g0.measurement_file);
+        try { fs.unlinkSync(g0.measurement_file); } catch (e) {}
+        prev = { buf: buf0, info: parseTiff(buf0) };
+      } catch (e) { prev = null; }      // seam diff lost, batch still runs
     }
-    if (done) entry.complete = true;
+    const closeShot = () => {
+      if (!shot || !shot.n) { shot = null; return; }
+      const m = shot.measured || 0;
+      const done = {
+        start_timecode: frameToTimecode(shot.start_frame, fps),
+        length_s: +((shot.n * interval) / fps).toFixed(2),
+        mean_level_pct: m ? +(shot.sum_level / m).toFixed(2) : null,
+        cast_rg: m ? +(shot.sum_rg / m).toFixed(2) : null,
+        cast_bg: m ? +(shot.sum_bg / m).toFixed(2) : null,
+      };
+      entry.shots.push(done);
+      entry.shot_lengths_s.push(done.length_s);
+      shot = null;
+    };
+
+    const diffs = [];
+    let sampled = 0, cutsThisBatch = 0, unmeasured = 0, stopNote = null;
+    while (sampled < maxSamples && frame < tlEnd
+           && Date.now() - t0 < TIME_BUDGET_MS) {
+      let buf = null, info = null, st = null;
+      // One failed grab must not discard the whole batch's work
+      // (review-confirmed): retry once, then stop here resumable.
+      for (let attempt = 0; attempt < 2 && !buf; attempt++) {
+        try {
+          const g = await grabEntry.fn(state, {
+            frame, format: "tif", out_dir: a.out_dir, no_proxy: true });
+          buf = fs.readFileSync(g.measurement_file);
+          try { fs.unlinkSync(g.measurement_file); } catch (e) {}
+        } catch (e) {
+          if (attempt === 1)
+            stopNote = "sample at frame " + frame + " failed twice ("
+              + e.message + ") — batch stopped there, resume to retry";
+        }
+      }
+      if (!buf) break;
+      info = parseTiff(buf);
+      st = tiffStats(buf, info);
+      const ch = st && st.channels;
+      let diff = null;
+      if (prev && prev.info && info) {
+        const d = tiffDiffStats(prev.buf, prev.info, buf, info);
+        if (d.mean_abs_diff_rgb_pct)
+          diff = +(d.mean_abs_diff_rgb_pct.reduce((t, v) => t + v, 0) / 3)
+            .toFixed(2);
+      }
+      // A failed measurement is UNKNOWN, not "no cut" (review-confirmed):
+      // it leaves the run state alone and is counted separately.
+      if (diff === null && prev) unmeasured += 1;
+      diffs.push(diff);
+      if (diff !== null && diff >= threshold) {
+        if (!inRun) {
+          closeShot();
+          entry.cuts += 1;
+          cutsThisBatch += 1;
+        }
+        inRun = true;
+      } else if (diff !== null) inRun = false;
+      if (!shot) shot = { start_frame: frame, n: 0, measured: 0,
+                          sum_level: 0, sum_rg: 0, sum_bg: 0 };
+      shot.n += 1;
+      if (ch) {
+        shot.measured += 1;
+        shot.sum_level += ch.reduce((t, c) => t + c.mean_pct, 0) / 3;
+        shot.sum_rg += ch[0].mean_pct - ch[1].mean_pct;
+        shot.sum_bg += ch[2].mean_pct - ch[1].mean_pct;
+      }
+      entry.samples_counted += 1;
+      prev = { buf, info };
+      sampled += 1;
+      frame += interval;
+    }
+
+    const done = frame >= tlEnd && !stopNote;
+    entry.duration_s = +((entry.samples_counted * interval) / fps)
+      .toFixed(1);
+    if (done) {
+      closeShot();
+      entry.complete = true;
+      delete entry.pending;
+    } else {
+      entry.pending = { next_frame: frame, prev_frame: frame - interval,
+                        in_run: inRun, shot };
+    }
     profile.aggregate = styleAggregate(profile.edits);
     profile.updated = new Date().toISOString();
-    fs.writeFileSync(profFile, JSON.stringify(profile, null, 2));
-    return {
-      studied: source, samples: samples.length,
+    const tmpFile = profFile + ".tmp";
+    fs.writeFileSync(tmpFile, JSON.stringify(profile, null, 2));
+    fs.renameSync(tmpFile, profFile);    // atomic: no half-written profiles
+
+    const hot = diffs.filter((d) => d !== null && d >= threshold).length;
+    const out = {
+      studied: source, samples: sampled,
       interval_frames: interval, cut_threshold: threshold,
-      cuts_this_batch: cuts.length,
-      shots_this_batch: shots.slice(0, 50),
+      cuts_this_batch: cutsThisBatch,
+      shots_so_far: entry.shots.length + (shot ? 1 : 0),
       diff_series: diffs.slice(0, 150),
+      unmeasured_diffs: unmeasured || undefined,
+      elapsed_ms: Date.now() - t0,
       next_start_frame: done ? null : frame,
       batch_note: done
         ? "Edit fully studied — profile entry finalised."
-        : "More timeline remains: call again with start_frame "
-          + frame + ".",
+        : (stopNote || "More timeline remains: call again with "
+           + "start_frame " + frame + "."),
       profile_file: profFile,
       aggregate: profile.aggregate,
     };
+    if (recoveredFrom)
+      out.profile_recovered = "Previous profile was unreadable; preserved "
+        + "at " + recoveredFrom + " (nothing was overwritten silently).";
+    if (diffs.length && hot > diffs.length * 0.3)
+      out.stride_warning = "Over 30% of neighbour diffs exceed the cut "
+        + "threshold — the edit may cut faster than this stride resolves; "
+        + "consider re-studying with a smaller interval_frames.";
+    return out;
   });
 
 // Settles "are these two grabs the same image?" with arithmetic instead of
@@ -2328,5 +2458,5 @@ module.exports = {
   parseTiff, tiffCensus, parseExr, effectiveDepthLabel, shrinkProxy,
   parseSonySidecar, tiffStats, matchGate, deriveCdl, displayPctToDi,
   diDecode, applyLook, generateCube, detectCuts, styleAggregate,
-  percentile,
+  percentile, dropFrameTimecode, timelineLabel,
 };

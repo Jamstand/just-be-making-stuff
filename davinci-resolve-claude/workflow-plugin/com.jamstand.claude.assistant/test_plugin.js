@@ -622,7 +622,49 @@ async function main() {
         rS.ok && prof.edits.length === 1
         && prof.edits[0].complete === true
         && prof.aggregate.edits_studied === 1, JSON.stringify(prof));
+  // The seam fix: a cut-free timeline studied in two batches must yield
+  // ONE shot spanning everything, not one per batch.
+  check("study_edit: batch seams do not split shots",
+        prof.edits[0].shots.length === 1
+        && prof.edits[0].shot_lengths_s[0] === 2
+        && prof.edits[0].cuts === 0, JSON.stringify(prof.edits[0]));
+  // Number(null) === 0 must not send a resume to frame zero.
+  const parkedBefore = resolve._grab.timecodes.length;
+  rS = await tools.executeTool(state, "study_edit",
+    { name: "test profile", source: "unit-edit-2", out_dir: stillDir,
+      max_samples: 2, interval_frames: 12, start_frame: null });
+  check("study_edit: null cursor is a fresh study from timeline start",
+        rS.ok && resolve._grab.timecodes[parkedBefore] === "01:00:00:00",
+        JSON.stringify(resolve._grab.timecodes.slice(parkedBefore)));
+  // Corrupt profile survival: damaged bytes preserved, never clobbered.
+  fsmod.writeFileSync(styleFile, "{ definitely not json");
+  rS = await tools.executeTool(state, "study_edit",
+    { name: "test profile", source: "unit-edit-3", out_dir: stillDir,
+      max_samples: 2, interval_frames: 12 });
+  const backups = fsmod.readdirSync(path.dirname(styleFile))
+    .filter((n) => n.startsWith("test_profile.json.corrupt-"));
+  check("study_edit preserves a corrupt profile instead of clobbering",
+        rS.ok && rS.text.includes("profile_recovered")
+        && backups.length >= 1
+        && JSON.parse(fsmod.readFileSync(styleFile, "utf8"))
+             .edits.length === 1, rS.text);
+  for (const b of backups) {
+    try { fsmod.unlinkSync(path.join(path.dirname(styleFile), b)); }
+    catch (e) {}
+  }
   try { fsmod.unlinkSync(styleFile); } catch (e) {}
+  // Drop-frame timecode vectors (standard SMPTE checks).
+  check("dropFrameTimecode matches the standard vectors",
+        tools.dropFrameTimecode(1800, 29.97) === "00:01:00;02"
+        && tools.dropFrameTimecode(17982, 29.97) === "00:10:00;00"
+        && tools.dropFrameTimecode(3600, 59.94) === "00:01:00;04"
+        && tools.dropFrameTimecode(0, 29.97) === "00:00:00;00");
+  // no_proxy grabs attach nothing and export no proxy file.
+  const rNp = await tools.executeTool(state, "grab_still",
+    { frame: 130, out_dir: stillDir, no_proxy: true });
+  check("grab_still no_proxy attaches no image",
+        rNp.ok && (!rNp.images || rNp.images.length === 0)
+        && !rNp.text.includes("proxy_png"), rNp.text);
 
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
