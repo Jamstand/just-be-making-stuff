@@ -16,6 +16,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { spawn } = require("child_process");
 
 const PERMISSION_MODES = ["Ask before edits", "Always ask", "Never ask"];
 const APPROVAL_TIMEOUT_MS = 120000;
@@ -2271,6 +2272,101 @@ tool("study_edit",
     return out;
   });
 
+// ------------------------------------------------- study from a pasted link
+// GUI apps get a bare PATH on macOS (the same trap the CLI hit), so probe
+// the usual homes for yt-dlp instead of trusting PATH alone.
+function findYtDlp() {
+  const candidates = ["/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp",
+                      path.join(os.homedir(), ".local/bin/yt-dlp"),
+                      "yt-dlp"];
+  for (const c of candidates) {
+    if (c.includes("/")) { try { fs.accessSync(c, fs.constants.X_OK);
+                                 return c; } catch (e) {} }
+    else return c;                       // last resort: hope PATH has it
+  }
+  return null;
+}
+
+function downloadVideo(url, dir) {
+  return new Promise((resolveP, rejectP) => {
+    const bin = findYtDlp();
+    if (!bin)
+      return rejectP(new ResolveError("yt-dlp is not installed — it does "
+        + "the actual downloading. One-time setup in Terminal: "
+        + "brew install yt-dlp ffmpeg   (then retry)."));
+    const stamp = Date.now().toString(36);
+    const template = path.join(dir, "study_" + stamp + ".%(ext)s");
+    const child = spawn(bin, ["-f", "mp4/bv*+ba/b",
+                              "--merge-output-format", "mp4",
+                              "--no-playlist", "-o", template, url],
+                        { stdio: ["ignore", "pipe", "pipe"] });
+    let err = "";
+    child.stderr.on("data", (d) => { err += d; });
+    const timer = setTimeout(() => { try { child.kill(); } catch (e) {}
+      rejectP(new ResolveError("Download timed out after 180s.")); },
+      180000);
+    child.on("error", (e) => { clearTimeout(timer);
+      rejectP(new ResolveError("Could not run yt-dlp: " + e.message)); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const hit = fs.readdirSync(dir).find((n) =>
+        n.startsWith("study_" + stamp + "."));
+      if (code === 0 && hit) resolveP(path.join(dir, hit));
+      else rejectP(new ResolveError("yt-dlp failed (exit " + code + "): "
+        + err.slice(-500)));
+    });
+  });
+}
+
+tool("study_url",
+  "Paste-a-link studying: download a video from a URL (TikTok, "
+  + "Instagram, YouTube — anything yt-dlp handles; requires 'brew "
+  + "install yt-dlp ffmpeg' once), import it into a 'Studied Edits' "
+  + "bin, build a timeline from it, and make that timeline current — "
+  + "ready for study_edit to analyse into a style profile. Only study "
+  + "content you're entitled to view; the download is for local "
+  + "analysis. Writes to the project (import + one timeline), so it "
+  + "asks approval.",
+  { url: { type: "string", description: "The video link." },
+    keep_file: { type: "boolean",
+                 description: "Keep the downloaded file (default true; "
+                              + "it lives in ~/ClaudeAssistantStudy)." } },
+  ["url"], async (state, a) => {
+    const proj = project(state);
+    const dir = path.join(os.homedir(), "ClaudeAssistantStudy");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = state._testDownload
+      ? await state._testDownload(String(a.url), dir)
+      : await downloadVideo(String(a.url), dir);
+    const mediaPool = proj.GetMediaPool();
+    const root = mediaPool.GetRootFolder();
+    let bin = (root.GetSubFolderList() || [])
+      .find((f) => f.GetName() === "Studied Edits");
+    if (!bin) bin = mediaPool.AddSubFolder(root, "Studied Edits");
+    if (bin && mediaPool.SetCurrentFolder) mediaPool.SetCurrentFolder(bin);
+    const clips = mediaPool.ImportMedia([file]);
+    if (!clips || !clips.length)
+      throw new ResolveError("Downloaded fine but Resolve refused the "
+        + "import: " + file + " — codec trouble? The file is on disk.");
+    const tlName = "study_" + path.basename(file).replace(/\.\w+$/, "");
+    const studyTl = mediaPool.CreateTimelineFromClips(tlName, [clips[0]]);
+    if (!studyTl)
+      throw new ResolveError("Import worked but CreateTimelineFromClips "
+        + "returned nothing; create a timeline from the clip by hand.");
+    proj.SetCurrentTimeline(studyTl);
+    return { downloaded: file,
+             imported_to_bin: "Studied Edits",
+             timeline: tlName,
+             now_current: true,
+             next: "Run study_edit (it studies the CURRENT timeline) — "
+               + "batch with the resume cursor until complete.",
+             cleanup: a.keep_file === false
+               ? (() => { try { fs.unlinkSync(file); return "file "
+                    + "deleted after import"; } catch (e) {
+                    return "delete failed: " + e.message; } })()
+               : "file kept at " + file };
+  });
+
 // Settles "are these two grabs the same image?" with arithmetic instead of
 // eyeballs — the model's JS sandbox has no fs, but this process does.
 function tiffDiffStats(bufA, infoA, bufB, infoB) {
@@ -2458,5 +2554,5 @@ module.exports = {
   parseTiff, tiffCensus, parseExr, effectiveDepthLabel, shrinkProxy,
   parseSonySidecar, tiffStats, matchGate, deriveCdl, displayPctToDi,
   diDecode, applyLook, generateCube, detectCuts, styleAggregate,
-  percentile, dropFrameTimecode, timelineLabel,
+  percentile, dropFrameTimecode, timelineLabel, findYtDlp,
 };

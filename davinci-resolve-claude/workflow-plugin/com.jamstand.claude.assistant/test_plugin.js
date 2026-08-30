@@ -175,7 +175,13 @@ function fakeResolve(mediaDir) {
       return true;
     },
     ImportMedia: (paths) => paths.map((p) => ({ GetName: () => path.basename(p) })),
-    AddSubFolder: (parent, name) => ({ GetName: () => name }),
+    AddSubFolder: (parent, name) => {
+      grabState.binsAdded = (grabState.binsAdded || []).concat(name);
+      return { GetName: () => name };
+    },
+    SetCurrentFolder: (f) => {
+      grabState.currentBin = f && f.GetName(); return true;
+    },
   };
   const project = {
     GetName: () => "Demo",
@@ -665,6 +671,26 @@ async function main() {
   check("grab_still no_proxy attaches no image",
         rNp.ok && (!rNp.images || rNp.images.length === 0)
         && !rNp.text.includes("proxy_png"), rNp.text);
+
+  // study_url: download seam injected, the Resolve side is real fakes
+  state._testDownload = async (url, dir) => {
+    const f = path.join(dir, "study_testvid.mp4");
+    fsmod.writeFileSync(f, "fake video bytes for " + url);
+    return f;
+  };
+  let rU = await tools.executeTool(state, "study_url",
+    { url: "https://www.tiktok.com/@x/video/123", keep_file: false });
+  check("study_url imports into the bin and builds the study timeline",
+        rU.ok && rU.text.includes('"imported_to_bin":"Studied Edits"')
+        && rU.text.includes('"timeline":"study_study_testvid"')
+        && rU.text.includes("file deleted after import")
+        && (resolve._grab.binsAdded || []).includes("Studied Edits")
+        && resolve._grab.timelineOps.some((o) =>
+             o === "setcur:study_study_testvid"),
+        rU.text);
+  delete state._testDownload;
+  check("findYtDlp degrades to a PATH guess, never throws",
+        typeof tools.findYtDlp() === "string" || tools.findYtDlp() === null);
 
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
