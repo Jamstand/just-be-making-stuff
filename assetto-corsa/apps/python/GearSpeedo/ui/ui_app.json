@@ -1,0 +1,6 @@
+{
+  "name": "Gear Speedo",
+  "version": "1.0",
+  "description": "A small dashboard: the gear you are in, road speed, and an RPM bar with shift lights. Pure Python, no binaries, no shared memory.",
+  "tags": ["hud", "dashboard", "gear", "speed", "rpm", "shift lights"]
+}
