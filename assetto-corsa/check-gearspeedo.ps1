@@ -51,6 +51,7 @@ Say ""
 Say "1. App files"
 $appDir = Join-Path $AcRoot "apps\python\GearSpeedo"
 $appPy  = Join-Path $appDir "GearSpeedo.py"
+$docs   = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "Assetto Corsa"
 
 $installed = $false
 if (Test-Path $appPy) {
@@ -58,30 +59,78 @@ if (Test-Path $appPy) {
     $installed = $true
 } else {
     Bad "apps\python\GearSpeedo\GearSpeedo.py is MISSING"
+    Info "It needs to be exactly here:"
+    Info ("  " + $appPy)
+    Say ""
+
     if (Test-Path $appDir) {
-        Info "The folder exists but the .py file is not in it. Found instead:"
+        Info "That folder exists but the .py file is not directly inside it."
+        Info "It contains:"
         Get-ChildItem $appDir | ForEach-Object { Info ("  " + $_.Name) }
-        Info "The file must be named exactly GearSpeedo.py"
+    }
+
+    # Go hunting. The overwhelmingly common mistake is dropping 'apps' into
+    # Documents\Assetto Corsa (settings) instead of steamapps\common\assettocorsa
+    # (the game). Both are called "Assetto Corsa", so this is easy to get wrong.
+    Info "Looking for a copy that landed somewhere else..."
+    $searchRoots = @(
+        $docs,
+        (Join-Path ([Environment]::GetFolderPath("UserProfile")) "Downloads"),
+        (Join-Path ([Environment]::GetFolderPath("UserProfile")) "Desktop"),
+        (Join-Path ([Environment]::GetFolderPath("UserProfile")) "Documents"),
+        $AcRoot
+    ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+    $found = @()
+    foreach ($root in $searchRoots) {
+        $hits = Get-ChildItem -Path $root -Filter "GearSpeedo.py" -Recurse -File -ErrorAction SilentlyContinue
+        foreach ($h in $hits) { $found += $h.FullName }
+    }
+    $found = $found | Select-Object -Unique
+
+    if ($found.Count -gt 0) {
+        Say ""
+        Bad "Found GearSpeedo.py, but in the wrong place:"
+        foreach ($f in $found) { Info ("  " + $f) }
+        Say ""
+        Info "FIX: move the 'apps' folder (and 'content') so they end up at:"
+        Info ("  " + (Join-Path $AcRoot "apps"))
+        Info ("  " + (Join-Path $AcRoot "content"))
+        if ($found | Where-Object { $_ -like ($docs + "*") }) {
+            Say ""
+            Bad "Note: a copy is under Documents\Assetto Corsa."
+            Info "That is the SETTINGS folder, not the game. Apps do not load from"
+            Info "there. The game folder is the one this script found above:"
+            Info ("  " + $AcRoot)
+        }
     } else {
-        Info "The folder apps\python\GearSpeedo does not exist at all."
-        Info "Copy the 'apps' folder from the zip into: $AcRoot"
-        # Maybe it landed somewhere odd - go looking.
-        $stray = Get-ChildItem -Path (Join-Path $AcRoot "apps\python") -Filter "GearSpeedo*" -Recurse -ErrorAction SilentlyContinue
-        if ($stray) {
-            Info "But something similar was found:"
-            $stray | ForEach-Object { Info ("  " + $_.FullName) }
+        $zips = @()
+        foreach ($root in $searchRoots) {
+            $z = Get-ChildItem -Path $root -Filter "GearSpeedo*.zip" -Recurse -File -ErrorAction SilentlyContinue
+            foreach ($h in $z) { $zips += $h.FullName }
+        }
+        if ($zips.Count -gt 0) {
+            Bad "Found the zip, but it was never extracted:"
+            $zips | Select-Object -Unique | ForEach-Object { Info ("  " + $_) }
+            Say ""
+            Info "FIX: right-click the zip -> Extract All, then copy the 'apps' and"
+            Info "'content' folders from inside it into:"
+            Info ("  " + $AcRoot)
+        } else {
+            Info "No copy of GearSpeedo.py found anywhere obvious."
+            Info "FIX: extract the zip and copy its 'apps' and 'content' folders into:"
+            Info ("  " + $AcRoot)
         }
     }
 }
 
 $icon = Join-Path $AcRoot "content\gui\icons\Gear Speedo_ON.png"
 if (Test-Path $icon) { Good "sidebar icon is installed" }
-else { Info "sidebar icon missing (cosmetic only, the app still works)" }
+elseif ($installed) { Info "sidebar icon missing (cosmetic only, the app still works)" }
 
 # --- 3. Is Python enabled at all? ------------------------------------------
 Say ""
 Say "2. Assetto Corsa settings"
-$docs = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "Assetto Corsa"
 $gameplay = Join-Path $docs "cfg\gameplay.ini"
 
 if (Test-Path $gameplay) {

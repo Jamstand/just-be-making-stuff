@@ -24,7 +24,15 @@ import traceback
 # py_log.txt has this line but not "loaded", the module imported and acMain
 # failed. If it has neither, AC never loaded the app at all -- which means it
 # is not activated, or not in apps/python/GearSpeedo/GearSpeedo.py.
-ac.log("GearSpeedo: module imported")
+#
+# Guarded because this runs at import time, outside any handler AC gives us:
+# an exception here would kill the module before acMain exists, and the app
+# would vanish with no way to tell why. A missing log line is worth less than
+# a loading app.
+try:
+    ac.log("GearSpeedo: module imported")
+except Exception:
+    pass
 
 
 # ---------------------------------------------------------------- constants
