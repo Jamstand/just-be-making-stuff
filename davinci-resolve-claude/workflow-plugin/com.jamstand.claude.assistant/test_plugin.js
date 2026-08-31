@@ -705,6 +705,80 @@ async function main() {
         && tools.expandSlash("study this for me") === null
         && tools.expandSlash("hello") === null);
 
+  // Gemini video eyes: fake Google's wire behaviour exactly, including
+  // the doc-verified asymmetry (upload response wrapped in {file}, poll
+  // response a BARE File) and the bad-key error shape.
+  const gCalls = [];
+  process.env.GEMINI_API_KEY = "test-key-for-fake-wire";
+  state._testHttp = async (url, opts, body) => {
+    gCalls.push({ url, method: (opts && opts.method) || "GET" });
+    if (url.endsWith("/upload/v1beta/files"))
+      return { status: 200,
+               headers: { "x-goog-upload-url":
+                          "https://generativelanguage.googleapis.com/up/1" },
+               json: null };
+    if (url.endsWith("/up/1"))
+      return { status: 200, headers: {},
+               json: { file: { uri: "https://g/files/f1", name: "files/f1",
+                               state: "PROCESSING" } } };
+    if (url.endsWith("/v1beta/files/f1") && (!opts || opts.method !== "DELETE")
+        && !(opts && opts.method === "DELETE"))
+      return { status: 200, headers: {},
+               json: { name: "files/f1", state: "ACTIVE" } };  // bare File
+    if (url.includes(":generateContent"))
+      return { status: 200, headers: {}, json: {
+        candidates: [{ content: { parts: [
+          { thought: true, text: "internal reasoning" },
+          { text: "Opens on a static wide; night rolling shots follow." },
+          { text: "Grade leans teal in the shadows." } ] } }],
+        usageMetadata: { totalTokenCount: 4321 } } };
+    return { status: 204, headers: {}, json: null };
+  };
+  let rG = await tools.executeTool(state, "watch_video",
+    { file: path.join(stillDir, "cmp_a.tif"), profile: "test profile2",
+      source: "unit-edit" });
+  check("watch_video runs the full upload/poll/ask flow",
+        rG.ok
+        && gCalls.some((c) => c.url.endsWith("/upload/v1beta/files"))
+        && gCalls.some((c) => c.url.includes(":generateContent"))
+        && gCalls.some((c) => c.method === "DELETE"),
+        JSON.stringify(gCalls));
+  check("watch_video joins text parts and drops thought parts",
+        rG.text.includes("static wide")
+        && rG.text.includes("teal in the shadows")
+        && !rG.text.includes("internal reasoning")
+        && rG.text.includes('"tokens":4321'), rG.text);
+  state._testHttp = async () => ({ status: 400, headers: {}, json: {
+    error: { code: 400, message: "API key not valid.",
+             status: "INVALID_ARGUMENT",
+             details: [{ reason: "API_KEY_INVALID" }] } } });
+  rG = await tools.executeTool(state, "set_gemini_key",
+    { key: "AIzaFakeButLongEnough12345" });
+  check("set_gemini_key refuses to store a key Google rejects",
+        !rG.ok && rG.text.includes("rejected the API key")
+        && !fsmod.existsSync(tools.CONFIG_FILE)
+           || !(tools.readConfig().gemini_api_key), rG.text);
+  state._testHttp = async () => ({ status: 200, headers: {},
+                                   json: { models: [] } });
+  rG = await tools.executeTool(state, "set_gemini_key",
+    { key: "AIzaFakeButLongEnough12345" });
+  check("set_gemini_key stores after validation, never echoes the key",
+        rG.ok && rG.text.includes('"key_ending":"...2345"')
+        && !rG.text.includes("AIzaFakeButLongEnough")
+        && tools.readConfig().gemini_api_key
+           === "AIzaFakeButLongEnough12345", rG.text);
+  check("geminiErrorText maps quota and bad-key distinctly",
+        /rate limit/.test(tools.geminiErrorText(429,
+          { error: { status: "RESOURCE_EXHAUSTED" } }))
+        && /rejected the API key/.test(tools.geminiErrorText(400,
+          { error: { status: "INVALID_ARGUMENT",
+                     details: [{ reason: "API_KEY_INVALID" }] } })));
+  delete state._testHttp;
+  delete process.env.GEMINI_API_KEY;
+  try { fsmod.unlinkSync(tools.CONFIG_FILE); } catch (e) {}
+  try { fsmod.unlinkSync(path.join(osmod.homedir(),
+    "ClaudeAssistantStyle", "test_profile2.json")); } catch (e) {}
+
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
     Buffer.from([0x76, 0x2f, 0x31, 0x01, 2, 0, 0, 0]),

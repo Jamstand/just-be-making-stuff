@@ -175,6 +175,23 @@ All best-effort: wrong branch / offline / unwritable dir degrade to a
 notice card, never a blocked launch. Opt out: touch .auto-update-off
 in the plugin dir. Needs one-time chown of the install dir on macOS.
 
+### Gemini integration facts (doc-verified 2026-08)
+
+- generateContent on v1beta, model gemini-3.7-flash, key via
+  x-goog-api-key header. Interactions API deliberately avoided
+  (mid-breaking-change).
+- Files resumable upload: start POST returns the session URL in the
+  x-goog-upload-url RESPONSE HEADER; bytes go with command
+  "upload, finalize". ASYMMETRY: upload response is {file:{...}} but
+  the poll GET returns a BARE File — read both. States:
+  PROCESSING/ACTIVE/FAILED; 2GB/file, 48h retention (we DELETE after).
+- Bad key = 400 INVALID_ARGUMENT + details reason API_KEY_INVALID (NOT
+  403; 403 = valid key, no permission). 429 RESOURCE_EXHAUSTED = quota.
+- videoMetadata is deprecated with an undocumented replacement — not
+  used. Low res via generationConfig.mediaResolution (bare enum).
+- YouTube-URL-as-fileData is unverified for generateContent — not
+  shipped; local files only (study_url downloads them anyway).
+
 ## Approvals (the design's 1d flow)
 
 - Chokepoint: execute_tool → needs_approval(name) → request_approval blocks

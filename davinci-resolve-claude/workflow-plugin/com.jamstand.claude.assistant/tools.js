@@ -23,7 +23,7 @@ const APPROVAL_TIMEOUT_MS = 120000;
 
 const READONLY_TOOLS = new Set([
   "get_workspace_overview", "list_media_pool", "get_clip_properties",
-  "pipeline_doctor", "study_edit",
+  "pipeline_doctor", "study_edit", "watch_video", "set_gemini_key",
   "list_timelines", "list_markers", "list_render_presets",
   "get_render_status", "move_playhead", "open_page",
   // grab_still LOOKS at a frame: the gallery still it makes is deleted
@@ -2272,6 +2272,243 @@ tool("study_edit",
     return out;
   });
 
+// ---------------------------------------------------- Gemini video eyes
+// Verified against ai.google.dev 2026-08 docs (video-understanding, files,
+// generate-content, api-errors). generateContent is used deliberately —
+// Google's Interactions API is mid-breaking-change; generateContent
+// "remains fully supported" and has the stable response shape.
+const https = require("https");
+const GEMINI_HOST = "generativelanguage.googleapis.com";
+const GEMINI_MODEL_DEFAULT = "gemini-3.7-flash";
+const VIDEO_MIME = { mp4: "video/mp4", mov: "video/mov", webm: "video/webm",
+                     avi: "video/avi", mpg: "video/mpg", mpeg: "video/mpeg",
+                     wmv: "video/wmv", flv: "video/x-flv",
+                     "3gp": "video/3gpp" };
+
+function httpsRequest(url, opts, body) {
+  return new Promise((res, rej) => {
+    const u = new URL(url);
+    const req = https.request({
+      hostname: u.hostname, path: u.pathname + u.search,
+      method: (opts && opts.method) || "GET",
+      headers: (opts && opts.headers) || {},
+      timeout: (opts && opts.timeoutMs) || 120000,
+    }, (r) => {
+      const chunks = [];
+      r.on("data", (d) => chunks.push(d));
+      r.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        let json = null;
+        try { json = JSON.parse(text); } catch (e) {}
+        res({ status: r.statusCode, headers: r.headers, text, json });
+      });
+    });
+    req.on("timeout", () => { req.destroy(new Error("timed out")); });
+    req.on("error", rej);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+// Branch on error.status first, then details[].reason — a bad key is 400
+// INVALID_ARGUMENT + API_KEY_INVALID, NOT 403 (403 = valid key, no
+// permission). Straight from the api-errors doc.
+function geminiErrorText(status, json) {
+  const e = (json && json.error) || {};
+  const reason = (e.details || []).map((d) => d && d.reason)
+    .filter(Boolean)[0];
+  if (reason === "API_KEY_INVALID")
+    return "Gemini rejected the API key as invalid — re-check it "
+      + "(aistudio.google.com > Get API key) and store it again.";
+  if (e.status === "RESOURCE_EXHAUSTED")
+    return "Gemini rate limit hit (free tier). Wait a minute and retry; "
+      + "daily quotas reset at midnight Pacific.";
+  if (e.status === "PERMISSION_DENIED")
+    return "The Gemini key is valid but lacks permission for this API.";
+  if (e.status === "FAILED_PRECONDITION")
+    return "Gemini free tier is not available for this project/region — "
+      + "enable billing in Google AI Studio.";
+  if (e.status === "NOT_FOUND")
+    return "The uploaded video is gone on Google's side (files expire "
+      + "after 48h) — re-run to upload again.";
+  return "Gemini error HTTP " + status + ": "
+    + (e.message || "no detail").slice(0, 300);
+}
+
+async function geminiUploadVideo(doReq, key, file) {
+  const bytes = fs.readFileSync(file);
+  if (bytes.length > 2 * 1024 * 1024 * 1024)
+    throw new ResolveError("Video exceeds Gemini's 2GB per-file cap.");
+  const ext = path.extname(file).slice(1).toLowerCase();
+  const mime = VIDEO_MIME[ext] || "video/mp4";
+  const start = await doReq(
+    "https://" + GEMINI_HOST + "/upload/v1beta/files",
+    { method: "POST", headers: {
+        "x-goog-api-key": key,
+        "X-Goog-Upload-Protocol": "resumable",
+        "X-Goog-Upload-Command": "start",
+        "X-Goog-Upload-Header-Content-Length": String(bytes.length),
+        "X-Goog-Upload-Header-Content-Type": mime,
+        "Content-Type": "application/json" } },
+    JSON.stringify({ file: { display_name: path.basename(file) } }));
+  if (start.status !== 200)
+    throw new ResolveError(geminiErrorText(start.status, start.json));
+  const uploadUrl = start.headers["x-goog-upload-url"];
+  if (!uploadUrl)
+    throw new ResolveError("Gemini upload start returned no "
+      + "x-goog-upload-url header.");
+  const up = await doReq(uploadUrl,
+    { method: "POST", timeoutMs: 300000, headers: {
+        "Content-Length": String(bytes.length),
+        "X-Goog-Upload-Offset": "0",
+        "X-Goog-Upload-Command": "upload, finalize" } }, bytes);
+  const fileObj = up.json && up.json.file;   // upload response IS wrapped
+  if (up.status !== 200 || !fileObj || !fileObj.uri)
+    throw new ResolveError(geminiErrorText(up.status, up.json));
+  // Poll until ACTIVE. Asymmetry (doc-verified): GET returns a BARE File,
+  // not {file: ...} — read both defensively.
+  let st = fileObj.state, name = fileObj.name;
+  for (let i = 0; i < 24 && st === "PROCESSING"; i++) {
+    await sleep(5000);
+    const poll = await doReq("https://" + GEMINI_HOST + "/v1beta/" + name,
+      { headers: { "x-goog-api-key": key } });
+    const f = (poll.json && poll.json.file) || poll.json || {};
+    st = f.state || st;
+    if (f.error) throw new ResolveError("Gemini could not process the "
+      + "video: " + (f.error.message || JSON.stringify(f.error)));
+  }
+  if (st !== "ACTIVE")
+    throw new ResolveError("Gemini file never became ACTIVE (state "
+      + st + ") — try again or use a shorter clip.");
+  return { uri: fileObj.uri, name, mime };
+}
+
+const WATCH_PROMPT_DEFAULT =
+  "You are analysing a finished short-form automotive edit for an "
+  + "editor/colorist studying its style. Report concretely: "
+  + "1) Shot list with timestamps: subject, shot size (wide/medium/"
+  + "close/detail), camera movement (static/pan/orbit/gimbal/FPV), "
+  + "day or night. 2) Structure: how it opens, builds, and pays off. "
+  + "3) Pacing character in words. 4) The grade/look in plain colour "
+  + "terms (contrast, cast, saturation, where it leans). 5) Anything "
+  + "distinctive worth imitating. Be brief and specific.";
+
+tool("watch_video",
+  "Gemini video eyes: upload a LOCAL video file (e.g. the file "
+  + "study_url downloaded) to Google's Gemini API and have it actually "
+  + "WATCH the footage — shot types, subjects, structure, look — the "
+  + "content half that pixel statistics cannot see. Needs a Gemini API "
+  + "key stored via set_gemini_key (free at aistudio.google.com). "
+  + "Optionally merges the answer into a style profile entry "
+  + "(profile + source matching a study_edit entry). The file goes to "
+  + "Google for analysis and auto-expires there in 48h (we also delete "
+  + "it immediately after).",
+  { file: { type: "string",
+            description: "Absolute path to the local video file." },
+    question: { type: "string",
+                description: "What to ask about it (default: a "
+                             + "style-study breakdown)." },
+    model: { type: "string",
+             description: "Gemini model id (default "
+                          + GEMINI_MODEL_DEFAULT + ")." },
+    low_res: { type: "boolean",
+               description: "Low media resolution — for videos over "
+                            + "~45 min, or to save quota." },
+    profile: { type: "string",
+               description: "Style profile name to merge the answer "
+                            + "into (optional)." },
+    source: { type: "string",
+              description: "The profile entry's source label to attach "
+                           + "the content notes to (with profile)." } },
+  ["file"], async (state, a) => {
+    const key = geminiKey();
+    if (!key)
+      throw new ResolveError("No Gemini API key stored. Get a free one "
+        + "at aistudio.google.com (Get API key), then run set_gemini_key.");
+    const file = String(a.file);
+    if (!fs.existsSync(file))
+      throw new ResolveError("No such file: " + file);
+    const doReq = state._testHttp || httpsRequest;
+    const up = await geminiUploadVideo(doReq, key, file);
+    const model = String(a.model || GEMINI_MODEL_DEFAULT);
+    const body = {
+      contents: [{ parts: [
+        { text: String(a.question || WATCH_PROMPT_DEFAULT) },
+        { fileData: { mimeType: up.mime, fileUri: up.uri } },
+      ] }],
+    };
+    if (a.low_res)
+      body.generationConfig = { mediaResolution: "MEDIA_RESOLUTION_LOW" };
+    const gen = await doReq("https://" + GEMINI_HOST + "/v1beta/models/"
+      + model + ":generateContent",
+      { method: "POST", timeoutMs: 180000,
+        headers: { "x-goog-api-key": key,
+                   "Content-Type": "application/json" } },
+      JSON.stringify(body));
+    // Tidy up server-side regardless of the answer (48h auto-expiry is
+    // the backstop).
+    try { await doReq("https://" + GEMINI_HOST + "/v1beta/" + up.name,
+      { method: "DELETE", headers: { "x-goog-api-key": key } }); }
+    catch (e) {}
+    if (gen.status !== 200)
+      throw new ResolveError(geminiErrorText(gen.status, gen.json));
+    const cands = (gen.json && gen.json.candidates) || [];
+    if (!cands.length) {
+      const block = gen.json && gen.json.promptFeedback
+        && gen.json.promptFeedback.blockReason;
+      throw new ResolveError("Gemini returned no answer"
+        + (block ? " (blocked: " + block + ")" : "") + ".");
+    }
+    const answer = ((cands[0].content || {}).parts || [])
+      .filter((pt) => typeof pt.text === "string" && !pt.thought)
+      .map((pt) => pt.text).join("\n").trim();
+    const out = { model, answer,
+                  tokens: gen.json.usageMetadata
+                          && gen.json.usageMetadata.totalTokenCount };
+    if (a.profile && answer) {
+      try {
+        const pf = path.join(STYLE_DIR,
+          String(a.profile).replace(/[^\w.-]+/g, "_").slice(0, 60)
+          + ".json");
+        const prof = JSON.parse(fs.readFileSync(pf, "utf8"));
+        const src = String(a.source || "");
+        const entry = prof.edits.find((e) => e.source === src)
+          || prof.edits[prof.edits.length - 1];
+        if (entry) {
+          entry.content_notes = answer;
+          const tmp = pf + ".tmp";
+          fs.writeFileSync(tmp, JSON.stringify(prof, null, 2));
+          fs.renameSync(tmp, pf);
+          out.merged_into = { profile: path.basename(pf),
+                             source: entry.source };
+        } else out.merge_note = "profile has no entries yet";
+      } catch (e) { out.merge_note = "could not merge: " + e.message; }
+    }
+    return out;
+  });
+
+tool("set_gemini_key",
+  "Store the Gemini API key (from aistudio.google.com) in the local "
+  + "config (~/.claude-assistant.json, owner-only permissions) and "
+  + "validate it with a free models-list call. The key is never echoed "
+  + "back.",
+  { key: { type: "string", description: "The API key (AIza...)." } },
+  ["key"], async (state, a) => {
+    const key = String(a.key || "").trim();
+    if (key.length < 20)
+      throw new ResolveError("That doesn't look like an API key.");
+    const doReq = state._testHttp || httpsRequest;
+    const check = await doReq("https://" + GEMINI_HOST + "/v1beta/models",
+      { headers: { "x-goog-api-key": key } });
+    if (check.status !== 200)
+      throw new ResolveError("Key stored NOWHERE — validation failed: "
+        + geminiErrorText(check.status, check.json));
+    writeConfig({ gemini_api_key: key });
+    return { stored: true, config: CONFIG_FILE,
+             key_ending: "..." + key.slice(-4),
+             validated: "models list call succeeded" };
+  });
+
 // Slash commands: prompt macros the panel expands before the model sees
 // them. The transcript shows what the user typed; the model receives the
 // expanded marching orders.
@@ -2289,10 +2526,13 @@ function expandSlash(text) {
     + urls.map((u, i) => (i + 1) + ". " + u).join("\n")
     + "\nFor each link in order: call study_url with it; once the study "
     + "timeline is current, call study_edit and keep resuming with "
-    + "next_start_frame until that edit reports complete; then move to "
-    + "the next link. If one link fails, say why and continue with the "
-    + "rest. Finish with the profile aggregate and a plain-English "
-    + "read of what it says about the style.";
+    + "next_start_frame until that edit reports complete; then, if a "
+    + "Gemini key is stored, call watch_video on the downloaded file "
+    + "(the study_url result's path) with profile car-edits and the "
+    + "same source label, so the content read merges into the profile. "
+    + "If one link fails, say why and continue with the rest. Finish "
+    + "with the profile aggregate and a plain-English read of what it "
+    + "says about the style — both the numbers and the content notes.";
 }
 
 // ------------------------------------------------------------ plugin config
@@ -2601,5 +2841,5 @@ module.exports = {
   parseSonySidecar, tiffStats, matchGate, deriveCdl, displayPctToDi,
   diDecode, applyLook, generateCube, detectCuts, styleAggregate,
   percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash,
-  readConfig, writeConfig, geminiKey, CONFIG_FILE,
+  readConfig, writeConfig, geminiKey, CONFIG_FILE, geminiErrorText,
 };
