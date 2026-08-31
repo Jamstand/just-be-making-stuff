@@ -778,9 +778,18 @@ async function main() {
         && /rejected the API key/.test(tools.geminiErrorText(400,
           { error: { status: "INVALID_ARGUMENT",
                      details: [{ reason: "API_KEY_INVALID" }] } })));
+  let rSt = await tools.executeTool(state, "gemini_status",
+    { validate: true });
+  check("gemini_status reports presence + validation, never the key",
+        rSt.ok && rSt.text.includes('"key_stored":true')
+        && rSt.text.includes('"valid":true')
+        && !rSt.text.includes("test-key-for-fake-wire"), rSt.text);
   delete state._testHttp;
   delete process.env.GEMINI_API_KEY;
   try { fsmod.unlinkSync(tools.CONFIG_FILE); } catch (e) {}
+  rSt = await tools.executeTool(state, "gemini_status", {});
+  check("gemini_status says plainly when no key exists",
+        rSt.ok && rSt.text.includes('"key_stored":false'), rSt.text);
   try { fsmod.unlinkSync(path.join(osmod.homedir(),
     "ClaudeAssistantStyle", "test_profile2.json")); } catch (e) {}
 

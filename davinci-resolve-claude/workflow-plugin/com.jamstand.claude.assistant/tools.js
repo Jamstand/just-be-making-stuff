@@ -24,6 +24,7 @@ const APPROVAL_TIMEOUT_MS = 120000;
 const READONLY_TOOLS = new Set([
   "get_workspace_overview", "list_media_pool", "get_clip_properties",
   "pipeline_doctor", "study_edit", "watch_video", "set_gemini_key",
+  "gemini_status",
   "list_timelines", "list_markers", "list_render_presets",
   "get_render_status", "move_playhead", "open_page",
   // grab_still LOOKS at a frame: the gallery still it makes is deleted
@@ -2483,6 +2484,32 @@ tool("watch_video",
                              source: entry.source };
         } else out.merge_note = "profile has no entries yet";
       } catch (e) { out.merge_note = "could not merge: " + e.message; }
+    }
+    return out;
+  });
+
+tool("gemini_status",
+  "Report whether a Gemini API key is configured (env or "
+  + "~/.claude-assistant.json) WITHOUT any network call — shows only "
+  + "the key's last 4 characters. Pass validate: true to additionally "
+  + "confirm it against Google's models endpoint (one free call).",
+  { validate: { type: "boolean",
+                description: "Also check the key against Google." } },
+  [], async (state, a) => {
+    const key = geminiKey();
+    if (!key) return { key_stored: false, config_file: CONFIG_FILE,
+      how_to: "set_gemini_key with a key from aistudio.google.com "
+              + "(Get API key)" };
+    const out = { key_stored: true, key_ending: "..." + key.slice(-4),
+                  source: process.env.GEMINI_API_KEY ? "environment"
+                          : CONFIG_FILE };
+    if (a.validate) {
+      const doReq = state._testHttp || httpsRequest;
+      const check = await doReq("https://" + GEMINI_HOST
+        + "/v1beta/models", { headers: { "x-goog-api-key": key } });
+      out.valid = check.status === 200;
+      if (!out.valid)
+        out.problem = geminiErrorText(check.status, check.json);
     }
     return out;
   });
