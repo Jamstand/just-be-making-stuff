@@ -669,8 +669,14 @@ tool("grab_still",
                                + "timeline open with a clip at the playhead?");
 
       const stamp = Date.now().toString(36);
-      const dirs = [String(a.out_dir || (process.platform === "win32"
-                                         ? os.tmpdir() : "/tmp")),
+      // macOS Resolve cannot write /tmp (trap 9, re-confirmed live in the
+      // Lambo session — every grab burned a failed first attempt), so the
+      // home stills dir is the darwin default.
+      const preferred = a.out_dir ? String(a.out_dir)
+        : process.platform === "darwin"
+          ? path.join(os.homedir(), "ClaudeAssistantStills")
+          : process.platform === "win32" ? os.tmpdir() : "/tmp";
+      const dirs = [preferred,
                     path.join(os.homedir(), "ClaudeAssistantStills")];
       let measurePath = null, proxyPath = null, usedDir = null;
       for (const dir of dirs) {

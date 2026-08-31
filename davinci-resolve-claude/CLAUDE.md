@@ -165,6 +165,28 @@ behaviour; extend them when adding tools.
   back to raw PNG. compare_stills settles same-image questions by bytes +
   per-channel pixel stats.
 
+### Assemble-an-edit live findings (Lambo session)
+
+- TimelineItem.SetProperty WORKS for transform/crop/opacity: ZoomX/Y,
+  RotationAngle, CropTop/Bottom (int px), Opacity; ZoomGang wants a
+  BOOLEAN. No Speed property exists -> speed ramps unreachable.
+  2.39:1 letterbox = CropTop/Bottom 138 on 1080. Punch-in pops =
+  per-shot Zoom deltas. Flash frame = 3-frame insert + blown CDL
+  (Slope 2.4 / Offset +0.3 / Sat 0.25) — renders near-white.
+- SetCDL needs EXACTLY the 5 keys (NodeIndex, Slope, Offset, Power,
+  Saturation); extra/renamed keys -> false.
+- Fusion CONTRADICTION, unresolved: on C0698 (comp previously opened in
+  the Fusion page by the user) Execute-Lua vignette/glow WORKED,
+  pixel-verified. On fresh AddFusionComp comps in the Lambo session,
+  handles were hollow, FindTool missed AddTool's own creations, and
+  Execute side effects never landed. HYPOTHESIS (untested): a comp only
+  becomes scriptable after the Fusion page has loaded it once
+  (OpenPage("fusion") with the clip current). Probe before trusting
+  either behaviour. DeleteFusionCompByName always false regardless.
+- macOS Resolve can't export stills to /tmp — grab_still now defaults
+  to ~/ClaudeAssistantStills on darwin. GrabStill errorCode 6 is
+  intermittent; an immediate retry succeeds (retry loop already does).
+
 ### Self-update (Electron plugin)
 
 main.js selfUpdate() runs at every launch: ff-only pull of
