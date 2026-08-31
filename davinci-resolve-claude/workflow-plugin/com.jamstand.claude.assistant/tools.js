@@ -2295,6 +2295,29 @@ function expandSlash(text) {
     + "read of what it says about the style.";
 }
 
+// ------------------------------------------------------------ plugin config
+// Small JSON store for secrets/settings (the Gemini key today). Kept in the
+// user's home, 0600, and never echoed back in tool results.
+const CONFIG_FILE = path.join(os.homedir(), ".claude-assistant.json");
+
+function readConfig() {
+  try { return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")) || {}; }
+  catch (e) { return {}; }
+}
+
+function writeConfig(patch) {
+  const cfg = Object.assign(readConfig(), patch || {});
+  const tmp = CONFIG_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, CONFIG_FILE);
+  try { fs.chmodSync(CONFIG_FILE, 0o600); } catch (e) {}
+  return cfg;
+}
+
+function geminiKey() {
+  return process.env.GEMINI_API_KEY || readConfig().gemini_api_key || null;
+}
+
 // ------------------------------------------------- study from a pasted link
 // GUI apps get a bare PATH on macOS (the same trap the CLI hit), so probe
 // the usual homes for yt-dlp instead of trusting PATH alone.
@@ -2578,4 +2601,5 @@ module.exports = {
   parseSonySidecar, tiffStats, matchGate, deriveCdl, displayPctToDi,
   diDecode, applyLook, generateCube, detectCuts, styleAggregate,
   percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash,
+  readConfig, writeConfig, geminiKey, CONFIG_FILE,
 };
