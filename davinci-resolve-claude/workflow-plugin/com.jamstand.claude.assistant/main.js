@@ -243,7 +243,84 @@ function shutdown() {
   app.quit();
 }
 
+// ---------------------------------------------------------- self-update
+// On launch: pull the repo, copy the plugin over this install, relaunch
+// once so the NEW code actually runs. Every step is best-effort — a dead
+// network, missing repo, wrong branch, or read-only install must never
+// stop the panel from opening. Opt out by creating a file named
+// ".auto-update-off" next to this main.js.
+const REPO_DIR = path.join(os.homedir(), "just-be-making-stuff");
+const REPO_BRANCH = "claude/davinci-resolve-claude-plugin-bw69a6";
+const REPO_PLUGIN = path.join(REPO_DIR, "davinci-resolve-claude",
+                              "workflow-plugin", PLUGIN_ID);
+
+function run(cmd, args, opts) {
+  return new Promise((res) => {
+    let out = "", err = "";
+    let child;
+    try { child = spawn(cmd, args, Object.assign({ stdio:
+      ["ignore", "pipe", "pipe"] }, opts || {})); }
+    catch (e) { return res({ code: -1, out: "", err: e.message }); }
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { err += d; });
+    const t = setTimeout(() => { try { child.kill(); } catch (e) {} },
+                         30000);
+    child.on("error", (e) => { clearTimeout(t);
+                               res({ code: -1, out, err: e.message }); });
+    child.on("close", (code) => { clearTimeout(t);
+                                  res({ code, out, err }); });
+  });
+}
+
+function copyTree(from, to) {
+  // Contents-over-install copy: never deletes (WorkflowIntegration.node
+  // lives in the install and is not in the repo).
+  for (const name of fs.readdirSync(from)) {
+    const src = path.join(from, name), dst = path.join(to, name);
+    if (fs.statSync(src).isDirectory()) {
+      fs.mkdirSync(dst, { recursive: true });
+      copyTree(src, dst);
+    } else fs.copyFileSync(src, dst);
+  }
+}
+
+async function selfUpdate() {
+  if (process.env.CLAUDE_ASSISTANT_RELAUNCHED === "1")
+    return "updated — running the new code";
+  if (fs.existsSync(path.join(__dirname, ".auto-update-off"))) return null;
+  if (!fs.existsSync(path.join(REPO_DIR, ".git"))) return null;
+  const git = fs.existsSync("/usr/bin/git") ? "/usr/bin/git" : "git";
+  const at = (args) => run(git, ["-C", REPO_DIR].concat(args));
+  const branch = (await at(["branch", "--show-current"])).out.trim();
+  if (branch !== REPO_BRANCH)
+    return "auto-update skipped: repo is on branch '" + branch + "'";
+  const before = (await at(["rev-parse", "HEAD"])).out.trim();
+  const pull = await at(["pull", "--ff-only"]);
+  if (pull.code !== 0)
+    return "auto-update skipped: git pull failed (" +
+           pull.err.trim().slice(0, 120) + ")";
+  const after = (await at(["rev-parse", "HEAD"])).out.trim();
+  if (!before || after === before) return null;   // already current
+  try {
+    fs.accessSync(__dirname, fs.constants.W_OK);
+    copyTree(REPO_PLUGIN, __dirname);
+  } catch (e) {
+    return "update fetched but this folder is not writable — "
+      + (process.platform === "win32"
+         ? "grant your user write access to " + __dirname
+         : "run once: sudo chown -R $USER \"" + __dirname + "\"");
+  }
+  app.relaunch({ env: Object.assign({}, process.env,
+                                    { CLAUDE_ASSISTANT_RELAUNCHED: "1" }) });
+  app.exit(0);
+  return "relaunching";
+}
+
 app.whenReady().then(async () => {
+  let updateNote = null;
+  try { updateNote = await selfUpdate(); } catch (e) {
+    updateNote = "auto-update error: " + e.message;
+  }
   history = historyLib.makeHistory(path.join(app.getPath("userData"), "chats"));
   try {
     wi = loadWorkflowIntegration();
@@ -283,6 +360,9 @@ app.whenReady().then(async () => {
     win.webContents.once("did-finish-load", () =>
       sendUI("error", "Could not connect to Resolve. Was this launched from " +
              "Workspace > Workflow Integrations inside Resolve Studio?"));
+  if (updateNote)
+    win.webContents.once("did-finish-load", () =>
+      sendUI("notice", "Auto-update: " + updateNote));
 });
 
 app.on("window-all-closed", () => shutdown());

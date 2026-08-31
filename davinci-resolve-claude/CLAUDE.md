@@ -165,6 +165,16 @@ behaviour; extend them when adding tools.
   back to raw PNG. compare_stills settles same-image questions by bytes +
   per-channel pixel stats.
 
+### Self-update (Electron plugin)
+
+main.js selfUpdate() runs at every launch: ff-only pull of
+~/just-be-making-stuff on the pinned branch, contents-copy over the
+install (never deletes — WorkflowIntegration.node isn't in the repo),
+then app.relaunch() once (CLAUDE_ASSISTANT_RELAUNCHED guards loops).
+All best-effort: wrong branch / offline / unwritable dir degrade to a
+notice card, never a blocked launch. Opt out: touch .auto-update-off
+in the plugin dir. Needs one-time chown of the install dir on macOS.
+
 ## Approvals (the design's 1d flow)
 
 - Chokepoint: execute_tool → needs_approval(name) → request_approval blocks
