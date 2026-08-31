@@ -692,6 +692,19 @@ async function main() {
   check("findYtDlp degrades to a PATH guess, never throws",
         typeof tools.findYtDlp() === "string" || tools.findYtDlp() === null);
 
+  // /study slash command expansion
+  const three = tools.expandSlash(
+    "/study https://tiktok.com/a https://instagram.com/b https://youtu.be/c");
+  check("/study expands links into one-at-a-time marching orders",
+        three && three.includes("3 edit(s)")
+        && three.includes("https://instagram.com/b")
+        && three.includes("study_url") && three.includes("next_start_frame"),
+        three);
+  check("/study bare asks for an explanation, plain text stays null",
+        /explain/i.test(tools.expandSlash("/study") || "")
+        && tools.expandSlash("study this for me") === null
+        && tools.expandSlash("hello") === null);
+
   // parser units: EXR header and depth labels
   const exr = Buffer.concat([
     Buffer.from([0x76, 0x2f, 0x31, 0x01, 2, 0, 0, 0]),

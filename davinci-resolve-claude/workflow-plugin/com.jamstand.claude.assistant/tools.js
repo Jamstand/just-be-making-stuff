@@ -2272,6 +2272,29 @@ tool("study_edit",
     return out;
   });
 
+// Slash commands: prompt macros the panel expands before the model sees
+// them. The transcript shows what the user typed; the model receives the
+// expanded marching orders.
+function expandSlash(text) {
+  const t = String(text || "").trim();
+  if (!/^\/study\b/i.test(t)) return null;
+  const urls = t.match(/https?:\/\/\S+/g) || [];
+  if (!urls.length)
+    return "The user typed /study without links. Explain briefly: "
+      + "/study <link> [<link> ...] downloads each video (TikTok, "
+      + "Instagram, YouTube), builds a study timeline, and analyses it "
+      + "into the car-edits style profile.";
+  return "Study these " + urls.length + " edit(s) into the car-edits "
+    + "style profile, STRICTLY one at a time:\n"
+    + urls.map((u, i) => (i + 1) + ". " + u).join("\n")
+    + "\nFor each link in order: call study_url with it; once the study "
+    + "timeline is current, call study_edit and keep resuming with "
+    + "next_start_frame until that edit reports complete; then move to "
+    + "the next link. If one link fails, say why and continue with the "
+    + "rest. Finish with the profile aggregate and a plain-English "
+    + "read of what it says about the style.";
+}
+
 // ------------------------------------------------- study from a pasted link
 // GUI apps get a bare PATH on macOS (the same trap the CLI hit), so probe
 // the usual homes for yt-dlp instead of trusting PATH alone.
@@ -2554,5 +2577,5 @@ module.exports = {
   parseTiff, tiffCensus, parseExr, effectiveDepthLabel, shrinkProxy,
   parseSonySidecar, tiffStats, matchGate, deriveCdl, displayPctToDi,
   diDecode, applyLook, generateCube, detectCuts, styleAggregate,
-  percentile, dropFrameTimecode, timelineLabel, findYtDlp,
+  percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash,
 };

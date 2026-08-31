@@ -375,8 +375,11 @@ ipcMain.handle("send", (evt, { text, model, effort, permissionMode }) => {
   currentModel = model;
   busy = true;
   sendUI("you", String(text).trim());
+  // Slash commands expand into full instructions; the transcript keeps
+  // what the user typed.
+  const prompt = tools.expandSlash(text) || String(text).trim();
   runTurn(MODELS.includes(model) ? model : MODELS[0],
-          EFFORTS.includes(effort) ? effort : "medium", String(text).trim());
+          EFFORTS.includes(effort) ? effort : "medium", prompt);
   return true;
 });
 

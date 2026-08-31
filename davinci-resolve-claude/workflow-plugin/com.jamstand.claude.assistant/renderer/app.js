@@ -292,5 +292,6 @@ assistant.config().then(({ models, efforts, modes }) => {
   fill("effort", efforts, "medium");
   fill("mode", modes, "Ask before edits");
   card("notice", "NOTE", "Connected. Ask me anything — e.g. \"add a red " +
-    "marker at every cut on V1\" or \"what's in my media pool?\"");
+    "marker at every cut on V1\" — or paste /study <link> <link> to " +
+    "learn a style from TikTok/Instagram edits.");
 });
