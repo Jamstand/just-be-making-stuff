@@ -700,6 +700,11 @@ async function main() {
         && three.includes("https://instagram.com/b")
         && three.includes("study_url") && three.includes("next_start_frame"),
         three);
+  check("/study is typo-tolerant and demands the Gemini pass",
+        (tools.expandSlash("/stuudy https://tiktok.com/x") || "")
+          .includes("STEP C")
+        && (tools.expandSlash("/study https://tiktok.com/x") || "")
+          .includes("NOT optional"));
   check("/study bare asks for an explanation, plain text stays null",
         /explain/i.test(tools.expandSlash("/study") || "")
         && tools.expandSlash("study this for me") === null

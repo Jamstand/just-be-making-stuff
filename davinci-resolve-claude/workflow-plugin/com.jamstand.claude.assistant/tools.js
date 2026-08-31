@@ -2514,7 +2514,7 @@ tool("set_gemini_key",
 // expanded marching orders.
 function expandSlash(text) {
   const t = String(text || "").trim();
-  if (!/^\/study\b/i.test(t)) return null;
+  if (!/^\/stu+d+y\b/i.test(t)) return null;   // typo-tolerant: /stuudy too
   const urls = t.match(/https?:\/\/\S+/g) || [];
   if (!urls.length)
     return "The user typed /study without links. Explain briefly: "
@@ -2522,17 +2522,22 @@ function expandSlash(text) {
       + "Instagram, YouTube), builds a study timeline, and analyses it "
       + "into the car-edits style profile.";
   return "Study these " + urls.length + " edit(s) into the car-edits "
-    + "style profile, STRICTLY one at a time:\n"
+    + "style profile, STRICTLY one at a time. For EACH link, all three "
+    + "steps in order:\n"
     + urls.map((u, i) => (i + 1) + ". " + u).join("\n")
-    + "\nFor each link in order: call study_url with it; once the study "
-    + "timeline is current, call study_edit and keep resuming with "
-    + "next_start_frame until that edit reports complete; then, if a "
-    + "Gemini key is stored, call watch_video on the downloaded file "
-    + "(the study_url result's path) with profile car-edits and the "
-    + "same source label, so the content read merges into the profile. "
-    + "If one link fails, say why and continue with the rest. Finish "
-    + "with the profile aggregate and a plain-English read of what it "
-    + "says about the style — both the numbers and the content notes.";
+    + "\nSTEP A: study_url with the link (downloads + builds the study "
+    + "timeline).\n"
+    + "STEP B: study_edit, resuming with next_start_frame until that "
+    + "edit reports complete (the measurements).\n"
+    + "STEP C: watch_video on the downloaded file from step A, with "
+    + "profile car-edits and the same source label — Gemini watches the "
+    + "footage and its content read merges into the profile. This step "
+    + "is NOT optional; if it fails over a missing or invalid Gemini "
+    + "key, report that plainly once, skip further watch attempts, and "
+    + "keep studying the remaining links.\n"
+    + "If a link fails entirely, say why and continue with the rest. "
+    + "Finish with the profile aggregate and a plain-English read of "
+    + "the style — the numbers AND the content notes together.";
 }
 
 // ------------------------------------------------------------ plugin config
