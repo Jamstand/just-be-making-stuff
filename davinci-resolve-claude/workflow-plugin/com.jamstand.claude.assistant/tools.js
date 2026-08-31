@@ -2311,6 +2311,22 @@ function httpsRequest(url, opts, body) {
   });
 }
 
+// Retry wrapper per Google's own guidance: back off on 429/5xx/network,
+// never retry 400/403. A transient 503 must not fail a whole study pass
+// (live incident: Google overloaded, zero retries, five reels lost).
+async function geminiCall(doReq, url, opts, body, tries) {
+  let last = { status: 0 };
+  for (let i = 0; i < (tries || 3); i++) {
+    if (i) await sleep(1500 * Math.pow(2, i - 1));
+    try { last = await doReq(url, opts, body); }
+    catch (e) { last = { status: 0, headers: {}, json: null,
+                         text: e.message }; continue; }
+    if (last.status && last.status < 500 && last.status !== 429)
+      return last;
+  }
+  return last;
+}
+
 // Branch on error.status first, then details[].reason — a bad key is 400
 // INVALID_ARGUMENT + API_KEY_INVALID, NOT 403 (403 = valid key, no
 // permission). Straight from the api-errors doc.
@@ -2332,6 +2348,13 @@ function geminiErrorText(status, json) {
   if (e.status === "NOT_FOUND")
     return "The uploaded video is gone on Google's side (files expire "
       + "after 48h) — re-run to upload again.";
+  if (status === 503 || e.status === "UNAVAILABLE")
+    return "Google's Gemini service is temporarily overloaded (503). "
+      + "Already retried with backoff — wait a few minutes and try "
+      + "again; nothing is wedged on our side.";
+  if (status === 0)
+    return "Could not reach Google at all (network error: "
+      + ((json && json.text) || "unknown") + ").";
   return "Gemini error HTTP " + status + ": "
     + (e.message || "no detail").slice(0, 300);
 }
@@ -2342,9 +2365,9 @@ async function geminiUploadVideo(doReq, key, file) {
     throw new ResolveError("Video exceeds Gemini's 2GB per-file cap.");
   const ext = path.extname(file).slice(1).toLowerCase();
   const mime = VIDEO_MIME[ext] || "video/mp4";
-  const start = await doReq(
+  const start = await geminiCall(doReq,
     "https://" + GEMINI_HOST + "/upload/v1beta/files",
-    { method: "POST", headers: {
+    { method: "POST", timeoutMs: 30000, headers: {
         "x-goog-api-key": key,
         "X-Goog-Upload-Protocol": "resumable",
         "X-Goog-Upload-Command": "start",
@@ -2359,7 +2382,7 @@ async function geminiUploadVideo(doReq, key, file) {
     throw new ResolveError("Gemini upload start returned no "
       + "x-goog-upload-url header.");
   const up = await doReq(uploadUrl,
-    { method: "POST", timeoutMs: 300000, headers: {
+    { method: "POST", timeoutMs: 150000, headers: {
         "Content-Length": String(bytes.length),
         "X-Goog-Upload-Offset": "0",
         "X-Goog-Upload-Command": "upload, finalize" } }, bytes);
@@ -2369,10 +2392,11 @@ async function geminiUploadVideo(doReq, key, file) {
   // Poll until ACTIVE. Asymmetry (doc-verified): GET returns a BARE File,
   // not {file: ...} — read both defensively.
   let st = fileObj.state, name = fileObj.name;
-  for (let i = 0; i < 24 && st === "PROCESSING"; i++) {
+  for (let i = 0; i < 15 && st === "PROCESSING"; i++) {
     await sleep(5000);
-    const poll = await doReq("https://" + GEMINI_HOST + "/v1beta/" + name,
-      { headers: { "x-goog-api-key": key } });
+    const poll = await geminiCall(doReq,
+      "https://" + GEMINI_HOST + "/v1beta/" + name,
+      { timeoutMs: 15000, headers: { "x-goog-api-key": key } }, null, 2);
     const f = (poll.json && poll.json.file) || poll.json || {};
     st = f.state || st;
     if (f.error) throw new ResolveError("Gemini could not process the "
@@ -2440,9 +2464,10 @@ tool("watch_video",
     };
     if (a.low_res)
       body.generationConfig = { mediaResolution: "MEDIA_RESOLUTION_LOW" };
-    const gen = await doReq("https://" + GEMINI_HOST + "/v1beta/models/"
+    const gen = await geminiCall(doReq,
+      "https://" + GEMINI_HOST + "/v1beta/models/"
       + model + ":generateContent",
-      { method: "POST", timeoutMs: 180000,
+      { method: "POST", timeoutMs: 150000,
         headers: { "x-goog-api-key": key,
                    "Content-Type": "application/json" } },
       JSON.stringify(body));
@@ -2505,8 +2530,9 @@ tool("gemini_status",
                           : CONFIG_FILE };
     if (a.validate) {
       const doReq = state._testHttp || httpsRequest;
-      const check = await doReq("https://" + GEMINI_HOST
-        + "/v1beta/models", { headers: { "x-goog-api-key": key } });
+      const check = await geminiCall(doReq, "https://" + GEMINI_HOST
+        + "/v1beta/models",
+        { timeoutMs: 20000, headers: { "x-goog-api-key": key } });
       out.valid = check.status === 200;
       if (!out.valid)
         out.problem = geminiErrorText(check.status, check.json);
@@ -2525,8 +2551,9 @@ tool("set_gemini_key",
     if (key.length < 20)
       throw new ResolveError("That doesn't look like an API key.");
     const doReq = state._testHttp || httpsRequest;
-    const check = await doReq("https://" + GEMINI_HOST + "/v1beta/models",
-      { headers: { "x-goog-api-key": key } });
+    const check = await geminiCall(doReq,
+      "https://" + GEMINI_HOST + "/v1beta/models",
+      { timeoutMs: 20000, headers: { "x-goog-api-key": key } });
     if (check.status !== 200)
       throw new ResolveError("Key stored NOWHERE — validation failed: "
         + geminiErrorText(check.status, check.json));

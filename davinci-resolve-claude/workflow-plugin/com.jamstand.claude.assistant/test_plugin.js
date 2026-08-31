@@ -778,7 +778,24 @@ async function main() {
         && /rejected the API key/.test(tools.geminiErrorText(400,
           { error: { status: "INVALID_ARGUMENT",
                      details: [{ reason: "API_KEY_INVALID" }] } })));
+  // Transient 503s must be retried away, not surfaced (live incident).
+  let flaky = 0;
+  const realHttp = state._testHttp;
+  state._testHttp = async (url, opts, body) => {
+    if (url.endsWith("/v1beta/models") && flaky < 2) {
+      flaky += 1;
+      return { status: 503, headers: {}, json: { error: {
+        status: "UNAVAILABLE", message: "overloaded" } } };
+    }
+    return realHttp(url, opts, body);
+  };
   let rSt = await tools.executeTool(state, "gemini_status",
+    { validate: true });
+  check("transient 503s are retried away with backoff",
+        rSt.ok && rSt.text.includes('"valid":true') && flaky === 2,
+        rSt.text + " flaky=" + flaky);
+  state._testHttp = realHttp;
+  rSt = await tools.executeTool(state, "gemini_status",
     { validate: true });
   check("gemini_status reports presence + validation, never the key",
         rSt.ok && rSt.text.includes('"key_stored":true')
