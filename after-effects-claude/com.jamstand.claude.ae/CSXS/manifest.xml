@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Doc-verified shape (CEP 12 cookbook): AEFT host, Node enabled via
+     CEFCommandLine. Version range [18.0,99.9] covers CEP 11-era AE (18.4+)
+     through AE 2026; PlayerDebugMode needed for both CSXS.11 and .12. -->
+<ExtensionManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    ExtensionBundleId="com.jamstand.claude.ae"
+    ExtensionBundleVersion="1.0.0"
+    ExtensionBundleName="Claude Assistant"
+    Version="5.0">
+  <ExtensionList>
+    <Extension Id="com.jamstand.claude.ae.panel" Version="1.0.0"/>
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <Host Name="AEFT" Version="[18.0,99.9]"/>
+    </HostList>
+    <LocaleList><Locale Code="All"/></LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="5.0"/>
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="com.jamstand.claude.ae.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./html/index.html</MainPath>
+          <ScriptPath>./host/ae-tools.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle><AutoVisible>true</AutoVisible></Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>Claude Assistant</Menu>
+          <Geometry>
+            <Size><Height>600</Height><Width>420</Width></Size>
+            <MinSize><Height>300</Height><Width>320</Width></MinSize>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>

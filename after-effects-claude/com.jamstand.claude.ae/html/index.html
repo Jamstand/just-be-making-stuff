@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="style.css">
+  <title>Claude Assistant</title>
+</head>
+<body>
+  <header id="topbar">
+    <span class="lbl">MODEL</span>
+    <select id="model"></select>
+    <span class="lbl">EFFORT</span>
+    <select id="effort"></select>
+    <span class="lbl">PERMISSIONS</span>
+    <select id="mode"></select>
+    <span id="modehint">read-only tools run freely · edits ask</span>
+    <button id="historybtn">History</button>
+    <button id="newchat">New chat</button>
+  </header>
+
+  <main id="chat"></main>
+
+  <section id="histpanel" hidden>
+    <div class="hp-head">Past chats <button id="histclose">✕</button></div>
+    <div id="histlist"></div>
+  </section>
+
+  <section id="approval" hidden>
+    <div class="ap-head">⚠ <span id="ap-title">Approval</span></div>
+    <pre id="ap-detail"></pre>
+    <div class="ap-choices">
+      <button id="ap-run"><b>1</b> Yes, run it</button>
+      <button id="ap-always"><b>2</b> Yes for this session</button>
+      <button id="ap-no"><b>3</b> No</button>
+    </div>
+    <div class="ap-hint">Enter runs · Esc declines · or type guidance below and press Enter</div>
+  </section>
+
+  <footer>
+    <div id="statusbar"><span id="dot"></span><span id="status">Ready</span></div>
+    <div id="inputrow">
+      <input id="input" placeholder="Ask Claude…  (Enter to send)" autofocus>
+      <button id="send">Send</button>
+    </div>
+  </footer>
+
+  <script src="CSInterface.js"></script>
+  <script src="panel.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
