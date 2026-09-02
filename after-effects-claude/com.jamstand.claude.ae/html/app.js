@@ -282,6 +282,12 @@ document.getElementById("historybtn").onclick = () => {
 };
 document.getElementById("histclose").onclick = () => { histPanel.hidden = true; };
 
+// localStorage can be denied on file:// origins (CEP): treat it as a
+// convenience, never a dependency.
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+};
 assistant.config().then(({ models, efforts, modes }) => {
   const fill = (id, values, chosen) => {
     const select = document.getElementById(id);
@@ -290,9 +296,9 @@ assistant.config().then(({ models, efforts, modes }) => {
       opt.value = value;
       select.appendChild(opt);
     }
-    const saved = localStorage.getItem("ca-" + id);
+    const saved = store.get("ca-" + id);
     select.value = values.includes(saved) ? saved : chosen;
-    select.onchange = () => localStorage.setItem("ca-" + id, select.value);
+    select.onchange = () => store.set("ca-" + id, select.value);
   };
   fill("model", models, models[0]);
   fill("effort", efforts, "medium");
@@ -300,4 +306,5 @@ assistant.config().then(({ models, efforts, modes }) => {
   card("notice", "NOTE", "Connected to After Effects. Ask me anything — " +
     "e.g. \"speed-ramp layer 2 into the drop\" or \"build a 2.39:1 comp " +
     "from my selects\".");
-});
+}).catch((e) => card("error", "ERROR", "Panel setup failed: " +
+                       (e && e.message ? e.message : String(e))));

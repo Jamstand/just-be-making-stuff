@@ -28,9 +28,16 @@ const path = require("path");
 const net = require("net");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
-const historyLib = require(path.join(__dirname, "..", "history.js"));
 
 const cs = new CSInterface();
+// Node's __dirname is not a reliable global inside a CEP page script; CEP's
+// own API knows where the extension lives (doc-verified SystemPath).
+const EXT_ROOT = (function () {
+  try { const p = cs.getSystemPath(SystemPath.EXTENSION); if (p) return p; }
+  catch (e) {}
+  return typeof __dirname === "string" ? path.join(__dirname, "..") : ".";
+})();
+const historyLib = require(path.join(EXT_ROOT, "history.js"));
 const USER_DATA = path.join(os.homedir(), "Library", "Application Support",
                             "ClaudeAssistantAE");
 fs.mkdirSync(USER_DATA, { recursive: true });
@@ -366,7 +373,7 @@ function buildTurn(workdir, model, effort) {
   const sysPath = path.join(workdir, "system.txt");
   fs.writeFileSync(mcpPath, JSON.stringify({ mcpServers: { ae: {
     command: nodeBin,
-    args: [path.join(__dirname, "..", "bridge.js")],
+    args: [path.join(EXT_ROOT, "bridge.js")],
     env: { CLAUDE_RESOLVE_BRIDGE_PORT: String(bridge.port),
            CLAUDE_RESOLVE_BRIDGE_TOKEN: bridge.token } } } }));
   fs.writeFileSync(sysPath, SYSTEM_PROMPT);

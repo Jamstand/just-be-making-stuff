@@ -19,6 +19,10 @@ for v in 11 12; do
 done
 killall cfprefsd 2>/dev/null || true
 echo "✓ PlayerDebugMode enabled (CSXS 11 + 12)"
+# CEP caches extension JS aggressively; stale panel.js/app.js after an update
+# looks exactly like a broken panel. Purge it.
+rm -rf "$HOME/Library/Caches/CSXS/cep_cache" 2>/dev/null || true
+echo "✓ CEP cache purged"
 
 command -v claude >/dev/null 2>&1 || [ -x /opt/homebrew/bin/claude ] || [ -x /usr/local/bin/claude ] \
   && echo "✓ claude CLI found" \
