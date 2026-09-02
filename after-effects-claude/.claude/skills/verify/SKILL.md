@@ -14,9 +14,11 @@ cannot run in a Linux container. Two layers of verification exist:
 node after-effects-claude/verify-drive.js
 ```
 
-Spawns the REAL `bridge.js` as an MCP stdio server, connects it over REAL
-TCP to the REAL `html/panel.js` (tool registry, approvals, history), which
-dispatches into the REAL `host/ae-tools.jsx` running in a `vm`. Only CEP's
+Sends REAL Streamable-HTTP MCP requests (what the claude CLI sends for a
+`{type:"http"}` server) to the REAL in-process server in `html/panel.js`
+(tool registry, approvals, history), which dispatches into the REAL
+`host/ae-tools.jsx` running in a `vm`. There is no bridge.js / child node
+any more — live launch #4 proved the Mac has no node binary to spawn. Only CEP's
 `CSInterface`, Chromium's `Image`/canvas, and AE's `app` object are shimmed.
 It prints every JSON-RPC reply; approvals are answered through
 `window.assistant.approval()` — the same API `app.js` uses.
@@ -64,11 +66,8 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
 
 ## Gotchas learned
 
-- `bridge.js` is shared verbatim with the Resolve plugin: serverInfo name
-  and "Resolve bridge unreachable" text are Resolve-branded; harmless to the
-  CLI (namespaces by mcp.json key `ae`).
-- The wrong-token path reports "bridge error" — the panel's `{error:"bad
-  token"}` reply is not read by bridge.js (it reads `content`).
+- MCP is served in-process over HTTP with a bearer token; wrong token ->
+  401, GET -> 405 (no server-push stream), notifications -> 202.
 - CEP caches extension JS; a "fixed" panel that still misbehaves is often
   stale. The installer now purges ~/Library/Caches/CSXS/cep_cache and the
   manifest version was bumped; bump it again on structural changes.

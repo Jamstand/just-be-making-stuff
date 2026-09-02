@@ -287,40 +287,85 @@ function toolSchemas() {
                    required: t.required } }));
 }
 
-// ------------------------------------------------------------- MCP bridge
+// ------------------------------------------------ MCP server (in-process)
+// Live launch #4 hit "No node binary found": the Resolve plugin spawns
+// bridge.js under Electron-as-Node, but a CEP panel has no standalone node
+// to spawn and the native claude build needs none. So the panel hosts the
+// MCP endpoint itself over Streamable HTTP (a transport Claude Code speaks
+// natively) using the Node 17 runtime CEP already gives us. Zero children.
+const http = require("http");
+const SUPPORTED = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 let bridge = null;
+
+async function handleRpc(msg, onEvent) {
+  const id = msg.id;
+  try {
+    if (msg.method === "initialize") {
+      const req = (msg.params || {}).protocolVersion;
+      return { jsonrpc: "2.0", id, result: {
+        protocolVersion: SUPPORTED.indexOf(req) >= 0 ? req : "2025-06-18",
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: "ae", version: "1.0.0" } } };
+    }
+    if (msg.method === "ping") return { jsonrpc: "2.0", id, result: {} };
+    if (msg.method === "tools/list")
+      return { jsonrpc: "2.0", id, result: { tools: toolSchemas() } };
+    if (msg.method === "tools/call") {
+      const p = msg.params || {};
+      if (typeof p.name !== "string")
+        return { jsonrpc: "2.0", id, error: { code: -32602,
+                 message: "Invalid params: 'name' must be a string" } };
+      const args = p.arguments || {};
+      if (onEvent) onEvent("call", p.name, args);
+      const started = Date.now();
+      const r = await executeTool(p.name, args);
+      if (onEvent) onEvent("result", p.name, { ok: r.ok,
+                                                ms: Date.now() - started });
+      const content = [];
+      for (const img of (r.images || []))
+        if (img && img.data) content.push({ type: "image", data: img.data,
+          mimeType: img.media_type || "image/jpeg" });
+      content.push({ type: "text", text: r.text });
+      return { jsonrpc: "2.0", id, result: { content, isError: !r.ok } };
+    }
+    return { jsonrpc: "2.0", id, error: { code: -32601,
+             message: "Method not found: " + msg.method } };
+  } catch (e) {
+    return { jsonrpc: "2.0", id, error: { code: -32603,
+             message: "Internal error: " + e.message } };
+  }
+}
+
 function startBridge(onEvent) {
   const token = crypto.randomBytes(16).toString("hex");
-  const server = net.createServer((socket) => {
-    let buffer = "";
-    socket.on("data", async (chunk) => {
-      buffer += chunk.toString("utf8");
-      let idx;
-      while ((idx = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, idx); buffer = buffer.slice(idx + 1);
-        if (!line.trim()) continue;
-        let msg;
-        try { msg = JSON.parse(line); } catch (e) { continue; }
-        if (msg.token !== token) {
-          socket.write(JSON.stringify({ ok: false, error: "bad token" }) + "\n");
-          continue;
-        }
-        let reply;
-        if (msg.op === "list") reply = { ok: true, tools: toolSchemas() };
-        else if (msg.op === "call") {
-          const args = msg.arguments || msg.input || {};
-          if (onEvent) onEvent("call", msg.name, args);
-          const started = Date.now();
-          const r = await executeTool(msg.name, args);
-          if (onEvent) onEvent("result", msg.name,
-                               { ok: r.ok, ms: Date.now() - started });
-          reply = { ok: r.ok, content: r.text };
-          if (r.images) reply.images = r.images;
-        } else reply = { ok: false, error: "unknown op" };
-        socket.write(JSON.stringify(reply) + "\n");
+  const server = http.createServer((req, res) => {
+    const reply = (code, body) => {
+      res.writeHead(code, body ? { "Content-Type": "application/json" } : {});
+      res.end(body ? JSON.stringify(body) : undefined);
+    };
+    if (req.url !== "/mcp") return reply(404);
+    if ((req.headers.authorization || "") !== "Bearer " + token)
+      return reply(401);
+    if (req.method === "GET") return reply(405);   // no server-push stream
+    if (req.method === "DELETE") return reply(200);
+    if (req.method !== "POST") return reply(405);
+    let body = "";
+    req.on("data", (d) => { body += d; });
+    req.on("end", async () => {
+      let msg;
+      try { msg = JSON.parse(body); }
+      catch (e) { return reply(400, { jsonrpc: "2.0", id: null,
+        error: { code: -32700, message: "Parse error" } }); }
+      const batch = Array.isArray(msg);
+      const replies = [];
+      for (const m of (batch ? msg : [msg])) {
+        if (!m || m.method === undefined) continue;   // a client response
+        if (!("id" in m) || m.id === null) continue;  // notification: no reply
+        replies.push(await handleRpc(m, onEvent));
       }
+      if (!replies.length) return reply(202);
+      reply(200, batch ? replies : replies[0]);
     });
-    socket.on("error", () => {});
   });
   return new Promise((resolveP) => {
     server.listen(0, "127.0.0.1", () =>
@@ -373,16 +418,14 @@ function autosave() {
 
 function buildTurn(workdir, model, effort) {
   fs.mkdirSync(workdir, { recursive: true });
-  const nodeBin = findBinary(["node"]);
-  if (!nodeBin) throw new Error("No node binary found — the claude CLI "
-    + "needs Node (install via https://nodejs.org or homebrew).");
+  if (!bridge) throw new Error("The panel's MCP server is not up yet — "
+                               + "try again in a second.");
   const mcpPath = path.join(workdir, "mcp.json");
   const sysPath = path.join(workdir, "system.txt");
   fs.writeFileSync(mcpPath, JSON.stringify({ mcpServers: { ae: {
-    command: nodeBin,
-    args: [path.join(EXT_ROOT, "bridge.js")],
-    env: { CLAUDE_RESOLVE_BRIDGE_PORT: String(bridge.port),
-           CLAUDE_RESOLVE_BRIDGE_TOKEN: bridge.token } } } }));
+    type: "http",
+    url: "http://127.0.0.1:" + bridge.port + "/mcp",
+    headers: { Authorization: "Bearer " + bridge.token } } } }));
   fs.writeFileSync(sysPath, SYSTEM_PROMPT);
   const argv = ["-p", "--output-format", "stream-json", "--verbose",
                 "--strict-mcp-config", "--mcp-config", mcpPath,

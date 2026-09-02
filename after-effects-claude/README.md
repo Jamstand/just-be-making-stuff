@@ -9,7 +9,8 @@ API on the other side.
 ```
 html/ (chat UI — shared design)  ── window.assistant ──  html/panel.js
    panel.js: spawns claude CLI (-p, stream-json)         (CEP Node 17,
-             TCP bridge  <- bridge.js (MCP stdio)         mixed context)
+             hosts the MCP server IN-PROCESS over          mixed context)
+             Streamable HTTP — no node binary, no child
              CSInterface.evalScript -> host/ae-tools.jsx (ExtendScript ES3)
 ```
 
@@ -34,7 +35,8 @@ human runs them). Codecs are template-only from script.
 ./install-ae-mac.sh
 ```
 Then the two manual steps it prints (scripting pref + restart AE).
-Requires AE 2021+ (CEP 11/12), the Claude Code CLI signed in, and Node.
+Requires AE 2021+ (CEP 11/12) and the Claude Code CLI signed in. No
+separate Node install: the panel's own runtime serves MCP over HTTP.
 
 ## Honesty notes
 

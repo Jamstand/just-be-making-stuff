@@ -1,13 +1,13 @@
 // Drives the AE panel's real wiring end to end over real processes/sockets.
-// REAL: bridge.js (spawned, MCP over stdio) -> TCP -> panel.js startBridge/
-//       executeTool/approvals -> evalHost -> CA_invoke in host/ae-tools.jsx.
+// REAL: Streamable-HTTP MCP requests (what the claude CLI sends for a
+//       {type:"http"} server) -> panel.js in-process server -> executeTool/
+//       approvals -> evalHost -> CA_invoke in host/ae-tools.jsx.
 // SHIMMED (cannot exist in a Linux container): CEP's CSInterface (evalScript
 //       runs the exact string CEP would eval, inside a vm holding the real
 //       host script), the AE scripting DOM (`app`), and Chromium's Image/canvas.
 "use strict";
 const fs = require("fs"), path = require("path"), os = require("os");
-const vm = require("vm"), net = require("net"), crypto = require("crypto");
-const { spawn } = require("child_process");
+const vm = require("vm"), http = require("http"), crypto = require("crypto");
 
 const EXT = path.join(__dirname, "com.jamstand.claude.ae");
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ae-home-"));
@@ -94,10 +94,10 @@ global.document = { createElement() { return { width: 0, height: 0,
   getContext() { return { drawImage() {} }; },
   toDataURL() { return "data:image/jpeg;base64,/9j/FAKEJPEG"; } }; } };
 
-// capture the TCP server + token that panel.js keeps private
+// capture the HTTP server + token that panel.js keeps private
 let server = null;
-const realCreate = net.createServer;
-net.createServer = function () { server = realCreate.apply(net, arguments); return server; };
+const realCreate = http.createServer;
+http.createServer = function () { server = realCreate.apply(http, arguments); return server; };
 crypto.randomBytes = () => Buffer.from("00112233445566778899aabbccddeeff", "hex");
 const TOKEN = "00112233445566778899aabbccddeeff";
 
@@ -108,30 +108,42 @@ window.assistant.onEvent((e) => { ui.push(e);
     setTimeout(() => window.assistant.approval(nextDecision.shift() || "run", "make it cheaper"), 50); } });
 const nextDecision = [];
 
-// ------------------------------------------------------------- MCP client
-function mcp(env) {
-  const child = spawn(process.execPath, [path.join(EXT, "bridge.js")], { env });
-  const lines = []; let carry = "";
-  child.stdout.on("data", (d) => { carry += d; let i;
-    while ((i = carry.indexOf("\n")) >= 0) { const l = carry.slice(0, i); carry = carry.slice(i + 1); if (l.trim()) lines.push(JSON.parse(l)); } });
-  child.stderr.on("data", (d) => process.stderr.write("[bridge stderr] " + d));
-  return { child, lines,
-    send(o) { child.stdin.write(JSON.stringify(o) + "\n"); },
-    waitFor(id, ms) { return new Promise((res, rej) => { const t0 = Date.now();
-      (function poll() { const hit = lines.find((l) => l.id === id);
-        if (hit) return res(hit); if (Date.now() - t0 > (ms || 5000)) return rej(new Error("no reply for id " + id));
-        setTimeout(poll, 20); })(); }); } };
+// --------------------------------------------- MCP client (Streamable HTTP)
+// Exactly what the claude CLI does with {type:"http"}: POST JSON-RPC to the
+// endpoint with a bearer token; requests get 200+JSON, notifications 202.
+function mcp(port, token) {
+  return {
+    raw(method, body, extraHeaders) {
+      return new Promise((res, rej) => {
+        const data = body === undefined ? null : JSON.stringify(body);
+        const req = http.request({ host: "127.0.0.1", port, path: "/mcp", method,
+          headers: Object.assign({ "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "Authorization": "Bearer " + token }, extraHeaders || {}) }, (r) => {
+          let t = ""; r.on("data", (d) => { t += d; });
+          r.on("end", () => { let json = null; try { json = JSON.parse(t); } catch (e) {}
+            res({ status: r.statusCode, json, text: t }); });
+        });
+        req.on("error", rej);
+        if (data) req.write(data);
+        req.end();
+      });
+    },
+    send(o) { return this.raw("POST", o); },
+  };
 }
 const show = (label, obj) => console.log("\n### " + label + "\n" + JSON.stringify(obj).slice(0, 700));
 
 (async () => {
   await new Promise((r) => (function w() { server && server.listening ? r() : setTimeout(w, 10); })());
   const port = server.address().port;
-  console.log("panel TCP bridge listening on 127.0.0.1:" + port + " token=" + TOKEN);
-  const env = Object.assign({}, process.env, { CLAUDE_RESOLVE_BRIDGE_PORT: String(port), CLAUDE_RESOLVE_BRIDGE_TOKEN: TOKEN });
-  const c = mcp(env);
+  console.log("panel MCP server listening on http://127.0.0.1:" + port + "/mcp token=" + TOKEN);
+  const c = mcp(port, TOKEN);
   let id = 0;
-  const call = async (method, params) => { const my = ++id; c.send({ jsonrpc: "2.0", id: my, method, params }); return c.waitFor(my); };
+  const call = async (method, params) => { const my = ++id;
+    const r = await c.send({ jsonrpc: "2.0", id: my, method, params });
+    if (r.status !== 200) throw new Error("HTTP " + r.status + " for " + method);
+    return r.json; };
   const tool = (name, args) => call("tools/call", { name, arguments: args });
 
   show("initialize", await call("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "verify", version: "0" } }));
@@ -156,20 +168,25 @@ const show = (label, obj) => console.log("\n### " + label + "\n" + JSON.stringif
   show("🔍 unknown tool", await tool("definitely_not_a_tool", {}));
   show("🔍 tools/call with non-string name", await call("tools/call", { name: 42 }));
   show("🔍 unknown method", await call("nonsense/method", {}));
-  c.send({ jsonrpc: "2.0", method: "notifications/initialized" });          // no id -> must get NO reply
-  c.send({ jsonrpc: "2.0", id: 0, method: "ping" });                         // id 0 IS a request
-  await new Promise((r) => setTimeout(r, 300));
-  show("🔍 id:0 ping answered? / notification silent?", { repliesWithId0: c.lines.filter((l) => l.id === 0).length,
-    totalReplies: c.lines.length, expectedReplies: id + 1 });
+  const notif = await c.send({ jsonrpc: "2.0", method: "notifications/initialized" }); // -> 202, empty
+  const ping0 = await c.send({ jsonrpc: "2.0", id: 0, method: "ping" });               // id 0 IS a request
+  const batch = await c.send([{ jsonrpc: "2.0", id: 901, method: "ping" },
+                              { jsonrpc: "2.0", method: "notifications/x" },
+                              { jsonrpc: "2.0", id: 902, method: "tools/list" }]);
+  show("🔍 notification -> 202 no body / id:0 answered / batch handled",
+       { notification_status: notif.status, notification_body: notif.text,
+         ping0: ping0.json, batch_status: batch.status,
+         batch_ids: (batch.json || []).map((r) => r.id) });
+  show("🔍 wrong bearer token", await c.raw("POST", { jsonrpc: "2.0", id: 1, method: "ping" }, { Authorization: "Bearer nope" }));
+  show("🔍 GET (server-push stream not offered)", await c.raw("GET"));
+  show("🔍 wrong path", await new Promise((res) => http.get({ host: "127.0.0.1", port, path: "/other" }, (r) => res({ status: r.statusCode }))));
+  show("🔍 malformed JSON body", await new Promise((res, rej) => { const q = http.request({ host: "127.0.0.1", port, path: "/mcp", method: "POST",
+    headers: { Authorization: "Bearer " + TOKEN } }, (r) => { let t = ""; r.on("data", (d) => { t += d; }); r.on("end", () => res({ status: r.statusCode, body: t })); });
+    q.on("error", rej); q.end("{not json"); }));
   show("🔍 run_extendscript that THROWS in the host", await tool("run_extendscript", { code: "throw new Error('boom')" }));
   show("🔍 run_extendscript with a SYNTAX error (CEP hands back 'EvalScript error.')", await tool("run_extendscript", { code: "this is not javascript" }));
 
-  const bad = mcp(Object.assign({}, env, { CLAUDE_RESOLVE_BRIDGE_TOKEN: "wrong" }));
-  bad.send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
-  show("🔍 second bridge with WRONG token -> tools/list", await bad.waitFor(1));
-  bad.child.kill();
-
   console.log("\nUI events seen by app.js layer:", ui.map((e) => e.kind + (e.kind === "toolresult" ? "(" + e.payload.name + ":" + (e.payload.ok ? "ok" : "FAIL") + ")" : "")).join(" "));
   console.log("evalScript strings handed to 'CEP' (first 3):", evalLog.slice(0, 3));
-  c.child.kill(); server.close(); process.exit(0);
+  server.close(); process.exit(0);
 })().catch((e) => { console.error("DRIVER FAILED:", e); process.exit(1); });
