@@ -1,0 +1,38 @@
+#!/usr/bin/env node
+// Fake claude CLI: honours -p/--mcp-config/stdin, speaks stream-json on
+// stdout, and drives the panel's MCP server over REAL HTTP like the real
+// CLI does for a {type:"http"} server.
+const fs = require("fs"), http = require("http");
+const args = process.argv.slice(2);
+const mcpPath = args[args.indexOf("--mcp-config") + 1];
+const cfg = JSON.parse(fs.readFileSync(mcpPath, "utf8")).mcpServers.ae;
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
+const rpc = (body) => new Promise((res, rej) => {
+  const u = new URL(cfg.url); const data = JSON.stringify(body);
+  const req = http.request({ host: u.hostname, port: u.port, path: u.pathname, method: "POST",
+    headers: Object.assign({ "Content-Type": "application/json", "Accept": "application/json, text/event-stream" }, cfg.headers) },
+    (r) => { let t = ""; r.on("data", (d) => { t += d; }); r.on("end", () => res(t ? JSON.parse(t) : null)); });
+  req.on("error", rej); req.end(data); });
+let prompt = ""; process.stdin.on("data", (d) => { prompt += d; });
+process.stdin.on("end", async () => {
+  prompt = prompt.trim();
+  let id = 0;
+  const init = await rpc({ jsonrpc: "2.0", id: ++id, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "fake-claude", version: "0" } } });
+  await rpc({ jsonrpc: "2.0", method: "notifications/initialized" });
+  out({ type: "system", subtype: "init", session_id: "sess-fake-1", mcp_servers: [{ name: "ae", status: init ? "connected" : "failed" }] });
+  const call = async (name, input) => {
+    out({ type: "assistant", message: { content: [{ type: "tool_use", name: "mcp__ae__" + name, input }] } });
+    const r = await rpc({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name, arguments: input } });
+    return r.result; };
+  if (/hello/i.test(prompt)) {
+    const ov = await call("get_project_overview", {});
+    out({ type: "assistant", message: { content: [{ type: "text", text: "Connected. Overview: " + ov.content[0].text }] } });
+    const cc = await call("create_comp", { name: "Hello Comp", width: 1080, height: 1920, fps: 59.94, duration_s: 10 });
+    out({ type: "assistant", message: { content: [{ type: "text", text: cc.isError ? "create_comp was declined: " + cc.content[0].text : "Made **Hello Comp** — `" + cc.content[0].text + "`" }] } });
+  } else {
+    const cc = await call("create_comp", { name: "Second", width: 1080, height: 1080, fps: 30, duration_s: 5 });
+    out({ type: "assistant", message: { content: [{ type: "text", text: cc.isError ? "Declined: " + cc.content[0].text : "Second comp made." }] } });
+  }
+  out({ type: "result", subtype: "success", is_error: false, session_id: "sess-fake-1", result: "done" });
+  process.exit(0);
+});

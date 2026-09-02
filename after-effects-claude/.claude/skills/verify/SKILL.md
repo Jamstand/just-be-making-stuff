@@ -49,6 +49,24 @@ Never verify the UI with panel.js replaced only. Each must end in
 either filled dropdowns + the Connected card, or a visible red card — never
 silence. Screenshots land next to the script.
 
+## 1c. Full-fidelity UI drive: the REAL panel in Electron (closest to CEP)
+
+```
+cd after-effects-claude && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i playwright electron   # once
+xvfb-run -a node verify-electron/drive.js
+```
+
+Electron with nodeIntegration is a near-twin of CEP's mixed context: the
+REAL panel.js (with Node), REAL app.js, REAL DOM. `preload.js` shims
+`window.__adobe_cep__`; `host-sim.js` runs the REAL host/ae-tools.jsx in a
+vm in a FORKED process (vm inside a renderer crashes Blink:
+"ToExecutionContext(context)"); `fakebin/claude` is a stand-in CLI that
+speaks stream-json and real MCP-over-HTTP back to the panel. Drives:
+connect -> send -> tool lines -> approval card -> click -> results ->
+decline via Esc -> history -> new chat -> empty send -> 420/320px layout.
+Screenshots land next to the script. This is the harness that would have
+caught every live-launch bug so far; run it before shipping panel changes.
+
 ## 2. On the Mac (the only real surface)
 
 ```
