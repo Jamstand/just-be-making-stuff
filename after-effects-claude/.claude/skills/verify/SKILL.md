@@ -29,6 +29,20 @@ shapes (never the opaque "EvalScript error."), token gating.
 Does NOT prove: CEP loads the manifest, ExtendScript engine semantics, AE's
 actual DOM behaviour (inPoint/outPoint are COMP time, etc.).
 
+## 1b. Headless UI drive (real Chromium, real HTML/CSS/app.js)
+
+```
+cd after-effects-claude && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i playwright   # once
+node verify-ui.js
+```
+
+Loads the actual `html/index.html` from `file://` (CEP's origin scheme) in
+/opt/pw-browsers/chromium with panel.js replaced per case (plain Chromium
+has no `require`). Cases: normal; localStorage denied (a CEP file://
+trait); panel.js dying at top level; config() rejecting. Each must end in
+either filled dropdowns + the Connected card, or a visible red card — never
+silence. Screenshots land next to the script.
+
 ## 2. On the Mac (the only real surface)
 
 ```
@@ -51,3 +65,9 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   CLI (namespaces by mcp.json key `ae`).
 - The wrong-token path reports "bridge error" — the panel's `{error:"bad
   token"}` reply is not read by bridge.js (it reads `content`).
+- CEP caches extension JS; a "fixed" panel that still misbehaves is often
+  stale. The installer now purges ~/Library/Caches/CSXS/cep_cache and the
+  manifest version was bumped; bump it again on structural changes.
+- Errors thrown by file:// scripts may reach window.onerror masked as
+  "Script error." — the on-screen card still proves *something* threw;
+  the DevTools console (http://localhost:8092 via .debug) has the detail.
