@@ -39,7 +39,11 @@ node verify-ui.js
 Loads the actual `html/index.html` from `file://` (CEP's origin scheme) in
 /opt/pw-browsers/chromium with panel.js replaced per case (plain Chromium
 has no `require`). Cases: normal; localStorage denied (a CEP file://
-trait); panel.js dying at top level; config() rejecting. Each must end in
+trait); panel.js dying at top level; config() rejecting; and case E,
+which loads the REAL panel.js (require stubbed to throw) — this is the
+one that catches page-scope collisions between panel.js and app.js
+(live launch #3: `Identifier 'busy' has already been declared`).
+Never verify the UI with panel.js replaced only. Each must end in
 either filled dropdowns + the Connected card, or a visible red card — never
 silence. Screenshots land next to the script.
 
@@ -68,6 +72,8 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
 - CEP caches extension JS; a "fixed" panel that still misbehaves is often
   stale. The installer now purges ~/Library/Caches/CSXS/cep_cache and the
   manifest version was bumped; bump it again on structural changes.
+- CEP runs all panel <script>s in ONE shared scope — panel.js is wrapped
+  in an IIFE for that reason; keep any new panel-side file wrapped too.
 - Errors thrown by file:// scripts may reach window.onerror masked as
   "Script error." — the on-screen card still proves *something* threw;
   the DevTools console (http://localhost:8092 via .debug) has the detail.

@@ -5,7 +5,14 @@
 // (dispatching into host/ae-tools.jsx via CSInterface.evalScript), and
 // approvals/history.
 "use strict";
-/* global CSInterface */
+/* global CSInterface, SystemPath */
+
+// CEP runs every <script> of the panel in ONE shared page scope (unlike
+// Electron, where main and renderer are separate processes). Top-level
+// let/const here would collide with app.js — live launch #3 died on
+// "Identifier 'busy' has already been declared" before app.js could parse.
+// Everything lives inside this IIFE; only window.assistant is exposed.
+(function () {
 
 // A silent panel is the worst failure mode. If CEP ignored --enable-nodejs
 // (or --mixed-context), `require` does not exist and nothing below can run:
@@ -529,3 +536,5 @@ startBridge((kind, name, payload) => {
   if (kind === "result")
     sendUI("toolresult", { name, ok: payload.ok, ms: payload.ms });
 }).then((b) => { bridge = b; });
+
+})();

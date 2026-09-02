@@ -22,8 +22,9 @@ async function drive(label, opts) {
   const console_ = [];
   page.on("console", (m) => { if (m.type() === "error") console_.push(m.text()); });
   page.on("pageerror", (e) => console_.push("pageerror: " + e.message));
-  await page.route("**/panel.js", (r) => r.fulfill({ body: opts.panelBody || "",
-    contentType: "application/javascript" }));
+  if (!opts.realPanel)
+    await page.route("**/panel.js", (r) => r.fulfill({ body: opts.panelBody || "",
+      contentType: "application/javascript" }));
   await page.addInitScript((opts.injectAssistant === false ? "" : FAKE_ASSISTANT) + (opts.initExtra || ""));
   await page.goto(HTML);
   await page.waitForTimeout(400);
@@ -49,6 +50,8 @@ async function drive(label, opts) {
       throw new DOMException("Failed to read the 'localStorage' property from 'Window': Access is denied for this document.", "SecurityError"); } });` });
   await drive("C-panel-js-dies-at-top-level", { injectAssistant: false,
     panelBody: `throw new ReferenceError("__dirname is not defined");` });
+  await drive("E-REAL-panel-js-shares-scope-with-app-js", { injectAssistant: false, realPanel: true,
+    initExtra: `window.require = function () { throw new Error("no node in test browser"); };` });
   await drive("D-config-rejects", { injectAssistant: false, panelBody: `
     window.assistant = { config() { return Promise.reject(new Error("boom from config")); },
       onEvent() {}, history() { return Promise.resolve([]); }, send() {}, approval() {}, newChat() {} };` });
