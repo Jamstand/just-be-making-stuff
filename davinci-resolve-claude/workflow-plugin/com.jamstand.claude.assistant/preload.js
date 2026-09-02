@@ -11,4 +11,8 @@ contextBridge.exposeInMainWorld("assistant", {
   history: (action, id) => ipcRenderer.invoke("history", { action, id }),
   config: () => ipcRenderer.invoke("config"),
   onEvent: (fn) => ipcRenderer.on("event", (evt, data) => fn(data)),
+  clipboard: {
+    write: (text) => ipcRenderer.invoke("clipboard", { op: "write", text }),
+    read: () => ipcRenderer.invoke("clipboard", { op: "read" }),
+  },
 });

@@ -314,3 +314,16 @@ in the plugin dir. Needs one-time chown of the install dir on macOS.
   then close and reopen the panel (running panels keep old code).
 - Machine has NO real Python (Store stub only) → bridge runs on Node.
 - Claude Code CLI installed via npm, Max subscription, first-party auth.
+
+## Clipboard (both panels)
+
+Users could not copy Claude's replies out of the After Effects panel: CEP on
+macOS routes ⌘C/⌘V to the host's Edit menu, and a bare Electron window has
+no Edit menu either. Fix lives in the shared renderer (app.js): a Copy
+button on every card and code block, a Copy chat button in the top bar, and
+⌘/Ctrl+C/X/V/A handled by hand through `assistant.clipboard` — Electron's
+clipboard over IPC here (main.js `clipboard` handler, preload exposes
+write/read), pbcopy/pbpaste via child_process in the AE panel, which also
+registers key-event interest with CEP so the keys reach the page at all.
+Falls back to execCommand("copy") when no native route exists. The Copy
+button copies the model's raw markdown (fences intact), not rendered text.

@@ -41,6 +41,7 @@ function codeCard(codeText, language) {
   const box = el("div", "codecard");
   const head = el("div", "head");
   head.appendChild(el("span", "", (language || "code").toUpperCase()));
+  head.appendChild(copyButton(() => String(codeText)));
   box.appendChild(head);
   box.appendChild(el("pre", "", String(codeText)));
   return box;
@@ -67,13 +68,108 @@ function markdown(container, text) {
   }
 }
 
+// ---------------------------------------------------------------- clipboard
+// Inside After Effects a CEP panel never receives ⌘C/⌘V — the host's own
+// Edit menu eats them — and a bare Electron window has no Edit menu to copy
+// a selection with. So every card carries a Copy button, the top bar has
+// Copy chat, and the shortcuts are handled here by hand through whichever
+// clipboard route the panel layer exposes (pbcopy / Electron clipboard),
+// falling back to the browser's own.
+const transcript = [];                 // [{who, text}] in screen order
+
+async function copyText(text) {
+  text = String(text);
+  if (assistant.clipboard && assistant.clipboard.write) {
+    try { await assistant.clipboard.write(text); return true; } catch (e) {}
+  }
+  const focused = document.activeElement;
+  try {
+    const ta = el("textarea", "clip-ta");
+    ta.value = text; ta.setAttribute("readonly", "");
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy");
+    ta.remove();
+    if (focused && focused.focus) focused.focus();
+    if (ok) return true;
+  } catch (e) {}
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text); return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+function flash(btn, message, bad) {
+  const label = btn.dataset.label || (btn.dataset.label = btn.textContent);
+  btn.textContent = message;
+  btn.classList.toggle("bad", !!bad);
+  clearTimeout(btn._flash);
+  btn._flash = setTimeout(() => { btn.textContent = label;
+                                  btn.classList.remove("bad"); }, 1400);
+}
+
+function copyButton(getText) {
+  const btn = el("button", "copybtn", "Copy");
+  btn.title = "Copy to clipboard";
+  btn.onclick = (evt) => {
+    evt.stopPropagation();
+    copyText(getText()).then((ok) => flash(btn, ok ? "Copied ✓" : "Copy failed", !ok));
+  };
+  return btn;
+}
+
+function transcriptText() {
+  return transcript.map((e) => (e.who ? e.who + ": " : "") + e.text)
+    .join("\n\n");
+}
+
+const copyChatBtn = document.getElementById("copychat");
+copyChatBtn.onclick = () => {
+  if (!transcript.length) { flash(copyChatBtn, "Nothing yet", true); return; }
+  copyText(transcriptText()).then((ok) =>
+    flash(copyChatBtn, ok ? "Copied ✓" : "Copy failed", !ok));
+};
+
+function insertAtCursor(text) {
+  const a = input.selectionStart, b = input.selectionEnd;
+  input.value = input.value.slice(0, a) + text + input.value.slice(b);
+  input.selectionStart = input.selectionEnd = a + text.length;
+}
+
+document.addEventListener("keydown", (evt) => {
+  if (!(evt.metaKey || evt.ctrlKey) || evt.altKey) return;
+  const key = String(evt.key).toLowerCase();
+  const inInput = document.activeElement === input;
+  if (key === "c" || key === "x") {
+    const text = inInput
+      ? input.value.slice(input.selectionStart, input.selectionEnd)
+      : String(window.getSelection());
+    if (!text) return;
+    evt.preventDefault();
+    copyText(text);
+    if (key === "x" && inInput) insertAtCursor("");
+  } else if (key === "v") {
+    if (!inInput || !(assistant.clipboard && assistant.clipboard.read)) return;
+    evt.preventDefault();
+    assistant.clipboard.read().then((t) => { if (t) insertAtCursor(String(t)); },
+                                    () => {});
+  } else if (key === "a" && inInput) {
+    evt.preventDefault();
+    input.select();
+  }
+});
+
 function card(kind, who, text) {
   const box = el("div", "card " + kind);
   box.appendChild(el("span", "who", who));
+  box.appendChild(copyButton(() => String(text)));
   const body = el("div", "body");
   markdown(body, text);
   box.appendChild(body);
   chat.appendChild(box);
+  transcript.push({ who, text: String(text) });
   scroll();
 }
 
@@ -93,6 +189,7 @@ function toolLine(name, args) {
       .map(([k, v]) => k + ": " + JSON.stringify(v)).join(", ");
     line.appendChild(el("span", "args", summary.slice(0, 160)));
     chat.appendChild(line);
+    transcript.push({ who: "", text: "› " + name + "  " + summary });
   }
   const status = el("span", "status", "…");
   line.appendChild(status);
@@ -196,7 +293,7 @@ input.addEventListener("keydown", (evt) => {
 
 document.getElementById("newchat").onclick = () => {
   assistant.newChat();
-  chat.replaceChildren();
+  chat.replaceChildren(); transcript.length = 0;
   toolCount = 0; turnStart = 0;
   card("notice", "NOTE", "New chat — Claude's memory of this session is cleared.");
   setStatus();
@@ -258,7 +355,7 @@ async function openChat(id) {
     "Wait for the current turn to finish before switching chats."); return; }
   histPanel.hidden = true;
   if (data.current) return;              // already on screen
-  chat.replaceChildren();
+  chat.replaceChildren(); transcript.length = 0;
   toolCount = 0; turnStart = 0;
   for (const e of data.events || []) {
     if (e.kind === "toolresult")

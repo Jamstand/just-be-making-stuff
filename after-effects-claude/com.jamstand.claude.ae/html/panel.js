@@ -34,9 +34,19 @@ const os = require("os");
 const path = require("path");
 const net = require("net");
 const crypto = require("crypto");
-const { spawn } = require("child_process");
+const { spawn, execFile } = require("child_process");
 
 const cs = new CSInterface();
+// Without this, ⌘C/⌘V/⌘X/⌘A go to After Effects' own Edit menu and the
+// panel never sees them (CEP registerKeyEventsInterest, since 6.1).
+try {
+  const keys = [];
+  for (const keyCode of [65, 67, 86, 88])                // A C V X
+    for (const mod of ["metaKey", "ctrlKey"]) {
+      const k = { keyCode }; k[mod] = true; keys.push(k);
+    }
+  cs.registerKeyEventsInterest(JSON.stringify(keys));
+} catch (e) {}
 // Node's __dirname is not a reliable global inside a CEP page script; CEP's
 // own API knows where the extension lives (doc-verified SystemPath).
 const EXT_ROOT = (function () {
@@ -570,6 +580,41 @@ window.assistant = {
     return Promise.resolve(null);
   },
   onEvent(handler) { uiHandler = handler; },
+  // The system clipboard via the OS tool: CEF's own copy path is not
+  // reliable inside a CEP panel, and a Node child process always is.
+  // Exposed only when the tool exists, so app.js knows to fall back.
+  clipboard: !findBinary(process.platform === "darwin" ? ["pbcopy"]
+      : process.platform === "win32" ? ["powershell.exe", "powershell"]
+      : ["xclip"], []) ? null : {
+    write(text) {
+      return new Promise((resolve, reject) => {
+        const cmd = process.platform === "darwin" ? ["pbcopy", []]
+          : process.platform === "win32"
+            ? ["powershell", ["-NoProfile", "-Command",
+               "[Console]::InputEncoding=[Text.Encoding]::UTF8; " +
+               "Set-Clipboard -Value ([Console]::In.ReadToEnd())"]]
+            : ["xclip", ["-selection", "clipboard"]];
+        const p = spawn(cmd[0], cmd[1], { stdio: ["pipe", "ignore", "ignore"] });
+        p.on("error", reject);
+        p.on("close", (code) => code === 0 ? resolve(true)
+          : reject(new Error(cmd[0] + " exited " + code)));
+        p.stdin.on("error", () => {});
+        p.stdin.end(String(text), "utf8");
+      });
+    },
+    read() {
+      return new Promise((resolve, reject) => {
+        const cmd = process.platform === "darwin" ? ["pbpaste", []]
+          : process.platform === "win32"
+            ? ["powershell", ["-NoProfile", "-Command",
+               "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " +
+               "Get-Clipboard -Raw"]]
+            : ["xclip", ["-selection", "clipboard", "-o"]];
+        execFile(cmd[0], cmd[1], { encoding: "utf8", maxBuffer: 64 << 20 },
+          (err, out) => err ? reject(err) : resolve(out));
+      });
+    },
+  },
 };
 
 state.onApprovalNeeded = (pending) =>

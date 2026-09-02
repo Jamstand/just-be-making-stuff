@@ -17,7 +17,7 @@
 //   keeps WorkflowIntegration.node locked on Windows.
 
 "use strict";
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, clipboard } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
@@ -427,3 +427,9 @@ ipcMain.handle("history", (evt, { action, id }) => {
 
 ipcMain.handle("config", () => ({ models: MODELS, efforts: EFFORTS,
                                   modes: tools.PERMISSION_MODES }));
+
+// The renderer is sandboxed, so the system clipboard lives here.
+ipcMain.handle("clipboard", (evt, { op, text }) => {
+  if (op === "write") { clipboard.writeText(String(text)); return true; }
+  return clipboard.readText();
+});

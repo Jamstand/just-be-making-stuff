@@ -51,6 +51,47 @@ const status = (page) => page.evaluate(() => document.getElementById("status").t
     approval_hidden: await page.$eval("#approval", (e) => e.hidden) }, null, 1));
   await shot(page, "3-turn-complete");
 
+  console.log("### 3b. Copy button on the CLAUDE card -> system clipboard (fake xclip in fakebin = pbcopy stand-in)");
+  const clipFile = path.join(HOME, "clip.txt");
+  const readClip = () => fs.existsSync(clipFile) ? fs.readFileSync(clipFile, "utf8") : "(no clipboard write)";
+  await page.hover("#chat .card.claude:last-of-type");
+  await page.click("#chat .card.claude:last-of-type .copybtn");
+  await page.waitForFunction(() => document.querySelector("#chat .card.claude:last-of-type .copybtn").textContent !== "Copy", null, { timeout: 4000 });
+  console.log(JSON.stringify({ button: await page.$eval("#chat .card.claude:last-of-type .copybtn", (b) => b.textContent),
+    clipboard: readClip(), route: await page.evaluate(() => !!(window.assistant.clipboard && window.assistant.clipboard.write)) }, null, 1));
+  await shot(page, "3b-copy-button");
+  await page.waitForTimeout(1600);
+  console.log("  label restored: " + await page.$eval("#chat .card.claude:last-of-type .copybtn", (b) => b.textContent));
+
+  console.log("### 3c. 🔍 drag-select text in a card, press Ctrl/⌘+C -> handled by the panel, not the host");
+  fs.writeFileSync(clipFile, "STALE");
+  await page.evaluate(() => { const p = document.querySelector("#chat .card.claude:last-of-type .prose"); const s = window.getSelection(); s.removeAllRanges(); s.selectAllChildren(p); });
+  await page.keyboard.press("Control+c");
+  await page.waitForTimeout(400);
+  console.log(JSON.stringify({ selection: await page.evaluate(() => String(window.getSelection())), clipboard: readClip() }, null, 1));
+
+  console.log("### 3d. 🔍 Copy chat -> whole transcript");
+  await page.click("#copychat");
+  await page.waitForTimeout(400);
+  console.log(JSON.stringify({ button: await page.$eval("#copychat", (b) => b.textContent), clipboard: readClip() }, null, 1));
+  await shot(page, "3d-copy-chat");
+
+  console.log("### 3e. 🔍 paste into the input with Ctrl/⌘+V (reads through xclip -o)");
+  fs.writeFileSync(clipFile, "speed-ramp layer 2 into the drop");
+  await page.click("#input"); await page.fill("#input", "please ");
+  await page.keyboard.press("Control+v");
+  await page.waitForTimeout(400);
+  console.log(JSON.stringify({ input: await page.$eval("#input", (i) => i.value) }, null, 1));
+  await page.fill("#input", "");
+
+  console.log("### 3f. 🔍 native route dies (pbcopy missing) -> browser fallback still copies");
+  await page.evaluate(() => { window.assistant.clipboard.write = () => Promise.reject(new Error("no pbcopy")); });
+  await page.click("#chat .card.you .copybtn");
+  await page.waitForTimeout(400);
+  console.log(JSON.stringify({ button: await page.$eval("#chat .card.you .copybtn", (b) => b.textContent),
+    electron_clipboard: await app.evaluate(({ clipboard }) => clipboard.readText()) }, null, 1));
+  await page.waitForTimeout(1600);
+
   console.log("### 4. 🔍 second turn, DECLINE via Escape");
   await page.fill("#input", "make another one");
   await page.press("#input", "Enter");

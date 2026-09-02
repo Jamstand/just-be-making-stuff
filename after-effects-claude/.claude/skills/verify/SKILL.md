@@ -94,3 +94,12 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
 - Errors thrown by file:// scripts may reach window.onerror masked as
   "Script error." — the on-screen card still proves *something* threw;
   the DevTools console (http://localhost:8092 via .debug) has the detail.
+- Clipboard: a CEP panel on macOS never sees ⌘C/⌘V unless it calls
+  registerKeyEventsInterest (panel.js does, for A/C/V/X + meta/ctrl), and
+  app.js handles the keys itself through assistant.clipboard (pbcopy /
+  pbpaste via child_process; xclip on Linux — verify-electron/fakebin/xclip
+  is a file-backed stand-in the drive reads back). Every card has a Copy
+  button and the top bar a Copy chat button, so copying never depends on
+  the keyboard route. Drive steps 3b–3f cover button, ⌘C on a selection,
+  Copy chat, ⌘V into the input, and the browser fallback when the native
+  tool is missing.

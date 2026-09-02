@@ -30,8 +30,20 @@ button:hover { border-color: #55555e; color: #d8d8dc; }
 }
 .card {
   border-left: 2px solid; background: #26262b; border-radius: 0 6px 6px 0;
-  padding: 8px 12px;
+  padding: 8px 12px; position: relative;
 }
+/* Copy affordances: quiet until the card is hovered; excluded from text
+   selection so ⌘C on a dragged selection never picks up the word "Copy". */
+.copybtn {
+  position: absolute; top: 5px; right: 8px; height: 20px; padding: 0 7px;
+  font-size: 10.5px; opacity: .55; user-select: none;
+}
+.card:hover .copybtn, .copybtn:focus, .copybtn.bad { opacity: 1; }
+.copybtn.bad, #copychat.bad { border-color: #e05c4b; color: #e05c4b; }
+.codecard .head { position: relative; padding-right: 60px; }
+.codecard .head .copybtn { top: 2px; right: 6px; }
+.clip-ta { position: fixed; top: 0; left: 0; width: 1px; height: 1px;
+           opacity: 0; pointer-events: none; }
 .card .who {
   display: block; font-size: 10px; font-weight: 600; letter-spacing: .5px;
   margin-bottom: 3px;

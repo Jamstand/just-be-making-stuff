@@ -1,0 +1,3 @@
+#!/bin/sh
+# Stand-in for pbcopy/pbpaste: the panel's clipboard route on Linux.
+case " $* " in *" -o "*) cat "$HOME/clip.txt" ;; *) cat > "$HOME/clip.txt" ;; esac
