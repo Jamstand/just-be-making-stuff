@@ -111,14 +111,20 @@ CA_TOOLS.add_clip = function (a) {
   var comp = CA_comp(a.comp);
   var item = CA_item(a.item_name);
   var layer = comp.layers.add(item);
-  if (a.in_s !== undefined) layer.inPoint = Number(a.in_s);
-  if (a.out_s !== undefined) layer.outPoint = Number(a.out_s);
-  if (a.start_s !== undefined)
-    layer.startTime = Number(a.start_s) - (Number(a.in_s) || 0);
+  // AE semantics (doc-verified): inPoint/outPoint/startTime are all COMP
+  // time. To show SOURCE [in_s, out_s] starting at comp start_s: shift the
+  // layer so source in_s lands on start_s, then trim in comp time.
+  var srcIn = Number(a.in_s) || 0;
+  var srcOut = a.out_s !== undefined ? Number(a.out_s)
+                                     : srcIn + (item.duration || 0);
+  var start = a.start_s !== undefined ? Number(a.start_s) : 0;
+  layer.startTime = start - srcIn;
+  layer.inPoint = start;
+  layer.outPoint = start + (srcOut - srcIn);
   layer.moveToEnd();       // append order: new clips go under existing ones
   return { layer: comp.numLayers, name: layer.name,
-           in_s: layer.inPoint, out_s: layer.outPoint,
-           comp_start_s: layer.inPoint + layer.startTime - layer.inPoint };
+           source_in_s: srcIn, source_out_s: srcOut,
+           comp_start_s: layer.inPoint, comp_end_s: layer.outPoint };
 };
 
 CA_TOOLS.speed_ramp = function (a) {

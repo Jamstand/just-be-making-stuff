@@ -1,8 +1,9 @@
 /* The user's "1a Native restyle" design — exact tokens from the design file,
    now in a real browser: border-radius, flexbox, the lot. */
 * { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
 body {
-  height: 100vh; display: flex; flex-direction: column;
+  min-height: 100vh; display: flex; flex-direction: column;
   background: #1e1e22; color: #d8d8dc;
   font: 13px/1.5 "Segoe UI", system-ui, sans-serif;
 }

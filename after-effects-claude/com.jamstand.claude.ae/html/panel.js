@@ -7,6 +7,21 @@
 "use strict";
 /* global CSInterface */
 
+// A silent panel is the worst failure mode. If CEP ignored --enable-nodejs
+// (or --mixed-context), `require` does not exist and nothing below can run:
+// say so on screen instead of leaving an empty top bar.
+if (typeof require !== "function") {
+  const chat = document.getElementById("chat");
+  const box = document.createElement("div");
+  box.className = "card error";
+  box.textContent = "Node.js is not available in this panel: CEP did not "
+    + "honour the manifest's --enable-nodejs/--mixed-context flags, so the "
+    + "assistant cannot start. Check ~/Library/Logs/CSXS/CEP12-AEFT.log "
+    + "and the CSXS/manifest.xml CEFCommandLine block.";
+  if (chat) chat.appendChild(box);
+  throw new Error("CEP Node runtime missing");
+}
+
 const fs = require("fs");
 const os = require("os");
 const path = require("path");

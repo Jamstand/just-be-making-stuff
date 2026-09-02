@@ -212,6 +212,12 @@ function dispatch(kind, payload) {
   else if (kind === "approval") showApproval(payload);
   else if (kind === "done") setBusy(false);
 }
+if (typeof assistant === "undefined") {
+  card("error", "ERROR", "The panel's Node layer never started (window."
+    + "assistant is missing) — see the message above, or open the panel's "
+    + "DevTools at http://localhost:8092 for the console.");
+  throw new Error("assistant API missing");
+}
 assistant.onEvent(({ kind, payload }) => dispatch(kind, payload));
 
 // ---------------------------------------------------------------- history

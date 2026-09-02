@@ -208,8 +208,10 @@ check("import_media: imports and reports missing individually",
 
 r = invoke("add_clip", { item_name: "C0392.MP4", in_s: 2, out_s: 3.5,
                          start_s: 0 });
-check("add_clip: source in/out honoured",
-      r.ok && r.data.in_s === 2 && r.data.out_s === 3.5, JSON.stringify(r));
+check("add_clip: source [2,3.5] lands at comp 0 (inPoint is COMP time)",
+      r.ok && r.data.comp_start_s === 0 && r.data.comp_end_s === 1.5
+      && sandbox.app.project.activeItem.layer(1).startTime === -2,
+      JSON.stringify(r));
 
 r = invoke("speed_ramp", { layer: 1, keys: [
   { at_s: 0, source_s: 2 },
