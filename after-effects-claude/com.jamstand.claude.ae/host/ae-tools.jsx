@@ -230,50 +230,61 @@ CA_TOOLS.add_mask = function (a) {
   return { layer: layer.name, masks: layer.property("ADBE Mask Parade").numProperties };
 };
 
-// A PNG is complete when its last chunk is IEND. saveFrameToPng creates
-// the file first and fills it afterwards, so "exists" is not "done".
-function CA_pngComplete(f) {
-  var tail = "";
-  try {
-    if (!f.exists || f.length < 12) return false;
-    f.encoding = "BINARY";
-    if (!f.open("r")) return false;
-    f.seek(8, 2);
-    tail = f.read(8);
-    f.close();
-  } catch (e) { try { f.close(); } catch (e2) {} return false; }
-  return tail.indexOf("IEND") === 0;
+// saveFrameToPng (undocumented, asynchronous since CC2015) creates the
+// file first and finishes it on AE's main thread. Never wait for it HERE:
+// a $.sleep loop inside ExtendScript blocks that same thread, the PNG
+// stalls half-written, and every later evalScript queues behind the loop
+// (live: "every script call times out"). The panel waits on the file.
+function CA_grabDir() {
+  var dir = new Folder(Folder.userData.fsName + "/ClaudeAssistantAE");
+  if (!dir.exists) dir.create();
+  return dir;
 }
 
 CA_TOOLS.grab_frame = function (a) {
   var comp = CA_comp(a.comp);
   var t = a.time_s !== undefined ? Number(a.time_s) : comp.time;
-  var dir = new Folder(Folder.userData.fsName + "/ClaudeAssistantAE");
-  if (!dir.exists) dir.create();
-  var f = new File(dir.fsName + "/frame_" + new Date().getTime() + ".png");
+  var f = new File(CA_grabDir().fsName + "/frame_" + new Date().getTime() + ".png");
   if (typeof comp.saveFrameToPng !== "function")
     CA_err("saveFrameToPng is missing in this AE version — frame export "
            + "needs the render-queue fallback (not yet built).");
   comp.saveFrameToPng(t, f);
-  // Undocumented API, asynchronous since CC2015, and the file appears
-  // BEFORE it is finished (captures came back with a black band across
-  // the bottom). Wait until it exists, stops growing and ends in IEND.
-  var waited = 0, last = -1, stable = 0, done = false;
-  while (waited < 20000) {
-    $.sleep(200); waited += 200;
-    if (!f.exists) continue;
-    var size = f.length;
-    stable = (size > 0 && size === last) ? stable + 1 : 0;
-    last = size;
-    if (stable >= 1 && CA_pngComplete(f)) { done = true; break; }
+  return { file: f.fsName, time_s: t, comp: comp.name };
+};
+
+// A layer's SOURCE, rendered alone in a throwaway comp: the frame the
+// tracking tools need, in source pixels, without the rest of the stack.
+// The panel removes the temp comp (remove_temp_comp) once the PNG is done.
+CA_TOOLS.grab_source_frame = function (a) {
+  var comp = CA_comp(a.comp);
+  var layer = CA_layer(comp, a.layer);
+  var src = layer.source;
+  if (!src) CA_err("Layer '" + layer.name + "' has no source to render.");
+  var t = a.source_time_s !== undefined ? Number(a.source_time_s) : 0;
+  var fps = src.frameRate || comp.frameRate;
+  var dur = Math.max(src.duration || 0, 1 / fps);
+  var name = "__ClaudeGrab__" + new Date().getTime();
+  var tmp = app.project.items.addComp(name, src.width, src.height,
+                                      src.pixelAspect || 1, dur, fps);
+  tmp.layers.add(src);
+  var f = new File(CA_grabDir().fsName + "/source_" + new Date().getTime() + ".png");
+  if (typeof tmp.saveFrameToPng !== "function") {
+    tmp.remove();
+    CA_err("saveFrameToPng is missing in this AE version.");
   }
-  if (!f.exists) CA_err("saveFrameToPng produced no file within 20s.");
-  if (!done)
-    CA_err("saveFrameToPng never finished writing " + f.fsName + " ("
-           + last + " bytes after 20s) — the render is still going; try "
-           + "again, or set the viewer to Half resolution.");
-  return { file: f.fsName, time_s: t, comp: comp.name, bytes: last,
-           waited_ms: waited };
+  tmp.saveFrameToPng(Math.min(t, dur), f);
+  return { file: f.fsName, source_time_s: t, source: src.name,
+           width: src.width, height: src.height, temp_comp: name };
+};
+
+CA_TOOLS.remove_temp_comp = function (a) {
+  var removed = 0, i, item;
+  for (i = app.project.numItems; i >= 1; i--) {
+    item = app.project.item(i);
+    if (item instanceof CompItem && item.name.indexOf("__ClaudeGrab__") === 0
+        && (!a.name || item.name === a.name)) { item.remove(); removed += 1; }
+  }
+  return { removed: removed };
 };
 
 CA_TOOLS.render = function (a) {

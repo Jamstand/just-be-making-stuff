@@ -384,3 +384,9 @@ in-AE Claude parsed mask.shape4ae itself (64 pts/frame) — a real parser
 + native mask keyframes tool is the next build (format head requested
 from josh); (4) the region left frame right at ~f15 and the tracker
 re-locked on the road — tracklib.trackReport now flags usable range.
+THEN: my "wait for IEND" $.sleep loop in grab_frame FROZE AE — ExtendScript
+blocks the main thread that finishes the PNG, so the file stalls half-
+written and every later evalScript queues (timeouts everywhere). Rule:
+host tools return immediately; the panel (Node) waits on files
+(tracklib.waitForPng). grab_source_frame added: temp __ClaudeGrab__ comp
+with just the layer's source → PNG in SOURCE pixels, comp removed after.

@@ -295,6 +295,41 @@ function trackReport(blocks, width, height, fps) {
   return rep;
 }
 
+// ------------------------------------------------------ PNG readiness
+// AE's saveFrameToPng finishes the file after the script call returns;
+// a PNG is complete when it stops growing and ends with the IEND chunk.
+function pngComplete(file) {
+  try {
+    const st = fs.statSync(file);
+    if (st.size < 12) return false;
+    const fd = fs.openSync(file, "r");
+    const tail = Buffer.alloc(8);
+    try { fs.readSync(fd, tail, 0, 8, st.size - 8); } finally { fs.closeSync(fd); }
+    return tail.toString("latin1").startsWith("IEND");
+  } catch (e) { return false; }
+}
+
+async function waitForPng(file, timeoutMs, opts) {
+  const nap = (opts && opts.sleep) || sleep;
+  const started = Date.now();
+  let last = -1, stable = 0, size = 0;
+  for (;;) {
+    await nap((opts && opts.pollMs) || 200);
+    try { size = fs.statSync(file).size; } catch (e) { size = -1; }
+    stable = (size > 0 && size === last) ? stable + 1 : 0;
+    last = size;
+    if (stable >= 1 && pngComplete(file))
+      return { bytes: size, waited_ms: Date.now() - started };
+    if (Date.now() - started > (timeoutMs || 30000))
+      throw new Error(size < 0
+        ? "AE never created " + file + " — is 'Allow Scripts to Write Files' on?"
+        : "AE is still writing " + file + " after " + Math.round(timeoutMs / 1000)
+          + "s (" + size + " bytes). The render may be heavy — try Half "
+          + "resolution, grab_source_frame instead of the whole comp, or wait "
+          + "and try again.");
+  }
+}
+
 // ------------------------------------------------------------- HTTP
 function httpRequest(url, opts, body) {
   opts = opts || {};
@@ -494,7 +529,7 @@ function explainMochaError(message) {
     + "/ 'Create Track Data' on the effect, or use ai_segment for a matte.";
 }
 
-module.exports = { solveHomography, applyH, retargetCornerPin, trackReport,
+module.exports = { pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
   cornerBlocks, mochaEnv, explainMochaError, CONFIG_FILE, readConfig, writeConfig, findMochaPython,
   expandPattern, runMochaJob, parseAeKeyframeText, httpRequest, falUpload,
   falSubmit, falWait, download, mimeFor, FAL_QUEUE, FAL_REST };

@@ -121,6 +121,22 @@ const exe = (name, body) => {
   check("explainMochaError: rendering-context failures point at mocha_status's Qt ladder",
     /OpenGL rendering context/.test(ctx) && /mocha_qt/.test(ctx) && /apply_track_file/.test(ctx), ctx.slice(0, 100));
 
+  // ------------------------------------------------ PNG readiness (panel-side wait)
+  const png = path.join(tmp, "grab.png");
+  fs.writeFileSync(png, "partial");
+  setTimeout(() => fs.appendFileSync(png, "morebytes"), 120);
+  setTimeout(() => fs.appendFileSync(png, "IEND\0\0\0\0"), 300);
+  const w1 = await track.waitForPng(png, 5000, { pollMs: 50 });
+  check("waitForPng: resolves once the file stops growing and ends in IEND",
+    w1.bytes === fs.statSync(png).size && w1.waited_ms >= 300 && track.pngComplete(png), JSON.stringify(w1));
+  const stuck = path.join(tmp, "stuck.png");
+  fs.writeFileSync(stuck, "partial forever");
+  const w2 = await track.waitForPng(stuck, 300, { pollMs: 50 }).catch((e) => e.message);
+  check("waitForPng: a half-written file times out with advice, not a truncated image",
+    /still writing/.test(w2) && /grab_source_frame/.test(w2), w2);
+  const w3 = await track.waitForPng(path.join(tmp, "never.png"), 300, { pollMs: 50 }).catch((e) => e.message);
+  check("waitForPng: a file AE never creates names the scripting preference", /never created/.test(w3) && /Allow Scripts/.test(w3), w3);
+
   // ------------------------------------------------ corner-pin geometry
   const sq = [[0, 0], [100, 0], [0, 100], [100, 100]];             // UL UR LL LR
   const H = track.solveHomography(sq, [[10, 20], [210, 20], [10, 220], [210, 220]]);

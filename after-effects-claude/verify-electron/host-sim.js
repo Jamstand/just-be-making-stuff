@@ -31,6 +31,7 @@ function makeComp(name, w, h, fps, dur) { const c = Object.create(CompItem.proto
   Object.assign(c, { name, width: w, height: h, frameRate: fps, duration: dur, time: 0, numLayers: 0, _layers: [] });
   c.layers = { add(item) { const l = makeLayer(item.name, c); l.source = item; c._layers.unshift(l); c.numLayers = c._layers.length; return l; } };
   c.layer = (i) => c._layers[i - 1]; c.openInViewer = () => {};
+  c.remove = () => { project._items.splice(project._items.indexOf(c), 1); project.numItems = project._items.length; };
   c.saveFrameToPng = (t, f) => fs.writeFileSync(f.fsName, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"));
   return c; }
 const project = { file: null, numItems: 0, _items: [], activeItem: null, item(i) { return project._items[i - 1]; },

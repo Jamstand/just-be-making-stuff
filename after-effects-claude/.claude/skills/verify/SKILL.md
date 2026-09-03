@@ -124,3 +124,11 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   host tool now waits until the size is stable AND the last 8 bytes start
   with IEND; the fake AE in test_ae_plugin.js reproduces the race (partial
   write, IEND appended on the 3rd $.sleep) and the never-finishes error.
+- NEVER poll with $.sleep inside a host tool. ExtendScript runs on AE's
+  main thread; a sleep loop stalls saveFrameToPng's own writer and queues
+  every later evalScript behind it (live: "every script call times out").
+  grab_frame / grab_source_frame return immediately; tracklib.waitForPng
+  waits on the file from the panel side (size stable + IEND).
+- grab_source_frame renders one layer's source alone in a throwaway
+  __ClaudeGrab__ comp (removed by remove_temp_comp in a finally) — use it
+  for tracking regions; grab_frame renders the whole stack.

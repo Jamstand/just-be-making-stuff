@@ -114,7 +114,7 @@ function makeLayer(name, comp) {
   return layer;
 }
 
-let pendingPng = null, pngSleeps = 0, pngNeverFinishes = false;
+let pendingPng = null, pngSleeps = 0;
 
 function makeComp(name, w, h, fps, dur) {
   const comp = Object.create(CompItem.prototype);
@@ -142,9 +142,14 @@ function makeComp(name, w, h, fps, dur) {
   comp.layer = function (i) { return comp._layers[i - 1]; };
   comp.openInViewer = function () {};
   comp.saveFrameToPng = function (t, f) {
-    // Like AE: the file appears at once, the bytes land later (IEND last).
+    // Like AE: the file appears at once; the rest lands after the call.
     fs.writeFileSync(f.fsName, "PNGDATA@" + t);
-    pendingPng = pngNeverFinishes ? null : f.fsName; pngSleeps = 0;
+    pendingPng = f.fsName;
+  };
+  comp.remove = function () {
+    const items = comp._project._items;
+    items.splice(items.indexOf(comp), 1);
+    comp._project.numItems = items.length;
   };
   return comp;
 }
@@ -156,6 +161,7 @@ function buildSandbox() {
     activeItem: null,
     items: { addComp: function (n, w, h, pa, d, fps) {
       const c = makeComp(n, w, h, fps, d);
+      c._project = project;
       project._items.push(c); project.numItems = project._items.length;
       project.activeItem = c;
       return c;
@@ -230,10 +236,7 @@ function buildSandbox() {
                       ALPHA: "ALPHA", ALPHA_INVERTED: "ALPHA_INVERTED",
                       NO_TRACK_MATTE: "NONE" },
     Date: Date, isFinite: isFinite, parseInt: parseInt,
-    $: { sleep: function () {
-      if (pendingPng && ++pngSleeps >= 3) {
-        fs.appendFileSync(pendingPng, "IEND\0\0\0\0"); pendingPng = null; }
-    } },
+    $: { sleep: function () { pngSleeps += 1; } },
   };
   sandbox.Folder.userData = { fsName: require("os").tmpdir() };
   return sandbox;
@@ -307,17 +310,12 @@ check("add_mask: shape + feather",
       r.ok && r.data.masks === 1, JSON.stringify(r));
 
 r = invoke("grab_frame", { time_s: 1.25 });
-check("grab_frame: waits for the PNG to finish (IEND), not just to exist",
-      r.ok && fs.existsSync(r.data.file)
-      && fs.readFileSync(r.data.file, "latin1") === "PNGDATA@1.25IEND\0\0\0\0"
-      && r.data.bytes === 20 && r.data.waited_ms >= 600,
-      JSON.stringify(r));
+check("grab_frame: starts the save and RETURNS AT ONCE (no $.sleep polling in AE)",
+      r.ok && fs.existsSync(r.data.file) && pngSleeps === 0
+      && fs.readFileSync(r.data.file, "latin1") === "PNGDATA@1.25",
+      JSON.stringify(r) + " sleeps=" + pngSleeps);
 try { fs.unlinkSync(r.data.file); } catch (e) {}
-pngNeverFinishes = true;
-r = invoke("grab_frame", { time_s: 2 });
-check("grab_frame: a capture that never completes is an error, not a truncated image",
-      !r.ok && /never finished writing/.test(r.error), JSON.stringify(r));
-pngNeverFinishes = false;
+}
 
 r = invoke("list_render_templates", {});
 check("render templates listed",
@@ -343,6 +341,24 @@ check("layer_info: file, fps, start, SOURCE in/out",
   && li.data.start_s === 1.5 && Math.abs(li.data.source_in_s - 0.5) < 1e-9
   && Math.abs(li.data.source_out_s - 4) < 1e-9 && li.data.index === 1
   && li.data.stretch === 100, JSON.stringify(li));
+{
+  const before = sandbox.app.project.numItems;
+  const trackCompIdx = [...Array(before)].map((_, i) => sandbox.app.project.item(i + 1))
+    .findIndex((it) => it.name === "Track") + 1;
+  const g = invoke("grab_source_frame", { layer: 1, comp: "Track", source_time_s: 1.5 });
+  const tmpComp = sandbox.app.project.item(sandbox.app.project.numItems);
+  check("grab_source_frame: renders the layer's SOURCE alone in a temp comp at source size",
+        g.ok && fs.existsSync(g.data.file) && /^__ClaudeGrab__/.test(g.data.temp_comp)
+        && sandbox.app.project.numItems === before + 1 && tmpComp.name === g.data.temp_comp
+        && tmpComp.width === 1920 && tmpComp._layers.length === 1
+        && g.data.width === 1920 && g.data.source_time_s === 1.5 && trackCompIdx > 0,
+        JSON.stringify(g));
+  const rm = invoke("remove_temp_comp", { name: g.data.temp_comp });
+  check("remove_temp_comp: sweeps only the grab comp", rm.ok && rm.data.removed === 1
+        && sandbox.app.project.numItems === before
+        && [...Array(before)].every((_, i) => !/__ClaudeGrab__/.test(sandbox.app.project.item(i + 1).name)),
+        JSON.stringify(rm));
+  try { fs.unlinkSync(g.data.file); } catch (e) {}
 const trackComp = sandbox.app.project.activeItem;
 const trackLayer = trackComp.layer(1);
 const kfBlocks = [

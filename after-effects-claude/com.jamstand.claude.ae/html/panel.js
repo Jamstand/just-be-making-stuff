@@ -76,8 +76,9 @@ const SYSTEM_PROMPT = [
   "(Track Motion, 3D camera tracker, Warp Stabilizer, Mask Tracker) cannot",
   "be started by script. Tracking itself is NOT a wall: mocha_track runs",
   "Mocha Pro's planar tracker headless and lands native mask / Corner Pin",
-  "/ Transform keyframes (mocha_status once, then layer_info + grab_frame",
-  "to pick the region in SOURCE pixels); ai_segment fetches a SAM 3 object",
+  "/ Transform keyframes (mocha_status once, then layer_info +",
+  "grab_source_frame to pick the region in SOURCE pixels); ai_segment",
+  "fetches a SAM 3 object",
   "matte from fal.ai (paid; set_fal_key; dry_run quotes the cost first).",
   "Output codecs are template-only (no",
   "field-by-field codec settings); Lumetri parameter names are not",
@@ -241,19 +242,45 @@ tool("add_mask",
     inverted: { type: "boolean" }, closed: { type: "boolean" },
     mode: { type: "string" } }, ["layer", "vertices"], {});
 
+async function finishGrab(data, extra) {
+  const done = await track.waitForPng(data.file, 30000);
+  const out = Object.assign({ file: data.file, bytes: done.bytes,
+                              waited_ms: done.waited_ms }, extra);
+  const img = await shrinkPng(data.file);
+  if (img) out._images = [img];
+  else out.note = "frame saved but could not be downscaled for vision";
+  return out;
+}
+
 tool("grab_frame",
-  "Export the comp frame at time_s as PNG and SEE it (downscaled JPEG to "
-  + "vision). Uses the undocumented saveFrameToPng — if this AE build "
-  + "lacks it the error says so honestly.",
+  "Export the COMP frame at time_s as PNG and SEE it (downscaled JPEG to "
+  + "vision). Renders the whole layer stack — slow on heavy comps; to look "
+  + "at one layer's footage use grab_source_frame.",
   { time_s: { type: "number" }, comp: { type: "string" } }, [],
   { readonly: true },
   async (state, a) => {
     const data = await evalHost("grab_frame", a);
-    const out = { file: data.file, time_s: data.time_s, comp: data.comp };
-    const img = await shrinkPng(data.file);
-    if (img) out._images = [img];
-    else out.note = "frame saved but could not be downscaled for vision";
-    return out;
+    return finishGrab(data, { time_s: data.time_s, comp: data.comp });
+  });
+
+tool("grab_source_frame",
+  "SEE one layer's SOURCE footage at source_time_s, rendered alone (a "
+  + "throwaway comp that is removed afterwards) — the right way to pick a "
+  + "tracking region: what you see is in source pixels, unobscured by the "
+  + "layers above. source_time_s = comp time − layer start (see layer_info).",
+  { layer: { type: "number" }, comp: { type: "string" },
+    source_time_s: { type: "number" } }, ["layer"], { readonly: true },
+  async (state, a) => {
+    const data = await evalHost("grab_source_frame", a);
+    try {
+      return await finishGrab(data, { source: data.source, width: data.width,
+        height: data.height, source_time_s: data.source_time_s,
+        coordinates: "source pixels, origin top-left — pass these to "
+          + "mocha_track's shape as-is" });
+    } finally {
+      try { await evalHost("remove_temp_comp", { name: data.temp_comp }); }
+      catch (e) { /* the comp is named __ClaudeGrab__; a later call sweeps it */ }
+    }
   });
 
 tool("list_render_templates",
@@ -565,8 +592,8 @@ tool("mocha_track",
   "Planar-track a region of a layer's SOURCE footage with Mocha Pro's own "
   + "engine, headless (needs Mocha Pro installed; mocha_status first). "
   + "shape = 3+ [x,y] points in SOURCE pixels (origin top-left) around a "
-  + "flat-ish surface visible at start_s — look with grab_frame and use "
-  + "layer_info to convert if comp and source sizes differ; rect [x,y,w,h] "
+  + "flat-ish surface visible at start_s — look with grab_source_frame "
+  + "(source pixels, nothing to convert); rect [x,y,w,h] "
   + "is a shortcut. start_s/end_s in SOURCE seconds (default: the layer's "
   + "trimmed range). exports: mask (native AE mask keyframes), corner_pin "
   + "(Corner Pin effect keys), power_pin, transform (Position/Scale/"
