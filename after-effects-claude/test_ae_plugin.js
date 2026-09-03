@@ -150,6 +150,7 @@ function makeComp(name, w, h, fps, dur) {
     const items = comp._project._items;
     items.splice(items.indexOf(comp), 1);
     comp._project.numItems = items.length;
+    if (comp._project.activeItem === comp) comp._project.activeItem = null;
   };
   return comp;
 }
@@ -315,7 +316,6 @@ check("grab_frame: starts the save and RETURNS AT ONCE (no $.sleep polling in AE
       && fs.readFileSync(r.data.file, "latin1") === "PNGDATA@1.25",
       JSON.stringify(r) + " sleeps=" + pngSleeps);
 try { fs.unlinkSync(r.data.file); } catch (e) {}
-}
 
 r = invoke("list_render_templates", {});
 check("render templates listed",
@@ -359,7 +359,9 @@ check("layer_info: file, fps, start, SOURCE in/out",
         && [...Array(before)].every((_, i) => !/__ClaudeGrab__/.test(sandbox.app.project.item(i + 1).name)),
         JSON.stringify(rm));
   try { fs.unlinkSync(g.data.file); } catch (e) {}
-const trackComp = sandbox.app.project.activeItem;
+}
+const trackComp = [...Array(sandbox.app.project.numItems)]
+  .map((_, i) => sandbox.app.project.item(i + 1)).find((it) => it.name === "Track");
 const trackLayer = trackComp.layer(1);
 const kfBlocks = [
   { group: "Effects", name: "Corner Pin #1", prop: "Upper Left #2",
