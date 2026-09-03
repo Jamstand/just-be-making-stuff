@@ -1,0 +1,38 @@
+#!/usr/bin/env node
+// Stand-in for Mocha Pro's python3: reads the job the panel wrote, writes
+// the files Mocha's exporters would, prints CA_RESULT like mocha_job.py.
+// argv: [<mocha_job.py path>, <job.json>]
+const fs = require("fs"), path = require("path");
+const job = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const out = (o) => console.log("CA_RESULT " + JSON.stringify(o));
+console.log("fake mocha python: action=" + job.action);
+if (job.action === "probe") {
+  out({ ok: true, data: { python: "3.11.12", mocha_version: "fake-2026.5", shape_exporters: ["after_effects_mask"],
+    tracking_exporters: ["after_effects_corner_pin", "after_effects_transform"], ae_exporters_present: true } });
+  process.exit(0);
+}
+if (job.action !== "track") { out({ ok: false, error: "unknown action " + job.action }); process.exit(1); }
+const exportsOut = {};
+const frames = Math.min(job.end_frame - job.start_frame + 1, 10);
+const xs = job.shape.map((p) => p.x), ys = job.shape.map((p) => p.y);
+const corners = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.min(...ys)],
+                 [Math.min(...xs), Math.max(...ys)], [Math.max(...xs), Math.max(...ys)]];
+for (const kind of job.exports) {
+  if (kind === "corner_pin") {
+    const lines = ["Adobe After Effects 8.0 Keyframe Data", "", "\tUnits Per Second\t24", "\tSource Width\t1920",
+      "\tSource Height\t1080", "\tSource Pixel Aspect Ratio\t1", "\tComp Pixel Aspect Ratio\t1", ""];
+    ["Upper Left", "Upper Right", "Lower Left", "Lower Right"].forEach((n, i) => {
+      lines.push("Effects\tCorner Pin #1\t" + n + " #" + (i + 2), "\tFrame\tX pixels\tY pixels\t");
+      for (let f = 0; f < frames; f++) lines.push("\t" + (job.start_frame + f) + "\t" + (corners[i][0] + f * 2) + "\t" + (corners[i][1] + f) + "\t");
+      lines.push("");
+    });
+    lines.push("End of Keyframe Data", "");
+    const p = path.join(job.out_dir, "corner_pin.txt"); fs.writeFileSync(p, lines.join("\r\n")); exportsOut[kind] = [p];
+  } else if (kind === "mask") {
+    const p = path.join(job.out_dir, "mask.shape4ae");
+    fs.writeFileSync(p, "Adobe After Effects Mask Data (fake)\nframes " + frames + "\n"); exportsOut[kind] = [p];
+  } else exportsOut[kind] = { error: "fake python does not export " + kind };
+}
+fs.writeFileSync(job.project_path, "fake mocha project");
+out({ ok: true, data: { project: job.project_path, layer: job.layer_name, frames: job.end_frame - job.start_frame + 1,
+  track_seconds: 0.1, exports: exportsOut, notes: ["fake"] } });

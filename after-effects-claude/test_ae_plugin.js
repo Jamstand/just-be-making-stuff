@@ -35,6 +35,7 @@ FakeProperty.prototype.setTemporalEaseAtKey = function (i, ein, eout) {
 FakeProperty.prototype.setInterpolationTypeAtKey = function (i, t) {
   this._interp[i] = t;
 };
+FakeProperty.prototype.keyTime = function (i) { return this._keys[i - 1].t; };
 
 function FakeGroup(name, matchName) {
   this.name = name; this.matchName = matchName;
@@ -56,9 +57,16 @@ FakeGroup.prototype.property = function (key) {
 
 function makeEffect(mn) {
   const g = new FakeGroup(mn.replace("ADBE ", ""), mn);
-  g._props = [new FakeProperty("Blurriness", mn + " Blurriness", 0),
-              new FakeProperty("Direction", mn + " Direction", 0)];
-  g.numProperties = 2;
+  if (/corner pin/i.test(mn))
+    g._props = ["Upper Left", "Upper Right", "Lower Left", "Lower Right"]
+      .map((n, i) => new FakeProperty(n, "ADBE Corner Pin-000" + (i + 1), [0, 0]));
+  else if (/power pin/i.test(mn))
+    g._props = ["Top Left", "Top Right", "Bottom Left", "Bottom Right"]
+      .map((n, i) => new FakeProperty(n, "CC Power Pin-000" + (i + 2), [0, 0]));
+  else
+    g._props = [new FakeProperty("Blurriness", mn + " Blurriness", 0),
+                new FakeProperty("Direction", mn + " Direction", 0)];
+  g.numProperties = g._props.length;
   return g;
 }
 function makeMask() {
@@ -73,9 +81,16 @@ function makeMask() {
 function CompItem() {} function FootageItem() {}
 function makeLayer(name, comp) {
   const layer = {
-    name: name, startTime: 0, inPoint: 0, outPoint: 10,
+    name: name, startTime: 0, inPoint: 0, outPoint: 10, stretch: 100,
+    hasVideo: true, selected: false, source: null, _trackMatte: null,
     timeRemapEnabled: false, canSetTimeRemapEnabled: true,
     moveToEnd: function () { comp._order.push(name); },
+    moveBefore: function (other) {
+      const arr = comp._layers;
+      arr.splice(arr.indexOf(layer), 1);
+      arr.splice(arr.indexOf(other), 0, layer);
+    },
+    setTrackMatte: function (m, t) { layer._trackMatte = { layer: m, type: t }; },
     _groups: {
       "ADBE Time Remapping": new FakeProperty("Time Remap",
                                               "ADBE Time Remapping", 0),
@@ -83,15 +98,19 @@ function makeLayer(name, comp) {
       "ADBE Mask Parade": new FakeGroup("Masks", "ADBE Mask Parade"),
       "ADBE Transform Group": (function () {
         const t = new FakeGroup("Transform", "ADBE Transform Group");
-        t._props = [new FakeProperty("Position", "ADBE Position", [0, 0]),
+        t._props = [new FakeProperty("Anchor Point", "ADBE Anchor Point", [0, 0]),
+                    new FakeProperty("Position", "ADBE Position", [0, 0]),
                     new FakeProperty("Scale", "ADBE Scale", [100, 100]),
+                    new FakeProperty("Rotation", "ADBE Rotate Z", 0),
                     new FakeProperty("Opacity", "ADBE Opacity", 100)];
-        t.numProperties = 3;
+        t.numProperties = 5;
         return t;
       })(),
     },
     property: function (key) { return this._groups[key] || null; },
   };
+  Object.defineProperty(layer, "index",
+    { get: function () { return comp._layers.indexOf(layer) + 1; } });
   return layer;
 }
 
@@ -103,6 +122,7 @@ function makeComp(name, w, h, fps, dur) {
   comp.layers = {
     add: function (item, dur2) {
       const l = makeLayer(item.name, comp);
+      l.source = item;
       comp._layers.unshift(l); comp.numLayers = comp._layers.length;
       return l;
     },
@@ -139,6 +159,8 @@ function buildSandbox() {
     importFile: function (io) {
       const f = Object.create(FootageItem.prototype);
       f.name = path.basename(io._path); f.duration = 5;
+      f.width = 1920; f.height = 1080; f.frameRate = 24; f.hasVideo = true;
+      f.mainSource = { file: { fsName: io._path }, isStill: false };
       project._items.push(f); project.numItems = project._items.length;
       return f;
     },
@@ -153,7 +175,20 @@ function buildSandbox() {
   const sandbox = {
     app: { project: project,
            beginUndoGroup: function () {}, endUndoGroup: function () {},
-           preferences: { getPrefAsLong: function () { return 1; } } },
+           preferences: { getPrefAsLong: function () { return 1; } },
+           _pasteFails: false,
+           findMenuCommandId: function (name) {
+             return /paste mocha mask/i.test(name) ? 5007 : 0; },
+           executeCommand: function (id) {
+             if (id !== 5007 || sandbox.app._pasteFails) return;
+             for (const it of project._items) if (it instanceof CompItem)
+               for (const l of it._layers) if (l.selected) {
+                 const m = l._groups["ADBE Mask Parade"].addProperty("ADBE Mask Atom");
+                 const mp = m.property("ADBE Mask Shape");
+                 for (let k = 0; k < 3; k++)
+                   mp.setValueAtTime(it.time + k / 24, { vertices: [[k, k]] });
+               }
+           } },
     CompItem: CompItem, FootageItem: FootageItem,
     File: (function () {
       function F(p) { this.fsName = p; this._path = p; }
@@ -170,6 +205,9 @@ function buildSandbox() {
     KeyframeInterpolationType: { LINEAR: 1, BEZIER: 2, HOLD: 3 },
     MaskMode: { ADD: 6913, SUBTRACT: 6914 },
     RQItemStatus: { DONE: "DONE" },
+    TrackMatteType: { LUMA: "LUMA", LUMA_INVERTED: "LUMA_INVERTED",
+                      ALPHA: "ALPHA", ALPHA_INVERTED: "ALPHA_INVERTED",
+                      NO_TRACK_MATTE: "NONE" },
     Date: Date, isFinite: isFinite, parseInt: parseInt,
     $: { sleep: function () {} },
   };
@@ -261,6 +299,77 @@ check("run_extendscript returns the value", r.ok && r.data.result === 42,
       JSON.stringify(r));
 
 r = invoke("speed_ramp", { layer: 99, keys: [] });
+// ------------------------------------------------- tracking bridge (host)
+const tf = path.join(require("os").tmpdir(), "ca-test-car.mp4");
+fs.writeFileSync(tf, "fake footage");
+invoke("import_media", { paths: [tf] });
+invoke("create_comp", { name: "Track", width: 1920, height: 1080, fps: 24,
+                        duration_s: 10 });
+invoke("add_clip", { item_name: "ca-test-car.mp4", comp: "Track",
+                     start_s: 2, in_s: 0.5, out_s: 4 });
+let li = invoke("layer_info", { layer: 1, comp: "Track" });
+check("layer_info: file, fps, start, SOURCE in/out",
+  li.ok && li.data.source.file === tf && li.data.source.fps === 24
+  && li.data.start_s === 1.5 && Math.abs(li.data.source_in_s - 0.5) < 1e-9
+  && Math.abs(li.data.source_out_s - 4) < 1e-9 && li.data.index === 1
+  && li.data.stretch === 100, JSON.stringify(li));
+const trackComp = sandbox.app.project.activeItem;
+const trackLayer = trackComp.layer(1);
+const kfBlocks = [
+  { group: "Effects", name: "Corner Pin #1", prop: "Upper Left #2",
+    keys: [{ frame: 0, values: [10, 20] }, { frame: 12, values: [11, 21] }] },
+  { group: "Effects", name: "Corner Pin #1", prop: "Lower Right",
+    keys: [{ frame: 0, values: [300, 200] }] },
+  { group: "Transform", name: "Position", prop: "",
+    keys: [{ frame: 24, values: [960, 540, 0] }] },
+  { group: "Transform", name: "Rotation", prop: "",
+    keys: [{ frame: 24, values: [12.5] }] },
+];
+let ak = invoke("apply_keyframe_data", { layer: 1, comp: "Track", fps: 24,
+  blocks: kfBlocks, time_offset_s: 1.5, stretch: 100 });
+const pin = trackLayer._groups["ADBE Effect Parade"].property("Corner Pin");
+const ul = pin && pin.property("Upper Left");
+const pos = trackLayer._groups["ADBE Transform Group"].property("Position");
+const rot = trackLayer._groups["ADBE Transform Group"].property("Rotation");
+check("apply_keyframe_data: one Corner Pin effect, keys at start + f/fps",
+  ak.ok && ak.data.applied.length === 4
+  && trackLayer._groups["ADBE Effect Parade"].numProperties === 1
+  && ul && ul._keys.length === 2 && ul._keys[0].t === 1.5 && ul._keys[1].t === 2
+  && ul._keys[1].v[0] === 11, JSON.stringify(ak) + " " + JSON.stringify(ul && ul._keys));
+check("apply_keyframe_data: Position trimmed to 2D, Rotation scalar, times offset",
+  pos._keys.length === 1 && pos._keys[0].t === 2.5 && pos._keys[0].v.length === 2
+  && rot._keys[0].v === 12.5, JSON.stringify([pos._keys, rot._keys]));
+ak = invoke("apply_keyframe_data", { layer: 1, comp: "Track", fps: 24,
+  blocks: kfBlocks.slice(0, 1), time_offset_s: 1.5 });
+check("apply_keyframe_data: re-apply replaces, never doubles",
+  ak.ok && ul._keys.length === 2 && pin.property("Lower Right")._keys.length === 1,
+  JSON.stringify(ul._keys));
+ak = invoke("apply_keyframe_data", { layer: 1, comp: "Track", fps: 24,
+  blocks: [{ group: "Masks", name: "Mask 1", prop: "Mask Path",
+             keys: [{ frame: 0, values: [1] }] }] });
+check("apply_keyframe_data: unsupported group is a clean error",
+  !ak.ok && /Unsupported keyframe group/.test(ak.error), JSON.stringify(ak));
+let pm = invoke("paste_mocha_mask", { layer: 1, comp: "Track", time_s: 1.5 });
+check("paste_mocha_mask: selects the layer, runs the menu command, reports keys",
+  pm.ok && pm.data.menu_id === 5007 && pm.data.masks_added.length === 1
+  && pm.data.masks_added[0].keys === 3 && pm.data.masks_added[0].first_key_s === 1.5
+  && trackLayer.selected === true && trackComp.time === 1.5, JSON.stringify(pm));
+sandbox.app._pasteFails = true;
+pm = invoke("paste_mocha_mask", { layer: 1, comp: "Track" });
+check("paste_mocha_mask: nothing pasted is a clean error naming the cause",
+  !pm.ok && /added no mask/.test(pm.error) && /clipboard/.test(pm.error), JSON.stringify(pm));
+sandbox.app._pasteFails = false;
+const tf2 = path.join(require("os").tmpdir(), "ca-test-matte.mp4");
+fs.writeFileSync(tf2, "fake matte");
+let im = invoke("import_and_matte", { layer: 1, comp: "Track", file: tf2, matte: "luma" });
+check("import_and_matte: matte lands above the layer, luma track matte set, times aligned",
+  im.ok && im.data.matte_layer === 1 && im.data.target_layer === 2
+  && trackLayer._trackMatte && trackLayer._trackMatte.type === "LUMA"
+  && trackComp.layer(1).startTime === 1.5 && trackComp.layer(1).inPoint === 2,
+  JSON.stringify(im) + " " + JSON.stringify(trackLayer._trackMatte && trackLayer._trackMatte.type));
+im = invoke("import_and_matte", { layer: 2, comp: "Track", file: "/nope/none.mp4" });
+check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.test(im.error), JSON.stringify(im));
+
 check("bad layer index is a clean JSON error, never a bare throw",
       r.ok === false && /has \d+ layers/.test(r.error), JSON.stringify(r));
 

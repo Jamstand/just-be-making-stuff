@@ -327,3 +327,32 @@ write/read), pbcopy/pbpaste via child_process in the AE panel, which also
 registers key-event interest with CEP so the keys reach the page at all.
 Falls back to execCommand("copy") when no native route exists. The Copy
 button copies the model's raw markdown (fences intact), not rendered text.
+
+## AE tracking bridge (research-backed, not yet live-verified)
+
+Mocha Pro's Python API is real and documented (2026.5 guide): Clip(path,
+name) → Project(clip) → add_layer → add_xspline_contour → track_layers(
+start_index, stop_index, layers) → exporters via
+Abstract{Shape,Tracking}DataExporter.registered_exporters()[internal_name]
+.do_export(...) returning {name: QByteArray} that the SCRIPT must write.
+Internal names: after_effects_mask (*.shape4ae), after_effects_corner_pin,
+after_effects_corner_pin_with_motion_blur, after_effects_cc_power_pin,
+after_effects_transform. External scripts need a QCoreApplication and must
+run under Mocha's OWN python3 (standalone: /Applications/Mocha Pro
+<ver>.app/Contents/MacOS/python3; plug-in: /Library/Application Support/
+Adobe/Common/Plug-ins/7.0/MediaCore/BorisFX/MochaPro<ver>/Resources/mochaui/
+<app>.app/Contents/MacOS/python3). Docs say the plug-in build blocks
+external RENDERING without a standalone license; tracking/export gating is
+unstated → mocha_status probes it. No headless flag, no CLI tracker; the
+Mocha project inside an AE effect is unreachable from script; the effect's
+buttons are NO_VALUE properties ExtendScript cannot press. Shape data
+enters AE only via clipboard + Edit → Paste Mocha mask (id 5007 in AE 2025,
+looked up by name first). Corner Pin / Transform exports are "Adobe After
+Effects 8.0 Keyframe Data" text — tracklib.parseAeKeyframeText + host
+apply_keyframe_data (frame f → layer start + f/fps × stretch). fal.ai SAM
+video endpoints (fal-ai/sam-3/video, sam-3-1, -rle variants) document only
+a `video` output (masked MP4) + optional bbox zip; no per-frame polygons;
+inputs must be URLs (fal CDN upload: rest.alpha.fal.ai/storage/upload/
+initiate → PUT, multipart above 90 MB); $0.005 per 16 frames (3.1: $0.01).
+AE side: setTrackMatte(layer, TrackMatteType.LUMA) is AE 23+; Property
+times are COMPOSITION seconds.

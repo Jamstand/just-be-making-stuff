@@ -8,6 +8,9 @@ const { _electron } = require("playwright");
 const path = require("path"), fs = require("fs"), os = require("os");
 const EXT = path.join(__dirname, "..", "com.jamstand.claude.ae");
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ae-el-home-"));
+// Point the tracking bridge at the fake Mocha python (file-backed exports).
+fs.writeFileSync(path.join(HOME, ".claude-assistant.json"),
+  JSON.stringify({ mocha_python: path.join(__dirname, "fakebin", "mocha-python3") }));
 const shots = [];
 const shot = async (page, name) => { const p = path.join(__dirname, "shot-" + name + ".png"); await page.screenshot({ path: p }); shots.push(p); console.log("  [shot] " + name); };
 const cards = (page) => page.evaluate(() => [...document.querySelectorAll("#chat .card, #chat .toolline")]
@@ -85,11 +88,13 @@ const status = (page) => page.evaluate(() => document.getElementById("status").t
   await page.fill("#input", "");
 
   console.log("### 3f. 🔍 native route dies (pbcopy missing) -> browser fallback still copies");
-  await page.evaluate(() => { window.assistant.clipboard.write = () => Promise.reject(new Error("no pbcopy")); });
+  await page.evaluate(() => { window.__origClipWrite = window.assistant.clipboard.write;
+    window.assistant.clipboard.write = () => Promise.reject(new Error("no pbcopy")); });
   await page.click("#chat .card.you .copybtn");
   await page.waitForTimeout(400);
   console.log(JSON.stringify({ button: await page.$eval("#chat .card.you .copybtn", (b) => b.textContent),
     electron_clipboard: await app.evaluate(({ clipboard }) => clipboard.readText()) }, null, 1));
+  await page.evaluate(() => { window.assistant.clipboard.write = window.__origClipWrite; });
   await page.waitForTimeout(1600);
 
   console.log("### 4. 🔍 second turn, DECLINE via Escape");
@@ -117,6 +122,22 @@ const status = (page) => page.evaluate(() => document.getElementById("status").t
   for (let i = 0; i < 5; i++) await page.press("#input", "Enter");
   await page.waitForTimeout(300);
   console.log(JSON.stringify({ cards: (await cards(page)).length, status: await status(page) }, null, 1));
+
+  console.log("### 8. 🔍 tracking bridge: 'track the car' -> mocha_status, import, comp, clip, mocha_track (fake Mocha python) -> keys + mask applied");
+  await page.fill("#input", "track the car");
+  await page.press("#input", "Enter");
+  await page.waitForFunction(() => !document.getElementById("approval").hidden, null, { timeout: 8000 });
+  console.log("  first approval: " + await page.$eval("#ap-title", (e) => e.textContent) + " -> 'Yes for this session'");
+  await page.click("#ap-always");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 60000 });
+  const trackCards = await cards(page);
+  console.log(JSON.stringify({ cards: trackCards.slice(-8) }, null, 1));
+  const lastText = await page.$eval("#chat .card.claude:last-of-type .prose", (e) => e.textContent);
+  let tracked = null; try { tracked = JSON.parse(lastText.replace(/^Tracked — /, "")); } catch (e) {}
+  console.log(JSON.stringify({ tracked_ok: !!tracked, frames: tracked && tracked.frames, exports: tracked && Object.keys(tracked.exports || {}),
+    applied: tracked && tracked.applied.map((a) => a.kind + ": " + JSON.stringify(a.result).slice(0, 160)), warnings: tracked && tracked.warnings,
+    clipboard_got_mask_data: /After Effects Mask Data/.test(fs.existsSync(path.join(HOME, "clip.txt")) ? fs.readFileSync(path.join(HOME, "clip.txt"), "utf8") : "") }, null, 1));
+  await shot(page, "8-tracking");
 
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {

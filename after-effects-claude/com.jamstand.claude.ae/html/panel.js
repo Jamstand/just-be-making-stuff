@@ -55,6 +55,8 @@ const EXT_ROOT = (function () {
   return typeof __dirname === "string" ? path.join(__dirname, "..") : ".";
 })();
 const historyLib = require(path.join(EXT_ROOT, "history.js"));
+const track = require(path.join(EXT_ROOT, "tracklib.js"));
+const MOCHA_SCRIPT = path.join(EXT_ROOT, "host", "mocha_job.py");
 const USER_DATA = path.join(os.homedir(), "Library", "Application Support",
                             "ClaudeAssistantAE");
 fs.mkdirSync(USER_DATA, { recursive: true });
@@ -70,9 +72,14 @@ const SYSTEM_PROMPT = [
   "tools. run_extendscript is the escape hatch: the full AE scripting DOM",
   "(app.project, CompItem, layers, properties). ES3 ONLY in that code —",
   "var, no arrow functions, no const/let, no template strings, no JSON",
-  "object. Hard walls, say so instead of guessing: tracker/3D-camera-",
-  "tracker/Warp-Stabilizer ANALYSIS cannot be invoked by script (reading",
-  "existing track data works); output codecs are template-only (no",
+  "object. Hard walls, say so instead of guessing: AE's OWN analysis",
+  "(Track Motion, 3D camera tracker, Warp Stabilizer, Mask Tracker) cannot",
+  "be started by script. Tracking itself is NOT a wall: mocha_track runs",
+  "Mocha Pro's planar tracker headless and lands native mask / Corner Pin",
+  "/ Transform keyframes (mocha_status once, then layer_info + grab_frame",
+  "to pick the region in SOURCE pixels); ai_segment fetches a SAM 3 object",
+  "matte from fal.ai (paid; set_fal_key; dry_run quotes the cost first).",
+  "Output codecs are template-only (no",
   "field-by-field codec settings); Lumetri parameter names are not",
   "documented — apply_effect returns each effect's real property list, use",
   "it. Times are SECONDS. Layer indexes are 1-based, top of stack = 1;",
@@ -123,6 +130,43 @@ function shrinkPng(filePath) {
     } catch (e) { resolveP(null); }
   });
 }
+
+// ---------------------------------------------------------- clipboard
+// The system clipboard via the OS tool: CEF's own copy path is not
+// reliable inside a CEP panel, and a Node child process always is.
+// null when the tool is missing, so app.js knows to fall back.
+const clipboardApi = !findBinary(process.platform === "darwin" ? ["pbcopy"]
+    : process.platform === "win32" ? ["powershell.exe", "powershell"]
+    : ["xclip"], []) ? null : {
+  write(text) {
+    return new Promise((resolve, reject) => {
+      const cmd = process.platform === "darwin" ? ["pbcopy", []]
+        : process.platform === "win32"
+          ? ["powershell", ["-NoProfile", "-Command",
+             "[Console]::InputEncoding=[Text.Encoding]::UTF8; " +
+             "Set-Clipboard -Value ([Console]::In.ReadToEnd())"]]
+          : ["xclip", ["-selection", "clipboard"]];
+      const p = spawn(cmd[0], cmd[1], { stdio: ["pipe", "ignore", "ignore"] });
+      p.on("error", reject);
+      p.on("close", (code) => code === 0 ? resolve(true)
+        : reject(new Error(cmd[0] + " exited " + code)));
+      p.stdin.on("error", () => {});
+      p.stdin.end(String(text), "utf8");
+    });
+  },
+  read() {
+    return new Promise((resolve, reject) => {
+      const cmd = process.platform === "darwin" ? ["pbpaste", []]
+        : process.platform === "win32"
+          ? ["powershell", ["-NoProfile", "-Command",
+             "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " +
+             "Get-Clipboard -Raw"]]
+          : ["xclip", ["-selection", "clipboard", "-o"]];
+      execFile(cmd[0], cmd[1], { encoding: "utf8", maxBuffer: 64 << 20 },
+        (err, out) => err ? reject(err) : resolve(out));
+    });
+  },
+};
 
 // ------------------------------------------------------------ tool registry
 const TOOLS = [];
@@ -190,8 +234,8 @@ tool("add_text",
 
 tool("add_mask",
   "Draw a mask on a layer: vertices [[x,y]...] in layer pixels, optional "
-  + "feather (px), inverted, mode 'subtract'. Static — AE's trackers are "
-  + "not scriptable, so masks do not follow subjects.",
+  + "feather (px), inverted, mode 'subtract'. Static: for a mask that "
+  + "FOLLOWS a subject use mocha_track (exports 'mask') or ai_segment.",
   { layer: { type: "number" }, comp: { type: "string" },
     vertices: { type: "array" }, feather: { type: "number" },
     inverted: { type: "boolean" }, closed: { type: "boolean" },
@@ -230,6 +274,299 @@ tool("run_extendscript",
   + "ES3 ONLY — var, no arrows/const/let/JSON/template strings. The last "
   + "expression's value returns (keep it small and JSON-safe).",
   { code: { type: "string" } }, ["code"], {});
+
+
+// ------------------------------------------------------ tracking bridge
+// AE's own trackers stay unscriptable; these go around the wall with
+// Mocha Pro's Python (host/mocha_job.py) and fal.ai's SAM 3.
+function bbox(points) {
+  let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+  for (const [x, y] of points) {
+    minx = Math.min(minx, x); miny = Math.min(miny, y);
+    maxx = Math.max(maxx, x); maxy = Math.max(maxy, y);
+  }
+  return { minx, miny, maxx, maxy };
+}
+
+function requireFile(info) {
+  if (!info.source || !info.source.file)
+    throw new Error("Layer '" + info.layer + "' has no footage file behind "
+      + "it (solid, text, shape or precomp) — track the footage layer, or "
+      + "pre-render this one and track the render.");
+  if (info.source.is_still)
+    throw new Error("The source is a still image — nothing moves.");
+  return info.source.file;
+}
+
+async function applyExport(a, info, kind, file, out) {
+  const fps = (info.source && info.source.fps) || info.comp_fps;
+  const offset = a.time_offset_s !== undefined ? Number(a.time_offset_s)
+                                               : info.start_s;
+  const stretch = info.stretch || 100;
+  const text = fs.readFileSync(file, "utf8");
+  if (/Keyframe Data/i.test(text.split("\n")[0])) {
+    const parsed = track.parseAeKeyframeText(text);
+    const r = await evalHost("apply_keyframe_data", { layer: a.layer,
+      comp: a.comp, fps: parsed.fps || fps, blocks: parsed.blocks,
+      time_offset_s: offset, stretch });
+    out.applied.push({ kind, file, result: r });
+    return;
+  }
+  if (!clipboardApi)
+    throw new Error("No clipboard route (pbcopy missing): 'Paste Mocha "
+      + "mask' needs the shape data on the clipboard. The file is at "
+      + file);
+  await clipboardApi.write(text);
+  const expect = offset + ((out.start_frame || 0) / fps) * stretch / 100;
+  const at = a.mask_paste_at === "track_start" ? expect : offset;
+  const r = await evalHost("paste_mocha_mask", { layer: a.layer,
+    comp: a.comp, time_s: at });
+  out.applied.push({ kind, file, result: r, cti_at_s: at,
+    check: "mask keys should start near " + expect.toFixed(3) + "s comp "
+      + "time; if they landed elsewhere, re-run with mask_paste_at "
+      + "'track_start'" });
+}
+
+async function mochaTrack(state, a) {
+  const info = await evalHost("layer_info", { layer: a.layer, comp: a.comp });
+  const footage = requireFile(info);
+  const fps = info.source.fps || info.comp_fps;
+  let shape = Array.isArray(a.shape) ? a.shape : null;
+  if ((!shape || shape.length < 3) && Array.isArray(a.rect) && a.rect.length === 4) {
+    const [x, y, w, h] = a.rect.map(Number);
+    shape = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+  }
+  if (!shape || shape.length < 3)
+    throw new Error("Give shape (3+ [x,y] points) or rect [x,y,w,h], in SOURCE pixels.");
+  shape = shape.map((p) => [Number(p[0]), Number(p[1])]);
+  if (shape.some((p) => isNaN(p[0]) || isNaN(p[1])))
+    throw new Error("shape points must be numeric [x,y] pairs.");
+  const startS = a.start_s !== undefined ? Number(a.start_s) : info.source_in_s;
+  const endS = a.end_s !== undefined ? Number(a.end_s) : info.source_out_s;
+  const startF = Math.max(0, Math.round(startS * fps));
+  const endF = Math.max(startF, Math.round(endS * fps) - 1);
+  const found = track.findMochaPython();
+  if (!found.length)
+    throw new Error("Mocha Pro's python3 was not found — run mocha_status.");
+  const wanted = (Array.isArray(a.exports) && a.exports.length) ? a.exports
+                                                                : ["mask", "corner_pin"];
+  const bad = wanted.filter((k) => !["mask", "corner_pin",
+    "corner_pin_motion_blur", "power_pin", "transform"].includes(k));
+  if (bad.length) throw new Error("Unknown exports: " + bad.join(", "));
+  const b = bbox(shape);
+  const surface = (Array.isArray(a.surface) && a.surface.length === 4) ? a.surface
+    : [[b.minx, b.miny], [b.maxx, b.miny], [b.maxx, b.maxy], [b.minx, b.maxy]];
+  const workdir = path.join(USER_DATA, "mocha",
+                            new Date().toISOString().replace(/[:.]/g, "-"));
+  sendUI("notice", "Mocha is tracking " + (endF - startF + 1) + " frames of "
+    + info.source.name + " (" + found[0].kind + " python) — minutes on long "
+    + "shots.", false);
+  const data = await track.runMochaJob(found[0].python, {
+    action: "track", footage, project_path: path.join(workdir, "track.mocha"),
+    out_dir: workdir, layer_name: a.layer_name || "Claude Track",
+    shape: shape.map(([x, y]) => ({ x, y })), surface,
+    start_frame: startF, end_frame: endF, exports: wanted,
+  }, { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 45 * 60 * 1000 });
+  const out = { python: found[0].python, project: data.project,
+    source: info.source.name, fps, start_frame: startF, end_frame: endF,
+    frames: data.frames, track_seconds: data.track_seconds,
+    exports: data.exports, notes: data.notes || [], applied: [], warnings: [] };
+  if (info.time_remap)
+    out.warnings.push("Layer is time-remapped: keys sit at linear source "
+      + "time and will not follow the remap.");
+  if (info.stretch && info.stretch !== 100)
+    out.warnings.push("Layer stretch " + info.stretch + "% — key times scaled to match.");
+  if (a.apply === false) return out;
+  for (const kind of wanted) {
+    const files = data.exports && data.exports[kind];
+    if (!Array.isArray(files)) {
+      out.warnings.push(kind + " export failed: " + JSON.stringify(files));
+      continue;
+    }
+    // One export failing to land must not hide the ones that did.
+    for (const file of files) {
+      try { await applyExport(a, info, kind, file, out); }
+      catch (e) { out.applied.push({ kind, file, error: e.message }); }
+    }
+  }
+  return out;
+}
+
+async function applyTrackFile(state, a) {
+  if (!a.file || !fs.existsSync(a.file))
+    throw new Error("File not found: " + a.file);
+  const info = await evalHost("layer_info", { layer: a.layer, comp: a.comp });
+  const out = { file: a.file, applied: [], start_frame: 0 };
+  const kind = path.extname(a.file).toLowerCase() === ".shape4ae" ? "mask"
+                                                                  : "keyframes";
+  await applyExport(a, info, kind, a.file, out);
+  return out;
+}
+
+async function aiSegment(state, a) {
+  const key = track.readConfig().fal_api_key;
+  if (!key)
+    throw new Error("No fal.ai key yet — create one at fal.ai/dashboard/keys "
+      + "and call set_fal_key.");
+  const info = await evalHost("layer_info", { layer: a.layer, comp: a.comp });
+  const file = requireFile(info);
+  const ext = path.extname(file).toLowerCase();
+  if (![".mp4", ".mov", ".webm", ".m4v", ".gif"].includes(ext))
+    throw new Error("fal accepts mp4/mov/webm/m4v/gif; this source is " + ext
+      + " — render an H.264 copy (render tool) and segment that.");
+  const model = a.model === "sam-3-1" ? "fal-ai/sam-3-1/video" : "fal-ai/sam-3/video";
+  const fps = info.source.fps || info.comp_fps || 30;
+  const frames = Math.max(1, Math.round((info.source.duration_s || 0) * fps));
+  const sizeMb = Math.round(fs.statSync(file).size / 1048576 * 10) / 10;
+  const quote = { model, file, frames, size_mb: sizeMb,
+    estimated_cost_usd: Math.round((frames / 16)
+      * (a.model === "sam-3-1" ? 0.01 : 0.005) * 1000) / 1000,
+    note: "fal segments the WHOLE file (not just the layer's in/out) and "
+      + "bills per 16 frames." };
+  if (a.dry_run) return quote;
+  if (!a.prompt && !(a.points && a.points.length) && !(a.boxes && a.boxes.length))
+    throw new Error("Say what to segment: prompt (e.g. 'the yellow car'), "
+      + "points, or boxes.");
+  sendUI("notice", "Uploading " + sizeMb + " MB to fal.ai…", false);
+  const videoUrl = await track.falUpload(key, file, {});
+  const input = { video_url: videoUrl, prompt: a.prompt || "",
+                  apply_mask: a.apply_mask !== false,
+                  detection_threshold: a.detection_threshold || 0.5 };
+  if (a.points && a.points.length) input.point_prompts = a.points;
+  if (a.boxes && a.boxes.length) input.box_prompts = a.boxes;
+  if (a.model === "sam-3-1" && a.max_objects) input.max_num_objects = a.max_objects;
+  const submitted = await track.falSubmit(key, model, input);
+  sendUI("notice", "SAM is working on " + frames + " frames (request "
+    + submitted.request_id + ")…", false);
+  const result = await track.falWait(key, submitted,
+    { onStatus: (s) => sendUI("notice", "fal: " + s, false) });
+  const outUrl = result && result.video && result.video.url;
+  if (!outUrl)
+    throw new Error("fal returned no video: " + JSON.stringify(result).slice(0, 400));
+  let outExt = ".mp4";
+  try { outExt = path.extname(new URL(outUrl).pathname) || ".mp4"; } catch (e) {}
+  const dest = path.join(USER_DATA, "sam", submitted.request_id + outExt);
+  await track.download(outUrl, dest);
+  const out = Object.assign(quote, { request_id: submitted.request_id,
+    result_file: dest, result, applied: null,
+    next: "grab_frame the comp: if the matte layer shows the subject cut "
+      + "out on black it works as a luma matte; if it is a colour overlay "
+      + "on the footage, redo with apply_mask:false or matte:'none'." });
+  if (a.apply !== false)
+    out.applied = await evalHost("import_and_matte", { layer: a.layer,
+      comp: a.comp, file: dest, matte: a.matte || "luma" });
+  return out;
+}
+
+tool("layer_info",
+  "Everything the tracking tools need about a layer: source file on disk, "
+  + "source size/fps/duration, start/in/out (comp seconds), source_in_s / "
+  + "source_out_s (SOURCE seconds), stretch, time-remap flag, transform.",
+  { layer: { type: "number" }, comp: { type: "string" } }, ["layer"],
+  { readonly: true });
+
+tool("mocha_status",
+  "Find Mocha Pro's bundled python3 (standalone app or the Adobe plug-in "
+  + "bundle) and probe it: version and the AE exporters. Run once before "
+  + "mocha_track; a license problem shows up here, not mid-track.",
+  {}, [], { readonly: true }, async () => {
+    const found = track.findMochaPython();
+    if (!found.length)
+      return { installed: false, looked_in: ["/Applications/Mocha Pro*.app",
+        "/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/"
+        + "BorisFX/MochaPro*/Resources/mochaui/*.app"],
+        hint: "Set mocha_python in ~/.claude-assistant.json to the python3 "
+          + "inside your Mocha app if it lives elsewhere." };
+    const workdir = path.join(USER_DATA, "mocha", "probe");
+    try {
+      const data = await track.runMochaJob(found[0].python, { action: "probe" },
+        { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 180000 });
+      return { installed: true, python: found[0].python, kind: found[0].kind,
+               candidates: found, probe: data };
+    } catch (e) {
+      return { installed: true, python: found[0].python, kind: found[0].kind,
+        candidates: found, probe_error: e.message,
+        note: "A plug-in-only Mocha license may refuse external scripting; "
+          + "the standalone app's python3 is the known-good route." };
+    }
+  });
+
+tool("mocha_track",
+  "Planar-track a region of a layer's SOURCE footage with Mocha Pro's own "
+  + "engine, headless (needs Mocha Pro installed; mocha_status first). "
+  + "shape = 3+ [x,y] points in SOURCE pixels (origin top-left) around a "
+  + "flat-ish surface visible at start_s — look with grab_frame and use "
+  + "layer_info to convert if comp and source sizes differ; rect [x,y,w,h] "
+  + "is a shortcut. start_s/end_s in SOURCE seconds (default: the layer's "
+  + "trimmed range). exports: mask (native AE mask keyframes), corner_pin "
+  + "(Corner Pin effect keys), power_pin, transform (Position/Scale/"
+  + "Rotation keys), corner_pin_motion_blur. apply=true writes them onto "
+  + "the layer; apply=false only writes files. Slow: about real time.",
+  { layer: { type: "number" }, comp: { type: "string" },
+    shape: { type: "array", items: { type: "array" } },
+    rect: { type: "array", items: { type: "number" } },
+    surface: { type: "array", items: { type: "array" },
+               description: "optional 4 [x,y] corners for the corner-pin "
+                 + "surface (default: shape bounding box)" },
+    start_s: { type: "number" }, end_s: { type: "number" },
+    exports: { type: "array", items: { type: "string" } },
+    apply: { type: "boolean" }, layer_name: { type: "string" },
+    mask_paste_at: { type: "string", description: "'layer_start' (default) "
+      + "or 'track_start' — where the CTI sits for Paste Mocha mask" } },
+  ["layer"], {}, mochaTrack);
+
+tool("apply_track_file",
+  "Apply a Mocha export made by hand (Mocha GUI → Export → Save): a "
+  + ".shape4ae (After Effects Mask Data → native mask keyframes) or an AE "
+  + "keyframe .txt (Corner Pin / CC Power Pin / Transform data) onto a "
+  + "layer. Source frame f lands at layer start + f/fps.",
+  { layer: { type: "number" }, comp: { type: "string" },
+    file: { type: "string" }, time_offset_s: { type: "number" },
+    mask_paste_at: { type: "string" } }, ["layer", "file"], {}, applyTrackFile);
+
+tool("set_fal_key",
+  "Store a fal.ai API key (for ai_segment) in ~/.claude-assistant.json "
+  + "(mode 0600). The key is never echoed back.",
+  { key: { type: "string" } }, ["key"], { readonly: true }, async (s, a) => {
+    const k = String(a.key || "").trim();
+    if (k.length < 20 || /\s/.test(k))
+      throw new Error("That does not look like a fal key (expected "
+        + "id:secret from fal.ai/dashboard/keys).");
+    track.writeConfig({ fal_api_key: k });
+    return { stored: true, file: track.CONFIG_FILE };
+  });
+
+tool("fal_status",
+  "Is a fal.ai key stored, and does fal accept it? Read-only, free.",
+  {}, [], { readonly: true }, async () => {
+    const key = track.readConfig().fal_api_key;
+    if (!key) return { configured: false, next: "fal.ai/dashboard/keys → set_fal_key" };
+    const r = await track.httpRequest(track.FAL_QUEUE
+      + "/fal-ai/sam-3/video/requests/00000000-0000-0000-0000-000000000000/status",
+      { headers: { Authorization: "Key " + key }, timeoutMs: 20000 });
+    return { configured: true, key_accepted: r.status !== 401 && r.status !== 403,
+             http_status: r.status, detail: (r.text || "").slice(0, 200) };
+  });
+
+tool("ai_segment",
+  "Object matte from fal.ai SAM 3 for a layer's SOURCE file (mp4/mov/webm/"
+  + "m4v/gif): uploads it, segments by text prompt ('the yellow car') / "
+  + "points / boxes, downloads the segmented video, imports it above the "
+  + "layer and sets it as the layer's LUMA track matte. PAID: ~$0.005 per "
+  + "16 frames (sam-3) or $0.01 (sam-3-1) — dry_run:true returns the quote "
+  + "without spending. Needs set_fal_key. Whole file is processed.",
+  { layer: { type: "number" }, comp: { type: "string" },
+    prompt: { type: "string" }, model: { type: "string",
+      description: "'sam-3' (default) or 'sam-3-1'" },
+    points: { type: "array", items: { type: "object" },
+      description: "[{x,y,label(1=fg,0=bg),object_id}] in source pixels" },
+    boxes: { type: "array", items: { type: "object" },
+      description: "[{x_min,y_min,x_max,y_max,object_id}]" },
+    detection_threshold: { type: "number" }, max_objects: { type: "number" },
+    apply_mask: { type: "boolean" }, apply: { type: "boolean" },
+    matte: { type: "string", description: "luma (default), luma_inverted, "
+      + "alpha, alpha_inverted, none" },
+    dry_run: { type: "boolean" } }, ["layer"], {}, aiSegment);
 
 // ------------------------------------------------------------ approvals
 const state = { permissionMode: "Ask before edits", approveAllEdits: false,
@@ -272,7 +609,8 @@ function requestApproval(name, input) {
 async function executeTool(name, input) {
   const entry = TOOLS.find((t) => t.name === name);
   if (!entry) return { ok: false, text: "Unknown tool: " + name };
-  if (needsApproval(name)) {
+  const quoteOnly = name === "ai_segment" && input && input.dry_run;
+  if (needsApproval(name) && !quoteOnly) {
     const declined = await requestApproval(name, input || {});
     if (declined) return { ok: false, text: declined };
   }
@@ -580,41 +918,7 @@ window.assistant = {
     return Promise.resolve(null);
   },
   onEvent(handler) { uiHandler = handler; },
-  // The system clipboard via the OS tool: CEF's own copy path is not
-  // reliable inside a CEP panel, and a Node child process always is.
-  // Exposed only when the tool exists, so app.js knows to fall back.
-  clipboard: !findBinary(process.platform === "darwin" ? ["pbcopy"]
-      : process.platform === "win32" ? ["powershell.exe", "powershell"]
-      : ["xclip"], []) ? null : {
-    write(text) {
-      return new Promise((resolve, reject) => {
-        const cmd = process.platform === "darwin" ? ["pbcopy", []]
-          : process.platform === "win32"
-            ? ["powershell", ["-NoProfile", "-Command",
-               "[Console]::InputEncoding=[Text.Encoding]::UTF8; " +
-               "Set-Clipboard -Value ([Console]::In.ReadToEnd())"]]
-            : ["xclip", ["-selection", "clipboard"]];
-        const p = spawn(cmd[0], cmd[1], { stdio: ["pipe", "ignore", "ignore"] });
-        p.on("error", reject);
-        p.on("close", (code) => code === 0 ? resolve(true)
-          : reject(new Error(cmd[0] + " exited " + code)));
-        p.stdin.on("error", () => {});
-        p.stdin.end(String(text), "utf8");
-      });
-    },
-    read() {
-      return new Promise((resolve, reject) => {
-        const cmd = process.platform === "darwin" ? ["pbpaste", []]
-          : process.platform === "win32"
-            ? ["powershell", ["-NoProfile", "-Command",
-               "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " +
-               "Get-Clipboard -Raw"]]
-            : ["xclip", ["-selection", "clipboard", "-o"]];
-        execFile(cmd[0], cmd[1], { encoding: "utf8", maxBuffer: 64 << 20 },
-          (err, out) => err ? reject(err) : resolve(out));
-      });
-    },
-  },
+  clipboard: clipboardApi,
 };
 
 state.onApprovalNeeded = (pending) =>

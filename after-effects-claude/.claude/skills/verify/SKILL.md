@@ -103,3 +103,15 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   the keyboard route. Drive steps 3b–3f cover button, ⌘C on a selection,
   Copy chat, ⌘V into the input, and the browser fallback when the native
   tool is missing.
+- Tracking bridge: mocha_track shells out to Mocha Pro's own python3
+  (host/mocha_job.py; discovery in tracklib.js, override with mocha_python
+  in ~/.claude-assistant.json). The drive's HOME config points at
+  verify-electron/fakebin/mocha-python3, a node stand-in that writes a real
+  AE keyframe .txt + a fake .shape4ae and prints CA_RESULT. Step 8 sends
+  "track the car": mocha_status → import → comp → add_clip → mocha_track,
+  approves once with "Yes for this session", and reads the final JSON back
+  (corner pin keys per corner, masks_added via the fake xclip clipboard +
+  fake "Paste Mocha mask" menu command in host-sim.js). Unit coverage:
+  test_ae_tracklib.js (parser, job runner, fal client) and the tracking
+  block in test_ae_plugin.js (layer_info, apply_keyframe_data,
+  paste_mocha_mask, import_and_matte).

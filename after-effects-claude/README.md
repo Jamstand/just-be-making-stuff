@@ -47,3 +47,30 @@ separate Node install: the panel's own runtime serves MCP over HTTP.
   it in your build, the error says so plainly.
 - CEP is Adobe's legacy-but-current extension platform for AE (CEP 12,
   AE 2025+); Adobe signals UXP is the future but has shipped no UXP for AE.
+
+## Tracking (Mocha Pro + SAM 3)
+
+After Effects never lets a script start its own trackers. The panel goes
+around that wall two ways:
+
+- **`mocha_track`** — drives Mocha Pro's planar tracker headless through the
+  python3 that ships inside Mocha (standalone app or the Adobe plug-in
+  bundle; `mocha_status` finds and probes it). Claude picks the region in
+  source pixels (`grab_frame` + `layer_info`), Mocha tracks it, and the
+  exports land as native AE data: mask keyframes (via Edit → Paste Mocha
+  mask, fed from the clipboard), Corner Pin / CC Power Pin keyframes, or
+  Position/Scale/Rotation keyframes. `apply_track_file` applies exports you
+  saved from the Mocha GUI yourself. Job files and logs live under
+  `~/Library/Application Support/ClaudeAssistantAE/mocha/`.
+- **`ai_segment`** — uploads the layer's source file to fal.ai, runs SAM 3
+  (or 3.1) video segmentation by text prompt / points / boxes, downloads
+  the segmented video and sets it as the layer's luma track matte. Paid
+  (about $0.005 per 16 frames); `set_fal_key` stores the key in
+  `~/.claude-assistant.json`, `dry_run: true` quotes the cost first.
+
+Known unknowns until the first live run on a Mac: whether a plug-in-only
+Mocha license lets its python3 track outside the GUI (the docs only say
+external *rendering* is blocked), whether "Paste Mocha mask" places keys
+relative to the layer or to the current time (`mask_paste_at` covers both),
+and what fal's "segmented video" looks like (cut-out on black works as a
+luma matte; an overlay does not).

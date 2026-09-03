@@ -277,6 +277,153 @@ CA_TOOLS.run_extendscript = function (a) {
   return { result: result === undefined ? null : result };
 };
 
+// ------------------------------------------------- tracking bridge (host)
+// AE's own analysis stays unscriptable; these are the data-side halves the
+// panel pairs with Mocha Pro's Python and fal.ai SAM 3.
+
+CA_TOOLS.layer_info = function (a) {
+  var comp = CA_comp(a.comp);
+  var layer = CA_layer(comp, a.layer);
+  var stretch = (layer.stretch !== undefined && layer.stretch)
+                ? Number(layer.stretch) : 100;
+  var out = { comp: comp.name, comp_width: comp.width, comp_height: comp.height,
+              comp_fps: comp.frameRate, layer: layer.name, index: layer.index,
+              start_s: layer.startTime, in_s: layer.inPoint,
+              out_s: layer.outPoint, stretch: stretch,
+              time_remap: !!layer.timeRemapEnabled, has_video: !!layer.hasVideo,
+              source: null };
+  var src = null;
+  try { src = layer.source; } catch (e) { src = null; }
+  if (src) {
+    var ms = null, file = null, still = false;
+    try { ms = src.mainSource; } catch (e2) { ms = null; }
+    if (ms) {
+      try { if (ms.file) file = ms.file.fsName; } catch (e3) {}
+      try { still = !!ms.isStill; } catch (e4) {}
+    }
+    out.source = { name: src.name, width: src.width, height: src.height,
+                   fps: src.frameRate, duration_s: src.duration, file: file,
+                   is_still: still, is_comp: (src instanceof CompItem) };
+    // comp time -> source time: (t - start) * 100 / stretch
+    out.source_in_s = (layer.inPoint - layer.startTime) * 100 / stretch;
+    out.source_out_s = (layer.outPoint - layer.startTime) * 100 / stretch;
+  }
+  try {
+    var tr = layer.property("ADBE Transform Group");
+    out.position = tr.property("ADBE Position").value;
+    out.scale = tr.property("ADBE Scale").value;
+    out.anchor = tr.property("ADBE Anchor Point").value;
+  } catch (e5) {}
+  return out;
+};
+
+// Blocks parsed from "Adobe After Effects 8.0 Keyframe Data" text (what
+// Mocha's Corner Pin / Power Pin / Transform exporters write). Frame f of
+// the SOURCE lands at comp time offset + f/fps * stretch.
+CA_TOOLS.apply_keyframe_data = function (a) {
+  var comp = CA_comp(a.comp);
+  var layer = CA_layer(comp, a.layer);
+  var fps = Number(a.fps) || comp.frameRate;
+  var offset = Number(a.time_offset_s) || 0;
+  var stretch = (Number(a.stretch) || 100) / 100;
+  var known = { "Corner Pin": "ADBE Corner Pin", "CC Power Pin": "CC Power Pin" };
+  var applied = [], i, j, b, base, pname, fx, target, val, dims, group, label;
+  if (!a.blocks || !a.blocks.length) CA_err("No keyframe blocks to apply.");
+  for (i = 0; i < a.blocks.length; i++) {
+    b = a.blocks[i]; fx = null;
+    base = String(b.name || "").replace(/\s*#\d+\s*$/, "");
+    pname = String(b.prop || "").replace(/\s*#\d+\s*$/, "");
+    if (b.group === "Effects") {
+      group = layer.property("ADBE Effect Parade");
+      fx = group.property(base) || (known[base] ? group.property(known[base]) : null);
+      if (!fx) fx = group.addProperty(known[base] || base);
+      target = pname ? fx.property(pname) : null;
+      if (!target) CA_err("Effect '" + fx.name + "' has no property '" + pname + "'.");
+      label = fx.name + " > " + target.name;
+    } else if (b.group === "Transform") {
+      group = layer.property("ADBE Transform Group");
+      target = group.property(base);
+      if (!target && base === "Rotation") target = group.property("ADBE Rotate Z");
+      if (!target) CA_err("No transform property '" + base + "'.");
+      label = "Transform > " + target.name;
+    } else {
+      CA_err("Unsupported keyframe group '" + b.group + "' (Effects and Transform only).");
+    }
+    if (a.replace !== false) while (target.numKeys > 0) target.removeKey(1);
+    val = target.value;
+    dims = (val !== null && typeof val === "object" && val.length !== undefined)
+           ? val.length : 1;
+    for (j = 0; j < b.keys.length; j++) {
+      val = b.keys[j].values;
+      if (dims === 1) val = Number(val[0]);
+      else { val = val.slice(0, dims); while (val.length < dims) val.push(0); }
+      target.setValueAtTime(offset + (Number(b.keys[j].frame) / fps) * stretch, val);
+    }
+    applied.push({ target: label, keys: target.numKeys });
+  }
+  return { layer: layer.name, fps: fps, offset_s: offset, applied: applied };
+};
+
+// Mocha's "After Effects Mask Data" only enters AE through the clipboard:
+// Edit > Paste Mocha mask (the panel puts the text there first). The menu
+// id is looked up by name (locale-dependent) with the AE 2025 id as a
+// fallback.
+CA_TOOLS.paste_mocha_mask = function (a) {
+  var comp = CA_comp(a.comp);
+  var layer = CA_layer(comp, a.layer);
+  var masks = layer.property("ADBE Mask Parade");
+  var before = masks.numProperties, i, id = 0, m, mp, added = [];
+  var names = ["Paste Mocha mask", "Paste mocha mask", "Paste Mocha Mask"];
+  for (i = 1; i <= comp.numLayers; i++) comp.layer(i).selected = false;
+  layer.selected = true;
+  if (a.time_s !== undefined) comp.time = Number(a.time_s);
+  for (i = 0; i < names.length && !id; i++) {
+    try { id = app.findMenuCommandId(names[i]) || 0; } catch (e) { id = 0; }
+  }
+  if (!id) id = 5007;
+  app.executeCommand(id);
+  var after = masks.numProperties;
+  for (i = before + 1; i <= after; i++) {
+    m = masks.property(i);
+    mp = m.property("ADBE Mask Shape");
+    added.push({ mask: m.name, keys: mp.numKeys,
+                 first_key_s: mp.numKeys ? mp.keyTime(1) : null,
+                 last_key_s: mp.numKeys ? mp.keyTime(mp.numKeys) : null });
+  }
+  if (after === before)
+    CA_err("'Paste Mocha mask' (menu id " + id + ") added no mask. Is the "
+           + "clipboard holding After Effects Mask Data, and is the Mocha "
+           + "plug-in installed in this AE?");
+  return { layer: layer.name, menu_id: id, masks_added: added };
+};
+
+// Import a rendered matte (e.g. fal's segmented video) above a layer and
+// make it that layer's track matte (AE 23+ per-layer matte API).
+CA_TOOLS.import_and_matte = function (a) {
+  var comp = CA_comp(a.comp);
+  var layer = CA_layer(comp, a.layer);
+  var f = new File(a.file);
+  if (!f.exists) CA_err("File not found: " + a.file);
+  var item = app.project.importFile(new ImportOptions(f));
+  var matte = comp.layers.add(item);
+  matte.moveBefore(layer);
+  matte.startTime = layer.startTime;
+  matte.inPoint = layer.inPoint;
+  if (matte.outPoint > layer.outPoint) matte.outPoint = layer.outPoint;
+  var kind = a.matte || "luma", type = null;
+  if (kind !== "none") {
+    if (typeof layer.setTrackMatte !== "function")
+      CA_err("setTrackMatte needs After Effects 23 or newer.");
+    type = kind === "luma_inverted" ? TrackMatteType.LUMA_INVERTED
+         : kind === "alpha" ? TrackMatteType.ALPHA
+         : kind === "alpha_inverted" ? TrackMatteType.ALPHA_INVERTED
+         : TrackMatteType.LUMA;
+    layer.setTrackMatte(matte, type);
+  }
+  return { imported: item.name, matte_layer: matte.index,
+           target_layer: layer.index, matte: kind };
+};
+
 function CA_invoke(name, argsJson) {
   var args, out;
   try {
