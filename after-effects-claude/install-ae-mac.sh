@@ -11,7 +11,8 @@ echo "Claude Assistant for After Effects — installer"
 mkdir -p "$DEST"
 cp -R "$SRC/." "$DEST/"
 # history.js/bridge.js live one level up from html/ in the extension
-echo "✓ Panel copied to: $DEST"
+VER=$(grep -o 'ExtensionBundleVersion="[^"]*"' "$SRC/CSXS/manifest.xml" | head -1 | cut -d'"' -f2)
+echo "✓ Panel $VER copied to: $DEST  (git $(git -C "$(dirname "$0")" rev-parse --short HEAD 2>/dev/null || echo ?))"
 
 # Unsigned-extension debug mode for every CEP era AE 2021+ might use.
 for v in 11 12; do
