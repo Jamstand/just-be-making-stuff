@@ -115,3 +115,8 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   test_ae_tracklib.js (parser, job runner, fal client) and the tracking
   block in test_ae_plugin.js (layer_info, apply_keyframe_data,
   paste_mocha_mask, import_and_matte).
+- grab_frame: saveFrameToPng creates the file before it finishes writing
+  it (live: every capture had a black band at a different height). The
+  host tool now waits until the size is stable AND the last 8 bytes start
+  with IEND; the fake AE in test_ae_plugin.js reproduces the race (partial
+  write, IEND appended on the 3rd $.sleep) and the never-finishes error.

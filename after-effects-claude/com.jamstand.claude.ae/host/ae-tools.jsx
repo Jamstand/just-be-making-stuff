@@ -230,6 +230,21 @@ CA_TOOLS.add_mask = function (a) {
   return { layer: layer.name, masks: layer.property("ADBE Mask Parade").numProperties };
 };
 
+// A PNG is complete when its last chunk is IEND. saveFrameToPng creates
+// the file first and fills it afterwards, so "exists" is not "done".
+function CA_pngComplete(f) {
+  var tail = "";
+  try {
+    if (!f.exists || f.length < 12) return false;
+    f.encoding = "BINARY";
+    if (!f.open("r")) return false;
+    f.seek(8, 2);
+    tail = f.read(8);
+    f.close();
+  } catch (e) { try { f.close(); } catch (e2) {} return false; }
+  return tail.indexOf("IEND") === 0;
+}
+
 CA_TOOLS.grab_frame = function (a) {
   var comp = CA_comp(a.comp);
   var t = a.time_s !== undefined ? Number(a.time_s) : comp.time;
@@ -240,11 +255,25 @@ CA_TOOLS.grab_frame = function (a) {
     CA_err("saveFrameToPng is missing in this AE version — frame export "
            + "needs the render-queue fallback (not yet built).");
   comp.saveFrameToPng(t, f);
-  // Undocumented API writes asynchronously since CC2015: poll.
-  var waited = 0;
-  while (!f.exists && waited < 5000) { $.sleep(200); waited += 200; }
-  if (!f.exists) CA_err("saveFrameToPng produced no file within 5s.");
-  return { file: f.fsName, time_s: t, comp: comp.name };
+  // Undocumented API, asynchronous since CC2015, and the file appears
+  // BEFORE it is finished (captures came back with a black band across
+  // the bottom). Wait until it exists, stops growing and ends in IEND.
+  var waited = 0, last = -1, stable = 0, done = false;
+  while (waited < 20000) {
+    $.sleep(200); waited += 200;
+    if (!f.exists) continue;
+    var size = f.length;
+    stable = (size > 0 && size === last) ? stable + 1 : 0;
+    last = size;
+    if (stable >= 1 && CA_pngComplete(f)) { done = true; break; }
+  }
+  if (!f.exists) CA_err("saveFrameToPng produced no file within 20s.");
+  if (!done)
+    CA_err("saveFrameToPng never finished writing " + f.fsName + " ("
+           + last + " bytes after 20s) — the render is still going; try "
+           + "again, or set the viewer to Half resolution.");
+  return { file: f.fsName, time_s: t, comp: comp.name, bytes: last,
+           waited_ms: waited };
 };
 
 CA_TOOLS.render = function (a) {

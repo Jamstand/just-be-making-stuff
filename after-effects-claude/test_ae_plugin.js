@@ -114,6 +114,8 @@ function makeLayer(name, comp) {
   return layer;
 }
 
+let pendingPng = null, pngSleeps = 0, pngNeverFinishes = false;
+
 function makeComp(name, w, h, fps, dur) {
   const comp = Object.create(CompItem.prototype);
   comp.name = name; comp.width = w; comp.height = h;
@@ -140,7 +142,9 @@ function makeComp(name, w, h, fps, dur) {
   comp.layer = function (i) { return comp._layers[i - 1]; };
   comp.openInViewer = function () {};
   comp.saveFrameToPng = function (t, f) {
+    // Like AE: the file appears at once, the bytes land later (IEND last).
     fs.writeFileSync(f.fsName, "PNGDATA@" + t);
+    pendingPng = pngNeverFinishes ? null : f.fsName; pngSleeps = 0;
   };
   return comp;
 }
@@ -191,9 +195,26 @@ function buildSandbox() {
            } },
     CompItem: CompItem, FootageItem: FootageItem,
     File: (function () {
-      function F(p) { this.fsName = p; this._path = p; }
+      function F(p) { this.fsName = p; this._path = p; this._pos = 0; }
       Object.defineProperty(F.prototype, "exists",
         { get: function () { return fs.existsSync(this.fsName); } });
+      Object.defineProperty(F.prototype, "length",
+        { get: function () { try { return fs.statSync(this.fsName).size; }
+                             catch (e) { return 0; } } });
+      F.prototype.open = function () { return fs.existsSync(this.fsName); };
+      F.prototype.seek = function (pos, mode) {
+        const n = this.length;
+        this._pos = mode === 2 ? Math.max(0, n - pos)
+                  : mode === 1 ? this._pos + pos : pos;
+        return true;
+      };
+      F.prototype.read = function (n) {
+        const b = fs.readFileSync(this.fsName);
+        const s = b.slice(this._pos, this._pos + n).toString("latin1");
+        this._pos += n;
+        return s;
+      };
+      F.prototype.close = function () { return true; };
       return F;
     })(),
     Folder: function (p) { this.fsName = p; this.exists = fs.existsSync(p);
@@ -209,7 +230,10 @@ function buildSandbox() {
                       ALPHA: "ALPHA", ALPHA_INVERTED: "ALPHA_INVERTED",
                       NO_TRACK_MATTE: "NONE" },
     Date: Date, isFinite: isFinite, parseInt: parseInt,
-    $: { sleep: function () {} },
+    $: { sleep: function () {
+      if (pendingPng && ++pngSleeps >= 3) {
+        fs.appendFileSync(pendingPng, "IEND\0\0\0\0"); pendingPng = null; }
+    } },
   };
   sandbox.Folder.userData = { fsName: require("os").tmpdir() };
   return sandbox;
@@ -283,11 +307,17 @@ check("add_mask: shape + feather",
       r.ok && r.data.masks === 1, JSON.stringify(r));
 
 r = invoke("grab_frame", { time_s: 1.25 });
-check("grab_frame: file written and returned",
+check("grab_frame: waits for the PNG to finish (IEND), not just to exist",
       r.ok && fs.existsSync(r.data.file)
-      && fs.readFileSync(r.data.file, "utf8") === "PNGDATA@1.25",
+      && fs.readFileSync(r.data.file, "latin1") === "PNGDATA@1.25IEND\0\0\0\0"
+      && r.data.bytes === 20 && r.data.waited_ms >= 600,
       JSON.stringify(r));
 try { fs.unlinkSync(r.data.file); } catch (e) {}
+pngNeverFinishes = true;
+r = invoke("grab_frame", { time_s: 2 });
+check("grab_frame: a capture that never completes is an error, not a truncated image",
+      !r.ok && /never finished writing/.test(r.error), JSON.stringify(r));
+pngNeverFinishes = false;
 
 r = invoke("list_render_templates", {});
 check("render templates listed",

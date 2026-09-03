@@ -37,8 +37,13 @@ const project = { file: null, numItems: 0, _items: [], activeItem: null, item(i)
   items: { addComp(n, w, h, pa, d, fps) { const c = makeComp(n, w, h, fps, d); project._items.push(c); project.numItems = project._items.length; project.activeItem = c; return c; } },
   importFile(io) { const f = Object.create(FootageItem.prototype); f.name = path.basename(io._path); f.duration = 5; f.width = 1920; f.height = 1080; f.frameRate = 24; f.hasVideo = true; f.mainSource = { file: { fsName: io._path }, isStill: false }; project._items.push(f); project.numItems = project._items.length; return f; },
   renderQueue: { items: { add() { return { outputModule() { return { templates: ["H.264 - Match Render Settings - 15 Mbps"], applyTemplate() {}, file: null }; }, applyTemplate() {}, remove() {}, templates: ["Best Settings"], status: "DONE" }; } }, render() {}, queueInAME() {} } };
-function FileC(p) { this.fsName = p; this._path = p; }
+function FileC(p) { this.fsName = p; this._path = p; this._pos = 0; }
 Object.defineProperty(FileC.prototype, "exists", { get() { return fs.existsSync(this.fsName); } });
+Object.defineProperty(FileC.prototype, "length", { get() { try { return fs.statSync(this.fsName).size; } catch (e) { return 0; } } });
+FileC.prototype.open = function () { return fs.existsSync(this.fsName); };
+FileC.prototype.seek = function (pos, mode) { const n = this.length; this._pos = mode === 2 ? Math.max(0, n - pos) : mode === 1 ? this._pos + pos : pos; return true; };
+FileC.prototype.read = function (n) { const b = fs.readFileSync(this.fsName); const s = b.slice(this._pos, this._pos + n).toString("latin1"); this._pos += n; return s; };
+FileC.prototype.close = function () { return true; };
 const ctx = vm.createContext({ app: { project, beginUndoGroup() {}, endUndoGroup() {}, preferences: { getPrefAsLong: () => 1 },
     findMenuCommandId(n) { return /paste mocha mask/i.test(n) ? 5007 : 0; },
     executeCommand(id) { if (id !== 5007) return; for (const it of project._items) if (it instanceof CompItem) for (const l of it._layers) if (l.selected) {
