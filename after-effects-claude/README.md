@@ -68,9 +68,15 @@ around that wall two ways:
   (about $0.005 per 16 frames); `set_fal_key` stores the key in
   `~/.claude-assistant.json`, `dry_run: true` quotes the cost first.
 
-Known unknowns until the first live run on a Mac: whether a plug-in-only
-Mocha license lets its python3 track outside the GUI (the docs only say
-external *rendering* is blocked), whether "Paste Mocha mask" places keys
-relative to the layer or to the current time (`mask_paste_at` covers both),
-and what fal's "segmented video" looks like (cut-out on black works as a
-luma matte; an overlay does not).
+Live finding (Mocha Pro 2026.5, Adobe plug-in bundle only, macOS): the
+bundled python3 loads the engine and lists the AE exporters, but creating a
+Project fails at RLM license checkout ("License Error: 2, ISV genarts", no
+cached/roaming/file license) — a plug-in-only install has no license an
+external process can check out. `mocha_status` now runs that checkout on a
+probe clip and reports `license: ok|failed` with the fix list; a license
+file or server goes in `~/.claude-assistant.json` as `mocha_license`
+(passed to Mocha as RLM_LICENSE / genarts_LICENSE). Still unknown until a
+licensed run: whether "Paste Mocha mask" places keys relative to the layer
+or to the current time (`mask_paste_at` covers both), and what fal's
+"segmented video" looks like (cut-out on black works as a luma matte; an
+overlay does not).

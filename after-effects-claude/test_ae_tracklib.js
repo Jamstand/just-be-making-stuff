@@ -105,6 +105,18 @@ const exe = (name, body) => {
   catch (e) { e5 = e.message; }
   check("runMochaJob: missing interpreter is a clean error", /Could not run Mocha's python3/.test(e5), e5);
 
+  const envPy = exe("env-python", "console.log('CA_RESULT '+JSON.stringify({ok:true,data:{rlm:process.env.RLM_LICENSE||null,isv:process.env.genarts_LICENSE||null}}));");
+  const r6 = await track.runMochaJob(envPy, { action: "probe" },
+    { scriptPath: script, workdir: path.join(tmp, "w6"), timeoutMs: 10000,
+      env: track.mochaEnv({ mocha_license: "5053@licserver" }) });
+  check("runMochaJob: mocha_license reaches the child as RLM_LICENSE + genarts_LICENSE",
+    r6.rlm === "5053@licserver" && r6.isv === "5053@licserver", JSON.stringify(r6));
+  check("mochaEnv: nothing configured -> nothing injected", Object.keys(track.mochaEnv({})).length === 0);
+  const lic = track.explainMochaError("Mocha: could not open the footage in Mocha (RuntimeError: License Error: 2   ISV name: genarts)");
+  check("explainMochaError: license failures get the fix list, others pass through",
+    /sign in/.test(lic) && /mocha_license/.test(lic) && /Mocha AE/.test(lic)
+    && track.explainMochaError("footage not found") === "footage not found", lic.slice(0, 120));
+
   // ------------------------------------------------ fal.ai client
   const calls = [];
   const fakeReq = async (url, opts, body) => {

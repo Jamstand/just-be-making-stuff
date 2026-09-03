@@ -361,12 +361,16 @@ async function mochaTrack(state, a) {
   sendUI("notice", "Mocha is tracking " + (endF - startF + 1) + " frames of "
     + info.source.name + " (" + found[0].kind + " python) — minutes on long "
     + "shots.", false);
-  const data = await track.runMochaJob(found[0].python, {
-    action: "track", footage, project_path: path.join(workdir, "track.mocha"),
-    out_dir: workdir, layer_name: a.layer_name || "Claude Track",
-    shape: shape.map(([x, y]) => ({ x, y })), surface,
-    start_frame: startF, end_frame: endF, exports: wanted,
-  }, { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 45 * 60 * 1000 });
+  let data;
+  try {
+    data = await track.runMochaJob(found[0].python, {
+      action: "track", footage, project_path: path.join(workdir, "track.mocha"),
+      out_dir: workdir, layer_name: a.layer_name || "Claude Track",
+      shape: shape.map(([x, y]) => ({ x, y })), surface,
+      start_frame: startF, end_frame: endF, exports: wanted,
+    }, { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 45 * 60 * 1000,
+         env: track.mochaEnv() });
+  } catch (e) { throw new Error(track.explainMochaError(e.message)); }
   const out = { python: found[0].python, project: data.project,
     source: info.source.name, fps, start_frame: startF, end_frame: endF,
     frames: data.frames, track_seconds: data.track_seconds,
@@ -478,17 +482,33 @@ tool("mocha_status",
         hint: "Set mocha_python in ~/.claude-assistant.json to the python3 "
           + "inside your Mocha app if it lives elsewhere." };
     const workdir = path.join(USER_DATA, "mocha", "probe");
+    const env = track.mochaEnv();
+    const out = { installed: true, python: found[0].python, kind: found[0].kind,
+                  candidates: found, license_env_passed: Object.keys(env) };
     try {
-      const data = await track.runMochaJob(found[0].python, { action: "probe" },
-        { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 180000 });
-      return { installed: true, python: found[0].python, kind: found[0].kind,
-               candidates: found, probe: data };
+      out.probe = await track.runMochaJob(found[0].python, { action: "probe" },
+        { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 180000, env });
     } catch (e) {
-      return { installed: true, python: found[0].python, kind: found[0].kind,
-        candidates: found, probe_error: e.message,
-        note: "A plug-in-only Mocha license may refuse external scripting; "
-          + "the standalone app's python3 is the known-good route." };
+      out.probe_error = e.message;
+      return out;
     }
+    // The real gate: RLM checks out a license when a Project is created.
+    try {
+      const lic = await track.runMochaJob(found[0].python,
+        { action: "license_check" },
+        { scriptPath: MOCHA_SCRIPT, workdir: workdir + "-license",
+          timeoutMs: 180000, env });
+      out.license = lic.license;
+      out.license_detail = lic.detail;
+      if (lic.license !== "ok")
+        out.license_help = track.explainMochaError("License checkout failed: "
+          + lic.detail + "\n" + (lic.log_tail || ""));
+    } catch (e) {
+      out.license = "failed";
+      out.license_help = track.explainMochaError(e.message);
+    }
+    out.ready = out.license === "ok";
+    return out;
   });
 
 tool("mocha_track",

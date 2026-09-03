@@ -355,4 +355,11 @@ a `video` output (masked MP4) + optional bbox zip; no per-frame polygons;
 inputs must be URLs (fal CDN upload: rest.alpha.fal.ai/storage/upload/
 initiate → PUT, multipart above 90 MB); $0.005 per 16 frames (3.1: $0.01).
 AE side: setTrackMatte(layer, TrackMatteType.LUMA) is AE 23+; Property
-times are COMPOSITION seconds.
+times are COMPOSITION seconds. LIVE (josh's Mac, 2026-09): Mocha Pro 2026.5
+plug-in bundle python3 3.11.12 loads mocha.* and lists exporters
+(mocha_version attr is None), but Project(Clip(...)) dies at RLM checkout
+"License Error: 2 ISV genarts" — empty ~/Library/Application Support/
+GenArts/rlm and /Library/Application Support/BorisFX/rlm, no RLM env. The
+plug-in's license lives inside AE's process only. mocha_status now does a
+license_check job (tiny generated PNG → Project) so this shows before a
+track; mocha_license in config → RLM_LICENSE + genarts_LICENSE env.

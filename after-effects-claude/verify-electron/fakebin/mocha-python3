@@ -11,6 +11,7 @@ if (job.action === "probe") {
     tracking_exporters: ["after_effects_corner_pin", "after_effects_transform"], ae_exporters_present: true } });
   process.exit(0);
 }
+if (job.action === "license_check") { out({ ok: true, data: { license: "ok", detail: "fake project created" } }); process.exit(0); }
 if (job.action !== "track") { out({ ok: false, error: "unknown action " + job.action }); process.exit(1); }
 const exportsOut = {};
 const frames = Math.min(job.end_frame - job.start_frame + 1, 10);

@@ -81,7 +81,8 @@ function runMochaJob(python, job, opts) {
     try {
       child = sp(python, [opts.scriptPath, jobPath], {
         cwd: opts.workdir,
-        env: Object.assign({}, process.env, { PYTHONUNBUFFERED: "1" }) });
+        env: Object.assign({}, process.env, { PYTHONUNBUFFERED: "1" },
+                           opts.env || {}) });
     } catch (e) { return reject(e); }
     let out = "", err = "", finished = false;
     const timeoutMs = opts.timeoutMs || 30 * 60 * 1000;
@@ -329,6 +330,31 @@ async function download(url, dest, opts) {
   return dest;
 }
 
-module.exports = { CONFIG_FILE, readConfig, writeConfig, findMochaPython,
+// RLM reads RLM_LICENSE (file path or port@host) and the ISV-specific
+// genarts_LICENSE; a user with a license file or server puts it in the
+// config as mocha_license and every Mocha child process gets it.
+function mochaEnv(config) {
+  const cfg = config || readConfig();
+  if (!cfg.mocha_license) return {};
+  return { RLM_LICENSE: String(cfg.mocha_license),
+           genarts_LICENSE: String(cfg.mocha_license) };
+}
+
+const LICENSE_RE = /License Error|license|RLM|checkout/i;
+function explainMochaError(message) {
+  if (!LICENSE_RE.test(message)) return message;
+  return message + "\n\nThis is Mocha's license, not the bridge: RLM found "
+    + "no license to check out for a process outside After Effects. Fixes, "
+    + "in order: (1) in AE apply Effect > Boris FX Mocha > Mocha Pro to a "
+    + "layer, press its 'Mocha' button to launch the GUI and sign in / "
+    + "activate, close it, then rerun mocha_status — a cached login license "
+    + "should now be visible; (2) if you have a license file or server, "
+    + "put its path or port@host in ~/.claude-assistant.json as "
+    + "mocha_license; (3) no Mocha Pro license at all: Mocha AE (free with "
+    + "AE) has no Python — track by hand there and press 'Create AE Masks' "
+    + "/ 'Create Track Data' on the effect, or use ai_segment for a matte.";
+}
+
+module.exports = { mochaEnv, explainMochaError, CONFIG_FILE, readConfig, writeConfig, findMochaPython,
   expandPattern, runMochaJob, parseAeKeyframeText, httpRequest, falUpload,
   falSubmit, falWait, download, mimeFor, FAL_QUEUE, FAL_REST };

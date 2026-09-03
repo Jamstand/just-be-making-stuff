@@ -102,6 +102,41 @@ def do_exports(mexp, proj, layer, out_dir, kinds, at_frame):
     return exports
 
 
+def tiny_png(w, h):
+    """A grey 8-bit RGB PNG with no dependencies: enough of a clip for
+    Mocha to open a Project on, which is where RLM checks the license."""
+    import struct
+    import zlib
+    raw = b"".join(b"\x00" + bytes([128, 128, 128]) * w for _ in range(h))
+
+    def chunk(tag, data):
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def license_state():
+    """Where RLM looks, per Mocha's own error listing, so a missing license
+    is visible before anyone waits on a track."""
+    home = os.path.expanduser("~")
+    dirs = [os.path.join(home, "Library/Application Support/GenArts/rlm"),
+            os.path.join(home, "Library/Application Support/BorisFX/rlm"),
+            "/Library/Application Support/BorisFX/rlm",
+            "/Library/Application Support/GenArts/rlm"]
+    files = {}
+    for d in dirs:
+        try:
+            files[d] = sorted(os.listdir(d)) if os.path.isdir(d) else None
+        except Exception as e:
+            files[d] = "unreadable: %s" % e
+    env = {k: os.environ.get(k) for k in
+           ("RLM_LICENSE", "genarts_LICENSE", "GENARTS_LICENSE", "BORISFX_LICENSE")
+           if os.environ.get(k)}
+    return {"license_files": files, "license_env": env}
+
+
 def main():
     if len(sys.argv) < 2:
         fail("usage: mocha_job.py job.json")
@@ -138,7 +173,26 @@ def main():
                 for n in ["after_effects_mask", "after_effects_corner_pin", "after_effects_transform"])
         except Exception as e:
             info["exporters_error"] = "%s: %s" % (type(e).__name__, e)
+        info.update(license_state())
         emit({"ok": True, "data": info})
+        return
+
+    if action == "license_check":
+        # Separate job on purpose: if RLM makes Mocha bail out hard, the
+        # probe above has already reported the exporters.
+        import tempfile
+        d = tempfile.mkdtemp(prefix="ca-mocha-probe-")
+        p = os.path.join(d, "probe.png")
+        with open(p, "wb") as fh:
+            fh.write(tiny_png(16, 16))
+        try:
+            proj = Project(Clip(p, "probe"))
+            layers = len(list(proj.layers))
+            emit({"ok": True, "data": {"license": "ok", "detail":
+                  "Project created from a probe clip (%d layers)" % layers}})
+        except Exception as e:
+            emit({"ok": True, "data": {"license": "failed",
+                  "detail": "%s: %s" % (type(e).__name__, e)}})
         return
 
     out_dir = job["out_dir"]
