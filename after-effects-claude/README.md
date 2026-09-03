@@ -72,7 +72,10 @@ Live finding (Mocha Pro 2026.5, Adobe plug-in bundle only, macOS): the
 bundled python3 loads the engine and lists the AE exporters, but creating a
 Project fails at RLM license checkout ("License Error: 2, ISV genarts", no
 cached/roaming/file license) — a plug-in-only install has no license an
-external process can check out. `mocha_status` now runs that checkout on a
+external process can check out. Resolved by launching the Mocha GUI from the effect inside AE and
+signing in: that wrote `rehost_mpp-multihost-so.lic` (plus a `.reprise`
+cache) into `~/Library/Application Support/GenArts/rlm/`, after which the
+headless checkout passed. `mocha_status` runs that checkout on a
 probe clip and reports `license: ok|failed` with the fix list; a license
 file or server goes in `~/.claude-assistant.json` as `mocha_license`
 (passed to Mocha as RLM_LICENSE / genarts_LICENSE). Still unknown until a

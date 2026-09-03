@@ -362,4 +362,7 @@ plug-in bundle python3 3.11.12 loads mocha.* and lists exporters
 GenArts/rlm and /Library/Application Support/BorisFX/rlm, no RLM env. The
 plug-in's license lives inside AE's process only. mocha_status now does a
 license_check job (tiny generated PNG → Project) so this shows before a
-track; mocha_license in config → RLM_LICENSE + genarts_LICENSE env.
+track; mocha_license in config → RLM_LICENSE + genarts_LICENSE env. FIX THAT WORKED: launch the Mocha GUI from the Mocha Pro effect
+inside AE and sign in — RLM then caches rehost_mpp-multihost-so.lic +
+.reprise under ~/Library/Application Support/GenArts/rlm/ and the headless
+license_check passes (license: ok, ready: true).
