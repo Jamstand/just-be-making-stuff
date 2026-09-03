@@ -121,6 +121,43 @@ const exe = (name, body) => {
   check("explainMochaError: rendering-context failures point at mocha_status's Qt ladder",
     /OpenGL rendering context/.test(ctx) && /mocha_qt/.test(ctx) && /apply_track_file/.test(ctx), ctx.slice(0, 100));
 
+  // ------------------------------------------------ corner-pin geometry
+  const sq = [[0, 0], [100, 0], [0, 100], [100, 100]];             // UL UR LL LR
+  const H = track.solveHomography(sq, [[10, 20], [210, 20], [10, 220], [210, 220]]);
+  const centre = track.applyH(H, [50, 50]);
+  check("homography: 4-point DLT maps the centre", Math.abs(centre[0] - 110) < 1e-6 && Math.abs(centre[1] - 120) < 1e-6, JSON.stringify(centre));
+  const persp = track.solveHomography(sq, [[0, 0], [100, 10], [0, 100], [100, 90]]);
+  const pp = track.applyH(persp, [100, 50]);
+  check("homography: perspective (non-affine) quad solves", persp && Math.abs(pp[0] - 100) < 1e-6 && Math.abs(pp[1] - 50) < 1e-6, JSON.stringify(pp));
+  check("homography: degenerate quad -> null", track.solveHomography(sq, [[0, 0], [0, 0], [0, 0], [0, 0]]) === null);
+  const mk = (name, keys) => ({ group: "Effects", name: "Corner Pin #1", prop: name, keys });
+  const pinBlocks = [
+    mk("Upper Left #2", [{ frame: 0, values: [0, 0] }, { frame: 1, values: [10, 20] }]),
+    mk("Upper Right #3", [{ frame: 0, values: [100, 0] }, { frame: 1, values: [210, 20] }]),
+    mk("Lower Left #4", [{ frame: 0, values: [0, 100] }, { frame: 1, values: [10, 220] }]),
+    mk("Lower Right #5", [{ frame: 0, values: [100, 100] }, { frame: 1, values: [210, 220] }]),
+    { group: "Transform", name: "Position", prop: "", keys: [{ frame: 0, values: [1, 2] }] },
+  ];
+  const rt = track.retargetCornerPin(pinBlocks, { UL: [25, 25], UR: [75, 25], LL: [25, 75], LR: [75, 75] });
+  const ul = rt.blocks[0].keys, lr = rt.blocks[3].keys;
+  check("retargetCornerPin: frame 0 = the requested quad, later frames follow the plane",
+    rt.retargeted && ul[0].values.join() === "25,25" && Math.abs(ul[1].values[0] - 60) < 1e-6
+    && Math.abs(ul[1].values[1] - 70) < 1e-6 && Math.abs(lr[1].values[0] - 160) < 1e-6
+    && rt.blocks[4].keys[0].values.join() === "1,2", JSON.stringify(rt.blocks.map((b) => b.keys)));
+  check("retargetCornerPin: no corner blocks -> untouched",
+    track.retargetCornerPin([pinBlocks[4]], { UL: [0, 0], UR: [1, 0], LL: [0, 1], LR: [1, 1] }).retargeted === false);
+  const rep = track.trackReport(pinBlocks, 1920, 1080, 60);
+  check("trackReport: clean track is usable to the last frame", rep.usable_until_frame === 1 && /stayed in frame/.test(rep.verdict), JSON.stringify(rep));
+  const drift = pinBlocks.slice(0, 4).map((b) => Object.assign({}, b, { keys: b.keys.concat(
+    [{ frame: 2, values: [b.keys[1].values[0] + 5, b.keys[1].values[1] + 5] },
+     { frame: 3, values: [b.keys[1].values[0] + 1900, b.keys[1].values[1]] },
+     { frame: 4, values: [b.keys[1].values[0] + 2500, b.keys[1].values[1]] }]) }));
+  const rep2 = track.trackReport(drift, 1920, 1080, 60);
+  check("trackReport: region running off frame right is caught, usable range ends before it",
+    rep2.first_partially_offscreen_frame === 3 && rep2.first_offscreen_frame === 4
+    && rep2.first_jump_frame === 3 && rep2.usable_until_frame === 2 && Math.abs(rep2.usable_until_s - 0.033) < 1e-3,
+    JSON.stringify(rep2));
+
   // ------------------------------------------------ fal.ai client
   const calls = [];
   const fakeReq = async (url, opts, body) => {

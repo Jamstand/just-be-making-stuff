@@ -372,3 +372,15 @@ an OpenGL context. FIX CONFIRMED LIVE (probe track 0.4s, ready: true): QApplicat
 QGuiApplication, then QCoreApplication; mocha_status probe-tracks 3
 generated noise frames per Qt variant (widgets → gui → widgets+offscreen
 QPA → gui+offscreen → core) and stores the winner as mocha_qt.
+FIRST REAL TRACK (C0768.MP4 59.94fps, 240 frames, ~real time): worked,
+but (1) exporters' "Units Per Second" said 24 → panel now converts with
+the source fps and sets proj.frame_rate; (2) proj.parameter([layer,
+"Surface0X"]) → "No such parameter" → corner pin followed Mocha's default
+surface; panel now retargets the exported quad to the requested surface
+via per-frame homography (tracklib.retargetCornerPin); (3) "Paste Mocha
+mask" did NOT produce a native mask — AE created/used the legacy "mocha
+shape" effect (ISL MochaShapeImporter, CUSTOM_VALUE not scriptable); the
+in-AE Claude parsed mask.shape4ae itself (64 pts/frame) — a real parser
++ native mask keyframes tool is the next build (format head requested
+from josh); (4) the region left frame right at ~f15 and the tracker
+re-locked on the road — tracklib.trackReport now flags usable range.

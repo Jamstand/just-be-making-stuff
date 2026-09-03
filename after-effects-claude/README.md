@@ -85,7 +85,15 @@ mocha_job.py now starts a full QApplication (falling back to QGuiApplication
 / QCoreApplication), and `mocha_status` runs a 3-frame probe track over a
 ladder of variants (widgets, gui, offscreen QPA) and remembers the one that
 works as `mocha_qt` in the config; `ready` is true only when that probe
-track succeeds. Still unknown until a
+track succeeds. First real track (C0768.MP4, 59.94 fps, 240 frames) taught three more
+things, all now handled in the tool: Mocha's exporters wrote a 24 fps
+header for 59.94 footage (the panel now converts frames with the SOURCE
+rate and sets the project frame_rate); the guide's `Surface0X` parameter
+path does not resolve, so the exported corner pin followed Mocha's default
+surface, not the shape (the panel now retargets the export to the shape's
+bounding box through the per-frame homography); and a region that leaves
+the frame re-locks onto whatever is left (the road), so the result carries
+a `track_report` with the usable range. Still unknown until a
 licensed run: whether "Paste Mocha mask" places keys relative to the layer
 or to the current time (`mask_paste_at` covers both), and what fal's
 "segmented video" looks like (cut-out on black works as a luma matte; an

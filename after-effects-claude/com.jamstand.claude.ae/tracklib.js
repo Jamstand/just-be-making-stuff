@@ -165,6 +165,136 @@ function parseAeKeyframeText(text) {
            blocks: blocks.filter((b) => b.keys.length) };
 }
 
+// ------------------------------------------- corner-pin geometry
+// Mocha exports the corners of ITS planar surface, which we could not
+// place through the API (the guide's Surface0X parameter path does not
+// resolve). The plane's motion is a homography, so the exported quad at
+// frame 0 -> frame t defines H_t, and any quad we actually want (the
+// shape's bounding box by default) is H_t applied to it.
+function solveLinear(A, b) {
+  const n = b.length;
+  const M = A.map((row, i) => row.concat([b[i]]));
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    if (Math.abs(M[p][c]) < 1e-12) return null;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = M[r][c] / M[c][c];
+      for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  return M.map((row, i) => row[n] / row[i]);
+}
+
+function solveHomography(src, dst) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  const h = solveLinear(A, b);
+  return h && h.concat([1]);
+}
+
+function applyH(H, [x, y]) {
+  const w = H[6] * x + H[7] * y + H[8];
+  return [(H[0] * x + H[1] * y + H[2]) / w, (H[3] * x + H[4] * y + H[5]) / w];
+}
+
+const CORNER_NAMES = {
+  UL: /upper\s*left|top\s*left/i, UR: /upper\s*right|top\s*right/i,
+  LL: /lower\s*left|bottom\s*left/i, LR: /lower\s*right|bottom\s*right/i,
+};
+function cornerBlocks(blocks) {
+  const found = {};
+  for (const key of Object.keys(CORNER_NAMES)) {
+    found[key] = blocks.find((b) => b.group === "Effects" && CORNER_NAMES[key].test(b.prop));
+    if (!found[key]) return null;
+  }
+  return found;
+}
+
+// Per-frame quads [UL, UR, LL, LR] keyed by frame, only where all four exist.
+function cornerQuads(corners) {
+  const byFrame = new Map();
+  for (const key of ["UL", "UR", "LL", "LR"])
+    for (const k of corners[key].keys) {
+      if (!byFrame.has(k.frame)) byFrame.set(k.frame, {});
+      byFrame.get(k.frame)[key] = k.values.slice(0, 2);
+    }
+  const quads = [];
+  for (const [frame, q] of [...byFrame.entries()].sort((a, b) => a[0] - b[0]))
+    if (q.UL && q.UR && q.LL && q.LR) quads.push({ frame, quad: [q.UL, q.UR, q.LL, q.LR] });
+  return quads;
+}
+
+// target: {UL,UR,LL,LR} in source pixels. Returns new blocks (others
+// untouched) whose corners follow the tracked plane from that target.
+function retargetCornerPin(blocks, target) {
+  const corners = cornerBlocks(blocks);
+  if (!corners) return { blocks, retargeted: false, reason: "no 4-corner effect blocks" };
+  const quads = cornerQuads(corners);
+  if (!quads.length) return { blocks, retargeted: false, reason: "no complete frames" };
+  const base = quads[0].quad;
+  const tgt = [target.UL, target.UR, target.LL, target.LR];
+  const out = {};
+  let skipped = 0;
+  for (const { frame, quad } of quads) {
+    const H = solveHomography(base, quad);
+    if (!H) { skipped += 1; continue; }
+    const moved = tgt.map((p) => applyH(H, p));
+    ["UL", "UR", "LL", "LR"].forEach((key, i) => {
+      (out[key] = out[key] || []).push({ frame, values: moved[i] });
+    });
+  }
+  const replaced = blocks.map((b) => {
+    const key = Object.keys(corners).find((k) => corners[k] === b);
+    return key ? Object.assign({}, b, { keys: out[key] || [] }) : b;
+  });
+  return { blocks: replaced, retargeted: true, frames: quads.length, skipped };
+}
+
+// Where does the track stop being believable? Corners leaving the frame
+// and centroid jumps are the two failure modes seen live (the region ran
+// off frame right, then re-locked onto the road).
+function trackReport(blocks, width, height, fps) {
+  const corners = cornerBlocks(blocks);
+  if (!corners) return null;
+  const quads = cornerQuads(corners);
+  if (!quads.length) return null;
+  const margin = Math.max(4, width * 0.02);
+  const jumpPx = width * 0.15;
+  let firstPartial = null, firstOff = null, firstJump = null, prevC = null;
+  for (const { frame, quad } of quads) {
+    const xs = quad.map((p) => p[0]), ys = quad.map((p) => p[1]);
+    const minx = Math.min(...xs), maxx = Math.max(...xs);
+    const miny = Math.min(...ys), maxy = Math.max(...ys);
+    const off = maxx < 0 || minx > width || maxy < 0 || miny > height;
+    const partial = minx < -margin || maxx > width + margin || miny < -margin || maxy > height + margin;
+    const c = [(minx + maxx) / 2, (miny + maxy) / 2];
+    if (off && firstOff === null) firstOff = frame;
+    if (partial && firstPartial === null) firstPartial = frame;
+    if (prevC && Math.hypot(c[0] - prevC[0], c[1] - prevC[1]) > jumpPx && firstJump === null)
+      firstJump = frame;
+    prevC = c;
+  }
+  const bad = [firstPartial, firstOff, firstJump].filter((f) => f !== null);
+  const first = quads[0].frame, last = quads[quads.length - 1].frame;
+  const usableUntil = bad.length ? Math.max(first, Math.min(...bad) - 1) : last;
+  const rep = { frames: quads.length, first_frame: first, last_frame: last,
+    first_partially_offscreen_frame: firstPartial, first_offscreen_frame: firstOff,
+    first_jump_frame: firstJump, usable_until_frame: usableUntil,
+    usable_until_s: fps ? Math.round(usableUntil / fps * 1000) / 1000 : null,
+    verdict: usableUntil >= last ? "region stayed in frame with no jumps"
+      : "region leaves the frame or jumps at frame " + Math.min(...bad)
+        + " — keys after " + (fps ? (usableUntil / fps).toFixed(2) + "s" : "frame " + usableUntil)
+        + " are the tracker holding onto something else" };
+  return rep;
+}
+
 // ------------------------------------------------------------- HTTP
 function httpRequest(url, opts, body) {
   opts = opts || {};
@@ -364,6 +494,7 @@ function explainMochaError(message) {
     + "/ 'Create Track Data' on the effect, or use ai_segment for a matte.";
 }
 
-module.exports = { mochaEnv, explainMochaError, CONFIG_FILE, readConfig, writeConfig, findMochaPython,
+module.exports = { solveHomography, applyH, retargetCornerPin, trackReport,
+  cornerBlocks, mochaEnv, explainMochaError, CONFIG_FILE, readConfig, writeConfig, findMochaPython,
   expandPattern, runMochaJob, parseAeKeyframeText, httpRequest, falUpload,
   falSubmit, falWait, download, mimeFor, FAL_QUEUE, FAL_REST };

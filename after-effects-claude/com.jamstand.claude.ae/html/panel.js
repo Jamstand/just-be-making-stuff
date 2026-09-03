@@ -306,9 +306,24 @@ async function applyExport(a, info, kind, file, out) {
   const text = fs.readFileSync(file, "utf8");
   if (/Keyframe Data/i.test(text.split("\n")[0])) {
     const parsed = track.parseAeKeyframeText(text);
+    // Frames are frames; the header's rate is only Mocha's belief (live it
+    // said 24 for 59.94 footage), so the SOURCE rate converts to seconds.
+    if (parsed.fps && Math.abs(parsed.fps - fps) > 0.01)
+      (out.warnings = out.warnings || []).push(kind + ": export header says "
+        + parsed.fps + " fps, source is " + fps + " — using the source rate");
+    let blocks = parsed.blocks;
+    if (out.surface && /pin/.test(kind)) {
+      const r = track.retargetCornerPin(blocks, out.surface);
+      blocks = r.blocks;
+      out.corner_pin_retargeted = r.retargeted ? "to the requested surface ("
+        + r.frames + " frames" + (r.skipped ? ", " + r.skipped + " degenerate skipped" : "")
+        + ")" : "no: " + r.reason;
+    }
+    if (/pin/.test(kind) && info.source)
+      out.track_report = track.trackReport(parsed.blocks, info.source.width,
+                                           info.source.height, fps);
     const r = await evalHost("apply_keyframe_data", { layer: a.layer,
-      comp: a.comp, fps: parsed.fps || fps, blocks: parsed.blocks,
-      time_offset_s: offset, stretch });
+      comp: a.comp, fps, blocks, time_offset_s: offset, stretch });
     out.applied.push({ kind, file, result: r });
     return;
   }
@@ -366,7 +381,7 @@ async function mochaTrack(state, a) {
     data = await track.runMochaJob(found[0].python, Object.assign({
       action: "track", footage, project_path: path.join(workdir, "track.mocha"),
       out_dir: workdir, layer_name: a.layer_name || "Claude Track",
-      shape: shape.map(([x, y]) => ({ x, y })), surface,
+      shape: shape.map(([x, y]) => ({ x, y })), surface, fps,
       start_frame: startF, end_frame: endF, exports: wanted,
     }, track.readConfig().mocha_qt || { qt_app: "widgets" }),
     { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 45 * 60 * 1000,
@@ -375,7 +390,8 @@ async function mochaTrack(state, a) {
   const out = { python: found[0].python, project: data.project,
     source: info.source.name, fps, start_frame: startF, end_frame: endF,
     frames: data.frames, track_seconds: data.track_seconds,
-    exports: data.exports, notes: data.notes || [], applied: [], warnings: [] };
+    exports: data.exports, notes: data.notes || [], applied: [], warnings: [],
+    surface: { UL: surface[0], UR: surface[1], LR: surface[2], LL: surface[3] } };
   if (info.time_remap)
     out.warnings.push("Layer is time-remapped: keys sit at linear source "
       + "time and will not follow the remap.");
@@ -394,6 +410,10 @@ async function mochaTrack(state, a) {
       catch (e) { out.applied.push({ kind, file, error: e.message }); }
     }
   }
+  if (out.track_report && out.track_report.usable_until_frame < endF)
+    out.warnings.push("Track looks unreliable after "
+      + out.track_report.usable_until_s + "s: " + out.track_report.verdict
+      + ". Tighten the shape to textured bodywork or shorten end_s.");
   return out;
 }
 

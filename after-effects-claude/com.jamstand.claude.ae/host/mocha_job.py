@@ -297,6 +297,13 @@ def main():
     try:
         clip = Clip(footage, "footage")
         proj = Project(clip)
+        # Live: the exporters wrote a 24 fps header for 59.94 footage, so
+        # tell the project the real rate (frames stay frames either way).
+        if job.get("fps"):
+            try:
+                proj.frame_rate = float(job["fps"])
+            except Exception as e:
+                notes.append("could not set project frame_rate: %s" % e)
         proj.save_as(job["project_path"])
     except Exception as e:
         fail("could not open the footage in Mocha (%s: %s) -- a plug-in-only "
@@ -322,16 +329,27 @@ def main():
         except Exception as e:
             notes.append("could not set %s: %s" % (key, e))
 
-    # The planar surface is what the corner-pin exporters follow.
+    # The planar surface is what the corner-pin exporters follow. The
+    # guide's [layer, "Surface0X"] path did not resolve live ("No such
+    # parameter"); try the plausible spellings, and if none takes, the panel
+    # retargets the exported quad through the per-frame homography anyway.
     surface = job.get("surface")
     if surface and len(surface) == 4:
-        for idx, (x, y) in enumerate(surface):
-            for axis, val in (("X", x), ("Y", y)):
-                try:
-                    proj.parameter([layer.name, "Surface%d%s" % (idx, axis)]).set(float(val))
-                except Exception as e:
-                    notes.append("surface%d%s not set: %s" % (idx, axis, e))
-                    break
+        set_any = False
+        for path in ([layer.name, "Surface%d%s"], [layer.name, "Surface", "Surface%d%s"],
+                     [layer.name, "Basic", "Surface%d%s"], ["Surface%d%s"]):
+            try:
+                for idx, (x, y) in enumerate(surface):
+                    for axis, val in (("X", x), ("Y", y)):
+                        comps = [c % (idx, axis) if "%d" in c else c for c in path]
+                        proj.parameter(comps).set(float(val))
+                set_any = True
+                notes.append("surface set via %s" % "/".join(path))
+                break
+            except Exception as e:
+                last_err = "%s: %s" % ("/".join(path), e)
+        if not set_any:
+            notes.append("surface not settable (%s) — panel retargets the export" % last_err)
 
     t0 = time.time()
     try:
