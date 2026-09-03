@@ -117,6 +117,10 @@ const exe = (name, body) => {
     /sign in/.test(lic) && /mocha_license/.test(lic) && /Mocha AE/.test(lic)
     && track.explainMochaError("footage not found") === "footage not found", lic.slice(0, 120));
 
+  const ctx = track.explainMochaError("Mocha: tracking failed after 0.0s: RuntimeError: Can't obtain rendering context");
+  check("explainMochaError: rendering-context failures point at mocha_status's Qt ladder",
+    /OpenGL rendering context/.test(ctx) && /mocha_qt/.test(ctx) && /apply_track_file/.test(ctx), ctx.slice(0, 100));
+
   // ------------------------------------------------ fal.ai client
   const calls = [];
   const fakeReq = async (url, opts, body) => {

@@ -78,7 +78,14 @@ cache) into `~/Library/Application Support/GenArts/rlm/`, after which the
 headless checkout passed. `mocha_status` runs that checkout on a
 probe clip and reports `license: ok|failed` with the fix list; a license
 file or server goes in `~/.claude-assistant.json` as `mocha_license`
-(passed to Mocha as RLM_LICENSE / genarts_LICENSE). Still unknown until a
+(passed to Mocha as RLM_LICENSE / genarts_LICENSE). Second live wall: `track_layers` under the guide's bare QCoreApplication
+dies with "Can't obtain rendering context" — the tracker needs an OpenGL
+context, which only a Qt application with a platform plugin can provide.
+mocha_job.py now starts a full QApplication (falling back to QGuiApplication
+/ QCoreApplication), and `mocha_status` runs a 3-frame probe track over a
+ladder of variants (widgets, gui, offscreen QPA) and remembers the one that
+works as `mocha_qt` in the config; `ready` is true only when that probe
+track succeeds. Still unknown until a
 licensed run: whether "Paste Mocha mask" places keys relative to the layer
 or to the current time (`mask_paste_at` covers both), and what fal's
 "segmented video" looks like (cut-out on black works as a luma matte; an

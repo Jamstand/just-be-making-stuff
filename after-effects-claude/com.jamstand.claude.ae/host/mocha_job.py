@@ -117,6 +117,54 @@ def tiny_png(w, h):
             + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
 
+def noise_png(w, h, seed, shift):
+    """Deterministic textured RGB PNG; `shift` slides the texture so a
+    3-frame sequence has real motion for the tracker to lock on to."""
+    import struct
+    import zlib
+    rows = []
+    for y in range(h):
+        row = bytearray(b"\x00")
+        for x in range(w):
+            v = (((x + shift) * 73856093) ^ (y * 19349663) ^ seed) & 0xFF
+            row += bytes([v, (v * 3) & 0xFF, (v * 7) & 0xFF])
+        rows.append(bytes(row))
+
+    def chunk(tag, data):
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows))) + chunk(b"IEND", b""))
+
+
+def make_qt_app(kind):
+    """Mocha's tracker needs an OpenGL rendering context. The Python guide's
+    bare QCoreApplication has no platform plugin and cannot provide one
+    ("Can't obtain rendering context"), so default to a full QApplication
+    and fall back down the ladder. Returns (app, kind_used)."""
+    order = {"widgets": ["widgets", "gui", "core"],
+             "gui": ["gui", "core"], "core": ["core"]}[kind or "widgets"]
+    errors = []
+    for k in order:
+        for binding in ("PySide6", "PySide2"):
+            try:
+                core = __import__(binding + ".QtCore", fromlist=["QCoreApplication"])
+                inst = core.QCoreApplication.instance()
+                if inst is not None:
+                    return inst, "existing"
+                if k == "widgets":
+                    mod = __import__(binding + ".QtWidgets", fromlist=["QApplication"])
+                    return mod.QApplication(sys.argv), k
+                if k == "gui":
+                    mod = __import__(binding + ".QtGui", fromlist=["QGuiApplication"])
+                    return mod.QGuiApplication(sys.argv), k
+                return core.QCoreApplication(sys.argv), k
+            except Exception as e:
+                errors.append("%s/%s: %s" % (binding, k, e))
+    raise RuntimeError("no Qt application could be created: " + "; ".join(errors))
+
+
 def license_state():
     """Where RLM looks, per Mocha's own error listing, so a missing license
     is visible before anyone waits on a track."""
@@ -144,12 +192,10 @@ def main():
         job = json.load(fh)
     action = job.get("action", "probe")
 
+    if job.get("qpa"):
+        os.environ["QT_QPA_PLATFORM"] = str(job["qpa"])
     try:
-        try:
-            from PySide6.QtCore import QCoreApplication
-        except ImportError:
-            from PySide2.QtCore import QCoreApplication  # older bundles
-        app = QCoreApplication.instance() or QCoreApplication(sys.argv)  # noqa: F841
+        app, qt_kind = make_qt_app(job.get("qt_app"))  # noqa: F841
         import mocha
         from mocha.project import Clip, Project, View, XControlPointData
         from mocha import exporters as mexp
@@ -160,6 +206,7 @@ def main():
     if action == "probe":
         info = {"python": sys.version.split()[0],
                 "executable": sys.executable,
+                "qt_app": qt_kind, "qpa": os.environ.get("QT_QPA_PLATFORM"),
                 "mocha_version": getattr(mocha, "__version__", None)}
         try:
             info["exec_dir"] = mocha.get_mocha_exec_dir()
@@ -179,20 +226,40 @@ def main():
 
     if action == "license_check":
         # Separate job on purpose: if RLM makes Mocha bail out hard, the
-        # probe above has already reported the exporters.
+        # probe above has already reported the exporters. Two gates live
+        # here: the license (Project creation) and the rendering context
+        # (a 3-frame track on a generated textured sequence).
         import tempfile
         d = tempfile.mkdtemp(prefix="ca-mocha-probe-")
-        p = os.path.join(d, "probe.png")
-        with open(p, "wb") as fh:
-            fh.write(tiny_png(16, 16))
+        for i in range(3):
+            with open(os.path.join(d, "probe.%04d.png" % i), "wb") as fh:
+                fh.write(noise_png(96, 96, 12345, i * 2))
+        first = os.path.join(d, "probe.0000.png")
+        out = {"qt_app": qt_kind, "qpa": os.environ.get("QT_QPA_PLATFORM")}
         try:
-            proj = Project(Clip(p, "probe"))
-            layers = len(list(proj.layers))
-            emit({"ok": True, "data": {"license": "ok", "detail":
-                  "Project created from a probe clip (%d layers)" % layers}})
+            proj = Project(Clip(first, "probe"))
+            out["license"] = "ok"
+            out["detail"] = "Project created from a probe clip"
         except Exception as e:
-            emit({"ok": True, "data": {"license": "failed",
-                  "detail": "%s: %s" % (type(e).__name__, e)}})
+            out["license"] = "failed"
+            out["detail"] = "%s: %s" % (type(e).__name__, e)
+            emit({"ok": True, "data": out})
+            return
+        try:
+            clip = list(proj.clips.values())[0] if hasattr(proj.clips, "values") else proj.clips[0]
+            layer = proj.add_layer(clip, name="probe", frame_number=0, view=0)
+            pts = tuple(XControlPointData(corner=False, active=True, x=float(x), y=float(y),
+                                          edge_width=0.0, edge_angle_ratio=0.5, weight=0.25)
+                        for x, y in ((16, 16), (80, 16), (80, 80), (16, 80)))
+            layer.add_xspline_contour(0.0, pts, View(0))
+            t0 = time.time()
+            proj.track_layers(start_index=0, stop_index=2, layers=[layer])
+            out["tracking"] = "ok"
+            out["tracking_detail"] = "3-frame probe track in %.1fs" % (time.time() - t0)
+        except Exception as e:
+            out["tracking"] = "failed"
+            out["tracking_detail"] = "%s: %s" % (type(e).__name__, e)
+        emit({"ok": True, "data": out})
         return
 
     out_dir = job["out_dir"]

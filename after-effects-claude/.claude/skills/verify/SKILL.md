@@ -115,6 +115,10 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   test_ae_tracklib.js (parser, job runner, fal client) and the tracking
   block in test_ae_plugin.js (layer_info, apply_keyframe_data,
   paste_mocha_mask, import_and_matte).
+- mocha_status runs license_check per Qt variant; the fake Mocha python
+  fails the probe track for qt_app "widgets" (mimicking the live "Can't
+  obtain rendering context") and passes for "gui", so the drive exercises
+  the fallback ladder and the saved mocha_qt config.
 - grab_frame: saveFrameToPng creates the file before it finishes writing
   it (live: every capture had a black band at a different height). The
   host tool now waits until the size is stable AND the last 8 bytes start

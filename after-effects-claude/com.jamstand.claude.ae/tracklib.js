@@ -341,7 +341,16 @@ function mochaEnv(config) {
 }
 
 const LICENSE_RE = /License Error|license|RLM|checkout/i;
+const CONTEXT_RE = /rendering context|OpenGL|GL context/i;
 function explainMochaError(message) {
+  if (CONTEXT_RE.test(message))
+    return message + "\n\nMocha's tracker needs an OpenGL rendering context "
+      + "and the process it ran in could not get one. mocha_status now runs "
+      + "a 3-frame probe track and tries Qt application variants "
+      + "(widgets / gui / offscreen) until one tracks, then remembers it "
+      + "(mocha_qt in ~/.claude-assistant.json). Rerun mocha_status; if "
+      + "every variant fails, track in the Mocha GUI inside AE and hand the "
+      + "exports to apply_track_file.";
   if (!LICENSE_RE.test(message)) return message;
   return message + "\n\nThis is Mocha's license, not the bridge: RLM found "
     + "no license to check out for a process outside After Effects. Fixes, "

@@ -363,13 +363,14 @@ async function mochaTrack(state, a) {
     + "shots.", false);
   let data;
   try {
-    data = await track.runMochaJob(found[0].python, {
+    data = await track.runMochaJob(found[0].python, Object.assign({
       action: "track", footage, project_path: path.join(workdir, "track.mocha"),
       out_dir: workdir, layer_name: a.layer_name || "Claude Track",
       shape: shape.map(([x, y]) => ({ x, y })), surface,
       start_frame: startF, end_frame: endF, exports: wanted,
-    }, { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 45 * 60 * 1000,
-         env: track.mochaEnv() });
+    }, track.readConfig().mocha_qt || { qt_app: "widgets" }),
+    { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 45 * 60 * 1000,
+      env: track.mochaEnv() });
   } catch (e) { throw new Error(track.explainMochaError(e.message)); }
   const out = { python: found[0].python, project: data.project,
     source: info.source.name, fps, start_frame: startF, end_frame: endF,
@@ -492,22 +493,51 @@ tool("mocha_status",
       out.probe_error = e.message;
       return out;
     }
-    // The real gate: RLM checks out a license when a Project is created.
-    try {
-      const lic = await track.runMochaJob(found[0].python,
-        { action: "license_check" },
-        { scriptPath: MOCHA_SCRIPT, workdir: workdir + "-license",
-          timeoutMs: 180000, env });
+    // The real gates: RLM checks out a license when a Project is created,
+    // and the tracker needs an OpenGL context. Try Qt variants in order
+    // until a 3-frame probe track succeeds, then remember the winner.
+    const saved = track.readConfig().mocha_qt;
+    const variants = [
+      saved, { qt_app: "widgets" }, { qt_app: "gui" },
+      { qt_app: "widgets", qpa: "offscreen" }, { qt_app: "gui", qpa: "offscreen" },
+      { qt_app: "core" },
+    ].filter(Boolean).filter((v, i, arr) =>
+      arr.findIndex((w) => w.qt_app === v.qt_app && (w.qpa || "") === (v.qpa || "")) === i);
+    out.attempts = [];
+    for (const v of variants) {
+      let lic;
+      try {
+        lic = await track.runMochaJob(found[0].python,
+          Object.assign({ action: "license_check" }, v),
+          { scriptPath: MOCHA_SCRIPT, workdir: workdir + "-license",
+            timeoutMs: 180000, env });
+      } catch (e) {
+        out.attempts.push(Object.assign({}, v, { error: e.message.slice(0, 300) }));
+        continue;
+      }
+      out.attempts.push(Object.assign({}, v, { license: lic.license,
+        tracking: lic.tracking || null, detail: lic.tracking_detail || lic.detail }));
       out.license = lic.license;
       out.license_detail = lic.detail;
-      if (lic.license !== "ok")
+      if (lic.license !== "ok") {
         out.license_help = track.explainMochaError("License checkout failed: "
           + lic.detail + "\n" + (lic.log_tail || ""));
-    } catch (e) {
-      out.license = "failed";
-      out.license_help = track.explainMochaError(e.message);
+        break;                               // no Qt variant fixes a license
+      }
+      if (lic.tracking === "ok") {
+        out.tracking = "ok";
+        out.tracking_detail = lic.tracking_detail;
+        out.qt = v;
+        track.writeConfig({ mocha_qt: v });
+        break;
+      }
+      out.tracking = "failed";
+      out.tracking_detail = lic.tracking_detail;
     }
-    out.ready = out.license === "ok";
+    if (out.license === "ok" && out.tracking !== "ok")
+      out.tracking_help = track.explainMochaError("Probe track failed in every "
+        + "Qt variant: " + (out.tracking_detail || "") + " (rendering context)");
+    out.ready = out.license === "ok" && out.tracking === "ok";
     return out;
   });
 

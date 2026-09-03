@@ -11,7 +11,14 @@ if (job.action === "probe") {
     tracking_exporters: ["after_effects_corner_pin", "after_effects_transform"], ae_exporters_present: true } });
   process.exit(0);
 }
-if (job.action === "license_check") { out({ ok: true, data: { license: "ok", detail: "fake project created" } }); process.exit(0); }
+if (job.action === "license_check") {
+  // First variant "fails" the rendering context like the real Mac did; the
+  // gui variant tracks. Exercises the panel's fallback ladder.
+  const ok = job.qt_app === "gui";
+  out({ ok: true, data: { license: "ok", detail: "fake project created", qt_app: job.qt_app || null,
+    tracking: ok ? "ok" : "failed", tracking_detail: ok ? "3-frame probe track in 0.1s" : "RuntimeError: Can't obtain rendering context" } });
+  process.exit(0);
+}
 if (job.action !== "track") { out({ ok: false, error: "unknown action " + job.action }); process.exit(1); }
 const exportsOut = {};
 const frames = Math.min(job.end_frame - job.start_frame + 1, 10);

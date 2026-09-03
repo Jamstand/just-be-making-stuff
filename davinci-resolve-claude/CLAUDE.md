@@ -365,4 +365,10 @@ license_check job (tiny generated PNG → Project) so this shows before a
 track; mocha_license in config → RLM_LICENSE + genarts_LICENSE env. FIX THAT WORKED: launch the Mocha GUI from the Mocha Pro effect
 inside AE and sign in — RLM then caches rehost_mpp-multihost-so.lic +
 .reprise under ~/Library/Application Support/GenArts/rlm/ and the headless
-license_check passes (license: ok, ready: true).
+license_check passes (license: ok, ready: true). NEXT WALL (live): with
+the guide's QCoreApplication, Project/Clip/add_layer all work but
+track_layers raises "Can't obtain rendering context" — the tracker needs
+an OpenGL context. Fix in flight: QApplication (QtWidgets) first, then
+QGuiApplication, then QCoreApplication; mocha_status probe-tracks 3
+generated noise frames per Qt variant (widgets → gui → widgets+offscreen
+QPA → gui+offscreen → core) and stores the winner as mocha_qt.
