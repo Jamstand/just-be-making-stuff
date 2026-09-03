@@ -368,7 +368,7 @@ inside AE and sign in — RLM then caches rehost_mpp-multihost-so.lic +
 license_check passes (license: ok, ready: true). NEXT WALL (live): with
 the guide's QCoreApplication, Project/Clip/add_layer all work but
 track_layers raises "Can't obtain rendering context" — the tracker needs
-an OpenGL context. Fix in flight: QApplication (QtWidgets) first, then
+an OpenGL context. FIX CONFIRMED LIVE (probe track 0.4s, ready: true): QApplication (QtWidgets) first, then
 QGuiApplication, then QCoreApplication; mocha_status probe-tracks 3
 generated noise frames per Qt variant (widgets → gui → widgets+offscreen
 QPA → gui+offscreen → core) and stores the winner as mocha_qt.
