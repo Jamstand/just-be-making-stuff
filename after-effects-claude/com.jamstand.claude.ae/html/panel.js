@@ -409,9 +409,6 @@ async function applyTrackFile(state, a) {
 
 async function aiSegment(state, a) {
   const key = track.readConfig().fal_api_key;
-  if (!key)
-    throw new Error("No fal.ai key yet — create one at fal.ai/dashboard/keys "
-      + "and call set_fal_key.");
   const info = await evalHost("layer_info", { layer: a.layer, comp: a.comp });
   const file = requireFile(info);
   const ext = path.extname(file).toLowerCase();
@@ -427,7 +424,10 @@ async function aiSegment(state, a) {
       * (a.model === "sam-3-1" ? 0.01 : 0.005) * 1000) / 1000,
     note: "fal segments the WHOLE file (not just the layer's in/out) and "
       + "bills per 16 frames." };
-  if (a.dry_run) return quote;
+  if (a.dry_run) return Object.assign(quote, { key_configured: !!key });
+  if (!key)
+    throw new Error("No fal.ai key yet — create one at fal.ai/dashboard/keys "
+      + "and call set_fal_key.");
   if (!a.prompt && !(a.points && a.points.length) && !(a.boxes && a.boxes.length))
     throw new Error("Say what to segment: prompt (e.g. 'the yellow car'), "
       + "points, or boxes.");
