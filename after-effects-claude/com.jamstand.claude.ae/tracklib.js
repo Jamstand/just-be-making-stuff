@@ -253,17 +253,25 @@ function applyH(H, [x, y]) {
   return [(H[0] * x + H[1] * y + H[2]) / w, (H[3] * x + H[4] * y + H[5]) / w];
 }
 
+// Corner names as Mocha / AE spell them, matched loosely (case, spaces,
+// hyphens, "#2" suffixes all ignored); the group column is not trusted.
 const CORNER_NAMES = {
-  UL: /upper\s*left|top\s*left/i, UR: /upper\s*right|top\s*right/i,
-  LL: /lower\s*left|bottom\s*left/i, LR: /lower\s*right|bottom\s*right/i,
+  UL: /^(upperleft|topleft)/, UR: /^(upperright|topright)/,
+  LL: /^(lowerleft|bottomleft)/, LR: /^(lowerright|bottomright)/,
 };
+const squash = (s) => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
 function cornerBlocks(blocks) {
   const found = {};
   for (const key of Object.keys(CORNER_NAMES)) {
-    found[key] = blocks.find((b) => b.group === "Effects" && CORNER_NAMES[key].test(b.prop));
+    found[key] = blocks.find((b) => CORNER_NAMES[key].test(squash(b.prop))
+      || (!b.prop && CORNER_NAMES[key].test(squash(b.name))));
     if (!found[key]) return null;
   }
   return found;
+}
+function describeBlocks(blocks) {
+  return blocks.map((b) => [b.group, b.name, b.prop].filter(Boolean).join("/")
+    + "×" + b.keys.length).join("; ");
 }
 
 // Per-frame quads [UL, UR, LL, LR] keyed by frame, only where all four exist.
@@ -284,7 +292,8 @@ function cornerQuads(corners) {
 // untouched) whose corners follow the tracked plane from that target.
 function retargetCornerPin(blocks, target) {
   const corners = cornerBlocks(blocks);
-  if (!corners) return { blocks, retargeted: false, reason: "no 4-corner effect blocks" };
+  if (!corners) return { blocks, retargeted: false,
+    reason: "no 4-corner blocks recognised; saw: " + describeBlocks(blocks) };
   const quads = cornerQuads(corners);
   if (!quads.length) return { blocks, retargeted: false, reason: "no complete frames" };
   const base = quads[0].quad;
@@ -587,7 +596,7 @@ function explainMochaError(message) {
     + "/ 'Create Track Data' on the effect, or use ai_segment for a matte.";
 }
 
-module.exports = { parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
+module.exports = { describeBlocks, parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
   cornerBlocks, mochaEnv, explainMochaError, CONFIG_FILE, readConfig, writeConfig, findMochaPython,
   expandPattern, runMochaJob, parseAeKeyframeText, httpRequest, falUpload,
   falSubmit, falWait, download, mimeFor, FAL_QUEUE, FAL_REST };

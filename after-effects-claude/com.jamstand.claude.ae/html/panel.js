@@ -347,6 +347,28 @@ function readHistory(limit) {
       .filter(Boolean).slice(-(limit || 20));
   } catch (e) { return []; }
 }
+// Run folders are the durable record (history.jsonl only started later):
+// each holds job.json, the exports, mocha.log and the .mocha project.
+function runFolders(limit) {
+  const root = path.join(USER_DATA, "mocha");
+  let names = [];
+  try { names = fs.readdirSync(root).filter((n) => /^\d{4}-\d{2}-\d{2}T/.test(n)); }
+  catch (e) { return []; }
+  return names.sort().slice(-(limit || 20)).map((n) => {
+    const dir = path.join(root, n);
+    let job = {};
+    try { job = JSON.parse(fs.readFileSync(path.join(dir, "job.json"), "utf8")); } catch (e) {}
+    let files = [];
+    try { files = fs.readdirSync(dir).filter((f) => /\.(txt|shape4ae|mocha)$/.test(f)); } catch (e) {}
+    return { folder: dir, at: n, action: job.action, footage: job.footage,
+      frames: job.start_frame !== undefined ? [job.start_frame, job.end_frame] : null,
+      fps: job.fps || null, exports: job.exports || null, files,
+      shape_bbox: Array.isArray(job.shape) && job.shape.length ? (() => {
+        const xs = job.shape.map((p) => p.x), ys = job.shape.map((p) => p.y);
+        return [Math.round(Math.min(...xs)), Math.round(Math.min(...ys)),
+                Math.round(Math.max(...xs)), Math.round(Math.max(...ys))]; })() : null };
+  });
+}
 
 async function applyExport(a, info, kind, file, out) {
   const fps = (info.source && info.source.fps) || info.comp_fps;
@@ -712,7 +734,8 @@ tool("track_history",
   + "previous run of yours, and their exports can be re-applied with "
   + "apply_track_file.",
   { limit: { type: "number" } }, [], { readonly: true },
-  async (s, a) => ({ history_file: HISTORY_FILE, runs: readHistory(a.limit || 20) }));
+  async (s, a) => ({ history_file: HISTORY_FILE, applied: readHistory(a.limit || 20),
+                     run_folders: runFolders(a.limit || 20) }));
 
 tool("set_fal_key",
   "Store a fal.ai API key (for ai_segment) in ~/.claude-assistant.json "

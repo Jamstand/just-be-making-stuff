@@ -184,8 +184,13 @@ const exe = (name, body) => {
     rt.retargeted && ul[0].values.join() === "25,25" && Math.abs(ul[1].values[0] - 60) < 1e-6
     && Math.abs(ul[1].values[1] - 70) < 1e-6 && Math.abs(lr[1].values[0] - 160) < 1e-6
     && rt.blocks[4].keys[0].values.join() === "1,2", JSON.stringify(rt.blocks.map((b) => b.keys)));
-  check("retargetCornerPin: no corner blocks -> untouched",
-    track.retargetCornerPin([pinBlocks[4]], { UL: [0, 0], UR: [1, 0], LL: [0, 1], LR: [1, 1] }).retargeted === false);
+  const noPin = track.retargetCornerPin([pinBlocks[4]], { UL: [0, 0], UR: [1, 0], LL: [0, 1], LR: [1, 1] });
+  check("retargetCornerPin: no corner blocks -> untouched, reason names what it saw",
+    noPin.retargeted === false && /saw: Transform\/Position×1/.test(noPin.reason), noPin.reason);
+  const loose = pinBlocks.slice(0, 4).map((b, i) => Object.assign({}, b, { group: "Effect",
+    prop: ["upper-left #2", "Upper  Right", "LOWER_LEFT", "Lower Right #5"][i] }));
+  check("cornerBlocks: hyphens, case, underscores, double spaces and #n suffixes all match",
+    !!track.cornerBlocks(loose) && track.retargetCornerPin(loose, { UL: [25, 25], UR: [75, 25], LL: [25, 75], LR: [75, 75] }).retargeted === true);
   const rep = track.trackReport(pinBlocks, 1920, 1080, 60);
   check("trackReport: clean track is usable to the last frame", rep.usable_until_frame === 1 && /stayed in frame/.test(rep.verdict), JSON.stringify(rep));
   const drift = pinBlocks.slice(0, 4).map((b) => Object.assign({}, b, { keys: b.keys.concat(
