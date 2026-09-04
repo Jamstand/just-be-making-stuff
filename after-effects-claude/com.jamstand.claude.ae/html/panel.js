@@ -80,6 +80,11 @@ const SYSTEM_PROMPT = [
   "grab_source_frame to pick the region in SOURCE pixels); ai_segment",
   "fetches a SAM 3 object",
   "matte from fal.ai (paid; set_fal_key; dry_run quotes the cost first).",
+  "Chats do not share memory but the PROJECT persists: masks, Corner Pins",
+  "and layers you do not remember are almost always an earlier chat's work",
+  "— call track_history before touching them, and never rebuild or delete",
+  "keyframes you did not create in THIS chat without asking. Name what you",
+  "add (masks 'Mocha <range>', effects 'Corner Pin (Mocha <range>)').",
   "Output codecs are template-only (no",
   "field-by-field codec settings); Lumetri parameter names are not",
   "documented — apply_effect returns each effect's real property list, use",
@@ -325,6 +330,24 @@ function requireFile(info) {
   return info.source.file;
 }
 
+// Every applied track leaves a line in history.jsonl so a LATER chat (no
+// memory of this one) can tell its own earlier work from damage.
+const HISTORY_FILE = path.join(USER_DATA, "mocha", "history.jsonl");
+function recordTrack(entry) {
+  try {
+    fs.mkdirSync(path.dirname(HISTORY_FILE), { recursive: true });
+    fs.appendFileSync(HISTORY_FILE, JSON.stringify(Object.assign(
+      { at: new Date().toISOString() }, entry)) + "\n");
+  } catch (e) {}
+}
+function readHistory(limit) {
+  try {
+    return fs.readFileSync(HISTORY_FILE, "utf8").trim().split("\n")
+      .filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (e) { return null; } })
+      .filter(Boolean).slice(-(limit || 20));
+  } catch (e) { return []; }
+}
+
 async function applyExport(a, info, kind, file, out) {
   const fps = (info.source && info.source.fps) || info.comp_fps;
   const offset = a.time_offset_s !== undefined ? Number(a.time_offset_s)
@@ -340,7 +363,8 @@ async function applyExport(a, info, kind, file, out) {
         (out.warnings = out.warnings || []).push(kind + ": export header says "
           + shapes.fps + " fps, source is " + fps + " — using the source rate");
       const results = [];
-      shapes.shapes.forEach((sh, si) => { sh.maskName = (a.mask_name || "Mocha Mask")
+      shapes.shapes.forEach((sh, si) => { sh.maskName = (a.mask_name
+        || ("Mocha " + (out.label || "mask")))
         + (shapes.shapes.length > 1 ? " " + (si + 1) : ""); });
       for (const sh of shapes.shapes) {
         let r = null;
@@ -378,7 +402,9 @@ async function applyExport(a, info, kind, file, out) {
       out.track_report = track.trackReport(parsed.blocks, info.source.width,
                                            info.source.height, fps);
     const r = await evalHost("apply_keyframe_data", { layer: a.layer,
-      comp: a.comp, fps, blocks, time_offset_s: offset, stretch });
+      comp: a.comp, fps, blocks, time_offset_s: offset, stretch,
+      effect_name: a.effect_name || (/pin/.test(kind) && out.label
+        ? "Corner Pin (Mocha " + out.label + ")" : undefined) });
     out.applied.push({ kind, file, result: r });
     return;
   }
@@ -442,8 +468,10 @@ async function mochaTrack(state, a) {
     { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 45 * 60 * 1000,
       env: track.mochaEnv() });
   } catch (e) { throw new Error(track.explainMochaError(e.message)); }
-  const out = { python: found[0].python, project: data.project,
-    source: info.source.name, fps, start_frame: startF, end_frame: endF,
+  const label = (startF / fps).toFixed(1).replace(/\.0$/, "") + "-"
+    + ((endF + 1) / fps).toFixed(1).replace(/\.0$/, "") + "s";
+  const out = { python: found[0].python, project: data.project, workdir,
+    label, source: info.source.name, fps, start_frame: startF, end_frame: endF,
     frames: data.frames, track_seconds: data.track_seconds,
     exports: data.exports, notes: data.notes || [], applied: [], warnings: [],
     surface: { UL: surface[0], UR: surface[1], LR: surface[2], LL: surface[3] } };
@@ -465,6 +493,12 @@ async function mochaTrack(state, a) {
       catch (e) { out.applied.push({ kind, file, error: e.message }); }
     }
   }
+  recordTrack({ tool: "mocha_track", comp: info.comp, layer: info.layer,
+    layer_index: a.layer, source: info.source.name, range_s: label,
+    frames: [startF, endF], workdir, exports: wanted,
+    applied: out.applied.map((x) => ({ kind: x.kind, result: x.result && (x.result.mask
+      || (x.result.applied && x.result.applied.map((y) => y.target).join(", "))), error: x.error })),
+    warnings: out.warnings, report: out.track_report || out.mask_report });
   const rep = out.track_report || out.mask_report;
   if (rep && rep.usable_until_frame < rep.last_frame)
     out.warnings.push("Track looks unreliable after " + rep.usable_until_s
@@ -480,10 +514,17 @@ async function applyTrackFile(state, a) {
   if (!a.file || !fs.existsSync(a.file))
     throw new Error("File not found: " + a.file);
   const info = await evalHost("layer_info", { layer: a.layer, comp: a.comp });
-  const out = { file: a.file, applied: [], start_frame: 0 };
+  const out = { file: a.file, applied: [], start_frame: 0, warnings: [],
+                label: a.label || path.basename(path.dirname(a.file)).slice(0, 19) };
+  if (Array.isArray(a.surface) && a.surface.length === 4)
+    out.surface = { UL: a.surface[0], UR: a.surface[1], LR: a.surface[2], LL: a.surface[3] };
   const kind = path.extname(a.file).toLowerCase() === ".shape4ae" ? "mask"
-                                                                  : "keyframes";
+             : /corner|pin/i.test(path.basename(a.file)) ? "corner_pin" : "keyframes";
   await applyExport(a, info, kind, a.file, out);
+  recordTrack({ tool: "apply_track_file", comp: info.comp, layer: info.layer,
+    layer_index: a.layer, source: info.source && info.source.name, file: a.file,
+    applied: out.applied.map((x) => ({ kind: x.kind, result: x.result && (x.result.mask
+      || (x.result.applied && x.result.applied.map((y) => y.target).join(", "))), error: x.error })) });
   return out;
 }
 
@@ -649,15 +690,29 @@ tool("mocha_track",
   ["layer"], {}, mochaTrack);
 
 tool("apply_track_file",
-  "Apply a Mocha export made by hand (Mocha GUI → Export → Save): a "
-  + ".shape4ae (After Effects Mask Data → native mask keyframes) or an AE "
-  + "keyframe .txt (Corner Pin / CC Power Pin / Transform data) onto a "
-  + "layer. Source frame f lands at layer start + f/fps.",
+  "Apply a Mocha export file: a .shape4ae (After Effects Mask Data → native "
+  + "mask keyframes) or an AE keyframe .txt (Corner Pin / CC Power Pin / "
+  + "Transform data) onto a layer — from the Mocha GUI, or from an earlier "
+  + "mocha_track run's folder (see track_history). Source frame f lands at "
+  + "layer start + f/fps. surface = 4 [x,y] corners to retarget a corner "
+  + "pin onto (e.g. a door's box at the first tracked frame).",
   { layer: { type: "number" }, comp: { type: "string" },
     file: { type: "string" }, time_offset_s: { type: "number" },
+    surface: { type: "array", items: { type: "array" } },
+    label: { type: "string" }, effect_name: { type: "string" },
     mask_name: { type: "string" }, mask_mode: { type: "string" },
     mask_feather: { type: "number" }, mask_inverted: { type: "boolean" },
     roto_bezier: { type: "boolean" } }, ["layer", "file"], {}, applyTrackFile);
+
+tool("track_history",
+  "What earlier chats of this panel already tracked and applied in this "
+  + "project: run folders (with the raw corner_pin.txt / mask.shape4ae), "
+  + "layer, range, mask/effect names, reports. CHECK THIS before treating "
+  + "keyframes or masks you do not remember as damage — they are usually a "
+  + "previous run of yours, and their exports can be re-applied with "
+  + "apply_track_file.",
+  { limit: { type: "number" } }, [], { readonly: true },
+  async (s, a) => ({ history_file: HISTORY_FILE, runs: readHistory(a.limit || 20) }));
 
 tool("set_fal_key",
   "Store a fal.ai API key (for ai_segment) in ~/.claude-assistant.json "

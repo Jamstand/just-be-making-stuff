@@ -376,7 +376,10 @@ CA_TOOLS.apply_keyframe_data = function (a) {
     if (b.group === "Effects") {
       group = layer.property("ADBE Effect Parade");
       fx = group.property(base) || (known[base] ? group.property(known[base]) : null);
-      if (!fx) fx = group.addProperty(known[base] || base);
+      if (!fx) {
+        fx = group.addProperty(known[base] || base);
+        if (a.effect_name) { try { fx.name = String(a.effect_name); } catch (e) {} }
+      }
       target = pname ? fx.property(pname) : null;
       if (!target) CA_err("Effect '" + fx.name + "' has no property '" + pname + "'.");
       label = fx.name + " > " + target.name;
