@@ -1203,9 +1203,9 @@ legend{
     $("xferNote").textContent = "Comma-separated, in the order shown on screen.";
     $("xferLabel").textContent = "CSV";
     $("xfer").value = csv();
-    $("xferHint").textContent = "Copy works everywhere. Download saves a .csv when this page is opened from a file or a server.";
+    $("xferHint").textContent = "Copy puts the CSV on the clipboard. Download saves it as a file.";
     $("btnXferLoad").hidden = true;
-    $("btnXferDownload").hidden = false;
+    $("btnXferDownload").hidden = hosted && !saver;
     xdlg.showModal();
     $("xfer").select();
   }
@@ -1218,7 +1218,7 @@ legend{
     $("xfer").value = JSON.stringify({session:state.session, entries:state.entries}, null, 2);
     $("xferHint").textContent = "Loading replaces the whole calendar, session heading included.";
     $("btnXferLoad").hidden = false;
-    $("btnXferDownload").hidden = false;
+    $("btnXferDownload").hidden = hosted && !saver;
     xdlg.showModal();
     $("xfer").focus();
   }
@@ -1243,11 +1243,50 @@ legend{
     }
   });
 
+  /* Saving a file works two ways. Opened from a file or a server this is an
+     ordinary anchor download; inside the claude.ai viewer, anchor downloads are
+     inert, so the page asks the host to save through the downloads capability.
+     Copy is always there as the path that needs neither. */
+  var hosted = typeof window.claude !== "undefined" && window.claude &&
+               typeof window.claude.use === "function";
+  var saver = null;
+
+  if(hosted){
+    $("btnXferDownload").hidden = true;   // shown again only if the host grants saving
+    window.claude.use("downloads").then(function(api){
+      if(!api) return;
+      saver = api;
+      $("btnXferDownload").hidden = hosted && !saver;
+    }, function(){ /* capability unavailable — Copy still works */ });
+  }
+
+  function downloadName(){
+    return "arraignment-log-" + (state.session.date || "undated") +
+           (xferMode === "export" ? ".csv" : ".json");
+  }
+
   $("btnXferDownload").addEventListener("click", function(){
-    var isCsv = xferMode === "export";
-    var name = "arraignment-log-" + (state.session.date || "undated") + (isCsv ? ".csv" : ".json");
+    var name = downloadName(), text = $("xfer").value;
+
+    if(saver){
+      saver.save({filename:name, data:text}).then(function(res){
+        if(res && res.status === "saved") toast("Saved " + name + ".");
+      }, function(err){
+        var code = (err && err.code) || "unavailable";
+        if(code === "declined") return;
+        if(code === "rate_limited"){ toast("A save is already open — finish that one first."); return; }
+        if(code === "bad_request" || code === "transform_error"){
+          toast("That file could not be prepared — use Copy instead."); return;
+        }
+        $("btnXferDownload").hidden = true;
+        saver = null;
+        toast("Saving is not available here — use Copy instead.");
+      });
+      return;
+    }
+
     try{
-      var blob = new Blob([$("xfer").value], {type: isCsv ? "text/csv" : "application/json"});
+      var blob = new Blob([text], {type: xferMode === "export" ? "text/csv" : "application/json"});
       var url = URL.createObjectURL(blob);
       var a = document.createElement("a");
       a.href = url; a.download = name;
@@ -1255,7 +1294,7 @@ legend{
       a.click();
       a.remove();
       setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
-      toast("Saving " + name + " — if nothing downloads, use Copy instead.");
+      toast("Saving " + name + ".");
     }catch(e){
       toast("Downloads are blocked here — use Copy instead.");
     }
