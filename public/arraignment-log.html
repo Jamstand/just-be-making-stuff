@@ -1,0 +1,1356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- ARTIFACT-CONTENT-START -->
+<title>Arraignment Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@600;700&display=swap">
+<style>
+/* ------------------------------------------------------------------
+   Arraignment Log — clerk's daily calendar record.
+   Visual world: blue-backed pleading paper. Single committed theme
+   (it is a print document first), so every color is painted explicitly
+   and nothing is inherited from the host ground.
+   ------------------------------------------------------------------ */
+:root{
+  --paper:#F1F2EC;
+  --paper-edge:#E4E6DE;
+  --band:#E9EBE3;
+  --ink:#17191A;
+  --ink-mid:#4C5150;
+  --ink-faint:#7A807D;
+  --rule:#C2C7BC;
+  --rule-strong:#9AA096;
+  --seal:#2E4B7A;
+  --seal-tint:#DDE4EE;
+  --stamp:#A33028;
+  --ok:#2F6B3F;
+  --ok-tint:#DEE9DF;
+  --warn:#7E5A10;
+  --warn-tint:#EFE7D2;
+  --crit:#8C2018;
+  --crit-tint:#EFDCD9;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --gutter:3.1rem;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:var(--paper-edge);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:15px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+
+:focus-visible{outline:2px solid var(--seal);outline-offset:2px;border-radius:1px}
+
+/* ---------- sheet ---------- */
+.sheet{
+  position:relative;
+  max-width:1340px;
+  margin:2rem auto 4rem;
+  background:var(--paper);
+  border:1px solid var(--rule-strong);
+  padding:2.4rem 2.2rem 2.2rem var(--gutter);
+  box-shadow:0 1px 0 var(--paper-edge),0 14px 34px rgba(23,25,26,.10);
+}
+
+/* the pleading-paper double rule down the left margin */
+.sheet::before,
+.sheet::after{
+  content:"";
+  position:absolute;
+  top:0;bottom:0;
+  width:1px;
+  background:var(--seal);
+  opacity:.55;
+}
+.sheet::before{left:calc(var(--gutter) - 15px)}
+.sheet::after{left:calc(var(--gutter) - 11px)}
+
+/* ---------- masthead ---------- */
+.masthead{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:1.5rem;
+  align-items:start;
+  padding-bottom:1rem;
+  border-bottom:3px double var(--ink);
+}
+.court{
+  font-family:var(--serif);
+  font-weight:700;
+  font-size:1.55rem;
+  line-height:1.15;
+  letter-spacing:.02em;
+  text-transform:uppercase;
+  text-wrap:balance;
+  margin:0;
+}
+.court-sub{
+  font-family:var(--sans);
+  font-size:.7rem;
+  font-weight:600;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+  margin:.35rem 0 0;
+}
+.doc-title{
+  font-family:var(--serif);
+  font-weight:600;
+  font-size:1.05rem;
+  letter-spacing:.28em;
+  text-transform:uppercase;
+  margin:.9rem 0 0;
+  color:var(--seal);
+}
+
+.stamp{
+  justify-self:end;
+  border:2px solid var(--stamp);
+  border-radius:2px;
+  padding:.45rem .7rem;
+  color:var(--stamp);
+  text-align:center;
+  transform:rotate(-3.5deg);
+  box-shadow:inset 0 0 0 1px var(--stamp);
+  max-width:15rem;
+}
+.stamp b{
+  display:block;
+  font-family:var(--serif);
+  font-size:.9rem;
+  font-weight:700;
+  letter-spacing:.2em;
+  text-transform:uppercase;
+}
+.stamp span{
+  display:block;
+  font-family:var(--mono);
+  font-size:.62rem;
+  letter-spacing:.08em;
+  margin-top:.15rem;
+}
+
+/* ---------- session caption (editable) ---------- */
+.caption{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));
+  gap:.5rem 1.4rem;
+  padding:.9rem 0 1rem;
+  border-bottom:1px solid var(--rule);
+}
+.field{display:flex;flex-direction:column;gap:.15rem;min-width:0}
+.field > label{
+  font-size:.6rem;
+  font-weight:600;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+}
+.field input,.field select{
+  font-family:var(--mono);
+  font-size:.85rem;
+  color:var(--ink);
+  background:transparent;
+  border:0;
+  border-bottom:1px dotted var(--rule-strong);
+  padding:.15rem 0;
+  min-width:0;
+  width:100%;
+  border-radius:0;
+}
+.field input:hover,.field select:hover{border-bottom-color:var(--seal)}
+
+/* ---------- tally ledger strip ---------- */
+.tally{
+  display:flex;
+  flex-wrap:wrap;
+  margin:1rem 0 0;
+  border-top:1px solid var(--ink);
+  border-bottom:1px solid var(--ink);
+  background:var(--band);
+}
+.tally div{
+  flex:1 1 8rem;
+  padding:.5rem .85rem;
+  border-right:1px solid var(--rule);
+}
+.tally div:last-child{border-right:0}
+.tally dt{
+  font-size:.58rem;
+  font-weight:600;
+  letter-spacing:.13em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+  margin:0;
+}
+.tally dd{
+  font-family:var(--mono);
+  font-variant-numeric:tabular-nums;
+  font-size:1.15rem;
+  font-weight:500;
+  margin:.1rem 0 0;
+  line-height:1.1;
+}
+.tally .crit dd{color:var(--crit)}
+
+/* ---------- controls (screen only) ---------- */
+.controls{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:flex-end;
+  gap:.65rem;
+  padding:1rem 0 .9rem;
+  border-bottom:1px solid var(--rule);
+}
+.controls .field{flex:0 0 auto}
+.controls .grow{flex:1 1 14rem}
+.controls .field input,
+.controls .field select{
+  border:1px solid var(--rule-strong);
+  background:#F8F9F5;
+  padding:.35rem .5rem;
+  font-family:var(--sans);
+  font-size:.82rem;
+}
+.spacer{flex:1 1 auto}
+
+button{
+  font-family:var(--sans);
+  font-size:.78rem;
+  font-weight:600;
+  letter-spacing:.04em;
+  color:var(--ink);
+  background:#F8F9F5;
+  border:1px solid var(--rule-strong);
+  padding:.42rem .8rem;
+  cursor:pointer;
+  border-radius:2px;
+}
+button:hover{border-color:var(--ink);background:#fff}
+button.primary{background:var(--seal);border-color:var(--seal);color:#fff}
+button.primary:hover{background:#24395F;border-color:#24395F}
+button.link{
+  border:0;background:none;padding:.2rem .3rem;
+  color:var(--seal);text-decoration:underline;font-weight:500;
+}
+button.link.danger{color:var(--crit)}
+
+/* ---------- docket table ---------- */
+.scroller{overflow-x:auto;padding-bottom:.2rem}
+table{
+  width:100%;
+  min-width:62rem;
+  border-collapse:collapse;
+  table-layout:fixed;
+  font-size:.8rem;
+}
+/* Fixed tracks keep every column on screen; long values wrap in place
+   rather than pushing the docket sideways. */
+thead th:nth-child(1){width:2.8%}
+thead th:nth-child(2){width:4.2%}
+thead th:nth-child(3){width:9.6%}
+thead th:nth-child(4){width:11.6%}
+thead th:nth-child(5){width:16.4%}
+thead th:nth-child(6){width:8.6%}
+thead th:nth-child(7){width:8%}
+thead th:nth-child(8){width:6.6%}
+thead th:nth-child(9){width:6%}
+thead th:nth-child(10){width:9.4%}
+thead th:nth-child(11){width:10.8%}
+thead th:nth-child(12){width:6%}
+caption{
+  caption-side:top;
+  text-align:left;
+  font-family:var(--sans);
+  font-size:.6rem;
+  font-weight:600;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+  padding:.9rem 0 .45rem;
+}
+thead th{
+  font-size:.58rem;
+  font-weight:600;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--ink-mid);
+  text-align:left;
+  padding:.4rem .5rem;
+  border-bottom:1.5px solid var(--ink);
+  white-space:nowrap;
+  background:var(--paper);
+}
+thead th.sortable{cursor:pointer;user-select:none}
+thead th.sortable:hover{color:var(--seal)}
+thead th .arrow{color:var(--seal);font-size:.7em}
+
+tbody td{
+  padding:.45rem .5rem;
+  border-bottom:1px solid var(--rule);
+  vertical-align:top;
+}
+tbody tr:nth-child(4n+3) td,
+tbody tr:nth-child(4n+4) td{background:rgba(46,75,122,.035)}
+tbody tr.detail td{background:var(--band)!important}
+
+.c-line{
+  font-family:var(--mono);
+  font-variant-numeric:tabular-nums;
+  color:var(--ink-faint);
+  text-align:right;
+  width:2.4rem;
+  padding-right:.7rem;
+}
+.c-time,.c-case,.c-bail{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.c-case{font-weight:500}
+.c-bail{text-align:right}
+.c-name{font-weight:600}
+.c-next .on{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.c-next .what{display:block;line-height:1.3}
+.c-name .interp{
+  display:block;
+  font-family:var(--mono);
+  font-size:.66rem;
+  font-weight:400;
+  color:var(--seal);
+  letter-spacing:.02em;
+}
+.c-charges{overflow-wrap:anywhere}
+.charge{display:block;line-height:1.35;padding-left:1.45rem;text-indent:-1.45rem}
+.charge code{
+  font-family:var(--mono);
+  font-size:.92em;
+  color:var(--ink-mid);
+}
+.lvl{
+  display:inline-block;
+  font-family:var(--mono);
+  font-size:.6rem;
+  font-weight:600;
+  line-height:1;
+  padding:.12rem .22rem;
+  margin-right:.3rem;
+  border:1px solid currentColor;
+  border-radius:2px;
+  vertical-align:.05em;
+  width:1.1rem;
+  text-align:center;
+}
+.lvl.F{color:var(--crit)}
+.lvl.M{color:var(--warn)}
+.lvl.I{color:var(--ink-faint)}
+
+.pill{
+  display:inline-block;
+  font-size:.63rem;
+  font-weight:600;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  padding:.15rem .38rem;
+  border:1px solid currentColor;
+  border-radius:2px;
+  line-height:1.25;
+}
+.pill.ok{color:var(--ok);background:var(--ok-tint)}
+.pill.warn{color:var(--warn);background:var(--warn-tint)}
+.pill.crit{color:var(--crit);background:var(--crit-tint)}
+.pill.info{color:var(--seal);background:var(--seal-tint)}
+.pill.mute{color:var(--ink-mid);background:var(--band)}
+
+.c-act{text-align:right}
+.c-act button.link{display:block;margin-left:auto;padding:.1rem 0;font-size:.72rem}
+.detail-body{font-size:.78rem;color:var(--ink-mid);padding:.2rem 0 .35rem}
+.detail-body b{color:var(--ink);font-weight:600}
+
+.empty{
+  padding:2.5rem 1rem;
+  text-align:center;
+  color:var(--ink-faint);
+  font-style:italic;
+  border-bottom:1px solid var(--rule);
+}
+
+/* ---------- certification ---------- */
+.certification{
+  margin-top:1.6rem;
+  padding-top:1rem;
+  border-top:3px double var(--ink);
+  break-inside:avoid;
+}
+.certification p{
+  max-width:62ch;
+  font-size:.78rem;
+  line-height:1.6;
+  color:var(--ink-mid);
+  margin:0 0 1.4rem;
+}
+.signatures{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));
+  gap:1.6rem;
+}
+.sigline{border-top:1px solid var(--ink);padding-top:.3rem}
+.sigline span{
+  font-size:.58rem;
+  font-weight:600;
+  letter-spacing:.13em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+}
+
+.print-footer{display:none}
+
+/* ---------- dialog ---------- */
+dialog{
+  border:1px solid var(--rule-strong);
+  border-top:4px solid var(--seal);
+  background:var(--paper);
+  color:var(--ink);
+  padding:0;
+  width:min(46rem,92vw);
+  box-shadow:0 20px 50px rgba(23,25,26,.35);
+}
+dialog::backdrop{background:rgba(23,25,26,.45)}
+.dlg-head{
+  display:flex;align-items:baseline;gap:.75rem;
+  padding:1rem 1.3rem .7rem;
+  border-bottom:1px solid var(--rule);
+}
+.dlg-head h2{
+  font-family:var(--serif);
+  font-size:1.05rem;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  margin:0;
+}
+.dlg-head p{margin:0;font-size:.72rem;color:var(--ink-faint)}
+.dlg-body{padding:1.1rem 1.3rem;max-height:66vh;overflow-y:auto}
+.dlg-foot{
+  display:flex;gap:.6rem;justify-content:flex-end;align-items:center;
+  padding:.85rem 1.3rem;
+  border-top:1px solid var(--rule);
+  background:var(--band);
+}
+.dlg-foot .spacer{flex:1 1 auto}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.8rem 1rem}
+.grid .wide{grid-column:1/-1}
+.dlg-body .field input,
+.dlg-body .field select,
+.dlg-body .field textarea{
+  border:1px solid var(--rule-strong);
+  background:#F8F9F5;
+  padding:.38rem .5rem;
+  font-family:var(--sans);
+  font-size:.84rem;
+  border-radius:2px;
+}
+.dlg-body .field input.mono{font-family:var(--mono)}
+textarea{width:100%;resize:vertical;color:var(--ink);line-height:1.5}
+
+fieldset{border:1px solid var(--rule);margin:1rem 0 0;padding:.7rem .8rem .9rem}
+legend{
+  font-size:.6rem;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-faint);padding:0 .35rem;
+}
+.charge-row{
+  display:grid;
+  grid-template-columns:6.5rem minmax(0,1fr) 4.6rem auto;
+  gap:.5rem;
+  margin-bottom:.5rem;
+  align-items:center;
+}
+.charge-row input,.charge-row select{
+  border:1px solid var(--rule-strong);
+  background:#F8F9F5;
+  padding:.32rem .45rem;
+  font-size:.8rem;
+  font-family:var(--sans);
+  border-radius:2px;
+  min-width:0;
+}
+.charge-row input.code{font-family:var(--mono)}
+.err{
+  color:var(--crit);
+  font-size:.75rem;
+  font-weight:500;
+  margin:.7rem 0 0;
+}
+.hint{font-size:.72rem;color:var(--ink-faint);margin:.5rem 0 0}
+#xfer{width:100%;min-height:15rem;font-family:var(--mono);font-size:.72rem;
+  border:1px solid var(--rule-strong);background:#F8F9F5;padding:.6rem;border-radius:2px}
+
+.toast{
+  position:fixed;left:50%;bottom:1.6rem;transform:translateX(-50%);
+  background:var(--ink);color:var(--paper);
+  font-size:.78rem;font-weight:500;
+  padding:.55rem 1rem;border-radius:2px;
+  box-shadow:0 8px 22px rgba(23,25,26,.35);
+  z-index:50;
+}
+@media (prefers-reduced-motion:no-preference){
+  .toast{animation:rise .22s ease-out}
+  @keyframes rise{from{opacity:0;transform:translate(-50%,.5rem)}to{opacity:1;transform:translate(-50%,0)}}
+}
+
+@media (max-width:640px){
+  :root{--gutter:2.2rem}
+  .sheet{margin:0;border:0;padding:1.4rem 1rem 1.6rem var(--gutter)}
+  .masthead{grid-template-columns:1fr}
+  .stamp{justify-self:start}
+}
+
+/* ==================================================================
+   PRINT — landscape letter, the way a wide docket sheet is filed.
+   ================================================================== */
+@page{size:letter landscape;margin:.5in .5in .6in}
+
+@media print{
+  body{background:#fff}
+  .sheet{
+    max-width:none;margin:0;border:0;box-shadow:none;
+    padding:0 0 0 .42in;background:#fff;
+  }
+  .sheet::before{left:.30in}
+  .sheet::after{left:.34in}
+
+  .no-print{display:none!important}
+  dialog,.toast{display:none!important}
+
+  .masthead{padding-bottom:.5rem}
+  .court{font-size:15pt}
+  .doc-title{font-size:9pt;margin-top:.4rem}
+  .caption{padding:.4rem 0 .5rem}
+  .field input,.field select{
+    border-bottom:0;
+    -webkit-appearance:none;appearance:none;
+    font-size:8.5pt;padding:0;
+  }
+  /* the date field prints as plain typed text, not a picker */
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="date"]::-webkit-inner-spin-button{display:none}
+  .tally{margin-top:.5rem;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .tally dd{font-size:11pt}
+
+  .scroller{overflow:visible}
+  table{min-width:0;font-size:7.6pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  caption{padding:.5rem 0 .3rem}
+  thead{display:table-header-group}
+  tfoot{display:table-footer-group}
+  tbody tr{break-inside:avoid;page-break-inside:avoid}
+  tbody td{padding:.28rem .34rem}
+  .pill,.lvl{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+
+  .certification{margin-top:1rem;padding-top:.6rem}
+  .certification p{font-size:8pt;margin-bottom:1.6rem}
+
+  .print-footer{
+    display:block;
+    position:fixed;
+    left:0;right:0;bottom:0;
+    font-family:var(--mono);
+    font-size:7pt;
+    letter-spacing:.04em;
+    color:var(--ink-mid);
+    border-top:1px solid var(--rule);
+    padding-top:2pt;
+  }
+  .print-footer span{float:right}
+}
+</style>
+</head>
+<body>
+<main class="sheet">
+
+  <header class="masthead">
+    <div>
+      <h1 class="court" id="courtName">Municipal Court of the City of Westvale</h1>
+      <p class="court-sub">County of Marrow &middot; Criminal Division</p>
+      <p class="doc-title">Arraignment Log</p>
+    </div>
+    <div class="stamp" aria-label="Clerk's record stamp">
+      <b>Clerk&rsquo;s Record</b>
+      <span id="stampDate">&mdash;</span>
+    </div>
+  </header>
+
+  <section class="caption" aria-label="Session particulars">
+    <p class="field"><label for="sDate">Calendar date</label><input id="sDate" type="date" data-session="date"></p>
+    <p class="field"><label for="sSession">Session</label>
+      <select id="sSession" data-session="session">
+        <option>Morning (8:30 a.m.)</option>
+        <option>Afternoon (1:30 p.m.)</option>
+        <option>Weekend / Holiday</option>
+      </select>
+    </p>
+    <p class="field"><label for="sDept">Department</label><input id="sDept" data-session="dept" placeholder="Dept. 11"></p>
+    <p class="field"><label for="sJudge">Judicial officer</label><input id="sJudge" data-session="judge" placeholder="Hon. ..."></p>
+    <p class="field"><label for="sClerk">Courtroom clerk</label><input id="sClerk" data-session="clerk" placeholder="..."></p>
+    <p class="field"><label for="sReporter">Reporter</label><input id="sReporter" data-session="reporter" placeholder="..."></p>
+  </section>
+
+  <dl class="tally" id="tally" aria-label="Calendar totals"></dl>
+
+  <section class="controls no-print" aria-label="Log controls">
+    <p class="field grow">
+      <label for="q">Search the calendar</label>
+      <input id="q" type="search" placeholder="Name, case number, statute, counsel&hellip;  (press /)">
+    </p>
+    <p class="field">
+      <label for="fCustody">Custody</label>
+      <select id="fCustody"><option value="">All</option></select>
+    </p>
+    <p class="field">
+      <label for="fDisp">Disposition</label>
+      <select id="fDisp"><option value="">All</option></select>
+    </p>
+    <p class="field">
+      <label for="fLevel">Level</label>
+      <select id="fLevel">
+        <option value="">All</option>
+        <option value="F">Felony</option>
+        <option value="M">Misdemeanor</option>
+        <option value="I">Infraction</option>
+      </select>
+    </p>
+    <span class="spacer"></span>
+    <button type="button" class="primary" id="btnNew">Add matter</button>
+    <button type="button" id="btnPrint">Print</button>
+    <button type="button" id="btnExport">Export</button>
+    <button type="button" id="btnImport">Import</button>
+    <button type="button" id="btnReset">Reset</button>
+  </section>
+
+  <div class="scroller">
+    <table id="docket">
+      <caption id="cap">Matters called</caption>
+      <thead>
+        <tr>
+          <th scope="col" class="c-line">Ln.</th>
+          <th scope="col" class="sortable" data-sort="time">Time</th>
+          <th scope="col" class="sortable" data-sort="caseNo">Case no.</th>
+          <th scope="col" class="sortable" data-sort="defendant">Defendant</th>
+          <th scope="col">Charges</th>
+          <th scope="col" class="sortable" data-sort="custody">Custody</th>
+          <th scope="col">Counsel</th>
+          <th scope="col">Plea</th>
+          <th scope="col" class="sortable" data-sort="bail">Bail</th>
+          <th scope="col" class="sortable" data-sort="disposition">Disposition</th>
+          <th scope="col">Next appearance</th>
+          <th scope="col" class="no-print"><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <p class="empty" id="empty" hidden>No matters match the current filters.</p>
+
+  <footer class="certification">
+    <p id="certText">
+      I certify that the foregoing is a true and correct record of the matters called
+      for arraignment in the above-captioned department on the date shown, and that the
+      pleas and dispositions entered are as stated.
+    </p>
+    <div class="signatures">
+      <p class="sigline"><span>Courtroom clerk</span></p>
+      <p class="sigline"><span>Judicial officer</span></p>
+      <p class="sigline"><span>Date certified</span></p>
+    </div>
+  </footer>
+
+  <div class="print-footer" id="printFooter"></div>
+</main>
+
+<!-- ---------- entry editor ---------- -->
+<dialog id="dlgEntry">
+  <form method="dialog" id="frmEntry">
+    <div class="dlg-head">
+      <h2 id="dlgTitle">Add matter</h2>
+      <p>All fields optional except defendant.</p>
+    </div>
+    <div class="dlg-body">
+      <div class="grid">
+        <p class="field"><label for="fTime">Time called</label><input id="fTime" type="time" class="mono"></p>
+        <p class="field"><label for="fCase">Case number</label><input id="fCase" class="mono" placeholder="CR-2026-004417"></p>
+        <p class="field wide"><label for="fName">Defendant (last, first)</label><input id="fName" required placeholder="Ramos, Andrea L."></p>
+
+        <p class="field"><label for="fCust">Custody status</label><select id="fCust"></select></p>
+        <p class="field"><label for="fCounsel">Counsel</label><select id="fCounsel"></select></p>
+        <p class="field"><label for="fPlea">Plea entered</label><select id="fPlea"></select></p>
+
+        <p class="field"><label for="fBail">Bail</label><input id="fBail" class="mono" placeholder="25000, NO BAIL, or O.R."></p>
+        <p class="field"><label for="fDisp2">Disposition</label><select id="fDisp2"></select></p>
+        <p class="field"><label for="fInterp">Interpreter</label><input id="fInterp" placeholder="Language, if required"></p>
+
+        <p class="field"><label for="fNextDate">Next appearance</label><input id="fNextDate" type="date"></p>
+        <p class="field"><label for="fNextType">Appearance type</label><select id="fNextType"></select></p>
+      </div>
+
+      <fieldset>
+        <legend>Charges</legend>
+        <div id="chargeRows"></div>
+        <button type="button" class="link" id="btnAddCharge">+ Add charge</button>
+      </fieldset>
+
+      <p class="field" style="margin-top:1rem">
+        <label for="fNotes">Clerk&rsquo;s notes</label>
+        <textarea id="fNotes" rows="2" placeholder="Bail motion heard; protective order issued; &hellip;"></textarea>
+      </p>
+      <p class="err" id="frmErr" hidden></p>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="link danger" id="btnDelete" hidden>Delete this matter</button>
+      <span class="spacer"></span>
+      <button type="button" id="btnCancel">Cancel</button>
+      <button type="submit" class="primary" id="btnSave">Save matter</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ---------- import / export ---------- -->
+<dialog id="dlgXfer">
+  <div class="dlg-head">
+    <h2 id="xferTitle">Export</h2>
+    <p id="xferNote"></p>
+  </div>
+  <div class="dlg-body">
+    <p class="field">
+      <label for="xfer" id="xferLabel">Data</label>
+      <textarea id="xfer" spellcheck="false"></textarea>
+    </p>
+    <p class="hint" id="xferHint"></p>
+  </div>
+  <div class="dlg-foot">
+    <span class="spacer"></span>
+    <button type="button" id="btnXferCopy">Copy</button>
+    <button type="button" id="btnXferDownload">Download</button>
+    <button type="button" class="primary" id="btnXferLoad" hidden>Load these matters</button>
+    <button type="button" id="btnXferClose">Close</button>
+  </div>
+</dialog>
+
+<script>
+(function(){
+  "use strict";
+
+  var STORE = "westvale.arraignment.v1";
+
+  var CUSTODY = ["In custody","Bail posted","O.R. release","Cited &amp; released","Failed to appear"]
+    .map(function(s){return s.replace("&amp;","&");});
+  var COUNSEL = ["Public Defender","Retained","Conflict panel","Pro per","Not yet appointed"];
+  var PLEAS   = ["Not entered","Not guilty","Guilty","No contest","Stands mute"];
+  var DISPOS  = ["Arraigned","Continued","Held to answer","Dismissed","Bench warrant","Referred to diversion"];
+  var NEXTTYPE= ["Pretrial conference","Preliminary hearing","Jury trial","Sentencing","Bail review","Further arraignment"];
+
+  var PILL = {
+    "In custody":"crit","Failed to appear":"crit","Bench warrant":"crit",
+    "Bail posted":"warn","Continued":"warn","Held to answer":"warn",
+    "O.R. release":"ok","Cited & released":"ok","Arraigned":"ok","Dismissed":"ok",
+    "Referred to diversion":"info"
+  };
+
+  /* Demonstration calendar for a fictional court. Replace via Import or Add. */
+  var SEED = [
+    {time:"08:35",caseNo:"CR-2026-004417",defendant:"Ramos, Andrea L.",
+     charges:[{code:"PC 459",desc:"Burglary, second degree",level:"F"},{code:"PC 496(a)",desc:"Receiving stolen property",level:"F"}],
+     custody:"In custody",counsel:"Public Defender",plea:"Not guilty",bail:"50000",
+     disposition:"Held to answer",nextDate:"2026-09-18",nextType:"Preliminary hearing",
+     interpreter:"",notes:"Defense bail motion denied without prejudice."},
+    {time:"08:41",caseNo:"CR-2026-004418",defendant:"Okonkwo, Daniel",
+     charges:[{code:"VC 23152(a)",desc:"Driving under the influence",level:"M"}],
+     custody:"Cited & released",counsel:"Retained",plea:"Not guilty",bail:"O.R.",
+     disposition:"Arraigned",nextDate:"2026-10-02",nextType:"Pretrial conference",
+     interpreter:"",notes:"Restricted license paperwork provided."},
+    {time:"08:47",caseNo:"CR-2026-004421",defendant:"Bui, Thanh N.",
+     charges:[{code:"PC 243(e)(1)",desc:"Battery on a spouse or cohabitant",level:"M"}],
+     custody:"In custody",counsel:"Public Defender",plea:"Not guilty",bail:"15000",
+     disposition:"Arraigned",nextDate:"2026-09-25",nextType:"Pretrial conference",
+     interpreter:"Vietnamese",notes:"Criminal protective order issued, no contact."},
+    {time:"08:53",caseNo:"CR-2026-004424",defendant:"Whitfield, Marcus A.",
+     charges:[{code:"PC 148(a)(1)",desc:"Resisting a peace officer",level:"M"},{code:"PC 647(f)",desc:"Public intoxication",level:"M"}],
+     custody:"O.R. release",counsel:"Public Defender",plea:"No contest",bail:"O.R.",
+     disposition:"Referred to diversion",nextDate:"2026-11-06",nextType:"Further arraignment",
+     interpreter:"",notes:"Referred to behavioral health court for screening."},
+    {time:"09:02",caseNo:"CR-2026-004429",defendant:"Delacroix, Simone",
+     charges:[{code:"PC 487(a)",desc:"Grand theft",level:"F"}],
+     custody:"Bail posted",counsel:"Retained",plea:"Not guilty",bail:"35000",
+     disposition:"Arraigned",nextDate:"2026-09-30",nextType:"Preliminary hearing",
+     interpreter:"",notes:""},
+    {time:"09:08",caseNo:"CR-2026-004430",defendant:"Iverson, Paul R.",
+     charges:[{code:"PC 273.5(a)",desc:"Corporal injury to a partner",level:"F"}],
+     custody:"In custody",counsel:"Conflict panel",plea:"Not entered",bail:"NO BAIL",
+     disposition:"Continued",nextDate:"2026-09-11",nextType:"Further arraignment",
+     interpreter:"",notes:"Continued one week for appointment of conflict counsel."},
+    {time:"09:15",caseNo:"CR-2026-004433",defendant:"Santos-Vega, Rocio",
+     charges:[{code:"HS 11377(a)",desc:"Possession of a controlled substance",level:"M"}],
+     custody:"Cited & released",counsel:"Public Defender",plea:"Guilty",bail:"O.R.",
+     disposition:"Referred to diversion",nextDate:"2027-03-12",nextType:"Further arraignment",
+     interpreter:"Spanish",notes:"Twelve-month deferred entry of judgment granted."},
+    {time:"09:22",caseNo:"CR-2026-004436",defendant:"Halloran, Brendan",
+     charges:[{code:"PC 245(a)(1)",desc:"Assault with a deadly weapon",level:"F"}],
+     custody:"In custody",counsel:"Public Defender",plea:"Not guilty",bail:"100000",
+     disposition:"Held to answer",nextDate:"2026-09-19",nextType:"Preliminary hearing",
+     interpreter:"",notes:"Two prior failures to appear noted on the record."},
+    {time:"09:29",caseNo:"CR-2026-004438",defendant:"Pryce, Nadia",
+     charges:[{code:"VC 14601.1(a)",desc:"Driving on a suspended license",level:"M"}],
+     custody:"Failed to appear",counsel:"Not yet appointed",plea:"Not entered",bail:"10000",
+     disposition:"Bench warrant",nextDate:"",nextType:"",
+     interpreter:"",notes:"Bench warrant issued and held to end of calendar."},
+    {time:"09:36",caseNo:"CR-2026-004441",defendant:"Mbeki, Joseph T.",
+     charges:[{code:"PC 602(m)",desc:"Trespass",level:"I"}],
+     custody:"Cited & released",counsel:"Pro per",plea:"No contest",bail:"O.R.",
+     disposition:"Dismissed",nextDate:"",nextType:"",
+     interpreter:"",notes:"Dismissed on motion of the People in the interest of justice."},
+    {time:"09:44",caseNo:"CR-2026-004444",defendant:"Ferreira, Luiz C.",
+     charges:[{code:"PC 470(d)",desc:"Forgery of a check",level:"F"},{code:"PC 484(a)",desc:"Petty theft",level:"M"}],
+     custody:"Bail posted",counsel:"Retained",plea:"Not guilty",bail:"25000",
+     disposition:"Arraigned",nextDate:"2026-10-09",nextType:"Pretrial conference",
+     interpreter:"Portuguese",notes:""},
+    {time:"09:51",caseNo:"CR-2026-004447",defendant:"Kowalski, Beata",
+     charges:[{code:"PC 166(a)(4)",desc:"Contempt of court order",level:"M"}],
+     custody:"In custody",counsel:"Public Defender",plea:"Not guilty",bail:"7500",
+     disposition:"Continued",nextDate:"2026-09-12",nextType:"Bail review",
+     interpreter:"Polish",notes:"Set for bail review with supervised release report."}
+  ];
+
+  var DEFAULT_SESSION = {
+    date:"2026-09-04", session:"Morning (8:30 a.m.)", dept:"Dept. 11",
+    judge:"Hon. E. Vasquez", clerk:"M. Adeyemi", reporter:"K. Lindqvist"
+  };
+
+  var state = {
+    session: Object.assign({}, DEFAULT_SESSION),
+    entries: [],
+    ui: {q:"", custody:"", disposition:"", level:"", sort:"time", dir:1},
+    expanded: {},
+    editingId: null
+  };
+
+  /* ---------- storage ---------- */
+  function save(){
+    try{
+      localStorage.setItem(STORE, JSON.stringify({session:state.session, entries:state.entries}));
+    }catch(e){ /* private browsing or blocked storage — page still works in memory */ }
+  }
+  function load(){
+    try{
+      var raw = localStorage.getItem(STORE);
+      if(!raw) return false;
+      var data = JSON.parse(raw);
+      if(!data || !Array.isArray(data.entries)) return false;
+      state.session = Object.assign({}, DEFAULT_SESSION, data.session || {});
+      state.entries = data.entries.map(normalize);
+      return true;
+    }catch(e){ return false; }
+  }
+
+  var seq = 0;
+  function uid(){ return "e" + (Date.now().toString(36)) + (seq++).toString(36); }
+
+  function normalize(r){
+    r = r || {};
+    return {
+      id: r.id || uid(),
+      time: r.time || "",
+      caseNo: r.caseNo || "",
+      defendant: r.defendant || "",
+      charges: Array.isArray(r.charges) ? r.charges.map(function(c){
+        return {code:(c && c.code) || "", desc:(c && c.desc) || "", level:(c && c.level) || "M"};
+      }) : [],
+      custody: r.custody || "",
+      counsel: r.counsel || "",
+      plea: r.plea || "Not entered",
+      bail: r.bail == null ? "" : String(r.bail),
+      disposition: r.disposition || "Arraigned",
+      nextDate: r.nextDate || "",
+      nextType: r.nextType || "",
+      interpreter: r.interpreter || "",
+      notes: r.notes || ""
+    };
+  }
+
+  /* ---------- helpers ---------- */
+  function $(id){ return document.getElementById(id); }
+  function esc(s){
+    return String(s == null ? "" : s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
+  function fillSelect(el, list, blankLabel){
+    var html = blankLabel ? '<option value="">' + esc(blankLabel) + "</option>" : "";
+    html += list.map(function(v){ return '<option value="' + esc(v) + '">' + esc(v) + "</option>"; }).join("");
+    el.innerHTML = html;
+  }
+  function bailNumber(b){
+    var n = parseFloat(String(b).replace(/[^0-9.]/g, ""));
+    return isNaN(n) ? 0 : n;
+  }
+  function bailDisplay(b){
+    if(!b) return "—";
+    var n = bailNumber(b);
+    if(n > 0 && /^[\s$0-9,.]+$/.test(String(b))) return "$" + n.toLocaleString("en-US");
+    return String(b).toUpperCase();
+  }
+  function longDate(iso){
+    if(!iso) return "";
+    var p = iso.split("-");
+    if(p.length !== 3) return iso;
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+    if(isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric",timeZone:"UTC"});
+  }
+  function shortDate(iso){
+    if(!iso) return "—";
+    var p = iso.split("-");
+    return p.length === 3 ? p[1] + "/" + p[2] + "/" + p[0].slice(2) : iso;
+  }
+  function hhmm(t){ return t ? t : "—"; }
+
+  function toast(msg){
+    var old = document.querySelector(".toast");
+    if(old) old.remove();
+    var el = document.createElement("div");
+    el.className = "toast";
+    el.setAttribute("role","status");
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(function(){ if(el.parentNode) el.remove(); }, 2600);
+  }
+
+  /* ---------- filtering & sorting ---------- */
+  function visible(){
+    var u = state.ui;
+    var q = u.q.trim().toLowerCase();
+    var out = state.entries.filter(function(r){
+      if(u.custody && r.custody !== u.custody) return false;
+      if(u.disposition && r.disposition !== u.disposition) return false;
+      if(u.level && !r.charges.some(function(c){ return c.level === u.level; })) return false;
+      if(!q) return true;
+      var hay = [r.time,r.caseNo,r.defendant,r.custody,r.counsel,r.plea,r.bail,
+                 r.disposition,r.nextType,r.interpreter,r.notes]
+        .concat(r.charges.map(function(c){ return c.code + " " + c.desc; }))
+        .join(" ").toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+
+    var key = u.sort, dir = u.dir;
+    out.sort(function(a,b){
+      var x, y;
+      if(key === "bail"){ x = bailNumber(a.bail); y = bailNumber(b.bail); }
+      else { x = String(a[key] || "").toLowerCase(); y = String(b[key] || "").toLowerCase(); }
+      if(x < y) return -1 * dir;
+      if(x > y) return 1 * dir;
+      return 0;
+    });
+    return out;
+  }
+
+  /* ---------- render ---------- */
+  function renderSession(){
+    Object.keys(state.session).forEach(function(k){
+      var el = document.querySelector('[data-session="' + k + '"]');
+      if(el) el.value = state.session[k];
+    });
+    $("stampDate").textContent = shortDate(state.session.date) + "  ·  " + (state.session.dept || "");
+    var foot = (state.session.dept ? state.session.dept + " — " : "") +
+               "Arraignment Log — " + (longDate(state.session.date) || "undated") +
+               " — " + state.session.session;
+    $("printFooter").innerHTML = esc(foot) + "<span>" + esc(state.session.judge || "") + "</span>";
+  }
+
+  function renderTally(){
+    var e = state.entries;
+    function count(field, val){ return e.filter(function(r){ return r[field] === val; }).length; }
+    var bailTotal = e.reduce(function(s,r){ return s + bailNumber(r.bail); }, 0);
+    var felonies = e.filter(function(r){ return r.charges.some(function(c){ return c.level === "F"; }); }).length;
+    var warrants = count("disposition","Bench warrant");
+
+    var cells = [
+      ["Matters called", e.length, ""],
+      ["Felony matters", felonies, ""],
+      ["In custody", count("custody","In custody"), ""],
+      ["Released O.R.", count("custody","O.R. release") + count("custody","Cited & released"), ""],
+      ["Continued", count("disposition","Continued"), ""],
+      ["Bench warrants", warrants, warrants ? "crit" : ""],
+      ["Bail set", "$" + bailTotal.toLocaleString("en-US"), ""]
+    ];
+    $("tally").innerHTML = cells.map(function(c){
+      return '<div class="' + c[2] + '"><dt>' + esc(c[0]) + "</dt><dd>" + esc(c[1]) + "</dd></div>";
+    }).join("");
+  }
+
+  function chargeHtml(charges){
+    if(!charges.length) return '<span style="color:var(--ink-faint)">No charge recorded</span>';
+    return charges.map(function(c){
+      return '<span class="charge"><span class="lvl ' + esc(c.level) + '">' + esc(c.level) +
+             "</span><code>" + esc(c.code) + "</code> " + esc(c.desc) + "</span>";
+    }).join("");
+  }
+  function pill(value){
+    if(!value) return '<span style="color:var(--ink-faint)">—</span>';
+    return '<span class="pill ' + (PILL[value] || "mute") + '">' + esc(value) + "</span>";
+  }
+
+  function renderRows(){
+    var list = visible();
+    var body = $("rows");
+    var html = "";
+
+    list.forEach(function(r, i){
+      var open = !!state.expanded[r.id];
+      html += "<tr>" +
+        '<td class="c-line">' + (i + 1) + "</td>" +
+        '<td class="c-time">' + esc(hhmm(r.time)) + "</td>" +
+        '<td class="c-case">' + esc(r.caseNo || "—") + "</td>" +
+        '<td class="c-name">' + esc(r.defendant) +
+          (r.interpreter ? '<span class="interp">Interpreter: ' + esc(r.interpreter) + "</span>" : "") + "</td>" +
+        '<td class="c-charges">' + chargeHtml(r.charges) + "</td>" +
+        "<td>" + pill(r.custody) + "</td>" +
+        '<td class="c-counsel">' + esc(r.counsel || "—") + "</td>" +
+        '<td class="c-plea">' + esc(r.plea || "—") + "</td>" +
+        '<td class="c-bail">' + esc(bailDisplay(r.bail)) + "</td>" +
+        "<td>" + pill(r.disposition) + "</td>" +
+        '<td class="c-next">' + (r.nextDate || r.nextType
+            ? '<span class="on">' + esc(shortDate(r.nextDate)) + "</span>" +
+              '<span class="what">' + esc(r.nextType || "") + "</span>"
+            : "—") + "</td>" +
+        '<td class="c-act no-print">' +
+          '<button type="button" class="link" data-act="toggle" data-id="' + esc(r.id) + '">' +
+            (open ? "Hide" : "Notes") + "</button>" +
+          '<button type="button" class="link" data-act="edit" data-id="' + esc(r.id) + '">Edit</button>' +
+        "</td></tr>";
+
+      if(open){
+        html += '<tr class="detail"><td class="c-line"></td><td colspan="11"><div class="detail-body">' +
+          "<b>Clerk&rsquo;s notes:</b> " + (esc(r.notes) || "<i>none recorded</i>") +
+          "</div></td></tr>";
+      }
+    });
+
+    body.innerHTML = html;
+    $("empty").hidden = list.length > 0;
+    $("cap").textContent = list.length === state.entries.length
+      ? "Matters called — " + list.length + " of " + state.entries.length
+      : "Matters called — showing " + list.length + " of " + state.entries.length + " (filtered)";
+
+    document.querySelectorAll("th.sortable").forEach(function(th){
+      var mark = th.querySelector(".arrow");
+      if(mark) mark.remove();
+      if(th.dataset.sort === state.ui.sort){
+        var s = document.createElement("span");
+        s.className = "arrow";
+        s.textContent = state.ui.dir === 1 ? " ▲" : " ▼";
+        th.appendChild(s);
+      }
+    });
+  }
+
+  function render(){ renderSession(); renderTally(); renderRows(); }
+
+  /* ---------- entry editor ---------- */
+  var dlg = $("dlgEntry");
+
+  function chargeRow(c){
+    c = c || {code:"",desc:"",level:"M"};
+    var wrap = document.createElement("div");
+    wrap.className = "charge-row";
+    wrap.innerHTML =
+      '<input class="code" placeholder="PC 459" aria-label="Statute code">' +
+      '<input class="desc" placeholder="Burglary, second degree" aria-label="Charge description">' +
+      '<select class="level" aria-label="Charge level">' +
+        '<option value="F">Felony</option><option value="M">Misd.</option><option value="I">Infraction</option>' +
+      "</select>" +
+      '<button type="button" class="link danger" aria-label="Remove charge">Remove</button>';
+    wrap.querySelector(".code").value = c.code;
+    wrap.querySelector(".desc").value = c.desc;
+    wrap.querySelector(".level").value = c.level;
+    wrap.querySelector("button").addEventListener("click", function(){ wrap.remove(); });
+    return wrap;
+  }
+
+  function openEntry(id){
+    state.editingId = id || null;
+    var r = id ? state.entries.filter(function(x){ return x.id === id; })[0] : null;
+    r = normalize(r || {plea:"Not entered", disposition:"Arraigned"});
+
+    $("dlgTitle").textContent = id ? "Edit matter" : "Add matter";
+    $("btnDelete").hidden = !id;
+    $("frmErr").hidden = true;
+
+    $("fTime").value = r.time;
+    $("fCase").value = r.caseNo;
+    $("fName").value = r.defendant;
+    $("fCust").value = r.custody;
+    $("fCounsel").value = r.counsel;
+    $("fPlea").value = r.plea;
+    $("fBail").value = r.bail;
+    $("fDisp2").value = r.disposition;
+    $("fInterp").value = r.interpreter;
+    $("fNextDate").value = r.nextDate;
+    $("fNextType").value = r.nextType;
+    $("fNotes").value = r.notes;
+
+    var host = $("chargeRows");
+    host.innerHTML = "";
+    (r.charges.length ? r.charges : [{code:"",desc:"",level:"M"}])
+      .forEach(function(c){ host.appendChild(chargeRow(c)); });
+
+    dlg.showModal();
+    $("fName").focus();
+  }
+
+  function collectCharges(){
+    return Array.prototype.map.call($("chargeRows").children, function(row){
+      return {
+        code: row.querySelector(".code").value.trim(),
+        desc: row.querySelector(".desc").value.trim(),
+        level: row.querySelector(".level").value
+      };
+    }).filter(function(c){ return c.code || c.desc; });
+  }
+
+  $("frmEntry").addEventListener("submit", function(ev){
+    ev.preventDefault();
+    var name = $("fName").value.trim();
+    if(!name){
+      var err = $("frmErr");
+      err.textContent = "Enter the defendant's name before saving — every line on the calendar needs one.";
+      err.hidden = false;
+      $("fName").focus();
+      return;
+    }
+    var rec = normalize({
+      id: state.editingId,
+      time: $("fTime").value,
+      caseNo: $("fCase").value.trim(),
+      defendant: name,
+      charges: collectCharges(),
+      custody: $("fCust").value,
+      counsel: $("fCounsel").value,
+      plea: $("fPlea").value,
+      bail: $("fBail").value.trim(),
+      disposition: $("fDisp2").value,
+      nextDate: $("fNextDate").value,
+      nextType: $("fNextType").value,
+      interpreter: $("fInterp").value.trim(),
+      notes: $("fNotes").value.trim()
+    });
+
+    if(state.editingId){
+      state.entries = state.entries.map(function(x){ return x.id === state.editingId ? rec : x; });
+      toast("Matter updated.");
+    } else {
+      state.entries.push(rec);
+      toast("Matter added to the calendar.");
+    }
+    save(); render();
+    dlg.close();
+  });
+
+  $("btnAddCharge").addEventListener("click", function(){
+    $("chargeRows").appendChild(chargeRow());
+  });
+  $("btnCancel").addEventListener("click", function(){ dlg.close(); });
+  $("btnDelete").addEventListener("click", function(){
+    var r = state.entries.filter(function(x){ return x.id === state.editingId; })[0];
+    if(!r) return;
+    if(!window.confirm("Remove " + r.defendant + " from the calendar? This cannot be undone.")) return;
+    state.entries = state.entries.filter(function(x){ return x.id !== state.editingId; });
+    delete state.expanded[state.editingId];
+    save(); render();
+    dlg.close();
+    toast("Matter removed.");
+  });
+
+  /* ---------- import / export ---------- */
+  var xdlg = $("dlgXfer"), xferMode = "export";
+
+  function csv(){
+    var head = ["Line","Time","Case number","Defendant","Charges","Custody","Counsel",
+                "Plea","Bail","Disposition","Next date","Next appearance","Interpreter","Notes"];
+    function cell(v){
+      v = String(v == null ? "" : v);
+      return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v;
+    }
+    var lines = [head.map(cell).join(",")];
+    visible().forEach(function(r, i){
+      lines.push([
+        i + 1, r.time, r.caseNo, r.defendant,
+        r.charges.map(function(c){ return c.code + " " + c.desc + " (" + c.level + ")"; }).join("; "),
+        r.custody, r.counsel, r.plea, bailDisplay(r.bail), r.disposition,
+        r.nextDate, r.nextType, r.interpreter, r.notes
+      ].map(cell).join(","));
+    });
+    return lines.join("\n");
+  }
+
+  function openExport(){
+    xferMode = "export";
+    $("xferTitle").textContent = "Export the calendar";
+    $("xferNote").textContent = "Comma-separated, in the order shown on screen.";
+    $("xferLabel").textContent = "CSV";
+    $("xfer").value = csv();
+    $("xferHint").textContent = "Copy works everywhere. Download saves a .csv when this page is opened from a file or a server.";
+    $("btnXferLoad").hidden = true;
+    $("btnXferDownload").hidden = false;
+    xdlg.showModal();
+    $("xfer").select();
+  }
+
+  function openImport(){
+    xferMode = "import";
+    $("xferTitle").textContent = "Import matters";
+    $("xferNote").textContent = "Paste JSON previously produced by this log.";
+    $("xferLabel").textContent = "JSON";
+    $("xfer").value = JSON.stringify({session:state.session, entries:state.entries}, null, 2);
+    $("xferHint").textContent = "Loading replaces the whole calendar, session heading included.";
+    $("btnXferLoad").hidden = false;
+    $("btnXferDownload").hidden = false;
+    xdlg.showModal();
+    $("xfer").focus();
+  }
+
+  $("btnExport").addEventListener("click", openExport);
+  $("btnImport").addEventListener("click", openImport);
+  $("btnXferClose").addEventListener("click", function(){ xdlg.close(); });
+
+  $("btnXferCopy").addEventListener("click", function(){
+    var ta = $("xfer");
+    ta.select();
+    var ok = false;
+    try{ ok = document.execCommand("copy"); }catch(e){ ok = false; }
+    if(ok){ toast("Copied to the clipboard."); return; }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(ta.value).then(
+        function(){ toast("Copied to the clipboard."); },
+        function(){ toast("Copying is blocked here — the text is selected, press Ctrl/Cmd+C."); }
+      );
+    } else {
+      toast("Copying is blocked here — the text is selected, press Ctrl/Cmd+C.");
+    }
+  });
+
+  $("btnXferDownload").addEventListener("click", function(){
+    var isCsv = xferMode === "export";
+    var name = "arraignment-log-" + (state.session.date || "undated") + (isCsv ? ".csv" : ".json");
+    try{
+      var blob = new Blob([$("xfer").value], {type: isCsv ? "text/csv" : "application/json"});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+      toast("Saving " + name + " — if nothing downloads, use Copy instead.");
+    }catch(e){
+      toast("Downloads are blocked here — use Copy instead.");
+    }
+  });
+
+  $("btnXferLoad").addEventListener("click", function(){
+    var data;
+    try{ data = JSON.parse($("xfer").value); }
+    catch(e){ toast("That is not valid JSON — check for a stray comma or quote."); return; }
+    var rows = Array.isArray(data) ? data : (data && data.entries);
+    if(!Array.isArray(rows)){ toast("No matters found — expected an array, or an object with an \"entries\" array."); return; }
+    state.entries = rows.map(normalize);
+    if(data && data.session) state.session = Object.assign({}, DEFAULT_SESSION, data.session);
+    state.expanded = {};
+    save(); render();
+    xdlg.close();
+    toast("Loaded " + state.entries.length + " matters.");
+  });
+
+  /* ---------- controls ---------- */
+  $("btnNew").addEventListener("click", function(){ openEntry(null); });
+  $("btnPrint").addEventListener("click", function(){ window.print(); });
+  $("btnReset").addEventListener("click", function(){
+    if(!window.confirm("Discard this calendar and restore the sample matters?")) return;
+    state.session = Object.assign({}, DEFAULT_SESSION);
+    state.entries = SEED.map(normalize);
+    state.expanded = {};
+    save(); render();
+    toast("Sample calendar restored.");
+  });
+
+  $("q").addEventListener("input", function(){ state.ui.q = this.value; renderRows(); });
+  $("fCustody").addEventListener("change", function(){ state.ui.custody = this.value; renderRows(); });
+  $("fDisp").addEventListener("change", function(){ state.ui.disposition = this.value; renderRows(); });
+  $("fLevel").addEventListener("change", function(){ state.ui.level = this.value; renderRows(); });
+
+  document.querySelectorAll("th.sortable").forEach(function(th){
+    th.setAttribute("tabindex","0");
+    function go(){
+      var k = th.dataset.sort;
+      if(state.ui.sort === k) state.ui.dir *= -1;
+      else { state.ui.sort = k; state.ui.dir = 1; }
+      renderRows();
+    }
+    th.addEventListener("click", go);
+    th.addEventListener("keydown", function(ev){
+      if(ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); go(); }
+    });
+  });
+
+  $("rows").addEventListener("click", function(ev){
+    var btn = ev.target.closest("button[data-act]");
+    if(!btn) return;
+    var id = btn.dataset.id;
+    if(btn.dataset.act === "edit"){ openEntry(id); }
+    else {
+      if(state.expanded[id]) delete state.expanded[id];
+      else state.expanded[id] = true;
+      renderRows();
+    }
+  });
+
+  document.querySelectorAll("[data-session]").forEach(function(el){
+    el.addEventListener("input", function(){
+      state.session[el.dataset.session] = el.value;
+      save(); renderSession();
+    });
+  });
+
+  document.addEventListener("keydown", function(ev){
+    if(ev.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
+      ev.preventDefault(); $("q").focus(); $("q").select();
+    }
+    if((ev.key === "n" || ev.key === "N") && !ev.metaKey && !ev.ctrlKey &&
+       !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
+      ev.preventDefault(); openEntry(null);
+    }
+  });
+
+  /* ---------- boot ---------- */
+  fillSelect($("fCust"), CUSTODY, "—");
+  fillSelect($("fCounsel"), COUNSEL, "—");
+  fillSelect($("fPlea"), PLEAS, null);
+  fillSelect($("fDisp2"), DISPOS, null);
+  fillSelect($("fNextType"), NEXTTYPE, "—");
+  fillSelect($("fCustody"), CUSTODY, "All");
+  fillSelect($("fDisp"), DISPOS, "All");
+
+  if(!load()){
+    state.entries = SEED.map(normalize);
+    save();
+  }
+  render();
+})();
+</script>
+<!-- ARTIFACT-CONTENT-END -->
+</body>
+</html>
