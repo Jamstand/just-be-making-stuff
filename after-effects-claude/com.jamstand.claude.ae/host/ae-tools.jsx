@@ -404,6 +404,51 @@ CA_TOOLS.apply_keyframe_data = function (a) {
   return { layer: layer.name, fps: fps, offset_s: offset, applied: applied };
 };
 
+// Native mask keyframes from per-frame vertex lists (Mocha's shape export,
+// parsed panel-side). Straight tangents; RotoBezier lets AE smooth them.
+// Called in chunks: append=true adds keys to the mask of the same name.
+CA_TOOLS.apply_mask_keyframes = function (a) {
+  var comp = CA_comp(a.comp);
+  var layer = CA_layer(comp, a.layer);
+  var masks = layer.property("ADBE Mask Parade");
+  var fps = Number(a.fps) || comp.frameRate;
+  var offset = Number(a.time_offset_s) || 0;
+  var stretch = (Number(a.stretch) || 100) / 100;
+  var name = a.name || "Mocha Mask";
+  var mask = null, i, j, f, shape, mp, zeros;
+  if (!a.frames || !a.frames.length) CA_err("No mask frames to apply.");
+  for (i = 1; i <= masks.numProperties; i++)
+    if (masks.property(i).name === name) { mask = masks.property(i); break; }
+  if (mask && !a.append && a.replace !== false) { mask.remove(); mask = null; }
+  if (!mask) { mask = masks.addProperty("ADBE Mask Atom"); mask.name = name; }
+  mp = mask.property("ADBE Mask Shape");
+  for (i = 0; i < a.frames.length; i++) {
+    f = a.frames[i];
+    if (!f.points || f.points.length < 3) continue;
+    shape = new Shape();
+    shape.vertices = f.points;
+    zeros = [];
+    for (j = 0; j < f.points.length; j++) zeros.push([0, 0]);
+    shape.inTangents = zeros;
+    shape.outTangents = zeros;
+    shape.closed = true;
+    mp.setValueAtTime(offset + (Number(f.frame) / fps) * stretch, shape);
+  }
+  if (!a.append) {
+    if (a.mode === "subtract") mask.maskMode = MaskMode.SUBTRACT;
+    else if (a.mode === "none") mask.maskMode = MaskMode.NONE;
+    if (a.feather !== undefined)
+      mask.property("ADBE Mask Feather")
+          .setValue([Number(a.feather), Number(a.feather)]);
+    if (a.inverted) mask.inverted = true;
+    if (a.roto_bezier !== false) { try { mask.rotoBezier = true; } catch (e) {} }
+  }
+  return { layer: layer.name, mask: mask.name, keys: mp.numKeys,
+           first_key_s: mp.numKeys ? mp.keyTime(1) : null,
+           last_key_s: mp.numKeys ? mp.keyTime(mp.numKeys) : null,
+           vertices: a.frames[0].points.length };
+};
+
 // Mocha's "After Effects Mask Data" only enters AE through the clipboard:
 // Edit > Paste Mocha mask (the panel puts the text there first). The menu
 // id is looked up by name (locale-dependent) with the AE 2025 id as a

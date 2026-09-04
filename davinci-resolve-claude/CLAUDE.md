@@ -380,9 +380,14 @@ surface; panel now retargets the exported quad to the requested surface
 via per-frame homography (tracklib.retargetCornerPin); (3) "Paste Mocha
 mask" did NOT produce a native mask — AE created/used the legacy "mocha
 shape" effect (ISL MochaShapeImporter, CUSTOM_VALUE not scriptable); the
-in-AE Claude parsed mask.shape4ae itself (64 pts/frame) — a real parser
-+ native mask keyframes tool is the next build (format head requested
-from josh); (4) the region left frame right at ~f15 and the tracker
+in-AE Claude parsed mask.shape4ae itself (64 pts/frame) — FORMAT (josh's file, 975 KB / 240 frames):
+"Adobe After Effects 6.0 Keyframe Data", header (Units Per Second 24!,
+Source Width/Height), block "Effects<TAB>mocha shape #1<TAB>Shape data",
+"<TAB>Frame", rows "<TAB>f<TAB>Bezier(Point(x,y,0,0.5,a,b,c,d)Point(...)...)"
+with x,y normalised to source size (64 points/frame; the six extra
+numbers are spline data, ignored — RotoBezier smooths the polygon).
+tracklib.parseMochaShapeText + host apply_mask_keyframes (chunks of 40)
+replace the clipboard/Paste-Mocha-mask route; (4) the region left frame right at ~f15 and the tracker
 re-locked on the road — tracklib.trackReport now flags usable range.
 THEN: my "wait for IEND" $.sleep loop in grab_frame FROZE AE — ExtendScript
 blocks the main thread that finishes the PNG, so the file stalls half-

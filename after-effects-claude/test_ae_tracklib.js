@@ -121,6 +121,30 @@ const exe = (name, body) => {
   check("explainMochaError: rendering-context failures point at mocha_status's Qt ladder",
     /OpenGL rendering context/.test(ctx) && /mocha_qt/.test(ctx) && /apply_track_file/.test(ctx), ctx.slice(0, 100));
 
+  // ------------------------------------------------ Mocha shape export
+  const pt = (x, y) => "Point(" + x + "," + y + ",0,0.5,-8.88178e-16,-0.030752,0.341831,0.299147)";
+  const shapeText = ["Adobe After Effects 6.0 Keyframe Data", "", "\tUnits Per Second\t24",
+    "\tSource Width\t1920", "\tSource Height\t1080", "\tSource Pixel Aspect Ratio\t1",
+    "\tComp Pixel Aspect Ratio\t1", "", "", "Effects\tmocha shape #1\tShape data", "\tFrame",
+    "\t0\tBezier(" + pt(0.5, 0.5) + pt(0.75, 0.5) + pt(0.75, 0.75) + pt(0.5, 0.75) + ")",
+    "\t1\tBezier(" + pt(0.51, 0.5) + pt(0.76, 0.5) + pt(0.76, 0.75) + pt(0.51, 0.75) + ")", "",
+    "Effects\tmocha shape #2\tShape data", "\tFrame",
+    "\t0\tBezier(" + pt(0.1, 0.1) + pt(0.2, 0.1) + pt(0.2, 0.2) + ")", "",
+    "End of Keyframe Data", ""].join("\r\n");
+  const sh = track.parseMochaShapeText(shapeText);
+  check("parseMochaShapeText: header, two shapes, frames, points scaled to source pixels",
+    sh && sh.fps === 24 && sh.width === 1920 && sh.shapes.length === 2
+    && sh.shapes[0].name === "mocha shape #1" && sh.shapes[0].frames.length === 2
+    && sh.shapes[0].frames[0].points.length === 4
+    && sh.shapes[0].frames[0].points[0].join() === "960,540"
+    && sh.shapes[0].frames[1].points[1][0] === 0.76 * 1920
+    && sh.shapes[1].frames[0].points.length === 3, JSON.stringify(sh && sh.shapes.map((s) => [s.name, s.frames.length])));
+  check("parseMochaShapeText: plain corner-pin text has no shapes -> null", track.parseMochaShapeText(sample) === null);
+  check("parseMochaShapeText: non-keyframe text -> null", track.parseMochaShapeText("hello") === null);
+  const mrep = track.maskReport(sh.shapes[0].frames, 1920, 1080, 60);
+  check("maskReport: per-frame vertex boxes feed the same usable-range logic",
+    mrep && mrep.frames === 2 && mrep.usable_until_frame === 1 && /stayed in frame/.test(mrep.verdict), JSON.stringify(mrep));
+
   // ------------------------------------------------ PNG readiness (panel-side wait)
   const png = path.join(tmp, "grab.png");
   fs.writeFileSync(png, "partial");

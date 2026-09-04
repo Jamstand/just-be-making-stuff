@@ -37,8 +37,19 @@ for (const kind of job.exports) {
     lines.push("End of Keyframe Data", "");
     const p = path.join(job.out_dir, "corner_pin.txt"); fs.writeFileSync(p, lines.join("\r\n")); exportsOut[kind] = [p];
   } else if (kind === "mask") {
-    const p = path.join(job.out_dir, "mask.shape4ae");
-    fs.writeFileSync(p, "Adobe After Effects Mask Data (fake)\nframes " + frames + "\n"); exportsOut[kind] = [p];
+    // Real *.shape4ae layout: keyframe-data text, "mocha shape" block, one
+    // Bezier(Point(x,y,+6 numbers)...) run per frame, x/y normalised.
+    const lines = ["Adobe After Effects 6.0 Keyframe Data", "", "\tUnits Per Second\t24", "\tSource Width\t1920",
+      "\tSource Height\t1080", "\tSource Pixel Aspect Ratio\t1", "\tComp Pixel Aspect Ratio\t1", "", "",
+      "Effects\tmocha shape #1\tShape data", "\tFrame"];
+    const [x0, y0, x1, y1] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    for (let f = 0; f < frames; f++) {
+      const pts = [[x0, y0], [(x0 + x1) / 2, y0 - 5], [x1, y0], [x1, y1], [(x0 + x1) / 2, y1 + 5], [x0, y1]]
+        .map(([x, y]) => "Point(" + ((x + f * 2) / 1920).toFixed(6) + "," + ((y + f) / 1080).toFixed(6) + ",0,0.5,0,0,0.25,0.25)");
+      lines.push("\t" + (job.start_frame + f) + "\tBezier(" + pts.join("") + ")");
+    }
+    lines.push("", "End of Keyframe Data", "");
+    const p = path.join(job.out_dir, "mask.shape4ae"); fs.writeFileSync(p, lines.join("\r\n")); exportsOut[kind] = [p];
   } else exportsOut[kind] = { error: "fake python does not export " + kind };
 }
 fs.writeFileSync(job.project_path, "fake mocha project");

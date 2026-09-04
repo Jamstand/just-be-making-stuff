@@ -137,7 +137,7 @@ const status = (page) => page.evaluate(() => document.getElementById("status").t
   console.log(JSON.stringify({ tracked_ok: !!tracked, frames: tracked && tracked.frames, exports: tracked && Object.keys(tracked.exports || {}),
     applied: tracked && tracked.applied.map((a) => a.kind + ": " + JSON.stringify(a.result).slice(0, 160)), warnings: tracked && tracked.warnings,
     corner_pin_retargeted: tracked && tracked.corner_pin_retargeted, track_report: tracked && tracked.track_report,
-    clipboard_got_mask_data: /After Effects Mask Data/.test(fs.existsSync(path.join(HOME, "clip.txt")) ? fs.readFileSync(path.join(HOME, "clip.txt"), "utf8") : "") }, null, 1));
+    mask: tracked && (tracked.applied.find((x) => x.kind === "mask") || {}).result, mask_report: tracked && tracked.mask_report }, null, 1));
   await shot(page, "8-tracking");
 
   console.log("### 7. 🔍 resize narrow — layout survives?");

@@ -13,7 +13,8 @@ Prop.prototype.setTemporalEaseAtKey = function (i, a, b) { this._eases[i] = [a, 
 Prop.prototype.setInterpolationTypeAtKey = function () {};
 Prop.prototype.keyTime = function (i) { return this._keys[i - 1][0]; };
 function Group(name, mn) { this.name = name; this.matchName = mn; this._p = []; this.numProperties = 0; }
-Group.prototype.addProperty = function (mn) { const g = new Group(mn.replace("ADBE ", ""), mn);
+Group.prototype.remove = function () { const a = this._parent._p; a.splice(a.indexOf(this), 1); this._parent.numProperties = a.length; };
+Group.prototype.addProperty = function (mn) { const g = new Group(mn.replace("ADBE ", ""), mn); g._parent = this;
   if (mn === "ADBE Mask Atom") { g.name = "Mask " + (this._p.length + 1); g._p = [new Prop("Mask Path", "ADBE Mask Shape", null), new Prop("Mask Feather", "ADBE Mask Feather", [0, 0])]; }
   else if (/corner pin/i.test(mn)) g._p = ["Upper Left", "Upper Right", "Lower Left", "Lower Right"].map((n, i) => new Prop(n, "ADBE Corner Pin-000" + (i + 1), [0, 0]));
   else g._p = [new Prop("Blurriness", mn + " Blurriness", 0)];

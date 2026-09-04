@@ -93,7 +93,12 @@ path does not resolve, so the exported corner pin followed Mocha's default
 surface, not the shape (the panel now retargets the export to the shape's
 bounding box through the per-frame homography); and a region that leaves
 the frame re-locks onto whatever is left (the road), so the result carries
-a `track_report` with the usable range. Still unknown until a
+a `track_report` with the usable range. The mask export (`*.shape4ae`) turned out to be keyframe-data text whose
+"mocha shape" block holds 64 normalised x,y points per frame for the legacy
+`ISL MochaShapeImporter` effect, whose custom value AE scripting refuses;
+the panel now parses those points and builds native mask keyframes
+(RotoBezier-smoothed, chunked 40 frames per call) — no clipboard, no menu
+command. Still unknown until a
 licensed run: whether "Paste Mocha mask" places keys relative to the layer
 or to the current time (`mask_paste_at` covers both), and what fal's
 "segmented video" looks like (cut-out on black works as a luma matte; an

@@ -132,3 +132,10 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
 - grab_source_frame renders one layer's source alone in a throwaway
   __ClaudeGrab__ comp (removed by remove_temp_comp in a finally) — use it
   for tracking regions; grab_frame renders the whole stack.
+- Mask export: verify-electron/fakebin/mocha-python3 writes the real
+  *.shape4ae layout (mocha shape block, Bezier(Point(x,y,...)) rows) so the
+  drive covers tracklib.parseMochaShapeText → apply_mask_keyframes; the
+  drive prints the mask result (keys, vertices, first/last key) and
+  mask_report. A track_report/mask_report warning must only fire when
+  usable_until_frame < last_frame of the export, not when the fake exports
+  fewer frames than requested (that is its own "Export covers" warning).

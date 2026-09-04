@@ -45,8 +45,14 @@ FakeGroup.prototype.addProperty = function (mn) {
   let child;
   if (mn === "ADBE Mask Atom") child = makeMask();
   else child = makeEffect(mn);
+  child._parent = this;
   this._props.push(child); this.numProperties = this._props.length;
   return child;
+};
+FakeGroup.prototype.remove = function () {
+  const arr = this._parent._props;
+  arr.splice(arr.indexOf(this), 1);
+  this._parent.numProperties = arr.length;
 };
 FakeGroup.prototype.property = function (key) {
   if (typeof key === "number") return this._props[key - 1];
@@ -417,6 +423,34 @@ check("import_and_matte: matte lands above the layer, luma track matte set, time
   JSON.stringify(im) + " " + JSON.stringify(trackLayer._trackMatte && trackLayer._trackMatte.type));
 im = invoke("import_and_matte", { layer: 2, comp: "Track", file: "/nope/none.mp4" });
 check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.test(im.error), JSON.stringify(im));
+
+{
+  const frames = (n, start) => [...Array(n)].map((_, i) => ({ frame: start + i,
+    points: [[100 + i, 100], [300 + i, 100], [300 + i, 250], [100 + i, 250]] }));
+  const masksBefore = trackLayer._groups["ADBE Mask Parade"].numProperties;
+  let mk = invoke("apply_mask_keyframes", { layer: trackLayer.index, comp: "Track", name: "Mocha Mask",
+    fps: 59.94, time_offset_s: 1.5, stretch: 100, frames: frames(3, 90), feather: 2 });
+  const mgrp = trackLayer._groups["ADBE Mask Parade"];
+  const mocha = mgrp.property("Mocha Mask");
+  const mpath = mocha && mocha.property("ADBE Mask Shape");
+  check("apply_mask_keyframes: creates a named mask, keys at start + f/fps, closed 4-vertex shapes",
+    mk.ok && mk.data.keys === 3 && mk.data.vertices === 4 && mgrp.numProperties === masksBefore + 1
+    && mpath && Math.abs(mpath._keys[0].t - (1.5 + 90 / 59.94)) < 1e-9
+    && mpath._keys[0].v.vertices.length === 4 && mpath._keys[0].v.closed === true
+    && mocha.rotoBezier === true, JSON.stringify(mk) + " " + (mpath && mpath._keys.length));
+  mk = invoke("apply_mask_keyframes", { layer: trackLayer.index, comp: "Track", name: "Mocha Mask",
+    fps: 59.94, time_offset_s: 1.5, frames: frames(2, 93), append: true });
+  check("apply_mask_keyframes: append adds keys to the same mask (chunked calls)",
+    mk.ok && mk.data.keys === 5 && mgrp.numProperties === masksBefore + 1
+    && mgrp.property("Mocha Mask") === mocha, JSON.stringify(mk));
+  mk = invoke("apply_mask_keyframes", { layer: trackLayer.index, comp: "Track", name: "Mocha Mask",
+    fps: 59.94, time_offset_s: 1.5, frames: frames(2, 0) });
+  check("apply_mask_keyframes: re-apply replaces the mask instead of stacking keys",
+    mk.ok && mk.data.keys === 2 && mgrp.numProperties === masksBefore + 1
+    && mgrp.property("Mocha Mask") !== mocha, JSON.stringify(mk));
+  mk = invoke("apply_mask_keyframes", { layer: trackLayer.index, comp: "Track", frames: [] });
+  check("apply_mask_keyframes: empty frames is a clean error", !mk.ok && /No mask frames/.test(mk.error));
+}
 
 check("bad layer index is a clean JSON error, never a bare throw",
       r.ok === false && /has \d+ layers/.test(r.error), JSON.stringify(r));

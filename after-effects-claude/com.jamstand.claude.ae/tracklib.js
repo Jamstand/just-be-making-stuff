@@ -165,6 +165,55 @@ function parseAeKeyframeText(text) {
            blocks: blocks.filter((b) => b.keys.length) };
 }
 
+// ------------------------------------------- Mocha shape export
+// "After Effects Mask Data" (*.shape4ae) is keyframe-data text whose block
+// "Effects / mocha shape #N / Shape data" carries, per frame, one
+// Bezier(Point(x,y,...)Point(...)...) run: x,y normalised to the source
+// size, six more numbers of spline data per point. AE scripting cannot set
+// that legacy effect's custom value (live: "CUSTOM_VALUE has not been
+// implemented"), so the points become native mask keyframes instead.
+function parseMochaShapeText(text) {
+  const lines = String(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
+  if (!/Adobe After Effects .*Keyframe Data/i.test(lines[0] || "")) return null;
+  const header = {}, shapes = [];
+  let cur = null, inHeader = true;
+  for (const raw of lines.slice(1)) {
+    if (!raw.trim()) continue;
+    if (/^End of Keyframe Data/i.test(raw.trim())) break;
+    if (raw[0] !== "\t") {
+      inHeader = false;
+      const cols = raw.split("\t").filter((c) => c !== "");
+      cur = /mocha shape/i.test(cols[1] || "") ? { name: cols[1], frames: [] } : null;
+      if (cur) shapes.push(cur);
+      continue;
+    }
+    const cols = raw.split("\t").slice(1).filter((c) => c !== "");
+    if (!cols.length) continue;
+    if (inHeader) {
+      const val = parseFloat(cols[1]);
+      header[cols[0].trim()] = isNaN(val) ? (cols[1] || "").trim() : val;
+      continue;
+    }
+    if (!cur) continue;
+    const frame = parseFloat(cols[0]);
+    if (isNaN(frame) || !cols[1]) continue;
+    const width = header["Source Width"] || 1, height = header["Source Height"] || 1;
+    const points = [];
+    const re = /Point\(([^)]*)\)/g;
+    let m;
+    while ((m = re.exec(cols[1])) !== null) {
+      const n = m[1].split(",").map(parseFloat);
+      if (n.length >= 2 && !isNaN(n[0]) && !isNaN(n[1]))
+        points.push([n[0] * width, n[1] * height]);
+    }
+    if (points.length >= 3) cur.frames.push({ frame, points });
+  }
+  const kept = shapes.filter((s) => s.frames.length);
+  if (!kept.length) return null;
+  return { fps: header["Units Per Second"], width: header["Source Width"],
+           height: header["Source Height"], header, shapes: kept };
+}
+
 // ------------------------------------------- corner-pin geometry
 // Mocha exports the corners of ITS planar surface, which we could not
 // place through the API (the guide's Surface0X parameter path does not
@@ -259,17 +308,16 @@ function retargetCornerPin(blocks, target) {
 
 // Where does the track stop being believable? Corners leaving the frame
 // and centroid jumps are the two failure modes seen live (the region ran
-// off frame right, then re-locked onto the road).
-function trackReport(blocks, width, height, fps) {
-  const corners = cornerBlocks(blocks);
-  if (!corners) return null;
-  const quads = cornerQuads(corners);
+// off frame right, then re-locked onto the road). Works on any per-frame
+// point set: corner-pin quads or mask vertices.
+function motionReport(perFrame, width, height, fps) {
+  const quads = perFrame.filter((f) => f.points && f.points.length);
   if (!quads.length) return null;
   const margin = Math.max(4, width * 0.02);
   const jumpPx = width * 0.15;
   let firstPartial = null, firstOff = null, firstJump = null, prevC = null;
-  for (const { frame, quad } of quads) {
-    const xs = quad.map((p) => p[0]), ys = quad.map((p) => p[1]);
+  for (const { frame, points } of quads) {
+    const xs = points.map((p) => p[0]), ys = points.map((p) => p[1]);
     const minx = Math.min(...xs), maxx = Math.max(...xs);
     const miny = Math.min(...ys), maxy = Math.max(...ys);
     const off = maxx < 0 || minx > width || maxy < 0 || miny > height;
@@ -284,7 +332,7 @@ function trackReport(blocks, width, height, fps) {
   const bad = [firstPartial, firstOff, firstJump].filter((f) => f !== null);
   const first = quads[0].frame, last = quads[quads.length - 1].frame;
   const usableUntil = bad.length ? Math.max(first, Math.min(...bad) - 1) : last;
-  const rep = { frames: quads.length, first_frame: first, last_frame: last,
+  return { frames: quads.length, first_frame: first, last_frame: last,
     first_partially_offscreen_frame: firstPartial, first_offscreen_frame: firstOff,
     first_jump_frame: firstJump, usable_until_frame: usableUntil,
     usable_until_s: fps ? Math.round(usableUntil / fps * 1000) / 1000 : null,
@@ -292,7 +340,17 @@ function trackReport(blocks, width, height, fps) {
       : "region leaves the frame or jumps at frame " + Math.min(...bad)
         + " — keys after " + (fps ? (usableUntil / fps).toFixed(2) + "s" : "frame " + usableUntil)
         + " are the tracker holding onto something else" };
-  return rep;
+}
+
+function trackReport(blocks, width, height, fps) {
+  const corners = cornerBlocks(blocks);
+  if (!corners) return null;
+  return motionReport(cornerQuads(corners).map((q) => ({ frame: q.frame, points: q.quad })),
+                      width, height, fps);
+}
+
+function maskReport(frames, width, height, fps) {
+  return motionReport(frames, width, height, fps);
 }
 
 // ------------------------------------------------------ PNG readiness
@@ -529,7 +587,7 @@ function explainMochaError(message) {
     + "/ 'Create Track Data' on the effect, or use ai_segment for a matte.";
 }
 
-module.exports = { pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
+module.exports = { parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
   cornerBlocks, mochaEnv, explainMochaError, CONFIG_FILE, readConfig, writeConfig, findMochaPython,
   expandPattern, runMochaJob, parseAeKeyframeText, httpRequest, falUpload,
   falSubmit, falWait, download, mimeFor, FAL_QUEUE, FAL_REST };

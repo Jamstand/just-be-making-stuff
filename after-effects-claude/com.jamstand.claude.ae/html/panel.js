@@ -332,6 +332,34 @@ async function applyExport(a, info, kind, file, out) {
   const stretch = info.stretch || 100;
   const text = fs.readFileSync(file, "utf8");
   if (/Keyframe Data/i.test(text.split("\n")[0])) {
+    const shapes = track.parseMochaShapeText(text);
+    if (shapes) {
+      // Mask export: native mask keyframes, chunked so no single
+      // evalScript carries 150 frames × 64 vertices.
+      if (shapes.fps && Math.abs(shapes.fps - fps) > 0.01)
+        (out.warnings = out.warnings || []).push(kind + ": export header says "
+          + shapes.fps + " fps, source is " + fps + " — using the source rate");
+      const results = [];
+      shapes.shapes.forEach((sh, si) => { sh.maskName = (a.mask_name || "Mocha Mask")
+        + (shapes.shapes.length > 1 ? " " + (si + 1) : ""); });
+      for (const sh of shapes.shapes) {
+        let r = null;
+        for (let i = 0; i < sh.frames.length; i += 40)
+          r = await evalHost("apply_mask_keyframes", { layer: a.layer, comp: a.comp,
+            name: sh.maskName, fps, time_offset_s: offset, stretch,
+            frames: sh.frames.slice(i, i + 40), append: i > 0,
+            mode: a.mask_mode, feather: a.mask_feather, inverted: !!a.mask_inverted,
+            roto_bezier: a.roto_bezier !== false });
+        results.push(r);
+        out.mask_report = track.maskReport(sh.frames, shapes.width || info.source.width,
+                                           shapes.height || info.source.height, fps);
+      }
+      out.applied.push({ kind, file, result: results.length === 1 ? results[0] : results,
+        note: "native mask keyframes from Mocha's shape export ("
+          + shapes.shapes[0].frames[0].points.length + " vertices/frame"
+          + (a.roto_bezier !== false ? ", RotoBezier smoothing" : "") + ")" });
+      return;
+    }
     const parsed = track.parseAeKeyframeText(text);
     // Frames are frames; the header's rate is only Mocha's belief (live it
     // said 24 for 59.94 footage), so the SOURCE rate converts to seconds.
@@ -437,10 +465,14 @@ async function mochaTrack(state, a) {
       catch (e) { out.applied.push({ kind, file, error: e.message }); }
     }
   }
-  if (out.track_report && out.track_report.usable_until_frame < endF)
-    out.warnings.push("Track looks unreliable after "
-      + out.track_report.usable_until_s + "s: " + out.track_report.verdict
-      + ". Tighten the shape to textured bodywork or shorten end_s.");
+  const rep = out.track_report || out.mask_report;
+  if (rep && rep.usable_until_frame < rep.last_frame)
+    out.warnings.push("Track looks unreliable after " + rep.usable_until_s
+      + "s: " + rep.verdict + ". Tighten the shape to textured bodywork or "
+      + "shorten end_s.");
+  if (rep && (rep.first_frame > startF || rep.last_frame < endF))
+    out.warnings.push("Export covers frames " + rep.first_frame + "–"
+      + rep.last_frame + " of the requested " + startF + "–" + endF + ".");
   return out;
 }
 
@@ -595,7 +627,8 @@ tool("mocha_track",
   + "flat-ish surface visible at start_s — look with grab_source_frame "
   + "(source pixels, nothing to convert); rect [x,y,w,h] "
   + "is a shortcut. start_s/end_s in SOURCE seconds (default: the layer's "
-  + "trimmed range). exports: mask (native AE mask keyframes), corner_pin "
+  + "trimmed range). exports: mask (native AE mask keyframes built from "
+  + "Mocha's 64-point outline, RotoBezier-smoothed), corner_pin "
   + "(Corner Pin effect keys), power_pin, transform (Position/Scale/"
   + "Rotation keys), corner_pin_motion_blur. apply=true writes them onto "
   + "the layer; apply=false only writes files. Slow: about real time.",
@@ -608,8 +641,11 @@ tool("mocha_track",
     start_s: { type: "number" }, end_s: { type: "number" },
     exports: { type: "array", items: { type: "string" } },
     apply: { type: "boolean" }, layer_name: { type: "string" },
-    mask_paste_at: { type: "string", description: "'layer_start' (default) "
-      + "or 'track_start' — where the CTI sits for Paste Mocha mask" } },
+    mask_name: { type: "string" }, mask_mode: { type: "string",
+      description: "add (default), subtract, none" },
+    mask_feather: { type: "number" }, mask_inverted: { type: "boolean" },
+    roto_bezier: { type: "boolean", description: "smooth the 64-vertex "
+      + "outline (default true)" } },
   ["layer"], {}, mochaTrack);
 
 tool("apply_track_file",
@@ -619,7 +655,9 @@ tool("apply_track_file",
   + "layer. Source frame f lands at layer start + f/fps.",
   { layer: { type: "number" }, comp: { type: "string" },
     file: { type: "string" }, time_offset_s: { type: "number" },
-    mask_paste_at: { type: "string" } }, ["layer", "file"], {}, applyTrackFile);
+    mask_name: { type: "string" }, mask_mode: { type: "string" },
+    mask_feather: { type: "number" }, mask_inverted: { type: "boolean" },
+    roto_bezier: { type: "boolean" } }, ["layer", "file"], {}, applyTrackFile);
 
 tool("set_fal_key",
   "Store a fal.ai API key (for ai_segment) in ~/.claude-assistant.json "
