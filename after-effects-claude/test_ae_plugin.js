@@ -399,14 +399,14 @@ check("apply_keyframe_data: re-apply replaces, never doubles",
   ak.ok && ul._keys.length === 2 && pin.property("Lower Right")._keys.length === 1,
   JSON.stringify(ul._keys));
 ak = invoke("apply_keyframe_data", { layer: 1, comp: "Track", fps: 24,
-  blocks: [{ group: "Masks", name: "Mask 1", prop: "Mask Path",
-             keys: [{ frame: 0, values: [1] }] }] });
-ak = invoke("apply_keyframe_data", { layer: 1, comp: "Track", fps: 24,
   blocks: [{ group: "Effects", name: "CC Power Pin #1", prop: "Top Left",
              keys: [{ frame: 0, values: [1, 2] }] }], effect_name: "CC Power Pin (Mocha 0-4s)" });
 check("apply_keyframe_data: a NEW effect takes effect_name so later chats can tell runs apart",
   ak.ok && trackLayer._groups["ADBE Effect Parade"].property("CC Power Pin (Mocha 0-4s)") !== null,
   JSON.stringify(ak));
+ak = invoke("apply_keyframe_data", { layer: 1, comp: "Track", fps: 24,
+  blocks: [{ group: "Masks", name: "Mask 1", prop: "Mask Path",
+             keys: [{ frame: 0, values: [1] }] }] });
 check("apply_keyframe_data: unsupported group is a clean error",
   !ak.ok && /Unsupported keyframe group/.test(ak.error), JSON.stringify(ak));
 let pm = invoke("paste_mocha_mask", { layer: 1, comp: "Track", time_s: 1.5 });
