@@ -187,6 +187,25 @@ const exe = (name, body) => {
   const noPin = track.retargetCornerPin([pinBlocks[4]], { UL: [0, 0], UR: [1, 0], LL: [0, 1], LR: [1, 1] });
   check("retargetCornerPin: no corner blocks -> untouched, reason names what it saw",
     noPin.retargeted === false && /saw: Transform\/Position×1/.test(noPin.reason), noPin.reason);
+  // The real Mocha export (josh's corner_pin.txt): match names, 59.94 fps.
+  const realText = ["Adobe After Effects 6.0 Keyframe Data", "", "\tUnits Per Second\t59.94",
+    "\tSource Width\t1920", "\tSource Height\t1080", "\tSource Pixel Aspect Ratio\t1",
+    "\tComp Pixel Aspect Ratio\t1", ""].concat(["0001", "0002", "0003", "0004"].flatMap((n, i) => [
+      "Effects\tADBE Corner Pin #1\tADBE Corner Pin-" + n, "\tFrame\tX pixels\tY pixels",
+      "\t90\t" + (1391.2 + i * 100) + "\t" + (504.543 + i * 50), "\t91\t" + (1396.76 + i * 100) + "\t" + (504.78 + i * 50), ""]))
+    .concat(["End of Keyframe Data", ""]).join("\n");
+  const real = track.parseAeKeyframeText(realText);
+  const realCorners = track.cornerBlocks(real.blocks);
+  check("cornerBlocks: Mocha's real 'ADBE Corner Pin-0001..0004' match-name blocks map to UL/UR/LL/LR",
+    real.fps === 59.94 && realCorners && realCorners.UL.prop === "ADBE Corner Pin-0001"
+    && realCorners.LR.prop === "ADBE Corner Pin-0004" && realCorners.UL.keys[0].frame === 90,
+    JSON.stringify(real.blocks.map((b) => b.prop)));
+  const realRt = track.retargetCornerPin(real.blocks, { UL: [1345, 411], UR: [1712, 411], LL: [1345, 597], LR: [1712, 597] });
+  check("retargetCornerPin: real export retargets, frame 90 = the door box",
+    realRt.retargeted && realRt.blocks[0].keys[0].values.join() === "1345,411" && realRt.blocks[3].keys[0].values.join() === "1712,597",
+    JSON.stringify(realRt.blocks.map((b) => b.keys[0])));
+  const power = ["0002", "0003", "0004", "0005"].map((n, i) => ({ group: "Effects", name: "CC Power Pin #1", prop: "CC Power Pin-" + n, keys: [{ frame: 0, values: [i, i] }] }));
+  check("cornerBlocks: CC Power Pin-0002..0005 map the same way", track.cornerBlocks(power).LR.prop === "CC Power Pin-0005");
   const loose = pinBlocks.slice(0, 4).map((b, i) => Object.assign({}, b, { group: "Effect",
     prop: ["upper-left #2", "Upper  Right", "LOWER_LEFT", "Lower Right #5"][i] }));
   check("cornerBlocks: hyphens, case, underscores, double spaces and #n suffixes all match",

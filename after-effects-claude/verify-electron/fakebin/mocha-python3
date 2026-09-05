@@ -27,10 +27,11 @@ const corners = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.min(
                  [Math.min(...xs), Math.max(...ys)], [Math.max(...xs), Math.max(...ys)]];
 for (const kind of job.exports) {
   if (kind === "corner_pin") {
-    const lines = ["Adobe After Effects 8.0 Keyframe Data", "", "\tUnits Per Second\t24", "\tSource Width\t1920",
+    // Real Mocha layout (live file): match-name headers, no trailing tabs.
+    const lines = ["Adobe After Effects 6.0 Keyframe Data", "", "\tUnits Per Second\t" + (job.fps || 24), "\tSource Width\t1920",
       "\tSource Height\t1080", "\tSource Pixel Aspect Ratio\t1", "\tComp Pixel Aspect Ratio\t1", ""];
-    ["Upper Left", "Upper Right", "Lower Left", "Lower Right"].forEach((n, i) => {
-      lines.push("Effects\tCorner Pin #1\t" + n + " #" + (i + 2), "\tFrame\tX pixels\tY pixels\t");
+    ["0001", "0002", "0003", "0004"].forEach((n, i) => {
+      lines.push("Effects\tADBE Corner Pin #1\tADBE Corner Pin-" + n, "\tFrame\tX pixels\tY pixels");
       for (let f = 0; f < frames; f++) lines.push("\t" + (job.start_frame + f) + "\t" + (corners[i][0] + f * 2) + "\t" + (corners[i][1] + f) + "\t");
       lines.push("");
     });

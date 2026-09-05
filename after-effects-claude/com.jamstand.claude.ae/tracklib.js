@@ -260,14 +260,25 @@ const CORNER_NAMES = {
   LL: /^(lowerleft|bottomleft)/, LR: /^(lowerright|bottomright)/,
 };
 const squash = (s) => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
+// Mocha's real export (live file) names blocks by AE match name:
+// "Effects / ADBE Corner Pin #1 / ADBE Corner Pin-0001" … -0004 in
+// UL, UR, LL, LR order; CC Power Pin uses -0002 … -0005 the same way.
+function cornerKey(b) {
+  const sq = squash(b.prop || b.name);
+  for (const key of Object.keys(CORNER_NAMES)) if (CORNER_NAMES[key].test(sq)) return key;
+  const m = String(b.prop || "").match(/(\d{4})\s*$/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  const power = /power\s*pin/i.test(String(b.prop) + " " + String(b.name));
+  return ["UL", "UR", "LL", "LR"][power ? n - 2 : n - 1] || null;
+}
 function cornerBlocks(blocks) {
   const found = {};
-  for (const key of Object.keys(CORNER_NAMES)) {
-    found[key] = blocks.find((b) => CORNER_NAMES[key].test(squash(b.prop))
-      || (!b.prop && CORNER_NAMES[key].test(squash(b.name))));
-    if (!found[key]) return null;
+  for (const b of blocks) {
+    const key = cornerKey(b);
+    if (key && !found[key]) found[key] = b;
   }
-  return found;
+  return ["UL", "UR", "LL", "LR"].every((k) => found[k]) ? found : null;
 }
 function describeBlocks(blocks) {
   return blocks.map((b) => [b.group, b.name, b.prop].filter(Boolean).join("/")
