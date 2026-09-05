@@ -192,7 +192,8 @@ const exe = (name, body) => {
     "\tSource Width\t1920", "\tSource Height\t1080", "\tSource Pixel Aspect Ratio\t1",
     "\tComp Pixel Aspect Ratio\t1", ""].concat(["0001", "0002", "0003", "0004"].flatMap((n, i) => [
       "Effects\tADBE Corner Pin #1\tADBE Corner Pin-" + n, "\tFrame\tX pixels\tY pixels",
-      "\t90\t" + (1391.2 + i * 100) + "\t" + (504.543 + i * 50), "\t91\t" + (1396.76 + i * 100) + "\t" + (504.78 + i * 50), ""]))
+      "\t90\t" + (1391.2 + [0, 300, 0, 300][i]) + "\t" + (504.543 + [0, 0, 180, 180][i]),
+      "\t91\t" + (1396.76 + [0, 300, 0, 300][i]) + "\t" + (504.78 + [0, 0, 180, 180][i]), ""]))
     .concat(["End of Keyframe Data", ""]).join("\n");
   const real = track.parseAeKeyframeText(realText);
   const realCorners = track.cornerBlocks(real.blocks);
