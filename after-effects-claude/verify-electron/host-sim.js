@@ -12,25 +12,33 @@ Prop.prototype.removeKey = function (i) { this._keys.splice(i - 1, 1); this.numK
 Prop.prototype.setTemporalEaseAtKey = function (i, a, b) { this._eases[i] = [a, b]; };
 Prop.prototype.setInterpolationTypeAtKey = function () {};
 Prop.prototype.keyTime = function (i) { return this._keys[i - 1][0]; };
+Prop.prototype.keyValue = function (i) { return this._keys[i - 1][1]; };
+Prop.prototype.setValuesAtTimes = function (ts, vs) { for (let i = 0; i < ts.length; i++) this.setValueAtTime(ts[i], vs[i]); };
+Prop.prototype.expression = ""; Prop.prototype.canSetExpression = true; Prop.prototype.expressionError = "";
+Object.defineProperty(Prop.prototype, "expressionEnabled", { get() { return !!this.expression; } });
 function Group(name, mn) { this.name = name; this.matchName = mn; this._p = []; this.numProperties = 0; }
 Group.prototype.remove = function () { const a = this._parent._p; a.splice(a.indexOf(this), 1); this._parent.numProperties = a.length; };
 Group.prototype.addProperty = function (mn) { const g = new Group(mn.replace("ADBE ", ""), mn); g._parent = this;
   if (mn === "ADBE Mask Atom") { g.name = "Mask " + (this._p.length + 1); g._p = [new Prop("Mask Path", "ADBE Mask Shape", null), new Prop("Mask Feather", "ADBE Mask Feather", [0, 0])]; }
   else if (/corner pin/i.test(mn)) g._p = ["Upper Left", "Upper Right", "Lower Left", "Lower Right"].map((n, i) => new Prop(n, "ADBE Corner Pin-000" + (i + 1), [0, 0]));
+  else if (/slider control/i.test(mn)) g._p = [new Prop("Slider", "ADBE Slider Control-0001", 0)];
   else g._p = [new Prop("Blurriness", mn + " Blurriness", 0)];
   g.numProperties = g._p.length; this._p.push(g); this.numProperties = this._p.length; return g; };
 Group.prototype.property = function (k) { return typeof k === "number" ? this._p[k - 1] : (this._p.find((p) => p.matchName === k || p.name === k) || null); };
 function makeLayer(name, comp) { const tg = new Group("Transform", "ADBE Transform Group");
-  tg._p = [new Prop("Anchor Point", "ADBE Anchor Point", [0, 0]), new Prop("Position", "ADBE Position", [960, 540]), new Prop("Scale", "ADBE Scale", [100, 100]), new Prop("Rotation", "ADBE Rotate Z", 0)]; tg.numProperties = 4;
+  tg._p = [new Prop("Anchor Point", "ADBE Anchor Point", [0, 0]), new Prop("Position", "ADBE Position", [960, 540]), new Prop("Scale", "ADBE Scale", [100, 100]), new Prop("Rotation", "ADBE Rotate Z", 0), new Prop("Opacity", "ADBE Opacity", 100)]; tg.numProperties = 5;
   const groups = { "ADBE Time Remapping": new Prop("Time Remap", "ADBE Time Remapping", 0),
-  "ADBE Effect Parade": new Group("Effects", "ADBE Effect Parade"), "ADBE Mask Parade": new Group("Masks", "ADBE Mask Parade"), "ADBE Transform Group": tg };
+  "ADBE Effect Parade": new Group("Effects", "ADBE Effect Parade"), "ADBE Mask Parade": new Group("Masks", "ADBE Mask Parade"), "ADBE Transform Group": tg, "ADBE Marker": new Prop("Marker", "ADBE Marker", null) };
   const l = { name, startTime: 0, inPoint: 0, outPoint: 10, stretch: 100, hasVideo: true, selected: false, source: null, timeRemapEnabled: false, canSetTimeRemapEnabled: true,
     moveToEnd() {}, moveBefore(o) { const a = comp._layers; a.splice(a.indexOf(l), 1); a.splice(a.indexOf(o), 0, l); },
     setTrackMatte(m, t) { l._trackMatte = { matte: m.name, type: t }; }, property(k) { return groups[k] || null; } };
   Object.defineProperty(l, "index", { get() { return comp._layers.indexOf(l) + 1; } }); return l; }
 function makeComp(name, w, h, fps, dur) { const c = Object.create(CompItem.prototype);
   Object.assign(c, { name, width: w, height: h, frameRate: fps, duration: dur, time: 0, numLayers: 0, _layers: [] });
-  c.layers = { add(item) { const l = makeLayer(item.name, c); l.source = item; c._layers.unshift(l); c.numLayers = c._layers.length; return l; } };
+  c.pixelAspect = 1; c.markerProperty = new Prop("Marker", "ADBE Marker", null);
+  c.layers = { addNull(d) { const l = makeLayer("Null", c); c._layers.unshift(l); c.numLayers = c._layers.length; return l; },
+    addSolid(color, nm) { const l = makeLayer(nm, c); l._solid = color; c._layers.unshift(l); c.numLayers = c._layers.length; return l; },
+    add(item) { const l = makeLayer(item.name, c); l.source = item; c._layers.unshift(l); c.numLayers = c._layers.length; return l; } };
   c.layer = (i) => c._layers[i - 1]; c.openInViewer = () => {};
   c.remove = () => { project._items.splice(project._items.indexOf(c), 1); project.numItems = project._items.length; };
   c.saveFrameToPng = (t, f) => fs.writeFileSync(f.fsName, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"));
@@ -52,6 +60,7 @@ const ctx = vm.createContext({ app: { project, beginUndoGroup() {}, endUndoGroup
       const m = l.property("ADBE Mask Parade").addProperty("ADBE Mask Atom"); const mp = m.property("ADBE Mask Shape");
       for (let k = 0; k < 3; k++) mp.setValueAtTime(it.time + k / 24, { vertices: [[k, k]] }); } } },
   TrackMatteType: { LUMA: "LUMA", LUMA_INVERTED: "LUMA_INVERTED", ALPHA: "ALPHA", ALPHA_INVERTED: "ALPHA_INVERTED" },
+  MarkerValue: function (c) { this.comment = c; this.duration = 0; }, BlendingMode: { NORMAL: 5212, ADD: 5220, SCREEN: 5228 },
   CompItem, FootageItem, File: FileC, Folder: Object.assign(function (p) { this.fsName = p; this.exists = fs.existsSync(p); this.create = () => fs.mkdirSync(p, { recursive: true }); }, { userData: { fsName: os.homedir() } }),
   ImportOptions: function (f) { this._path = f._path; }, Shape: function () { this.vertices = []; this.closed = false; },
   KeyframeEase: function (s, i) { this.speed = s; this.influence = i; }, KeyframeInterpolationType: { HOLD: 3 }, MaskMode: { SUBTRACT: 6914 }, RQItemStatus: { DONE: "DONE" },

@@ -418,3 +418,26 @@ escaped in evalScript, run_javascript code in Copy chat, Copy button safe
 on the "assistant missing" card. Left alone (documented): run folders /
 history growth, one approval slot for parallel modifying calls, motion
 blur export semantics (refuted as a defect).
+
+## AE music / beat sync (built 2026-09-04, harness-verified, not yet live)
+
+audiolib.js: afconvert (`-f WAVE -d LEI16@22050 -c 1`, fallback without
+-c) or ffmpeg → WAV → parseWav (8/16/24/32-bit, float, extensible) →
+analyze(): 2× biquad LP 150 Hz for bass, hop 512 @ 22.05 kHz, rectified
+log-energy onsets (full + 1.5×bass), autocorrelation tempo with log-normal
+prior at 120 BPM + octave sanity (80–170), Ellis DP beat tracker
+(tightness 300), downbeat phase = max bass onset over 4 phases, bass hits =
+adaptive peaks (mean+1.5σ over ±1 s, 110 ms min gap, strength/p95),
+sections per bar (relative to loudest BAR, not loudest transient — that
+was the first bug), drop = first sustained "high" after something lower.
+Synthetic 128 BPM test: 128.4 BPM, 94% beats ≤35 ms, 35/35 kicks. Panel
+tools: music_list (~/Music/Claude Assistant + music_dirs), analyze_music
+(cache USER_DATA/audio/<sha1 of path|size|mtime>.json), add_music,
+beat_control (BEAT guide null: Beat/Bar/Bass/Energy sliders via
+set_slider_keys in chunks of 400 with setValuesAtTimes, BPM static; ♪
+markers cleared by prefix), cut_to_beats (planCuts on beats/downbeats,
+items cycle with per-item source cursor, add_clip), beat_effects
+(expressions reading thisComp.layer("BEAT").effect("Bass")("Slider")),
+plus set_expression/add_solid/add_null/set_markers/find_layer hosts.
+Unknown until live: afconvert -c support on josh's macOS, MarkerValue on
+comp.markerProperty in AE 2026, expression text accepted verbatim.

@@ -522,6 +522,107 @@ CA_TOOLS.import_and_matte = function (a) {
            target_layer: layer.index, matte: kind };
 };
 
+// ------------------------------------------------------ music / beats
+// Markers, expression-control sliders and expressions are the plumbing
+// that lets keyframed beat data drive any property in the comp.
+function CA_findLayer(comp, name) {
+  var i;
+  for (i = 1; i <= comp.numLayers; i++) if (comp.layer(i).name === name) return comp.layer(i);
+  return null;
+}
+
+CA_TOOLS.find_layer = function (a) {
+  var comp = CA_comp(a.comp);
+  var l = CA_findLayer(comp, String(a.name));
+  return { comp: comp.name, name: a.name, index: l ? l.index : null };
+};
+
+CA_TOOLS.set_markers = function (a) {
+  var comp = CA_comp(a.comp);
+  var target = (a.layer !== undefined && a.layer !== null)
+    ? CA_layer(comp, a.layer).property("ADBE Marker") : comp.markerProperty;
+  var i, m, mv, n = 0;
+  if (a.clear_prefix) {
+    for (i = target.numKeys; i >= 1; i--) {
+      mv = target.keyValue(i);
+      if (String(mv.comment).indexOf(String(a.clear_prefix)) === 0) target.removeKey(i);
+    }
+  }
+  for (i = 0; i < (a.markers || []).length; i++) {
+    m = a.markers[i];
+    mv = new MarkerValue(String(m.comment || ""));
+    if (m.duration) mv.duration = Number(m.duration);
+    target.setValueAtTime(Number(m.t), mv);
+    n += 1;
+  }
+  return { comp: comp.name, layer: a.layer === undefined ? null : a.layer,
+           added: n, total: target.numKeys };
+};
+
+// A Slider Control effect named effect_name on the layer, with keys
+// [[t, v], ...] set in one go (append=true adds to what is there).
+CA_TOOLS.set_slider_keys = function (a) {
+  var comp = CA_comp(a.comp);
+  var layer = CA_layer(comp, a.layer);
+  var fx = layer.property("ADBE Effect Parade");
+  var eff = fx.property(String(a.effect_name)), slider, i, times = [], vals = [];
+  if (!eff) { eff = fx.addProperty("ADBE Slider Control"); eff.name = String(a.effect_name); }
+  slider = eff.property("ADBE Slider Control-0001") || eff.property(1);
+  if (!a.append) while (slider.numKeys > 0) slider.removeKey(1);
+  if (a.keys && a.keys.length) {
+    for (i = 0; i < a.keys.length; i++) { times.push(Number(a.keys[i][0])); vals.push(Number(a.keys[i][1])); }
+    slider.setValuesAtTimes(times, vals);
+    if (a.hold)
+      for (i = 1; i <= slider.numKeys; i++)
+        slider.setInterpolationTypeAtKey(i, KeyframeInterpolationType.HOLD, KeyframeInterpolationType.HOLD);
+  } else if (a.value !== undefined) {
+    slider.setValue(Number(a.value));
+  }
+  return { layer: layer.name, effect: eff.name, keys: slider.numKeys };
+};
+
+CA_TOOLS.set_expression = function (a) {
+  var comp = CA_comp(a.comp);
+  var layer = CA_layer(comp, a.layer);
+  var prop = layer, i;
+  for (i = 0; i < a.path.length; i++) {
+    prop = prop.property(a.path[i]);
+    if (!prop) CA_err("No property '" + a.path[i] + "' at depth " + i + ".");
+  }
+  if (prop.canSetExpression === false) CA_err("'" + prop.name + "' cannot take an expression.");
+  prop.expression = (a.expression === null || a.expression === undefined) ? "" : String(a.expression);
+  return { layer: layer.name, property: prop.name,
+           enabled: !!prop.expressionEnabled, error: prop.expressionError || "" };
+};
+
+CA_TOOLS.add_null = function (a) {
+  var comp = CA_comp(a.comp);
+  var l = comp.layers.addNull(comp.duration);
+  l.name = a.name || "Null";
+  if (a.guide) l.guideLayer = true;
+  if (a.shy) l.shy = true;
+  return { layer: l.index, name: l.name };
+};
+
+// A solid the size of the comp; above_layer puts it right above that layer
+// (resolved BEFORE adding, since adding shifts every index by one).
+CA_TOOLS.add_solid = function (a) {
+  var comp = CA_comp(a.comp);
+  var above = (a.above_layer !== undefined && a.above_layer !== null) ? CA_layer(comp, a.above_layer) : null;
+  var c = a.color || [1, 1, 1];
+  var l = comp.layers.addSolid([Number(c[0]), Number(c[1]), Number(c[2])], a.name || "Solid",
+                               comp.width, comp.height, comp.pixelAspect || 1, comp.duration);
+  if (above) l.moveBefore(above);
+  if (a.adjustment) l.adjustmentLayer = true;
+  if (a.blend === "add") l.blendingMode = BlendingMode.ADD;
+  else if (a.blend === "screen") l.blendingMode = BlendingMode.SCREEN;
+  if (a.start_s !== undefined) l.inPoint = Number(a.start_s);
+  if (a.end_s !== undefined) l.outPoint = Number(a.end_s);
+  if (a.opacity !== undefined)
+    l.property("ADBE Transform Group").property("ADBE Opacity").setValue(Number(a.opacity));
+  return { layer: l.index, name: l.name };
+};
+
 function CA_invoke(name, argsJson) {
   var args, out;
   try {

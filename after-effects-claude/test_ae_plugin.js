@@ -36,6 +36,15 @@ FakeProperty.prototype.setInterpolationTypeAtKey = function (i, t) {
   this._interp[i] = t;
 };
 FakeProperty.prototype.keyTime = function (i) { return this._keys[i - 1].t; };
+FakeProperty.prototype.keyValue = function (i) { return this._keys[i - 1].v; };
+FakeProperty.prototype.setValuesAtTimes = function (ts, vs) {
+  for (let i = 0; i < ts.length; i++) this.setValueAtTime(ts[i], vs[i]);
+};
+Object.defineProperty(FakeProperty.prototype, "expressionEnabled",
+  { get: function () { return !!this.expression; } });
+FakeProperty.prototype.expression = "";
+FakeProperty.prototype.canSetExpression = true;
+FakeProperty.prototype.expressionError = "";
 
 function FakeGroup(name, matchName) {
   this.name = name; this.matchName = matchName;
@@ -69,6 +78,8 @@ function makeEffect(mn) {
   else if (/power pin/i.test(mn))
     g._props = ["Top Left", "Top Right", "Bottom Left", "Bottom Right"]
       .map((n, i) => new FakeProperty(n, "CC Power Pin-000" + (i + 2), [0, 0]));
+  else if (/slider control/i.test(mn))
+    g._props = [new FakeProperty("Slider", "ADBE Slider Control-0001", 0)];
   else
     g._props = [new FakeProperty("Blurriness", mn + " Blurriness", 0),
                 new FakeProperty("Direction", mn + " Direction", 0)];
@@ -102,6 +113,7 @@ function makeLayer(name, comp) {
                                               "ADBE Time Remapping", 0),
       "ADBE Effect Parade": new FakeGroup("Effects", "ADBE Effect Parade"),
       "ADBE Mask Parade": new FakeGroup("Masks", "ADBE Mask Parade"),
+      "ADBE Marker": new FakeProperty("Marker", "ADBE Marker", null),
       "ADBE Transform Group": (function () {
         const t = new FakeGroup("Transform", "ADBE Transform Group");
         t._props = [new FakeProperty("Anchor Point", "ADBE Anchor Point", [0, 0]),
@@ -124,13 +136,25 @@ let pendingPng = null, pngSleeps = 0;
 
 function makeComp(name, w, h, fps, dur) {
   const comp = Object.create(CompItem.prototype);
-  comp.name = name; comp.width = w; comp.height = h;
+  comp.name = name; comp.width = w; comp.height = h; comp.pixelAspect = 1;
   comp.frameRate = fps; comp.duration = dur; comp.time = 0;
+  comp.markerProperty = new FakeProperty("Marker", "ADBE Marker", null);
   comp.numLayers = 0; comp._layers = []; comp._order = [];
   comp.layers = {
     add: function (item, dur2) {
       const l = makeLayer(item.name, comp);
       l.source = item;
+      comp._layers.unshift(l); comp.numLayers = comp._layers.length;
+      return l;
+    },
+    addNull: function (dur) {
+      const l = makeLayer("Null", comp);
+      comp._layers.unshift(l); comp.numLayers = comp._layers.length;
+      return l;
+    },
+    addSolid: function (color, nm, w, h, pa, dur) {
+      const l = makeLayer(nm, comp);
+      l._solid = color;
       comp._layers.unshift(l); comp.numLayers = comp._layers.length;
       return l;
     },
@@ -240,6 +264,8 @@ function buildSandbox() {
     KeyframeInterpolationType: { LINEAR: 1, BEZIER: 2, HOLD: 3 },
     MaskMode: { ADD: 6913, SUBTRACT: 6914 },
     RQItemStatus: { DONE: "DONE" },
+    MarkerValue: function (c) { this.comment = c; this.duration = 0; },
+    BlendingMode: { NORMAL: 5212, ADD: 5220, SCREEN: 5228 },
     TrackMatteType: { LUMA: "LUMA", LUMA_INVERTED: "LUMA_INVERTED",
                       ALPHA: "ALPHA", ALPHA_INVERTED: "ALPHA_INVERTED",
                       NO_TRACK_MATTE: "NONE" },
@@ -486,6 +512,47 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
     fps: 24, frames: [{ frame: 0, points: [[1, 1]] }].concat(frames(2, 1)) });
   check("apply_mask_keyframes: a first frame with <3 points is skipped, vertices reported from the first real one",
     mk.ok && mk.data.keys === 2 && mk.data.vertices === 4, JSON.stringify(mk));
+}
+
+// ------------------------------------------------------ music / beats (host)
+{
+  const c = "Track";
+  const fm = invoke("find_layer", { comp: c, name: "nope" });
+  check("find_layer: missing name -> null index", fm.ok && fm.data.index === null, JSON.stringify(fm));
+  const sm = invoke("set_markers", { comp: c, markers: [{ t: 1, comment: "♪ bar 1" }, { t: 2, comment: "♪ bar 2" }, { t: 3, comment: "cut" }] });
+  const sm2 = invoke("set_markers", { comp: c, markers: [{ t: 1.5, comment: "♪ DROP", duration: 0.5 }], clear_prefix: "♪" });
+  check("set_markers: comp markers; clear_prefix removes only the ♪ ones",
+    sm.ok && sm.data.total === 3 && sm2.ok && sm2.data.total === 2
+    && trackComp.markerProperty._keys.some((k) => k.v.comment === "cut")
+    && !trackComp.markerProperty._keys.some((k) => /bar/.test(k.v.comment))
+    && trackComp.markerProperty._keys.some((k) => k.v.comment === "♪ DROP" && k.v.duration === 0.5),
+    JSON.stringify([sm, sm2]));
+  const lm = invoke("set_markers", { comp: c, layer: trackLayer.index, markers: [{ t: 0.5, comment: "hit" }] });
+  check("set_markers: layer markers land on the layer", lm.ok && trackLayer._groups["ADBE Marker"]._keys.length === 1, JSON.stringify(lm));
+  let sk = invoke("set_slider_keys", { comp: c, layer: trackLayer.index, effect_name: "Bass", keys: [[1, 0], [1.02, 0.8], [1.17, 0]] });
+  const fxg = trackLayer._groups["ADBE Effect Parade"];
+  const bass = fxg.property("Bass");
+  check("set_slider_keys: creates a Slider Control named Bass with 3 keys",
+    sk.ok && sk.data.keys === 3 && bass && bass.matchName === "ADBE Slider Control" && bass.property("ADBE Slider Control-0001")._keys.length === 3, JSON.stringify(sk));
+  sk = invoke("set_slider_keys", { comp: c, layer: trackLayer.index, effect_name: "Bass", keys: [[2, 1]], append: true });
+  check("set_slider_keys: append adds to the same effect", sk.ok && sk.data.keys === 4 && fxg.property("Bass") === bass, JSON.stringify(sk));
+  sk = invoke("set_slider_keys", { comp: c, layer: trackLayer.index, effect_name: "Bass", keys: [[0, 1]], hold: true });
+  check("set_slider_keys: replace + hold interpolation", sk.ok && sk.data.keys === 1 && bass.property(1)._interp[1] === 3, JSON.stringify(sk));
+  sk = invoke("set_slider_keys", { comp: c, layer: trackLayer.index, effect_name: "BPM", value: 128 });
+  check("set_slider_keys: static value", sk.ok && fxg.property("BPM").property(1).value === 128, JSON.stringify(sk));
+  const se = invoke("set_expression", { comp: c, layer: trackLayer.index, path: ["ADBE Transform Group", "ADBE Scale"], expression: "value * 2" });
+  check("set_expression: sets and reports enabled",
+    se.ok && se.data.enabled === true && trackLayer._groups["ADBE Transform Group"].property("ADBE Scale").expression === "value * 2", JSON.stringify(se));
+  const se2 = invoke("set_expression", { comp: c, layer: trackLayer.index, path: ["ADBE Transform Group", "ADBE Nope"], expression: "1" });
+  check("set_expression: bad path is a clean error", !se2.ok && /No property/.test(se2.error), JSON.stringify(se2));
+  const n0 = trackComp.numLayers;
+  const nl = invoke("add_null", { comp: c, name: "BEAT", guide: true });
+  check("add_null: guide null on top", nl.ok && nl.data.layer === 1 && trackComp.layer(1).name === "BEAT"
+    && trackComp.layer(1).guideLayer === true && trackComp.numLayers === n0 + 1, JSON.stringify(nl));
+  const so = invoke("add_solid", { comp: c, name: "FLASH", color: [1, 1, 1], above_layer: trackLayer.index, blend: "add", opacity: 0 });
+  check("add_solid: directly above the target, ADD blend, opacity applied",
+    so.ok && trackComp.layer(so.data.layer + 1) === trackLayer && trackComp.layer(so.data.layer).blendingMode === 5220
+    && trackComp.layer(so.data.layer)._groups["ADBE Transform Group"].property("ADBE Opacity").value === 0, JSON.stringify(so));
 }
 
 check("bad layer index is a clean JSON error, never a bare throw",

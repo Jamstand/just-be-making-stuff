@@ -104,3 +104,29 @@ licensed run: whether "Paste Mocha mask" places keys relative to the layer
 or to the current time (`mask_paste_at` covers both), and what fal's
 "segmented video" looks like (cut-out on black works as a luma matte; an
 overlay does not).
+
+## Music and beat sync
+
+Drop songs into `~/Music/Claude Assistant` (or list folders as `music_dirs`
+in `~/.claude-assistant.json`). The panel decodes them with macOS's own
+`afconvert` (ffmpeg elsewhere) and analyses them locally: tempo, every beat
+and downbeat, bass hits with strength, intro/build/drop sections, and the
+drop time. Tools:
+
+- **music_list / analyze_music** — the library and a song's beat map.
+- **add_music** — imports the song and adds it to the comp.
+- **beat_control** — a guide null named BEAT with keyframed Slider Controls
+  (Beat, Bar, Bass, Energy, BPM) plus bar/drop markers on the comp, so any
+  expression can follow the music.
+- **cut_to_beats** — lays clips on the beat (or bar) grid with a pattern
+  such as [4,4,2,2,1,1,1,1], cycling through the footage.
+- **beat_effects** — punch / shake / zoom / opacity / flash expressions
+  wired to the BEAT sliders; still editable in AE.
+- **set_expression / add_solid / add_null / set_markers** — the plumbing,
+  also usable directly.
+
+A speed ramp into the drop is `speed_ramp` at `drop_s`. Analysis is pure
+JS on PCM (biquad bass band, log-energy onsets, autocorrelation tempo with a
+120 BPM prior, dynamic-programming beat tracking, adaptive peak picking);
+on a synthetic 128 BPM track it lands within 1 BPM, 94% of beats within
+35 ms, every kick found.

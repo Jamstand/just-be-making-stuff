@@ -56,6 +56,7 @@ const EXT_ROOT = (function () {
 })();
 const historyLib = require(path.join(EXT_ROOT, "history.js"));
 const track = require(path.join(EXT_ROOT, "tracklib.js"));
+const audio = require(path.join(EXT_ROOT, "audiolib.js"));
 const MOCHA_SCRIPT = path.join(EXT_ROOT, "host", "mocha_job.py");
 const USER_DATA = path.join(os.homedir(), "Library", "Application Support",
                             "ClaudeAssistantAE");
@@ -85,6 +86,14 @@ const SYSTEM_PROMPT = [
   "— call track_history before touching them, and never rebuild or delete",
   "keyframes you did not create in THIS chat without asking. Name what you",
   "add (masks 'Mocha <range>', effects 'Corner Pin (Mocha <range>)').",
+  "MUSIC: music_list shows the songs in ~/Music/Claude Assistant (or",
+  "music_dirs in the config); analyze_music gives bpm, beats, downbeats,",
+  "bass hits, sections and drop_s; add_music puts a song in the comp;",
+  "beat_control makes a BEAT null with keyframed sliders (Beat, Bar, Bass,",
+  "Energy, BPM) plus bar/drop markers; cut_to_beats lays clips on the",
+  "grid; beat_effects wires punch / shake / flash / zoom expressions to",
+  "those sliders; speed_ramp can land on drop_s. Pick a song whose length",
+  "and energy suit the edit, tell the user which and why.",
   "Output codecs are template-only (no",
   "field-by-field codec settings); Lumetri parameter names are not",
   "documented — apply_effect returns each effect's real property list, use",
@@ -848,6 +857,309 @@ tool("ai_segment",
     matte: { type: "string", description: "luma (default), luma_inverted, "
       + "alpha, alpha_inverted, none" },
     dry_run: { type: "boolean" } }, ["layer"], {}, aiSegment);
+
+// ------------------------------------------------------ music / beats
+const AUDIO_DIR = path.join(USER_DATA, "audio");
+
+function musicDirs() {
+  const cfg = track.readConfig();
+  const dirs = Array.isArray(cfg.music_dirs) ? cfg.music_dirs.slice() : [];
+  const def = audio.defaultMusicDir();
+  if (!dirs.includes(def)) dirs.unshift(def);
+  return dirs;
+}
+
+function resolveSong(nameOrFile) {
+  if (!nameOrFile) throw new Error("Which song? Give a file path or a name from music_list.");
+  const s = String(nameOrFile);
+  if (fs.existsSync(s)) return s;
+  const songs = audio.listSongs(musicDirs());
+  const low = s.toLowerCase();
+  const hit = songs.find((x) => x.name.toLowerCase() === low)
+    || songs.find((x) => path.basename(x.file).toLowerCase() === low)
+    || songs.find((x) => x.name.toLowerCase().includes(low));
+  if (!hit) throw new Error("No song '" + s + "' in " + musicDirs().join(", ")
+    + ". Drop songs into " + audio.defaultMusicDir() + " or give a full path.");
+  return hit.file;
+}
+
+async function analysisFor(file, force) {
+  fs.mkdirSync(AUDIO_DIR, { recursive: true });
+  const key = audio.cacheKey(file);
+  const cache = path.join(AUDIO_DIR, key + ".json");
+  if (!force && fs.existsSync(cache)) {
+    try { return JSON.parse(fs.readFileSync(cache, "utf8")); } catch (e) {}
+  }
+  const wav = await audio.decodeToWav(file, AUDIO_DIR);
+  const pcm = audio.parseWav(fs.readFileSync(wav));
+  const a = audio.analyze(pcm.samples, pcm.sampleRate);
+  a.file = file; a.analyzed_at = new Date().toISOString();
+  fs.writeFileSync(cache, JSON.stringify(a));
+  return a;
+}
+
+function summary(a) {
+  return { file: a.file, duration_s: a.duration_s, bpm: a.bpm, beat_s: a.beat_s,
+    tempo_confidence: a.tempo_confidence, beats: a.beats.length, bars: a.downbeats.length,
+    first_beat_s: a.beats[0], first_downbeat_s: a.downbeats[0], bass_hits: a.bass_hits.length,
+    drop_s: a.drop_s, sections: a.sections.map((s) => ({ kind: s.kind, start_s: s.start_s,
+      end_s: s.end_s, bars: s.bars, energy: s.energy })),
+    downbeats_first_32: a.downbeats.slice(0, 32),
+    note: "beat/downbeat/bass-hit times are SONG seconds; add the music layer's "
+      + "start (offset_s) to get comp time" };
+}
+
+async function sliderKeys(comp, layerIndex, name, keys, hold) {
+  let r = null;
+  if (!keys.length) return evalHost("set_slider_keys", { comp, layer: layerIndex, effect_name: name, value: 0 });
+  for (let i = 0; i < keys.length; i += 400)
+    r = await evalHost("set_slider_keys", { comp, layer: layerIndex, effect_name: name,
+      keys: keys.slice(i, i + 400), append: i > 0, hold: !!hold });
+  return r;
+}
+
+tool("music_list",
+  "The song library: every audio file in ~/Music/Claude Assistant (plus any "
+  + "music_dirs in ~/.claude-assistant.json), with cached bpm/duration where "
+  + "a song was analysed before. Drop songs into that folder to add them.",
+  { dir: { type: "string", description: "extra folder to include this time" } },
+  [], { readonly: true }, async (s, a) => {
+    const dirs = musicDirs().concat(a.dir ? [String(a.dir)] : []);
+    try { fs.mkdirSync(audio.defaultMusicDir(), { recursive: true }); } catch (e) {}
+    const songs = audio.listSongs(dirs).map((song) => {
+      const out = Object.assign({}, song);
+      try {
+        const cache = path.join(AUDIO_DIR, audio.cacheKey(song.file) + ".json");
+        if (fs.existsSync(cache)) {
+          const a = JSON.parse(fs.readFileSync(cache, "utf8"));
+          out.bpm = a.bpm; out.duration_s = a.duration_s; out.drop_s = a.drop_s; out.analyzed = true;
+        }
+      } catch (e) {}
+      return out;
+    });
+    return { folders: dirs, songs, count: songs.length,
+      hint: songs.length ? "analyze_music <name> for beats; add_music <name> to put it in the comp"
+        : "No songs yet — drop MP3/M4A/WAV files into " + audio.defaultMusicDir() };
+  });
+
+tool("analyze_music",
+  "Beats for a song: bpm, beat and downbeat (bar) times, bass hits with "
+  + "strength, sections (intro/build/drop/verse/quiet) and drop_s. Decodes "
+  + "with macOS afconvert (or ffmpeg), analyses locally, caches the result. "
+  + "Times are SONG seconds.",
+  { song: { type: "string", description: "name from music_list or a file path" },
+    force: { type: "boolean" } }, ["song"], { readonly: true },
+  async (s, a) => summary(await analysisFor(resolveSong(a.song), a.force)));
+
+tool("add_music",
+  "Import a song and add it to the comp as the bottom layer starting at "
+  + "start_s (default 0). Returns the layer index and the beat summary with "
+  + "offset_s = start_s so beat times can be placed in comp time. "
+  + "extend_comp lengthens the comp to fit the song.",
+  { song: { type: "string" }, comp: { type: "string" }, start_s: { type: "number" },
+    extend_comp: { type: "boolean" } }, ["song"], {},
+  async (s, a) => {
+    const file = resolveSong(a.song);
+    const analysis = await analysisFor(file, false);
+    await evalHost("import_media", { paths: [file] });
+    const itemName = path.basename(file);
+    const start = a.start_s !== undefined ? Number(a.start_s) : 0;
+    const clip = await evalHost("add_clip", { item_name: itemName, comp: a.comp,
+      start_s: start, in_s: 0, out_s: analysis.duration_s });
+    let extended = null;
+    if (a.extend_comp)
+      extended = await evalHost("run_extendscript", { code:
+        "var c=null,i;for(i=1;i<=app.project.numItems;i++){var it=app.project.item(i);"
+        + "if(it instanceof CompItem&&it.name===" + JSON.stringify(a.comp || "") + ")c=it;}"
+        + "if(!c)c=app.project.activeItem;var need=" + (start + analysis.duration_s)
+        + ";if(c.duration<need)c.duration=need;c.duration" });
+    return Object.assign({ layer: clip.layer, item: itemName, offset_s: start,
+      comp_end_s: start + analysis.duration_s, comp_extended_to_s: extended && extended.result },
+      summary(analysis));
+  });
+
+tool("beat_control",
+  "Make (or refresh) a guide null named BEAT in the comp with keyframed "
+  + "Slider Controls any expression can read: Beat (1 at every beat, decaying "
+  + "to 0), Bar (same on downbeats), Bass (0→strength→0 around each bass hit, "
+  + "150 ms), Energy (0-1 every 0.25 s), BPM (constant). Also drops comp "
+  + "markers on bars and the drop. offset_s = where the song starts in the "
+  + "comp (add_music's offset_s). Then use beat_effects or your own "
+  + "expressions: thisComp.layer(\"BEAT\").effect(\"Bass\")(\"Slider\").",
+  { song: { type: "string" }, comp: { type: "string" }, offset_s: { type: "number" },
+    layer_name: { type: "string" },
+    markers: { type: "string", description: "bars (default), beats, or none" } },
+  ["song"], {},
+  async (s, a) => {
+    const file = resolveSong(a.song);
+    const an = await analysisFor(file, false);
+    const off = Number(a.offset_s) || 0;
+    const name = a.layer_name || "BEAT";
+    let found = await evalHost("find_layer", { comp: a.comp, name });
+    let layer = found.index;
+    if (!layer) layer = (await evalHost("add_null", { comp: a.comp, name, guide: true })).layer;
+    const beatLen = an.beat_s;
+    const beatKeys = [], barKeys = [], bassKeys = [], energyKeys = [];
+    for (const t of an.beats) { beatKeys.push([off + t, 1], [off + t + beatLen * 0.9, 0]); }
+    for (const t of an.downbeats) { barKeys.push([off + t, 1], [off + t + beatLen * 4 * 0.9, 0]); }
+    for (const h of an.bass_hits) { bassKeys.push([off + h.t - 0.02, 0], [off + h.t, h.strength], [off + h.t + 0.15, 0]); }
+    an.energy.forEach((e, i) => energyKeys.push([off + i * an.energy_step_s, e]));
+    const dedupe = (keys) => { const m = new Map(); for (const k of keys) m.set(Math.round(k[0] * 1000), k); return [...m.values()].sort((x, y) => x[0] - y[0]); };
+    const out = { layer, name, offset_s: off, sliders: {} };
+    out.sliders.Beat = (await sliderKeys(a.comp, layer, "Beat", dedupe(beatKeys))).keys;
+    out.sliders.Bar = (await sliderKeys(a.comp, layer, "Bar", dedupe(barKeys))).keys;
+    out.sliders.Bass = (await sliderKeys(a.comp, layer, "Bass", dedupe(bassKeys))).keys;
+    out.sliders.Energy = (await sliderKeys(a.comp, layer, "Energy", dedupe(energyKeys))).keys;
+    await evalHost("set_slider_keys", { comp: a.comp, layer, effect_name: "BPM", value: an.bpm });
+    const mode = a.markers || "bars";
+    if (mode !== "none") {
+      const marks = [];
+      if (mode === "beats") an.beats.forEach((t, i) => marks.push({ t: off + t, comment: "♪ beat " + (i + 1) }));
+      else an.downbeats.forEach((t, i) => marks.push({ t: off + t, comment: "♪ bar " + (i + 1) }));
+      if (an.drop_s !== null) marks.push({ t: off + an.drop_s, comment: "♪ DROP" });
+      for (const sec of an.sections) if (sec.kind !== "drop") marks.push({ t: off + sec.start_s, comment: "♪ " + sec.kind });
+      let r = null;
+      for (let i = 0; i < marks.length; i += 300)
+        r = await evalHost("set_markers", { comp: a.comp, markers: marks.slice(i, i + 300),
+          clear_prefix: i === 0 ? "♪" : undefined });
+      out.markers = r && r.total;
+    }
+    out.expression_example = "thisComp.layer(\"" + name + "\").effect(\"Bass\")(\"Slider\")";
+    out.drop_comp_s = an.drop_s === null ? null : off + an.drop_s;
+    return out;
+  });
+
+tool("cut_to_beats",
+  "Lay clips on the beat grid: each clip runs for pattern[k] beats (or bars "
+  + "with on:'bars'), back to back from the first grid point at/after "
+  + "start_s (comp seconds). items = footage names from the project; they "
+  + "cycle if there are more cuts than items, each reuse continuing from "
+  + "where that item left off. Uses add_clip, so clips land under existing "
+  + "layers. Returns the cut list.",
+  { song: { type: "string" }, comp: { type: "string" },
+    items: { type: "array", items: { type: "string" } },
+    offset_s: { type: "number", description: "song start in comp (add_music's offset_s)" },
+    start_s: { type: "number" }, end_s: { type: "number" },
+    pattern: { type: "array", items: { type: "number" },
+      description: "beats per cut, e.g. [4,4,2,2,1,1,1,1] (default)" },
+    on: { type: "string", description: "beats (default) or bars" },
+    count: { type: "number" },
+    source_in_s: { type: "array", items: { type: "number" },
+      description: "per item: where in the source to start (default 0)" } },
+  ["song", "items"], {},
+  async (s, a) => {
+    if (!Array.isArray(a.items) || !a.items.length) throw new Error("items: give at least one footage name.");
+    const an = await analysisFor(resolveSong(a.song), false);
+    const off = Number(a.offset_s) || 0;
+    const grid = (a.on === "bars" ? an.downbeats : an.beats).map((t) => off + t);
+    const count = a.count || a.items.length;
+    const cuts = audio.planCuts(grid, a.pattern, Number(a.start_s) || 0, count,
+                                a.end_s !== undefined ? Number(a.end_s) : null);
+    if (!cuts.length) throw new Error("No grid points at/after start_s " + (a.start_s || 0)
+      + " — the song's grid runs " + grid[0] + "–" + grid[grid.length - 1] + "s in comp time.");
+    const cursor = a.items.map((_, i) => Number((a.source_in_s || [])[i]) || 0);
+    const placed = [];
+    for (let k = 0; k < cuts.length; k++) {
+      const i = k % a.items.length;
+      const dur = cuts[k].end_s - cuts[k].start_s;
+      const r = await evalHost("add_clip", { item_name: a.items[i], comp: a.comp,
+        start_s: cuts[k].start_s, in_s: cursor[i], out_s: cursor[i] + dur });
+      cursor[i] += dur;
+      placed.push({ item: a.items[i], layer: r.layer, comp_in_s: r.comp_start_s,
+        comp_out_s: r.comp_end_s, source_in_s: r.source_in_s, beats: cuts[k].beats });
+    }
+    return { cuts: placed.length, grid: a.on === "bars" ? "bars" : "beats", bpm: an.bpm,
+      first_cut_s: placed[0].comp_in_s, last_cut_end_s: placed[placed.length - 1].comp_out_s, placed };
+  });
+
+tool("beat_effects",
+  "Wire a layer to the BEAT sliders (beat_control first): style punch "
+  + "(scale pumps on hits), shake (position jitter on hits), zoom (slow "
+  + "scale on bars), flash (a white ADD solid above the layer that pops on "
+  + "hits), opacity (dips between beats). on: bass (default), beat or bar. "
+  + "amount: punch/zoom = percent (8), shake = px (12), flash/opacity = "
+  + "percent (60). Expressions stay editable in AE.",
+  { layer: { type: "number" }, comp: { type: "string" },
+    style: { type: "string" }, on: { type: "string" }, amount: { type: "number" },
+    control_layer: { type: "string" } }, ["layer", "style"], {},
+  async (s, a) => {
+    const ctl = a.control_layer || "BEAT";
+    const sliderName = a.on === "beat" ? "Beat" : a.on === "bar" ? "Bar" : "Bass";
+    const src = "thisComp.layer(\"" + ctl + "\").effect(\"" + sliderName + "\")(\"Slider\")";
+    const found = await evalHost("find_layer", { comp: a.comp, name: ctl });
+    if (!found.index) throw new Error("No '" + ctl + "' layer in the comp — run beat_control first.");
+    const amt = a.amount;
+    const T = "ADBE Transform Group";
+    let r;
+    switch (String(a.style)) {
+      case "punch": {
+        const k = (amt !== undefined ? amt : 8) / 100;
+        r = await evalHost("set_expression", { comp: a.comp, layer: a.layer, path: [T, "ADBE Scale"],
+          expression: "var p = " + src + ";\nvalue * (1 + " + k + " * p)" });
+        break;
+      }
+      case "zoom": {
+        const k = (amt !== undefined ? amt : 5) / 100;
+        r = await evalHost("set_expression", { comp: a.comp, layer: a.layer, path: [T, "ADBE Scale"],
+          expression: "var p = thisComp.layer(\"" + ctl + "\").effect(\"Bar\")(\"Slider\");\nvalue * (1 + " + k + " * p)" });
+        break;
+      }
+      case "shake": {
+        const px = amt !== undefined ? amt : 12;
+        r = await evalHost("set_expression", { comp: a.comp, layer: a.layer, path: [T, "ADBE Position"],
+          expression: "var p = " + src + ";\nseedRandom(index + Math.floor(time * 30), true);\n"
+            + "value + [random(-" + px + ", " + px + "), random(-" + px + ", " + px + ")] * p" });
+        break;
+      }
+      case "opacity": {
+        const k = amt !== undefined ? amt : 60;
+        r = await evalHost("set_expression", { comp: a.comp, layer: a.layer, path: [T, "ADBE Opacity"],
+          expression: "var p = " + src + ";\nvalue * (1 - " + (k / 100) + " * (1 - p))" });
+        break;
+      }
+      case "flash": {
+        const k = amt !== undefined ? amt : 60;
+        const solid = await evalHost("add_solid", { comp: a.comp, name: "FLASH (" + sliderName + ")",
+          color: [1, 1, 1], above_layer: a.layer, blend: "add" });
+        r = await evalHost("set_expression", { comp: a.comp, layer: solid.layer, path: [T, "ADBE Opacity"],
+          expression: src + " * " + k });
+        r.solid_layer = solid.layer;
+        break;
+      }
+      default:
+        throw new Error("style must be punch, zoom, shake, opacity or flash.");
+    }
+    if (r && r.error) throw new Error("After Effects rejected the expression: " + r.error);
+    return Object.assign({ style: a.style, on: sliderName, control: ctl }, r);
+  });
+
+tool("set_expression",
+  "Set (or clear with an empty string) an expression on a property by "
+  + "match-name path, e.g. [\"ADBE Transform Group\",\"ADBE Scale\"] or "
+  + "[\"ADBE Effect Parade\",\"Glow\",\"ADBE Glo2-0002\"]. Returns AE's "
+  + "expression error text if it did not compile.",
+  { layer: { type: "number" }, comp: { type: "string" },
+    path: { type: "array", items: { type: "string" } }, expression: { type: "string" } },
+  ["layer", "path"], {});
+
+tool("add_solid",
+  "Add a comp-sized solid: color [r,g,b] 0-1, optional above_layer, blend "
+  + "add/screen, adjustment:true for an adjustment layer, start_s/end_s, opacity.",
+  { comp: { type: "string" }, name: { type: "string" }, color: { type: "array" },
+    above_layer: { type: "number" }, blend: { type: "string" }, adjustment: { type: "boolean" },
+    start_s: { type: "number" }, end_s: { type: "number" }, opacity: { type: "number" } }, [], {});
+
+tool("add_null", "Add a null object layer (guide:true keeps it out of renders).",
+  { comp: { type: "string" }, name: { type: "string" }, guide: { type: "boolean" },
+    shy: { type: "boolean" } }, [], {});
+
+tool("set_markers",
+  "Comp markers (or a layer's with layer set): [{t, comment, duration}] in "
+  + "comp seconds; clear_prefix removes existing markers whose comment starts "
+  + "with it first.",
+  { comp: { type: "string" }, layer: { type: "number" },
+    markers: { type: "array", items: { type: "object" } },
+    clear_prefix: { type: "string" } }, ["markers"], {});
 
 // ------------------------------------------------------------ approvals
 const state = { permissionMode: "Ask before edits", approveAllEdits: false,

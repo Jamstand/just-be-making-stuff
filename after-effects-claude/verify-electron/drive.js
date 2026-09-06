@@ -140,6 +140,23 @@ const status = (page) => page.evaluate(() => document.getElementById("status").t
     mask: tracked && (tracked.applied.find((x) => x.kind === "mask") || {}).result, mask_report: tracked && tracked.mask_report }, null, 1));
   await shot(page, "8-tracking");
 
+  console.log("### 9. 🔍 music: synth song -> music_list, analyze, add_music, beat_control, cut_to_beats, beat_effects");
+  await page.fill("#input", "make a beat edit");
+  await page.press("#input", "Enter");
+  await page.waitForFunction(() => !document.getElementById("approval").hidden || document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 30000 });
+  if (!(await page.$eval("#approval", (e) => e.hidden))) await page.click("#ap-always");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 90000 });
+  const beatText = await page.$eval("#chat .card.claude:last-of-type .prose", (e) => e.textContent);
+  let beat = null; try { beat = JSON.parse(beatText.replace(/^Beat — /, "")); } catch (e) {}
+  console.log(JSON.stringify({ ok: !!beat, songs: beat && beat.songs, bpm: beat && beat.analysis.bpm, beats: beat && beat.analysis.beats,
+    drop_s: beat && beat.analysis.drop_s, first_downbeat: beat && beat.analysis.first_downbeat_s,
+    music_layer: beat && beat.music.layer, sliders: beat && beat.control.sliders, markers: beat && beat.control.markers,
+    cuts: beat && beat.cuts.cuts, first_cut_s: beat && beat.cuts.first_cut_s, cut_beats: beat && beat.cuts.placed && beat.cuts.placed.map((p) => p.beats),
+    punch: beat && (beat.punch.enabled !== undefined ? beat.punch.enabled : beat.punch), flash_solid: beat && beat.flash.solid_layer,
+    errors: beat && Object.entries(beat).filter(([k, v]) => v && v.error).map(([k, v]) => k + ": " + String(v.error).slice(0, 200)) }, null, 1));
+  console.log(JSON.stringify({ tool_lines: (await cards(page)).filter((c) => /^TOOL/.test(c)).slice(-9) }, null, 1));
+  await shot(page, "9-beat");
+
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {
     await page.setViewportSize({ width: w, height: 560 });

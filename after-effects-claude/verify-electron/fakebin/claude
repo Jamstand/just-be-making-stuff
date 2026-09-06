@@ -29,6 +29,31 @@ process.stdin.on("end", async () => {
     out({ type: "assistant", message: { content: [{ type: "text", text: "Connected. Overview: " + ov.content[0].text }] } });
     const cc = await call("create_comp", { name: "Hello Comp", width: 1080, height: 1920, fps: 59.94, duration_s: 10 });
     out({ type: "assistant", message: { content: [{ type: "text", text: cc.isError ? "create_comp was declined: " + cc.content[0].text : "Made **Hello Comp** — `" + cc.content[0].text + "`" }] } });
+  } else if (/beat|music/i.test(prompt)) {
+    const os = require("os"), path = require("path");
+    const audio = require(path.join(process.env.AE_EXT, "audiolib.js"));
+    const j = (r) => { try { return JSON.parse(r.content[0].text); } catch (e) { return { error: r.content[0].text }; } };
+    const dir = path.join(os.homedir(), "Music", "Claude Assistant"); fs.mkdirSync(dir, { recursive: true });
+    const sr = 22050, secs = 12, beat = 0.5, x = new Float32Array(sr * secs);
+    for (let i = 0; i < x.length; i++) x[i] = 0.01 * Math.sin(2 * Math.PI * 220 * i / sr);
+    for (let k = 0; 0.2 + k * beat + 0.1 < secs; k++) {
+      const s0 = Math.round((0.2 + k * beat) * sr), amp = k % 4 === 0 ? 0.9 : 0.6;
+      for (let q = 0; q < 0.09 * sr; q++) x[s0 + q] += amp * Math.exp(-q / (0.03 * sr)) * Math.sin(2 * Math.PI * 60 * q / sr);
+    }
+    fs.writeFileSync(path.join(dir, "beat-test.wav"), audio.writeWav(x, sr));
+    const list = j(await call("music_list", {}));
+    const an = j(await call("analyze_music", { song: "beat-test" }));
+    await call("create_comp", { name: "Beat Comp", width: 1920, height: 1080, fps: 24, duration_s: 12 });
+    const f1 = path.join(os.tmpdir(), "fake-car.mp4"), f2 = path.join(os.tmpdir(), "fake-city.mp4");
+    fs.writeFileSync(f1, "x"); fs.writeFileSync(f2, "y");
+    await call("import_media", { paths: [f1, f2] });
+    const am = j(await call("add_music", { song: "beat-test", comp: "Beat Comp", start_s: 0 }));
+    const bc = j(await call("beat_control", { song: "beat-test", comp: "Beat Comp", offset_s: 0 }));
+    const cuts = j(await call("cut_to_beats", { song: "beat-test", comp: "Beat Comp", items: ["fake-car.mp4", "fake-city.mp4"], pattern: [2, 2, 1, 1], count: 6, start_s: 0 }));
+    const first = cuts.placed ? cuts.placed[0].layer : 1;
+    const punch = j(await call("beat_effects", { comp: "Beat Comp", layer: first, style: "punch" }));
+    const flash = j(await call("beat_effects", { comp: "Beat Comp", layer: first, style: "flash" }));
+    out({ type: "assistant", message: { content: [{ type: "text", text: "Beat — " + JSON.stringify({ songs: list.count, analysis: an, music: am, control: bc, cuts, punch, flash }) }] } });
   } else if (/track/i.test(prompt)) {
     const os = require("os"), path = require("path");
     await call("mocha_status", {});

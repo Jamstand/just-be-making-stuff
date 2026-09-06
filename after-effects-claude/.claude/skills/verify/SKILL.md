@@ -139,3 +139,13 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   mask_report. A track_report/mask_report warning must only fire when
   usable_until_frame < last_frame of the export, not when the fake exports
   fewer frames than requested (that is its own "Export covers" warning).
+- Music: test_ae_audio.js synthesises a 128 BPM track (kicks, accents,
+  quiet intro) and checks tempo, beats, downbeats, bass hits, the drop and
+  the cut planner; decode goes through a recorded runner (afconvert args,
+  cache hit, -c fallback). Drive step 9 ("make a beat edit"): the fake CLI
+  writes a 120 BPM WAV into the harness HOME's ~/Music/Claude Assistant,
+  then music_list → analyze_music → add_music → beat_control →
+  cut_to_beats → beat_effects punch + flash run for real against host-sim
+  (markerProperty, Slider Control effects, expressions, addNull/addSolid
+  are faked there). Static values in the fake DOM live in `.value`
+  (`_value`), keys in `_keys`.
