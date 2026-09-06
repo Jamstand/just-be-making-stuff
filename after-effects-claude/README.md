@@ -130,3 +130,24 @@ JS on PCM (biquad bass band, log-energy onsets, autocorrelation tempo with a
 120 BPM prior, dynamic-programming beat tracking, adaptive peak picking);
 on a synthetic 128 BPM track it lands within 1 BPM, 94% of beats within
 35 ms, every kick found.
+
+## Other MCP servers (Higgsfield and friends)
+
+The panel runs Claude Code with only its own tools attached. To let the
+same chat use another MCP server — Higgsfield for AI video, images,
+background removal, upscaling — add that server to Claude Code once in a
+terminal and sign in:
+
+```
+claude mcp add --transport http higgsfield https://mcp.higgsfield.ai
+claude            # then type /mcp and authenticate higgsfield
+```
+
+Then, in the panel, `connect higgsfield` (the `mcp_connect` tool). From the
+next message every turn attaches that server: its tools are allowed, the
+system prompt says so, and `download_file` turns the URLs it returns into
+local files for `import_media` / `add_clip`. `mcp_status` shows what is
+attached; `extra_mcp` in `~/.claude-assistant.json` is the record (names
+resolved against Claude Code's `~/.claude.json`, or inline `{type, url}`).
+Not yet verified live: that the headless CLI reuses the OAuth token stored
+by the interactive sign-in for a server named the same way.

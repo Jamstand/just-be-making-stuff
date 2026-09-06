@@ -157,6 +157,20 @@ const status = (page) => page.evaluate(() => document.getElementById("status").t
   console.log(JSON.stringify({ tool_lines: (await cards(page)).filter((c) => /^TOOL/.test(c)).slice(-9) }, null, 1));
   await shot(page, "9-beat");
 
+  console.log("### 10. 🔍 extra MCP servers: extra_mcp in the config rides along in mcp.json + allowedTools");
+  fs.writeFileSync(path.join(HOME, ".claude.json"), JSON.stringify({ mcpServers: { higgsfield: { type: "http", url: "https://mcp.higgsfield.ai" } } }));
+  const cfgPath = path.join(HOME, ".claude-assistant.json");
+  fs.writeFileSync(cfgPath, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(cfgPath, "utf8")), { extra_mcp: ["higgsfield", "ghost"] })));
+  await page.fill("#input", "hello");
+  await page.press("#input", "Enter");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 30000 });
+  const last = JSON.parse(fs.readFileSync(path.join(HOME, "last-turn.json"), "utf8"));
+  const mcp = last.mcp, argvDump = last.argv, sysTxt = last.system;
+  console.log(JSON.stringify({ servers: mcp && Object.keys(mcp.mcpServers),
+    higgsfield_url: mcp && mcp.mcpServers.higgsfield && mcp.mcpServers.higgsfield.url,
+    allowed: argvDump && argvDump.slice(argvDump.indexOf("--allowedTools") + 1, argvDump.indexOf("--tools")),
+    prompt_mentions: /mcp__higgsfield__/.test(sysTxt) && /ghost/.test(sysTxt) }, null, 1));
+
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {
     await page.setViewportSize({ width: w, height: 560 });

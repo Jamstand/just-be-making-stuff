@@ -149,3 +149,9 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   (markerProperty, Slider Control effects, expressions, addNull/addSolid
   are faked there). Static values in the fake DOM live in `.value`
   (`_value`), keys in `_keys`.
+- Extra MCP servers: drive step 10 writes a fake ~/.claude.json with
+  "higgsfield" and extra_mcp ["higgsfield","ghost"] into the harness HOME,
+  sends a turn, and reads ~/last-turn.json (the fake CLI dumps argv,
+  mcp.json and the system prompt there, since turn dirs are transient):
+  expect servers [higgsfield, ae], allowedTools mcp__ae__* mcp__higgsfield__*,
+  and the prompt naming both the attached server and the missing "ghost".

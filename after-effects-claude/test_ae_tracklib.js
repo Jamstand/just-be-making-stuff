@@ -149,6 +149,21 @@ const exe = (name, body) => {
   check("maskReport: per-frame vertex boxes feed the same usable-range logic",
     mrep && mrep.frames === 2 && mrep.usable_until_frame === 1 && /stayed in frame/.test(mrep.verdict), JSON.stringify(mrep));
 
+  // ------------------------------------------------ extra MCP servers
+  const cj = path.join(tmp, ".claude.json");
+  fs.writeFileSync(cj, JSON.stringify({ mcpServers: { higgsfield: { type: "http", url: "https://mcp.higgsfield.ai" } },
+    projects: { "/Users/josh/x": { mcpServers: { local: { command: "node", args: ["s.js"] }, higgsfield: { type: "http", url: "https://old.example" } } } } }));
+  const known = track.claudeCodeServers(cj);
+  check("claudeCodeServers: user scope + project scope, user wins", known.higgsfield.url === "https://mcp.higgsfield.ai" && known.local.command === "node", JSON.stringify(known));
+  const x1 = track.extraMcpServers({ extra_mcp: ["higgsfield", "ghost"] }, known);
+  check("extraMcpServers: names resolve against Claude Code's config, unknown ones reported",
+    Object.keys(x1.servers).join() === "higgsfield" && x1.missing.join() === "ghost", JSON.stringify(x1));
+  const x2 = track.extraMcpServers({ extra_mcp: { hf: { type: "http", url: "https://mcp.higgsfield.ai/mcp" }, local: true, ae: { url: "http://evil" } } }, known);
+  check("extraMcpServers: inline definitions, true = look up, 'ae' can never be shadowed",
+    x2.servers.hf.url === "https://mcp.higgsfield.ai/mcp" && x2.servers.local.command === "node" && !x2.servers.ae && x2.missing.length === 0, JSON.stringify(x2));
+  check("extraMcpServers: nothing configured -> nothing attached", Object.keys(track.extraMcpServers({}, known).servers).length === 0
+    && Object.keys(track.claudeCodeServers(path.join(tmp, "nope.json"))).length === 0);
+
   // ------------------------------------------------ PNG readiness (panel-side wait)
   const png = path.join(tmp, "grab.png");
   fs.writeFileSync(png, "partial");

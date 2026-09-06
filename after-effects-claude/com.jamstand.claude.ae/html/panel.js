@@ -1161,6 +1161,68 @@ tool("set_markers",
     markers: { type: "array", items: { type: "object" } },
     clear_prefix: { type: "string" } }, ["markers"], {});
 
+// ------------------------------------------------- other MCP servers
+tool("download_file",
+  "Fetch a URL (e.g. a clip another MCP server generated) into "
+  + "~/Library/Application Support/ClaudeAssistantAE/downloads and return "
+  + "the local path — then import_media / add_clip it.",
+  { url: { type: "string" }, name: { type: "string", description: "file name to save as" } },
+  ["url"], { readonly: true }, async (s, a) => {
+    const url = String(a.url || "");
+    if (!/^https?:\/\//i.test(url)) throw new Error("download_file needs an http(s) URL.");
+    let name = a.name || "";
+    if (!name) { try { name = path.basename(new URL(url).pathname) || ""; } catch (e) {} }
+    if (!name || !/\.[a-z0-9]{2,5}$/i.test(name)) name = (name || "download") + ".mp4";
+    const dest = path.join(USER_DATA, "downloads", Date.now().toString(36) + "-" + name.replace(/[^\w.\-]+/g, "_"));
+    await track.download(url, dest);
+    const size = fs.statSync(dest).size;
+    if (size < 1024) throw new Error("Downloaded only " + size + " bytes from " + url + " — not a media file?");
+    return { file: dest, size_mb: Math.round(size / 1048576 * 10) / 10 };
+  });
+
+tool("mcp_status",
+  "Which extra MCP servers (Higgsfield etc.) this panel attaches to each "
+  + "turn, and which names in extra_mcp could not be found in Claude Code's "
+  + "own config. Read-only.",
+  {}, [], { readonly: true }, async () => {
+    const cfg = track.readConfig();
+    const known = track.claudeCodeServers();
+    const extra = track.extraMcpServers(cfg, known);
+    return { extra_mcp: cfg.extra_mcp || null, attached: Object.keys(extra.servers),
+      missing: extra.missing, known_in_claude_code: Object.keys(known),
+      hint: "Add a server to Claude Code once (claude mcp add --transport http "
+        + "<name> <url>, then `claude` → /mcp → authenticate), then mcp_connect "
+        + "<name> here." };
+  });
+
+tool("mcp_connect",
+  "Attach an MCP server to every panel turn from now on: name as it appears "
+  + "in Claude Code (claude mcp list), or name + url for a hosted server "
+  + "(e.g. higgsfield, https://mcp.higgsfield.ai). Sign-in itself happens "
+  + "once in a terminal: claude mcp add --transport http <name> <url>, then "
+  + "run `claude`, type /mcp, authenticate. Use enabled:false to detach.",
+  { name: { type: "string" }, url: { type: "string" }, enabled: { type: "boolean" } },
+  ["name"], { readonly: true }, async (s, a) => {
+    const name = String(a.name || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    if (!name || name === "ae") throw new Error("Give the server's name (letters, digits, - or _).");
+    const cfg = track.readConfig();
+    let extra = cfg.extra_mcp;
+    if (Array.isArray(extra)) extra = Object.fromEntries(extra.map((n) => [n, true]));
+    extra = Object.assign({}, extra || {});
+    if (a.enabled === false) delete extra[name];
+    else extra[name] = a.url ? { type: "http", url: String(a.url) } : true;
+    track.writeConfig({ extra_mcp: extra });
+    const known = track.claudeCodeServers();
+    const now = track.extraMcpServers({ extra_mcp: extra }, known);
+    return { extra_mcp: extra, attached_next_turn: Object.keys(now.servers),
+      missing: now.missing,
+      next: now.missing.includes(name)
+        ? "Claude Code does not know '" + name + "' yet: in Terminal run  claude mcp add "
+          + "--transport http " + name + " " + (a.url || "<url>") + "  then `claude`, /mcp, "
+          + "authenticate. The panel picks it up on the next message."
+        : "Attached from the next message (a new chat is not needed)." };
+  });
+
 // ------------------------------------------------------------ approvals
 const state = { permissionMode: "Ask before edits", approveAllEdits: false,
                 pendingApproval: null, onApprovalNeeded: null };
@@ -1363,15 +1425,30 @@ function buildTurn(workdir, model, effort) {
                                + "try again in a second.");
   const mcpPath = path.join(workdir, "mcp.json");
   const sysPath = path.join(workdir, "system.txt");
-  fs.writeFileSync(mcpPath, JSON.stringify({ mcpServers: { ae: {
+  // Extra MCP servers (Higgsfield etc.) ride along on every turn.
+  const extra = track.extraMcpServers(track.readConfig(), track.claudeCodeServers());
+  const servers = Object.assign({}, extra.servers, { ae: {
     type: "http",
     url: "http://127.0.0.1:" + bridge.port + "/mcp",
-    headers: { Authorization: "Bearer " + bridge.token } } } }));
-  fs.writeFileSync(sysPath, SYSTEM_PROMPT);
+    headers: { Authorization: "Bearer " + bridge.token } } });
+  fs.writeFileSync(mcpPath, JSON.stringify({ mcpServers: servers }));
+  const extraNames = Object.keys(extra.servers);
+  let sys = SYSTEM_PROMPT;
+  if (extraNames.length)
+    sys += "\nOther MCP servers attached this turn: " + extraNames.map((n) =>
+      n + " (tools mcp__" + n + "__*)").join(", ") + ". Their results are "
+      + "URLs, not files: download_file the ones you need, then import_media / "
+      + "add_clip them. Say when a step spends that service's credits.";
+  if (extra.missing.length)
+    sys += "\nextra_mcp names not found in Claude Code's config (not attached): "
+      + extra.missing.join(", ") + " — tell the user to run `claude mcp add`.";
+  fs.writeFileSync(sysPath, sys);
   const argv = ["-p", "--output-format", "stream-json", "--verbose",
                 "--strict-mcp-config", "--mcp-config", mcpPath,
-                "--allowedTools", "mcp__ae__*", "--tools", "",
-                "--append-system-prompt-file", sysPath, "--model", model];
+                "--allowedTools", "mcp__ae__*"]
+    .concat(extraNames.map((n) => "mcp__" + n + "__*"))
+    .concat(["--tools", "",
+             "--append-system-prompt-file", sysPath, "--model", model]);
   if (effort && model.indexOf("haiku") < 0) argv.push("--effort", effort);
   if (sessionId) argv.push("--resume", sessionId);
   return argv;

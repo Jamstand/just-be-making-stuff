@@ -633,7 +633,41 @@ function explainMochaError(message) {
     + "/ 'Create Track Data' on the effect, or use ai_segment for a matte.";
 }
 
-module.exports = { cornersFromQuad, describeBlocks, parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
+// ------------------------------------------------- extra MCP servers
+// The panel runs the CLI with --strict-mcp-config, so only servers it
+// names are attached. extra_mcp in ~/.claude-assistant.json adds more —
+// either ["higgsfield"] (looked up in Claude Code's own ~/.claude.json,
+// where `claude mcp add` put it, OAuth token and all) or a full
+// {name: {type:"http", url:...}} definition.
+function claudeCodeServers(claudeJsonPath) {
+  try {
+    const j = JSON.parse(fs.readFileSync(claudeJsonPath
+      || path.join(os.homedir(), ".claude.json"), "utf8"));
+    const out = {};
+    for (const p of Object.values(j.projects || {}))
+      Object.assign(out, (p && p.mcpServers) || {});
+    Object.assign(out, j.mcpServers || {});            // user scope wins
+    return out;
+  } catch (e) { return {}; }
+}
+
+function extraMcpServers(cfg, known) {
+  const want = (cfg || {}).extra_mcp;
+  const out = {}, missing = [];
+  known = known || {};
+  const take = (n, def) => {
+    if (def && typeof def === "object" && (def.url || def.command)) out[n] = def;
+    else if (known[n]) out[n] = known[n];
+    else missing.push(n);
+  };
+  if (Array.isArray(want)) for (const n of want) take(String(n), null);
+  else if (want && typeof want === "object")
+    for (const [n, def] of Object.entries(want)) take(n, def);
+  delete out.ae;                                       // never shadow the panel
+  return { servers: out, missing };
+}
+
+module.exports = { claudeCodeServers, extraMcpServers, cornersFromQuad, describeBlocks, parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
   cornerBlocks, mochaEnv, explainMochaError, CONFIG_FILE, readConfig, writeConfig, findMochaPython,
   expandPattern, runMochaJob, parseAeKeyframeText, httpRequest, falUpload,
   falSubmit, falWait, download, mimeFor, FAL_QUEUE, FAL_REST };
