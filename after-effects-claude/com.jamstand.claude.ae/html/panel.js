@@ -100,8 +100,11 @@ const SYSTEM_PROMPT = [
 // ------------------------------------------------------------ host bridge
 function evalHost(name, args) {
   return new Promise((resolveP, rejectP) => {
-    const call = "CA_invoke(" + JSON.stringify(name) + ","
-      + JSON.stringify(JSON.stringify(args || {})) + ")";
+    // JSON leaves U+2028/2029 raw; inside a JS string literal they end the
+    // line and break the call.
+    const call = ("CA_invoke(" + JSON.stringify(name) + ","
+      + JSON.stringify(JSON.stringify(args || {})) + ")")
+      .replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
     cs.evalScript(call, (raw) => {
       if (raw === "EvalScript error." || raw === undefined || raw === null)
         return rejectP(new Error("ExtendScript failed opaquely (EvalScript "
@@ -152,7 +155,8 @@ const clipboardApi = !findBinary(process.platform === "darwin" ? ["pbcopy"]
              "[Console]::InputEncoding=[Text.Encoding]::UTF8; " +
              "Set-Clipboard -Value ([Console]::In.ReadToEnd())"]]
           : ["xclip", ["-selection", "clipboard"]];
-      const p = spawn(cmd[0], cmd[1], { stdio: ["pipe", "ignore", "ignore"] });
+      const p = spawn(cmd[0], cmd[1], { stdio: ["pipe", "ignore", "ignore"],
+                                        windowsHide: true });
       p.on("error", reject);
       p.on("close", (code) => code === 0 ? resolve(true)
         : reject(new Error(cmd[0] + " exited " + code)));
@@ -168,8 +172,10 @@ const clipboardApi = !findBinary(process.platform === "darwin" ? ["pbcopy"]
              "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " +
              "Get-Clipboard -Raw"]]
           : ["xclip", ["-selection", "clipboard", "-o"]];
-      execFile(cmd[0], cmd[1], { encoding: "utf8", maxBuffer: 64 << 20 },
-        (err, out) => err ? reject(err) : resolve(out));
+      execFile(cmd[0], cmd[1], { encoding: "utf8", maxBuffer: 64 << 20,
+                                 windowsHide: true },
+        (err, out) => err ? reject(err) : resolve(process.platform === "win32"
+          ? String(out).replace(/\r?\n$/, "") : out));   // Get-Clipboard adds one
     });
   },
 };
@@ -276,16 +282,17 @@ tool("grab_source_frame",
   { layer: { type: "number" }, comp: { type: "string" },
     source_time_s: { type: "number" } }, ["layer"], { readonly: true },
   async (state, a) => {
-    const data = await evalHost("grab_source_frame", a);
+    const sweep = async () => { try { await evalHost("remove_temp_comp", {}); }
+                                catch (e) {} };
+    let data;
+    try { data = await evalHost("grab_source_frame", a); }
+    catch (e) { await sweep(); throw e; }      // host may have made the comp
     try {
       return await finishGrab(data, { source: data.source, width: data.width,
         height: data.height, source_time_s: data.source_time_s,
         coordinates: "source pixels, origin top-left — pass these to "
           + "mocha_track's shape as-is" });
-    } finally {
-      try { await evalHost("remove_temp_comp", { name: data.temp_comp }); }
-      catch (e) { /* the comp is named __ClaudeGrab__; a later call sweeps it */ }
-    }
+    } finally { await sweep(); }                // every __ClaudeGrab__ comp
   });
 
 tool("list_render_templates",
@@ -332,6 +339,17 @@ function requireFile(info) {
 
 // Every applied track leaves a line in history.jsonl so a LATER chat (no
 // memory of this one) can tell its own earlier work from damage.
+// Mocha runs for minutes; if the panel closes or AE quits, the child must
+// not keep tracking at full CPU for nothing.
+const liveMocha = new Set();
+function watchChild(child) {
+  liveMocha.add(child);
+  child.on("close", () => liveMocha.delete(child));
+}
+window.addEventListener("beforeunload", () => {
+  for (const c of liveMocha) { try { c.kill("SIGKILL"); } catch (e) {} }
+});
+
 const HISTORY_FILE = path.join(USER_DATA, "mocha", "history.jsonl");
 function recordTrack(entry) {
   try {
@@ -385,6 +403,13 @@ async function applyExport(a, info, kind, file, out) {
         (out.warnings = out.warnings || []).push(kind + ": export header says "
           + shapes.fps + " fps, source is " + fps + " — using the source rate");
       const results = [];
+      if (shapes.normalized && info.source) {
+        for (const sh of shapes.shapes)
+          for (const f of sh.frames)
+            f.points = f.points.map(([x, y]) => [x * info.source.width, y * info.source.height]);
+        (out.warnings = out.warnings || []).push(kind + ": export had no Source "
+          + "Width/Height — points scaled by the layer's source size");
+      }
       shapes.shapes.forEach((sh, si) => { sh.maskName = (a.mask_name
         || ("Mocha " + (out.label || "mask")))
         + (shapes.shapes.length > 1 ? " " + (si + 1) : ""); });
@@ -420,9 +445,13 @@ async function applyExport(a, info, kind, file, out) {
         + r.frames + " frames" + (r.skipped ? ", " + r.skipped + " degenerate skipped" : "")
         + ")" : "no: " + r.reason;
     }
-    if (/pin/.test(kind) && info.source)
-      out.track_report = track.trackReport(parsed.blocks, info.source.width,
+    if (/pin/.test(kind) && info.source) {
+      out.track_report = track.trackReport(blocks, info.source.width,
                                            info.source.height, fps);
+      if (blocks !== parsed.blocks)
+        out.mocha_surface_report = track.trackReport(parsed.blocks,
+          info.source.width, info.source.height, fps);
+    }
     const r = await evalHost("apply_keyframe_data", { layer: a.layer,
       comp: a.comp, fps, blocks, time_offset_s: offset, stretch,
       effect_name: a.effect_name || (/pin/.test(kind) && out.label
@@ -461,8 +490,16 @@ async function mochaTrack(state, a) {
     throw new Error("shape points must be numeric [x,y] pairs.");
   const startS = a.start_s !== undefined ? Number(a.start_s) : info.source_in_s;
   const endS = a.end_s !== undefined ? Number(a.end_s) : info.source_out_s;
+  if (!isFinite(startS) || !isFinite(endS))
+    throw new Error("start_s and end_s must be numbers (SOURCE seconds).");
+  if (endS <= startS)
+    throw new Error("end_s (" + endS + ") must be later than start_s (" + startS
+      + ") — both in SOURCE seconds; this layer's trimmed range is "
+      + info.source_in_s + "–" + info.source_out_s + "s.");
   const startF = Math.max(0, Math.round(startS * fps));
-  const endF = Math.max(startF, Math.round(endS * fps) - 1);
+  const endF = Math.round(endS * fps) - 1;
+  if (endF - startF + 1 < 2)
+    throw new Error("That range is under two frames at " + fps + " fps — widen end_s.");
   const found = track.findMochaPython();
   if (!found.length)
     throw new Error("Mocha Pro's python3 was not found — run mocha_status.");
@@ -472,8 +509,10 @@ async function mochaTrack(state, a) {
     "corner_pin_motion_blur", "power_pin", "transform"].includes(k));
   if (bad.length) throw new Error("Unknown exports: " + bad.join(", "));
   const b = bbox(shape);
-  const surface = (Array.isArray(a.surface) && a.surface.length === 4) ? a.surface
-    : [[b.minx, b.miny], [b.maxx, b.miny], [b.maxx, b.maxy], [b.minx, b.maxy]];
+  // Corners in any order; assigned by position so no bow-ties.
+  const corners = track.cornersFromQuad(a.surface)
+    || { UL: [b.minx, b.miny], UR: [b.maxx, b.miny], LL: [b.minx, b.maxy], LR: [b.maxx, b.maxy] };
+  const surface = [corners.UL, corners.UR, corners.LR, corners.LL];   // Mocha: clockwise
   const workdir = path.join(USER_DATA, "mocha",
                             new Date().toISOString().replace(/[:.]/g, "-"));
   sendUI("notice", "Mocha is tracking " + (endF - startF + 1) + " frames of "
@@ -488,7 +527,7 @@ async function mochaTrack(state, a) {
       start_frame: startF, end_frame: endF, exports: wanted,
     }, track.readConfig().mocha_qt || { qt_app: "widgets" }),
     { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 45 * 60 * 1000,
-      env: track.mochaEnv() });
+      env: track.mochaEnv(), onSpawn: watchChild });
   } catch (e) { throw new Error(track.explainMochaError(e.message)); }
   const label = (startF / fps).toFixed(1).replace(/\.0$/, "") + "-"
     + ((endF + 1) / fps).toFixed(1).replace(/\.0$/, "") + "s";
@@ -496,7 +535,7 @@ async function mochaTrack(state, a) {
     label, source: info.source.name, fps, start_frame: startF, end_frame: endF,
     frames: data.frames, track_seconds: data.track_seconds,
     exports: data.exports, notes: data.notes || [], applied: [], warnings: [],
-    surface: { UL: surface[0], UR: surface[1], LR: surface[2], LL: surface[3] } };
+    surface: corners };
   if (info.time_remap)
     out.warnings.push("Layer is time-remapped: keys sit at linear source "
       + "time and will not follow the remap.");
@@ -538,8 +577,10 @@ async function applyTrackFile(state, a) {
   const info = await evalHost("layer_info", { layer: a.layer, comp: a.comp });
   const out = { file: a.file, applied: [], start_frame: 0, warnings: [],
                 label: a.label || path.basename(path.dirname(a.file)).slice(0, 19) };
-  if (Array.isArray(a.surface) && a.surface.length === 4)
-    out.surface = { UL: a.surface[0], UR: a.surface[1], LR: a.surface[2], LL: a.surface[3] };
+  if (Array.isArray(a.surface) && a.surface.length === 4) {
+    out.surface = track.cornersFromQuad(a.surface);
+    if (!out.surface) throw new Error("surface must be 4 numeric [x,y] corners.");
+  }
   const kind = path.extname(a.file).toLowerCase() === ".shape4ae" ? "mask"
              : /corner|pin/i.test(path.basename(a.file)) ? "corner_pin" : "keyframes";
   await applyExport(a, info, kind, a.file, out);
@@ -599,9 +640,24 @@ async function aiSegment(state, a) {
     next: "grab_frame the comp: if the matte layer shows the subject cut "
       + "out on black it works as a luma matte; if it is a colour overlay "
       + "on the footage, redo with apply_mask:false or matte:'none'." });
-  if (a.apply !== false)
-    out.applied = await evalHost("import_and_matte", { layer: a.layer,
-      comp: a.comp, file: dest, matte: a.matte || "luma" });
+  out.warnings = [];
+  if (info.time_remap || (info.stretch && info.stretch !== 100))
+    out.warnings.push("Layer is retimed (stretch " + info.stretch + "%"
+      + (info.time_remap ? ", time remap" : "") + "): the matte is aligned by "
+      + "start time only and will drift — retime the matte layer the same way.");
+  if (a.apply !== false) {
+    try {
+      out.applied = await evalHost("import_and_matte", { layer: a.layer,
+        comp: a.comp, file: dest, matte: a.matte || "luma" });
+    } catch (e) {
+      out.applied = null;
+      out.apply_error = e.message;
+      out.next = "Segmentation succeeded and is saved at result_file (already "
+        + "paid for — do NOT re-run ai_segment). Applying it failed: "
+        + e.message + ". Fix the cause (AE 23+ for track mattes, or the layer "
+        + "index) and import result_file with import_media / import_and_matte.";
+    }
+  }
   return out;
 }
 
@@ -630,7 +686,8 @@ tool("mocha_status",
                   candidates: found, license_env_passed: Object.keys(env) };
     try {
       out.probe = await track.runMochaJob(found[0].python, { action: "probe" },
-        { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 180000, env });
+        { scriptPath: MOCHA_SCRIPT, workdir, timeoutMs: 180000, env,
+          onSpawn: watchChild });
     } catch (e) {
       out.probe_error = e.message;
       return out;
@@ -652,7 +709,7 @@ tool("mocha_status",
         lic = await track.runMochaJob(found[0].python,
           Object.assign({ action: "license_check" }, v),
           { scriptPath: MOCHA_SCRIPT, workdir: workdir + "-license",
-            timeoutMs: 180000, env });
+            timeoutMs: 180000, env, onSpawn: watchChild });
       } catch (e) {
         out.attempts.push(Object.assign({}, v, { error: e.message.slice(0, 300) }));
         continue;
@@ -700,7 +757,8 @@ tool("mocha_track",
     rect: { type: "array", items: { type: "number" } },
     surface: { type: "array", items: { type: "array" },
                description: "optional 4 [x,y] corners for the corner-pin "
-                 + "surface (default: shape bounding box)" },
+                 + "surface, any order (assigned by position); default: "
+                 + "the shape's bounding box" },
     start_s: { type: "number" }, end_s: { type: "number" },
     exports: { type: "array", items: { type: "string" } },
     apply: { type: "boolean" }, layer_name: { type: "string" },
@@ -711,6 +769,15 @@ tool("mocha_track",
       + "outline (default true)" } },
   ["layer"], {}, mochaTrack);
 
+tool("mocha_cancel",
+  "Stop the Mocha track or probe this panel is running (kills the Mocha "
+  + "python process; nothing is applied). Read-only.",
+  {}, [], { readonly: true }, async () => {
+    let killed = 0;
+    for (const c of liveMocha) { try { c.kill("SIGKILL"); killed += 1; } catch (e) {} }
+    return { killed };
+  });
+
 tool("apply_track_file",
   "Apply a Mocha export file: a .shape4ae (After Effects Mask Data → native "
   + "mask keyframes) or an AE keyframe .txt (Corner Pin / CC Power Pin / "
@@ -720,7 +787,8 @@ tool("apply_track_file",
   + "pin onto (e.g. a door's box at the first tracked frame).",
   { layer: { type: "number" }, comp: { type: "string" },
     file: { type: "string" }, time_offset_s: { type: "number" },
-    surface: { type: "array", items: { type: "array" } },
+    surface: { type: "array", items: { type: "array" },
+               description: "4 [x,y] corners, any order" },
     label: { type: "string" }, effect_name: { type: "string" },
     mask_name: { type: "string" }, mask_mode: { type: "string" },
     mask_feather: { type: "number" }, mask_inverted: { type: "boolean" },
@@ -1047,7 +1115,8 @@ function runTurn(model, effort, text) {
   try { argv = buildTurn(workdir, model, effort); }
   catch (e) { sendUI("error", e.message); busy = false;
               sendUI("done", {}); return; }
-  const child = spawn(binary, argv, { env: cliEnv(), cwd: USER_DATA });
+  const child = spawn(binary, argv, { env: cliEnv(), cwd: USER_DATA,
+                                      windowsHide: true });
   child.stdin.write(text + "\n");
   child.stdin.end();
   let carry = "", stderrText = "";

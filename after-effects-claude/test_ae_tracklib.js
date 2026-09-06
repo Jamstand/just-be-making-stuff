@@ -140,6 +140,10 @@ const exe = (name, body) => {
     && sh.shapes[0].frames[1].points[1][0] === 0.76 * 1920
     && sh.shapes[1].frames[0].points.length === 3, JSON.stringify(sh && sh.shapes.map((s) => [s.name, s.frames.length])));
   check("parseMochaShapeText: plain corner-pin text has no shapes -> null", track.parseMochaShapeText(sample) === null);
+  const noSize = track.parseMochaShapeText(shapeText.replace(/\tSource Width\t1920\r\n/, "").replace(/\tSource Height\t1080\r\n/, ""));
+  check("parseMochaShapeText: no Source Width/Height -> normalized flag, points left 0..1",
+    noSize && noSize.normalized === true && noSize.shapes[0].frames[0].points[0].join() === "0.5,0.5" && sh.normalized === false,
+    JSON.stringify(noSize && noSize.shapes[0].frames[0].points[0]));
   check("parseMochaShapeText: non-keyframe text -> null", track.parseMochaShapeText("hello") === null);
   const mrep = track.maskReport(sh.shapes[0].frames, 1920, 1080, 60);
   check("maskReport: per-frame vertex boxes feed the same usable-range logic",
@@ -211,6 +215,24 @@ const exe = (name, body) => {
     prop: ["upper-left #2", "Upper  Right", "LOWER_LEFT", "Lower Right #5"][i] }));
   check("cornerBlocks: hyphens, case, underscores, double spaces and #n suffixes all match",
     !!track.cornerBlocks(loose) && track.retargetCornerPin(loose, { UL: [25, 25], UR: [75, 25], LL: [25, 75], LR: [75, 75] }).retargeted === true);
+  const cq = track.cornersFromQuad([[100, 100], [200, 100], [100, 200], [200, 200]]);   // AE order
+  const cq2 = track.cornersFromQuad([[100, 100], [200, 100], [200, 200], [100, 200]]);  // polygon order
+  check("cornersFromQuad: AE order and polygon order both land UL/UR/LL/LR by position",
+    cq.LL.join() === "100,200" && cq.LR.join() === "200,200" && cq2.LL.join() === "100,200"
+    && cq2.LR.join() === "200,200" && cq.UR.join() === "200,100"
+    && track.cornersFromQuad([[1, 2], [3, 4]]) === null && track.cornersFromQuad([[1, "x"], [1, 1], [2, 2], [3, 3]]) === null,
+    JSON.stringify([cq, cq2]));
+  const degenerate = pinBlocks.slice(0, 4).map((b) => Object.assign({}, b, { keys: [{ frame: 0, values: [5, 5] }] }));
+  const dg = track.retargetCornerPin(degenerate, { UL: [0, 0], UR: [1, 0], LL: [0, 1], LR: [1, 1] });
+  check("retargetCornerPin: all-degenerate quads -> not retargeted, blocks untouched",
+    dg.retargeted === false && /degenerate/.test(dg.reason) && dg.blocks === degenerate, dg.reason);
+  const edge = pinBlocks.slice(0, 4).map((b, i) => Object.assign({}, b, { keys: [0, 1, 2].map((f) => ({ frame: f,
+    values: [[-30, 100], [200, 100], [-30, 300], [200, 300]][i].map((v, k) => v + (k === 0 ? f : 0)) })) }));
+  const er = track.motionReport(edge.map((b) => null).length ? (() => {
+    const c = track.cornerBlocks(edge); return [0, 1, 2].map((f) => ({ frame: f,
+      points: ["UL", "UR", "LL", "LR"].map((k) => c[k].keys[f].values) })); })() : [], 1920, 1080, 60);
+  check("motionReport: a region drawn touching the frame edge at its first frame is not condemned",
+    er && er.usable_until_frame === 2 && /stayed in frame/.test(er.verdict), JSON.stringify(er));
   const rep = track.trackReport(pinBlocks, 1920, 1080, 60);
   check("trackReport: clean track is usable to the last frame", rep.usable_until_frame === 1 && /stayed in frame/.test(rep.verdict), JSON.stringify(rep));
   const drift = pinBlocks.slice(0, 4).map((b) => Object.assign({}, b, { keys: b.keys.concat(

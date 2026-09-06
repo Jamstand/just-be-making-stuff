@@ -148,6 +148,7 @@ function makeComp(name, w, h, fps, dur) {
   comp.layer = function (i) { return comp._layers[i - 1]; };
   comp.openInViewer = function () {};
   comp.saveFrameToPng = function (t, f) {
+    if (makeComp.failNextSave) { makeComp.failNextSave = false; throw new Error("disk full"); }
     // Like AE: the file appears at once; the rest lands after the call.
     fs.writeFileSync(f.fsName, "PNGDATA@" + t);
     pendingPng = f.fsName;
@@ -359,6 +360,12 @@ check("layer_info: file, fps, start, SOURCE in/out",
         && tmpComp.width === 1920 && tmpComp._layers.length === 1
         && g.data.width === 1920 && g.data.source_time_s === 1.5 && trackCompIdx > 0,
         JSON.stringify(g));
+  // host throws mid-grab (e.g. scripting pref off): no orphan comp may remain
+  const items0 = sandbox.app.project.numItems;
+  makeComp.failNextSave = true;
+  const gf = invoke("grab_source_frame", { layer: 1, comp: "Track", source_time_s: 0.5 });
+  check("grab_source_frame: a failing save removes its own temp comp before the error surfaces",
+    !gf.ok && /disk full/.test(gf.error) && sandbox.app.project.numItems === items0, JSON.stringify(gf) + " items=" + sandbox.app.project.numItems);
   const rm = invoke("remove_temp_comp", { name: g.data.temp_comp });
   check("remove_temp_comp: sweeps only the grab comp", rm.ok && rm.data.removed === 1
         && sandbox.app.project.numItems === before
@@ -398,6 +405,25 @@ ak = invoke("apply_keyframe_data", { layer: 1, comp: "Track", fps: 24,
 check("apply_keyframe_data: re-apply replaces, never doubles",
   ak.ok && ul._keys.length === 2 && pin.property("Lower Right")._keys.length === 1,
   JSON.stringify(ul._keys));
+{
+  const fxg = trackLayer._groups["ADBE Effect Parade"];
+  const before = fxg.numProperties;
+  const first = fxg.property("Corner Pin");
+  first.name = "Corner Pin (Mocha 0-4s)";              // an earlier chat's labelled run
+  const r2 = invoke("apply_keyframe_data", { layer: 1, comp: "Track", fps: 24,
+    blocks: [{ group: "Effects", name: "Corner Pin #1", prop: "Upper Left",
+               keys: [{ frame: 200, values: [7, 7] }] }], effect_name: "Corner Pin (Mocha 4-8s)" });
+  check("apply_keyframe_data: a differently labelled run gets its OWN Corner Pin, never hijacks the first",
+    r2.ok && fxg.numProperties === before + 1 && fxg.property("Corner Pin (Mocha 4-8s)") !== null
+    && first.property("Upper Left")._keys.length === 2 && first.name === "Corner Pin (Mocha 0-4s)",
+    JSON.stringify(r2) + " n=" + fxg.numProperties);
+  const r3 = invoke("apply_keyframe_data", { layer: 1, comp: "Track", fps: 24,
+    blocks: [{ group: "Effects", name: "Corner Pin #1", prop: "Upper Left",
+               keys: [{ frame: 201, values: [8, 8] }] }], effect_name: "Corner Pin (Mocha 4-8s)" });
+  check("apply_keyframe_data: the same label re-applied reuses its effect (replace, no third copy)",
+    r3.ok && fxg.numProperties === before + 1 && fxg.property("Corner Pin (Mocha 4-8s)").property("Upper Left")._keys.length === 1,
+    JSON.stringify(r3) + " n=" + fxg.numProperties);
+}
 ak = invoke("apply_keyframe_data", { layer: 1, comp: "Track", fps: 24,
   blocks: [{ group: "Effects", name: "CC Power Pin #1", prop: "Top Left",
              keys: [{ frame: 0, values: [1, 2] }] }], effect_name: "CC Power Pin (Mocha 0-4s)" });
@@ -456,6 +482,10 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
     && mgrp.property("Mocha Mask") !== mocha, JSON.stringify(mk));
   mk = invoke("apply_mask_keyframes", { layer: trackLayer.index, comp: "Track", frames: [] });
   check("apply_mask_keyframes: empty frames is a clean error", !mk.ok && /No mask frames/.test(mk.error));
+  mk = invoke("apply_mask_keyframes", { layer: trackLayer.index, comp: "Track", name: "Sparse",
+    fps: 24, frames: [{ frame: 0, points: [[1, 1]] }].concat(frames(2, 1)) });
+  check("apply_mask_keyframes: a first frame with <3 points is skipped, vertices reported from the first real one",
+    mk.ok && mk.data.keys === 2 && mk.data.vertices === 4, JSON.stringify(mk));
 }
 
 check("bad layer index is a clean JSON error, never a bare throw",

@@ -39,12 +39,13 @@ TRACKING_EXPORTERS = {
 
 
 def emit(obj):
-    sys.stdout.write("CA_RESULT " + json.dumps(obj) + "\n")
+    sys.stdout.write("\nCA_RESULT " + json.dumps(obj) + "\n")   # own line, always
     sys.stdout.flush()
 
 
 def fail(msg):
-    emit({"ok": False, "error": msg, "traceback": traceback.format_exc()})
+    tb = traceback.format_exc() if sys.exc_info()[0] else ""
+    emit({"ok": False, "error": msg, "traceback": tb})
     sys.exit(1)
 
 
@@ -335,19 +336,29 @@ def main():
     # retargets the exported quad through the per-frame homography anyway.
     surface = job.get("surface")
     if surface and len(surface) == 4:
+        # The project file spells layer names with underscores for spaces
+        # ("names with spaces have underscores in the project file" — the
+        # Python guide), so the documented path is [Claude_Track, Surface0X].
         set_any = False
-        for path in ([layer.name, "Surface%d%s"], [layer.name, "Surface", "Surface%d%s"],
-                     [layer.name, "Basic", "Surface%d%s"], ["Surface%d%s"]):
+        last_err = "?"
+        cands = []
+        for nm in (layer.name.replace(" ", "_"), layer.name):
+            if nm not in cands:
+                cands.append(nm)
+        for nm in cands:
             try:
                 for idx, (x, y) in enumerate(surface):
                     for axis, val in (("X", x), ("Y", y)):
-                        comps = [c % (idx, axis) if "%d" in c else c for c in path]
-                        proj.parameter(comps).set(float(val))
+                        proj.parameter([nm, "Surface%d%s" % (idx, axis)]).set(float(val))
                 set_any = True
-                notes.append("surface set via %s" % "/".join(path))
+                notes.append("surface set via %s/Surface*" % nm)
+                try:
+                    proj.parameter([nm, "SurfaceFrame"]).set(float(start))
+                except Exception as e:
+                    notes.append("SurfaceFrame not set: %s" % e)
                 break
             except Exception as e:
-                last_err = "%s: %s" % ("/".join(path), e)
+                last_err = "%s: %s" % (nm, e)
         if not set_any:
             notes.append("surface not settable (%s) — panel retargets the export" % last_err)
 

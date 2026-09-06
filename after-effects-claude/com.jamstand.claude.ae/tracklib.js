@@ -80,10 +80,11 @@ function runMochaJob(python, job, opts) {
     let child;
     try {
       child = sp(python, [opts.scriptPath, jobPath], {
-        cwd: opts.workdir,
+        cwd: opts.workdir, windowsHide: true,
         env: Object.assign({}, process.env, { PYTHONUNBUFFERED: "1" },
                            opts.env || {}) });
     } catch (e) { return reject(e); }
+    if (opts.onSpawn) { try { opts.onSpawn(child); } catch (e) {} }
     let out = "", err = "", finished = false;
     const timeoutMs = opts.timeoutMs || 30 * 60 * 1000;
     const finish = (e, r) => {
@@ -108,6 +109,8 @@ function runMochaJob(python, job, opts) {
       const line = out.split("\n").filter((l) => l.startsWith("CA_RESULT ")).pop();
       let result = null;
       if (line) { try { result = JSON.parse(line.slice(10)); } catch (e) {} }
+      if (!result && child.killed)
+        return finish(new Error("Mocha job cancelled (process killed)."));
       if (!result)
         return finish(new Error("Mocha python exited " + code
           + " without a result. Log tail:\n" + log.slice(-1500)));
@@ -198,6 +201,8 @@ function parseMochaShapeText(text) {
     const frame = parseFloat(cols[0]);
     if (isNaN(frame) || !cols[1]) continue;
     const width = header["Source Width"] || 1, height = header["Source Height"] || 1;
+    // No size in the header: keep the points normalised (0..1) and say so;
+    // the panel scales them by the layer's source size.
     const points = [];
     const re = /Point\(([^)]*)\)/g;
     let m;
@@ -211,7 +216,8 @@ function parseMochaShapeText(text) {
   const kept = shapes.filter((s) => s.frames.length);
   if (!kept.length) return null;
   return { fps: header["Units Per Second"], width: header["Source Width"],
-           height: header["Source Height"], header, shapes: kept };
+           height: header["Source Height"], header, shapes: kept,
+           normalized: !(header["Source Width"] && header["Source Height"]) };
 }
 
 // ------------------------------------------- corner-pin geometry
@@ -272,6 +278,20 @@ function cornerKey(b) {
   const power = /power\s*pin/i.test(String(b.prop) + " " + String(b.name));
   return ["UL", "UR", "LL", "LR"][power ? n - 2 : n - 1] || null;
 }
+// Four corners in ANY order -> {UL, UR, LL, LR} by position: the two with
+// the smallest y are the top pair (left/right by x), the rest the bottom
+// pair. Accepts AE order (UL,UR,LL,LR) and polygon order (UL,UR,LR,LL)
+// alike, so a caller can never hand us a bow-tie by accident.
+function cornersFromQuad(pts) {
+  if (!Array.isArray(pts) || pts.length !== 4) return null;
+  const p = pts.map((q) => [Number(q[0]), Number(q[1])]);
+  if (p.some((q) => !isFinite(q[0]) || !isFinite(q[1]))) return null;
+  const byY = p.slice().sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  const top = byY.slice(0, 2).sort((a, b) => a[0] - b[0]);
+  const bottom = byY.slice(2).sort((a, b) => a[0] - b[0]);
+  return { UL: top[0], UR: top[1], LL: bottom[0], LR: bottom[1] };
+}
+
 function cornerBlocks(blocks) {
   const found = {};
   for (const b of blocks) {
@@ -315,6 +335,7 @@ function retargetCornerPin(blocks, target) {
     const H = solveHomography(base, quad);
     if (!H) { skipped += 1; continue; }
     const moved = tgt.map((p) => applyH(H, p));
+    if (moved.some((p) => !isFinite(p[0]) || !isFinite(p[1]))) { skipped += 1; continue; }
     ["UL", "UR", "LL", "LR"].forEach((key, i) => {
       (out[key] = out[key] || []).push({ frame, values: moved[i] });
     });
@@ -323,6 +344,8 @@ function retargetCornerPin(blocks, target) {
     const key = Object.keys(corners).find((k) => corners[k] === b);
     return key ? Object.assign({}, b, { keys: out[key] || [] }) : b;
   });
+  if (skipped >= quads.length)
+    return { blocks, retargeted: false, reason: "every frame's quad is degenerate" };
   return { blocks: replaced, retargeted: true, frames: quads.length, skipped };
 }
 
@@ -336,12 +359,15 @@ function motionReport(perFrame, width, height, fps) {
   const margin = Math.max(4, width * 0.02);
   const jumpPx = width * 0.15;
   let firstPartial = null, firstOff = null, firstJump = null, prevC = null;
+  let basePartial = null;              // a region drawn at the edge is not drifting
   for (const { frame, points } of quads) {
     const xs = points.map((p) => p[0]), ys = points.map((p) => p[1]);
     const minx = Math.min(...xs), maxx = Math.max(...xs);
     const miny = Math.min(...ys), maxy = Math.max(...ys);
     const off = maxx < 0 || minx > width || maxy < 0 || miny > height;
-    const partial = minx < -margin || maxx > width + margin || miny < -margin || maxy > height + margin;
+    let partial = minx < -margin || maxx > width + margin || miny < -margin || maxy > height + margin;
+    if (basePartial === null) basePartial = partial;
+    if (basePartial) partial = false;
     const c = [(minx + maxx) / 2, (miny + maxy) / 2];
     if (off && firstOff === null) firstOff = frame;
     if (partial && firstPartial === null) firstPartial = frame;
@@ -607,7 +633,7 @@ function explainMochaError(message) {
     + "/ 'Create Track Data' on the effect, or use ai_segment for a matte.";
 }
 
-module.exports = { describeBlocks, parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
+module.exports = { cornersFromQuad, describeBlocks, parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
   cornerBlocks, mochaEnv, explainMochaError, CONFIG_FILE, readConfig, writeConfig, findMochaPython,
   expandPattern, runMochaJob, parseAeKeyframeText, httpRequest, falUpload,
   falSubmit, falWait, download, mimeFor, FAL_QUEUE, FAL_REST };

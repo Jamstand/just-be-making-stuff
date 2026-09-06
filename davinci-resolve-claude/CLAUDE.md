@@ -375,9 +375,12 @@ QPA → gui+offscreen → core) and stores the winner as mocha_qt.
 FIRST REAL TRACK (C0768.MP4 59.94fps, 240 frames, ~real time): worked,
 but (1) exporters' "Units Per Second" said 24 → panel now converts with
 the source fps and sets proj.frame_rate; (2) proj.parameter([layer,
-"Surface0X"]) → "No such parameter" → corner pin followed Mocha's default
-surface; panel now retargets the exported quad to the requested surface
-via per-frame homography (tracklib.retargetCornerPin); (3) "Paste Mocha
+"Surface0X"]) → "No such parameter" — REVIEW FOUND WHY: Mocha's project
+file spells layer names with underscores ("Claude Track" → "Claude_Track";
+the Python guide says so), so the guide's path was right and the name was
+wrong; mocha_job.py now tries the underscored name first and also sets
+SurfaceFrame; the panel still retargets the exported quad via per-frame
+homography (tracklib.retargetCornerPin) — exact and idempotent; (3) "Paste Mocha
 mask" did NOT produce a native mask — AE created/used the legacy "mocha
 shape" effect (ISL MochaShapeImporter, CUSTOM_VALUE not scriptable); the
 in-AE Claude parsed mask.shape4ae itself (64 pts/frame) — FORMAT (josh's file, 975 KB / 240 frames):
@@ -395,3 +398,23 @@ written and every later evalScript queues (timeouts everywhere). Rule:
 host tools return immediately; the panel (Node) waits on files
 (tracklib.waitForPng). grab_source_frame added: temp __ClaudeGrab__ comp
 with just the layer's source → PNG in SOURCE pixels, comp removed after.
+
+ADVERSARIAL REVIEW (34 agents, 2026-09-04) of the day's AE work: 13
+confirmed → all fixed: underscore layer name for Surface params; corner
+order canonicalised by geometry (tracklib.cornersFromQuad — a user passing
+AE order UL,UR,LL,LR used to get a bow-tie); apply_keyframe_data with
+effect_name only reuses ITS OWN labelled effect (never the first Corner
+Pin on the layer); start_s ≥ end_s now errors instead of a 1-frame track;
+paste_mocha_mask activates the comp first; grab_source_frame removes its
+temp comp on host failure and the panel sweeps all __ClaudeGrab__ comps;
+ai_segment keeps the paid result when import_and_matte fails; Mocha
+children are killed on panel unload and mocha_cancel exists; track_report
+is computed on the RETARGETED quad (mocha_surface_report keeps Mocha's
+view); ⌘V flattens line breaks; windowsHide on every child process;
+plus lows: CA_RESULT on its own line, fail() traceback only inside
+except, non-finite/degenerate retarget guards, edge-touching first frame
+not condemned, normalised mask export scaled by source size, U+2028/9
+escaped in evalScript, run_javascript code in Copy chat, Copy button safe
+on the "assistant missing" card. Left alone (documented): run folders /
+history growth, one approval slot for parallel modifying calls, motion
+blur export semantics (refuted as a defect).

@@ -79,7 +79,7 @@ const transcript = [];                 // [{who, text}] in screen order
 
 async function copyText(text) {
   text = String(text);
-  if (assistant.clipboard && assistant.clipboard.write) {
+  if (typeof assistant !== "undefined" && assistant.clipboard && assistant.clipboard.write) {
     try { await assistant.clipboard.write(text); return true; } catch (e) {}
   }
   const focused = document.activeElement;
@@ -133,6 +133,8 @@ copyChatBtn.onclick = () => {
 };
 
 function insertAtCursor(text) {
+  // Single-line input: line breaks become spaces, as a native paste does.
+  text = String(text).replace(/\r\n|\r|\n/g, " ");
   const a = input.selectionStart, b = input.selectionEnd;
   input.value = input.value.slice(0, a) + text + input.value.slice(b);
   input.selectionStart = input.selectionEnd = a + text.length;
@@ -184,6 +186,7 @@ function toolLine(name, args) {
     line.appendChild(el("span", "args", "" ));
     chat.appendChild(line);
     chat.appendChild(codeCard(String(args.code), "javascript"));
+    transcript.push({ who: "", text: "› " + name + "\n```javascript\n" + args.code + "\n```" });
   } else {
     const summary = Object.entries(args || {})
       .map(([k, v]) => k + ": " + JSON.stringify(v)).join(", ");

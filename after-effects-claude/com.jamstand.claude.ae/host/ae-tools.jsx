@@ -266,13 +266,16 @@ CA_TOOLS.grab_source_frame = function (a) {
   var name = "__ClaudeGrab__" + new Date().getTime();
   var tmp = app.project.items.addComp(name, src.width, src.height,
                                       src.pixelAspect || 1, dur, fps);
-  tmp.layers.add(src);
   var f = new File(CA_grabDir().fsName + "/source_" + new Date().getTime() + ".png");
-  if (typeof tmp.saveFrameToPng !== "function") {
-    tmp.remove();
-    CA_err("saveFrameToPng is missing in this AE version.");
+  try {
+    tmp.layers.add(src);
+    if (typeof tmp.saveFrameToPng !== "function")
+      CA_err("saveFrameToPng is missing in this AE version.");
+    tmp.saveFrameToPng(Math.max(0, Math.min(t, dur - 1 / fps)), f);
+  } catch (e) {
+    try { tmp.remove(); } catch (e2) {}      // never leave a grab comp behind
+    throw e;
   }
-  tmp.saveFrameToPng(Math.min(t, dur), f);
   return { file: f.fsName, source_time_s: t, source: src.name,
            width: src.width, height: src.height, temp_comp: name };
 };
@@ -375,7 +378,10 @@ CA_TOOLS.apply_keyframe_data = function (a) {
     pname = String(b.prop || "").replace(/\s*#\d+\s*$/, "");
     if (b.group === "Effects") {
       group = layer.property("ADBE Effect Parade");
-      fx = group.property(base) || (known[base] ? group.property(known[base]) : null);
+      // A labelled run owns only the effect carrying its own label; the
+      // first Corner Pin on the layer may be another chat's work.
+      if (a.effect_name) fx = group.property(String(a.effect_name));
+      else fx = group.property(base) || (known[base] ? group.property(known[base]) : null);
       if (!fx) {
         fx = group.addProperty(known[base] || base);
         if (a.effect_name) { try { fx.name = String(a.effect_name); } catch (e) {} }
@@ -446,10 +452,13 @@ CA_TOOLS.apply_mask_keyframes = function (a) {
     if (a.inverted) mask.inverted = true;
     if (a.roto_bezier !== false) { try { mask.rotoBezier = true; } catch (e) {} }
   }
+  var verts = 0;
+  for (i = 0; i < a.frames.length && !verts; i++)
+    if (a.frames[i].points && a.frames[i].points.length >= 3) verts = a.frames[i].points.length;
   return { layer: layer.name, mask: mask.name, keys: mp.numKeys,
            first_key_s: mp.numKeys ? mp.keyTime(1) : null,
            last_key_s: mp.numKeys ? mp.keyTime(mp.numKeys) : null,
-           vertices: a.frames[0].points.length };
+           vertices: verts };
 };
 
 // Mocha's "After Effects Mask Data" only enters AE through the clipboard:
@@ -469,6 +478,7 @@ CA_TOOLS.paste_mocha_mask = function (a) {
     try { id = app.findMenuCommandId(names[i]) || 0; } catch (e) { id = 0; }
   }
   if (!id) id = 5007;
+  comp.openInViewer();                       // menu commands act on the active comp
   app.executeCommand(id);
   var after = masks.numProperties;
   for (i = before + 1; i <= after; i++) {
