@@ -49,26 +49,49 @@ Good ("Assetto Corsa found at: " + $AcRoot)
 # --- 2. Are the app files in the right place? ------------------------------
 Say ""
 Say "1. App files"
-$appDir = Join-Path $AcRoot "apps\python\GearSpeedo"
-$appPy  = Join-Path $appDir "GearSpeedo.py"
 $docs   = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "Assetto Corsa"
 
-$installed = $false
-if (Test-Path $appPy) {
-    Good "apps\python\GearSpeedo\GearSpeedo.py is there"
-    $installed = $true
-} else {
-    Bad "apps\python\GearSpeedo\GearSpeedo.py is MISSING"
-    Info "It needs to be exactly here:"
-    Info ("  " + $appPy)
+# There are two builds. The Lua one (Custom Shaders Patch) is the recommended
+# install; the Python one is the fallback. Either counts as installed.
+$luaDir      = Join-Path $AcRoot "apps\lua\GearSpeedo"
+$luaMain     = Join-Path $luaDir "GearSpeedo.lua"
+$luaManifest = Join-Path $luaDir "manifest.ini"
+$appDir      = Join-Path $AcRoot "apps\python\GearSpeedo"
+$appPy       = Join-Path $appDir "GearSpeedo.py"
+
+$luaInstalled = (Test-Path $luaMain) -and (Test-Path $luaManifest)
+$installed    = Test-Path $appPy
+
+if ($luaInstalled) {
+    Good "Lua build: apps\lua\GearSpeedo is installed (recommended build)"
+} elseif (Test-Path $luaDir) {
+    Bad "Lua build: apps\lua\GearSpeedo exists but is incomplete"
+    Info "It needs both GearSpeedo.lua and manifest.ini. It contains:"
+    Get-ChildItem $luaDir | ForEach-Object { Info ("  " + $_.Name) }
+}
+
+if ($installed) {
+    Good "Python build: apps\python\GearSpeedo\GearSpeedo.py is there"
+} elseif (-not $luaInstalled) {
+    Bad "Neither build is installed."
+    Info "The Lua build (recommended, needs Custom Shaders Patch) goes here:"
+    Info ("  " + $luaDir)
+    Info "The Python build goes here:"
+    Info ("  " + $appDir)
     Say ""
 
     if (Test-Path $appDir) {
-        Info "That folder exists but the .py file is not directly inside it."
+        Info "apps\python\GearSpeedo exists but GearSpeedo.py is not directly inside it."
         Info "It contains:"
         Get-ChildItem $appDir | ForEach-Object { Info ("  " + $_.Name) }
     }
 
+    # A folder in the right place that is merely incomplete has already been
+    # explained above; hunting would just "find" it there and tell the user
+    # to move it onto itself.
+    if ((Test-Path $luaDir) -or (Test-Path $appDir)) {
+        Info "FIX: copy the whole folder from the zip again, so nothing is missing."
+    } else {
     # Go hunting. The overwhelmingly common mistake is dropping 'apps' into
     # Documents\Assetto Corsa (settings) instead of steamapps\common\assettocorsa
     # (the game). Both are called "Assetto Corsa", so this is easy to get wrong.
@@ -83,14 +106,16 @@ if (Test-Path $appPy) {
 
     $found = @()
     foreach ($root in $searchRoots) {
-        $hits = Get-ChildItem -Path $root -Filter "GearSpeedo.py" -Recurse -File -ErrorAction SilentlyContinue
-        foreach ($h in $hits) { $found += $h.FullName }
+        foreach ($pattern in @("GearSpeedo.lua", "GearSpeedo.py")) {
+            $hits = Get-ChildItem -Path $root -Filter $pattern -Recurse -File -ErrorAction SilentlyContinue
+            foreach ($h in $hits) { $found += $h.FullName }
+        }
     }
     $found = $found | Select-Object -Unique
 
     if ($found.Count -gt 0) {
         Say ""
-        Bad "Found GearSpeedo.py, but in the wrong place:"
+        Bad "Found the app files, but in the wrong place:"
         foreach ($f in $found) { Info ("  " + $f) }
         Say ""
         Info "FIX: move the 'apps' folder (and 'content') so they end up at:"
@@ -117,10 +142,11 @@ if (Test-Path $appPy) {
             Info "'content' folders from inside it into:"
             Info ("  " + $AcRoot)
         } else {
-            Info "No copy of GearSpeedo.py found anywhere obvious."
+            Info "No copy of the app files found anywhere obvious."
             Info "FIX: extract the zip and copy its 'apps' and 'content' folders into:"
             Info ("  " + $AcRoot)
         }
+    }
     }
 }
 
@@ -128,9 +154,40 @@ $icon = Join-Path $AcRoot "content\gui\icons\Gear Speedo_ON.png"
 if (Test-Path $icon) { Good "sidebar icon is installed" }
 elseif ($installed) { Info "sidebar icon missing (cosmetic only, the app still works)" }
 
+# --- 2b. Lua build needs Custom Shaders Patch -------------------------------
+if ($luaInstalled) {
+    Say ""
+    Say "1b. Custom Shaders Patch (needed by the Lua build)"
+    $cspDll = Join-Path $AcRoot "dwrite.dll"
+    $cspExt = Join-Path $AcRoot "extension"
+    if ((Test-Path $cspDll) -and (Test-Path $cspExt)) {
+        Good "Custom Shaders Patch is installed"
+        $dm = Join-Path $AcRoot "extension\config\data_manifest.ini"
+        if (Test-Path $dm) {
+            Select-String -Path $dm -Pattern "SHADERS_PATCH" -ErrorAction SilentlyContinue |
+                ForEach-Object { Info ("  " + $_.Line.Trim()) }
+            Info "  (the app asks for CSP build 2512 or newer)"
+        }
+        Info "Nothing to activate: CSP loads Lua apps straight from the folder."
+        Info "Start a session and look under 'Your apps' for 'Gear Speedo'."
+    } else {
+        Bad "Custom Shaders Patch does not look installed (no dwrite.dll / extension folder)"
+        Info "Lua apps only run under CSP. Install it from Content Manager"
+        Info "(Settings -> Custom Shaders Patch), or use the Python build instead."
+    }
+    if (-not $installed) {
+        Say ""
+        Info "The Python-build checks below do not apply to the Lua build."
+        Say ""
+        Say "Done."
+        Say ""
+        return
+    }
+}
+
 # --- 3. Is Python enabled at all? ------------------------------------------
 Say ""
-Say "2. Assetto Corsa settings"
+Say "2. Assetto Corsa settings (Python build)"
 $gameplay = Join-Path $docs "cfg\gameplay.ini"
 
 if (Test-Path $gameplay) {
