@@ -165,6 +165,16 @@ behaviour; extend them when adding tools.
   back to raw PNG. compare_stills settles same-image questions by bytes +
   per-channel pixel stats.
 
+- Matcher benchmark (bench_match.js, headless, the tool's own maths on a
+  24-patch ColorChecker scene, ΔE2000 over patch means, same DI-log CDL
+  pipeline model the tool assumes — NOT a live Resolve measurement):
+  -0.7 stop + warm WB 8.9 → 0.34; +0.5 stop + cool WB + contrast 0.85
+  5.96 → 0.98; tungsten-vs-daylight 9.3 → 0.88 mean but max 6.3 (a strong
+  WB swing is not exactly slope/offset in log); 3 stops under = refused by
+  matchGate; greens-only cast 0.54 → 0.82 (a global CDL cannot do a
+  region/hue match — that is Colourlab's Region Match territory, and a
+  LUT via design_look is the only hue-selective path here).
+
 ### Assemble-an-edit live findings (Lambo session)
 
 - TimelineItem.SetProperty WORKS for transform/crop/opacity: ZoomX/Y,
