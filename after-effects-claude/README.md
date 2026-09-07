@@ -139,9 +139,12 @@ background removal, upscaling — add that server to Claude Code once in a
 terminal and sign in:
 
 ```
-claude mcp add --transport http higgsfield https://mcp.higgsfield.ai
-claude            # then type /mcp and authenticate higgsfield
+claude mcp add -s user --transport http higgsfield https://mcp.higgsfield.ai/mcp
+claude            # then type /mcp, pick higgsfield, Authenticate, /exit
 ```
+
+The `/mcp` path matters: the bare host answers 404, which `claude mcp list`
+shows as "Failed — endpoint not found".
 
 Then, in the panel, `connect higgsfield` (the `mcp_connect` tool). From the
 next message every turn attaches that server: its tools are allowed, the
@@ -159,3 +162,14 @@ status, the real `mcp__higgsfield__*` names and the fix. The next turn's
 prompt carries the names, so Claude calls real tools instead of guessing.
 A headless CLI cannot do the OAuth dance itself: `needs-auth` (or a
 `pending` that repeats) always means "sign in once in a terminal".
+`mcp_status` and `mcp_connect` also probe a server's URL when it is not
+usable and say whether an MCP endpoint is there at all (401 asking for
+OAuth = live; 404 = wrong path, with the corrected URL).
+
+Fallback if the headless run cannot reuse the terminal sign-in:
+`connect higgsfield using claude code's connections`
+(`mcp_connect` with `use_claude_code_connections:true`, stored as
+`extra_mcp_mode: "inherit"`). The CLI then loads everything Claude Code
+has — including a claude.ai connector named higgsfield — without
+`--strict-mcp-config`; slower to start, but it uses a sign-in that already
+works. `mcp_status` reports the mode.

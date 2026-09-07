@@ -677,6 +677,38 @@ const KNOWN_MCP_TOOLS = {
     "show_generation_by_ids", "show_generations", "media_import_url", "media_upload",
     "models_explore", "balance", "upscale_video", "remove_background"] };
 
+// Known hosted endpoints (the bare host answers 404 = "endpoint not found").
+const KNOWN_MCP_URLS = { higgsfield: "https://mcp.higgsfield.ai/mcp" };
+
+// Classify a raw POST initialize against an MCP URL: is something MCP-shaped
+// there, and does it want OAuth? (401 + WWW-Authenticate = live, sign in.)
+function classifyMcpProbe(status, headers, url) {
+  const www = String((headers || {})["www-authenticate"] || "");
+  const base = String(url || "").replace(/\/+$/, "");
+  if (status === 401 || status === 403)
+    return { alive: true, oauth: /bearer/i.test(www) || status === 401,
+      note: "MCP endpoint is live; it wants " + (/bearer/i.test(www) ? "an OAuth sign-in" : "authorization") + "." };
+  if (status === 404 || status === 405 || status === 410)
+    return { alive: false, oauth: false, note: "HTTP " + status + " at " + url + " — not an MCP endpoint"
+      + (/\/mcp$/.test(base) ? "." : "; try " + base + "/mcp .") };
+  if (status >= 200 && status < 500)
+    return { alive: true, oauth: false, note: "MCP endpoint answered HTTP " + status + " without asking for a sign-in." };
+  return { alive: false, oauth: false, note: "HTTP " + status + " from " + url + "." };
+}
+
+async function probeMcpEndpoint(url, request) {
+  request = request || httpRequest;
+  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {
+    protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-assistant-ae", version: "0" } } });
+  try {
+    const r = await request(url, { method: "POST", timeoutMs: 8000, headers: {
+      "Content-Type": "application/json", "Accept": "application/json, text/event-stream" } }, body);
+    return Object.assign({ url, status: r.status }, classifyMcpProbe(r.status, r.headers, url));
+  } catch (e) {
+    return { url, status: null, alive: false, oauth: false, note: "no answer from " + url + ": " + e.message };
+  }
+}
+
 function observeMcpInit(event, extraNames) {
   const tools = Array.isArray((event || {}).tools) ? event.tools.map(String) : null;
   const out = { at: new Date().toISOString(), tools_listed: !!tools, servers: {} };
@@ -707,7 +739,7 @@ function mcpAdvice(name, entry, def) {
   return "not reported by the CLI this turn — check `claude mcp list` in Terminal.";
 }
 
-module.exports = { observeMcpInit, mcpAdvice, KNOWN_MCP_TOOLS, claudeCodeServers, extraMcpServers, cornersFromQuad, describeBlocks, parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
+module.exports = { observeMcpInit, mcpAdvice, KNOWN_MCP_TOOLS, KNOWN_MCP_URLS, classifyMcpProbe, probeMcpEndpoint, claudeCodeServers, extraMcpServers, cornersFromQuad, describeBlocks, parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
   cornerBlocks, mochaEnv, explainMochaError, CONFIG_FILE, readConfig, writeConfig, findMochaPython,
   expandPattern, runMochaJob, parseAeKeyframeText, httpRequest, falUpload,
   falSubmit, falWait, download, mimeFor, FAL_QUEUE, FAL_REST };

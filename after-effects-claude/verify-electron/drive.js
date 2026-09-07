@@ -161,7 +161,14 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   await shot(page, "9-beat");
 
   console.log("### 10. 🔍 extra MCP servers: extra_mcp in the config rides along in mcp.json + allowedTools");
-  fs.writeFileSync(path.join(HOME, ".claude.json"), JSON.stringify({ mcpServers: { higgsfield: { type: "http", url: "https://mcp.higgsfield.ai" } } }));
+  // Stand-in for mcp.higgsfield.ai: bare host 404s, /mcp answers 401 + Bearer.
+  const probeSrv = require("http").createServer((req, res) => {
+    if (req.url === "/mcp") { res.writeHead(401, { "www-authenticate": 'Bearer resource_metadata="x"' }); res.end("{}"); }
+    else { res.writeHead(404, { "content-type": "application/json" }); res.end('{"error":"not found"}'); }
+  }).listen(0, "127.0.0.1");
+  await new Promise((r) => probeSrv.on("listening", r));
+  const hfUrl = "http://127.0.0.1:" + probeSrv.address().port;
+  fs.writeFileSync(path.join(HOME, ".claude.json"), JSON.stringify({ mcpServers: { higgsfield: { type: "http", url: hfUrl } } }));
   const cfgPath = path.join(HOME, ".claude-assistant.json");
   fs.writeFileSync(cfgPath, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(cfgPath, "utf8")), { extra_mcp: ["higgsfield", "ghost"] })));
   await page.fill("#input", "hello");
@@ -170,7 +177,7 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   const last = JSON.parse(fs.readFileSync(path.join(HOME, "last-turn.json"), "utf8"));
   const mcp = last.mcp, argvDump = last.argv, sysTxt = last.system;
   console.log(JSON.stringify({ servers: mcp && Object.keys(mcp.mcpServers),
-    higgsfield_url: mcp && mcp.mcpServers.higgsfield && mcp.mcpServers.higgsfield.url,
+    higgsfield_url_is_claude_codes: !!mcp && mcp.mcpServers.higgsfield && mcp.mcpServers.higgsfield.url === hfUrl,
     allowed: argvDump && argvDump.slice(argvDump.indexOf("--allowedTools") + 1, argvDump.indexOf("--tools")),
     prompt_mentions: /mcp__higgsfield__/.test(sysTxt) && /ghost/.test(sysTxt) }, null, 1));
   console.log("### 10b. 🔍 server needs sign-in: the init event says needs-auth -> NOTE card + mcp_status says so; after sign-in the real tool names reach the prompt");
@@ -181,8 +188,10 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   let after10 = (await fullCards(page)).slice(before10);
   const mcpJson = (c) => { try { return JSON.parse(c.text.replace(/^.*?MCP — /, "").replace(/Copy$/, "")); } catch (e) { return null; } };
   const stJson1 = after10.filter((c) => c.cls === "claude" && /MCP — /.test(c.text)).map(mcpJson).pop() || null;
+  const hf1 = stJson1 && stJson1.servers && stJson1.servers.higgsfield;
   console.log(JSON.stringify({ note: (after10.find((c) => c.cls === "notice" && /higgsfield/.test(c.text)) || {}).text || null,
-    status: stJson1 && stJson1.servers && stJson1.servers.higgsfield, attached: stJson1 && stJson1.attached }, null, 1));
+    status: hf1 && { status: hf1.status, usable: hf1.usable, endpoint_http: hf1.endpoint && hf1.endpoint.status,
+      problem: hf1.problem && hf1.problem.replace(hfUrl, "<hf>") }, attached: stJson1 && stJson1.attached }, null, 1));
   await shot(page, "10b-needs-auth");
   fs.writeFileSync(path.join(HOME, ".fake-mcp-authed"), "1");
   const sysBefore = JSON.parse(fs.readFileSync(path.join(HOME, "last-turn.json"), "utf8")).system;
@@ -196,11 +205,24 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 30000 });
   const sysAfter = JSON.parse(fs.readFileSync(path.join(HOME, "last-turn.json"), "utf8")).system;
   const observed = JSON.parse(fs.readFileSync(path.join(HOME, "Library", "Application Support", "ClaudeAssistantAE", "mcp-observed.json"), "utf8"));
-  console.log(JSON.stringify({ status_after_signin: stJson2 && stJson2.servers && stJson2.servers.higgsfield,
+  const hf2 = stJson2 && stJson2.servers && stJson2.servers.higgsfield;
+  console.log(JSON.stringify({ status_after_signin: hf2 && { status: hf2.status, usable: hf2.usable, tools: hf2.tools, problem: hf2.problem, probed: "endpoint" in hf2 },
     notes_after_signin: (await fullCards(page)).slice(before10).filter((c) => c.cls === "notice" && /higgsfield/.test(c.text)).length,
     prompt_before_signin: (sysBefore.match(/Last turn higgsfield was [^\n]*/) || [null])[0],
     prompt_after_signin: (sysAfter.match(/higgsfield tools seen last turn: [^\n]*/) || [null])[0],
     persisted: observed.servers && observed.servers.higgsfield }, null, 1));
+
+  console.log("### 10c. 🔍 use_claude_code_connections (inherit mode): no --strict-mcp-config, only ae in mcp.json, extra names still allowed");
+  fs.writeFileSync(cfgPath, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(cfgPath, "utf8")), { extra_mcp_mode: "inherit" })));
+  await page.fill("#input", "hello");
+  await page.press("#input", "Enter");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 30000 });
+  const inh = JSON.parse(fs.readFileSync(path.join(HOME, "last-turn.json"), "utf8"));
+  console.log(JSON.stringify({ strict: inh.argv.includes("--strict-mcp-config"), servers: Object.keys(inh.mcp.mcpServers),
+    allowed: inh.argv.slice(inh.argv.indexOf("--allowedTools") + 1, inh.argv.indexOf("--tools")),
+    prompt_mentions_ghost_as_missing: /not found in Claude Code's config[^\n]*ghost/.test(inh.system) }, null, 1));
+
+  probeSrv.close();
 
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {

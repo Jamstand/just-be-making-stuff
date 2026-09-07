@@ -163,4 +163,10 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   then after the marker: usable:true with the real names, the next
   prompt's "higgsfield tools seen last turn: …" line, and
   <USER_DATA>/mcp-observed.json. Use fullCards() (not cards(), which
-  truncates at 120 chars) to parse JSON out of a card.
+  truncates at 120 chars) to parse JSON out of a card. The fake
+  ~/.claude.json points higgsfield at a local stand-in server drive.js
+  starts (bare URL 404s, /mcp answers 401 + Bearer) so mcp_status's URL
+  probe stays offline: expect endpoint_http 404 and a "try …/mcp" problem
+  while not usable, and no probe once connected. Step 10c sets
+  extra_mcp_mode "inherit": argv without --strict-mcp-config, mcp.json
+  holding only ae, allowedTools still mcp__higgsfield__* (and ghost).

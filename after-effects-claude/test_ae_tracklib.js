@@ -179,6 +179,19 @@ const exe = (name, body) => {
     && /could not connect \(https:\/\/mcp\.higgsfield\.ai\)/.test(adv("failed"))
     && /sign-in is missing/.test(adv("pending")) && /disabled/.test(adv("disabled")) && /not reported/.test(adv("not-reported")),
     [adv("connected"), adv("needs-auth"), adv("failed"), adv("pending")].join(" | "));
+  const cl = (st, www) => track.classifyMcpProbe(st, www ? { "www-authenticate": www } : {}, "https://mcp.higgsfield.ai");
+  check("classifyMcpProbe: 401+Bearer = live+oauth, 404 = wrong path with /mcp hint, 200 = live, 503 = down",
+    cl(401, 'Bearer resource_metadata="x"').alive && cl(401, 'Bearer resource_metadata="x"').oauth
+    && !cl(404).alive && /try https:\/\/mcp\.higgsfield\.ai\/mcp/.test(cl(404).note)
+    && cl(200).alive && !cl(200).oauth && !cl(503).alive
+    && !/try/.test(track.classifyMcpProbe(404, {}, "https://mcp.higgsfield.ai/mcp").note), JSON.stringify([cl(401, "Bearer"), cl(404)]));
+  const probeReq = async (url) => (url.endsWith("/mcp") ? { status: 401, headers: { "www-authenticate": "Bearer realm=x" } } : { status: 404, headers: {} });
+  const pr1 = await track.probeMcpEndpoint("https://mcp.higgsfield.ai/mcp", probeReq);
+  const pr2 = await track.probeMcpEndpoint("https://mcp.higgsfield.ai", probeReq);
+  const pr3 = await track.probeMcpEndpoint("https://nope.invalid/mcp", async () => { throw new Error("ENOTFOUND"); });
+  check("probeMcpEndpoint: POSTs initialize, classifies, never throws",
+    pr1.alive && pr1.oauth && pr1.status === 401 && !pr2.alive && /\/mcp/.test(pr2.note) && !pr3.alive && /ENOTFOUND/.test(pr3.note), JSON.stringify([pr1, pr2, pr3]));
+  check("KNOWN_MCP_URLS: higgsfield's real endpoint has the /mcp path", track.KNOWN_MCP_URLS.higgsfield === "https://mcp.higgsfield.ai/mcp");
   check("KNOWN_MCP_TOOLS: higgsfield core names present", track.KNOWN_MCP_TOOLS.higgsfield.includes("generate_video") && track.KNOWN_MCP_TOOLS.higgsfield.includes("jobs_wait"));
 
   // ------------------------------------------------ PNG readiness (panel-side wait)

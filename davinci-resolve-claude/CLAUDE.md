@@ -309,9 +309,20 @@ in the plugin dir. Needs one-time chown of the install dir on macOS.
   got "No such tool available". Now observeMcpInit/mcpAdvice (tracklib)
   record status + names per server, a NOTE card names the fix, mcp_status
   reports usable/tools/problem, the next prompt lists the seen names
-  (KNOWN_MCP_TOOLS gives Higgsfield's core names before any turn). Whether
-  the headless CLI reuses the interactive sign-in's token for a same-named
-  --mcp-config server is still unproven live; the panel now says which.
+  (KNOWN_MCP_TOOLS gives Higgsfield's core names before any turn). Live
+  root cause on Josh's Mac: `claude mcp list` showed the claude.ai
+  connector "higgsfield" connected but a local entry "higgsfield" at
+  https://mcp.higgsfield.ai failing "endpoint not found" — the real
+  endpoint is https://mcp.higgsfield.ai/mcp (POST there: 401 with
+  WWW-Authenticate Bearer resource_metadata=…/.well-known/oauth-protected-
+  resource/mcp; the bare host and /sse: 404). The panel resolves the LOCAL
+  entry, so it inherited the dead URL. probeMcpEndpoint/classifyMcpProbe
+  now say so from mcp_status/mcp_connect (KNOWN_MCP_URLS carries the fix).
+  --strict-mcp-config hides claude.ai connectors from the panel; the
+  extra_mcp_mode "inherit" fallback drops it (CLI loads all of Claude
+  Code's servers, only ae is added) so the connector's working sign-in can
+  be used. Whether the headless CLI reuses the interactive sign-in's token
+  for a same-named --mcp-config server is still unproven live.
 - Chat history: autosaves to <config dir>/chats/<uuid>.json after every
   completed turn (images stripped from the stored API messages). History
   button opens a Tree browser (ComboBox fallback). Resume semantics: the CLI

@@ -1188,33 +1188,51 @@ tool("mcp_status",
     const cfg = track.readConfig();
     const known = track.claudeCodeServers();
     const extra = track.extraMcpServers(cfg, known);
+    const inherit = mcpMode(cfg) === "inherit";
     const servers = {};
     for (const name of Object.keys(extra.servers)) {
+      const def = extra.servers[name];
       const seen = mcpObserved && mcpObserved.servers && mcpObserved.servers[name];
-      const advice = seen ? track.mcpAdvice(name, seen, extra.servers[name])
-        : "no turn has reported on it yet";
-      servers[name] = { status: seen ? seen.status : "unknown",
-        usable: !!seen && !advice,
-        tools: seen ? seen.tools.map((t) => "mcp__" + name + "__" + t) : [],
-        problem: advice };
+      let advice = seen ? track.mcpAdvice(name, seen, def) : "no turn has reported on it yet";
+      const entry = { status: seen ? seen.status : "unknown", usable: !!seen && !advice,
+        url: def.url || null,
+        tools: seen ? seen.tools.map((t) => "mcp__" + name + "__" + t) : [] };
+      if (def.url && !inherit && advice) {
+        entry.endpoint = await track.probeMcpEndpoint(def.url);
+        if (!entry.endpoint.alive) advice = "its URL is wrong: " + entry.endpoint.note
+          + " Fix it in Terminal: claude mcp remove " + name + " ; claude mcp add -s user "
+          + "--transport http " + name + " " + (track.KNOWN_MCP_URLS[name] || "<correct url>")
+          + " ; then `claude`, /mcp, Authenticate.";
+      }
+      entry.problem = advice;
+      servers[name] = entry;
     }
-    return { extra_mcp: cfg.extra_mcp || null, attached: Object.keys(extra.servers),
+    return { extra_mcp: cfg.extra_mcp || null, mode: inherit ? "inherit" : "strict",
+      attached: Object.keys(extra.servers),
       servers, observed_at: mcpObserved ? mcpObserved.at : null,
       missing: extra.missing, known_in_claude_code: Object.keys(known),
-      hint: "'attached' only means the server is in this turn's mcp.json; "
+      hint: "'attached' only means the server is in this turn's config; "
         + "'usable' means the CLI reported it connected and listed its tools. "
-        + "Never guess tool names: call only the ones listed here. Add a server "
-        + "to Claude Code once (claude mcp add --transport http <name> <url>, "
-        + "then `claude` → /mcp → Authenticate), then mcp_connect <name> here." };
+        + "Never guess tool names: call only the ones listed here. mode strict = "
+        + "the panel passes the server's own definition; mode inherit = the CLI "
+        + "loads everything Claude Code has (claude.ai connectors included, "
+        + "slower start) — mcp_connect <name> use_claude_code_connections:true." };
   });
+
+const mcpMode = (cfg) => ((cfg || {}).extra_mcp_mode === "inherit" ? "inherit" : "strict");
 
 tool("mcp_connect",
   "Attach an MCP server to every panel turn from now on: name as it appears "
   + "in Claude Code (claude mcp list), or name + url for a hosted server "
-  + "(e.g. higgsfield, https://mcp.higgsfield.ai). Sign-in itself happens "
-  + "once in a terminal: claude mcp add --transport http <name> <url>, then "
-  + "run `claude`, type /mcp, authenticate. Use enabled:false to detach.",
-  { name: { type: "string" }, url: { type: "string" }, enabled: { type: "boolean" } },
+  + "(higgsfield = https://mcp.higgsfield.ai/mcp — the bare host is a 404). "
+  + "Sign-in itself happens once in a terminal: claude mcp add -s user "
+  + "--transport http <name> <url>, then run `claude`, type /mcp, "
+  + "Authenticate. use_claude_code_connections:true makes the CLI load all of "
+  + "Claude Code's own servers instead (claude.ai connectors included; slower "
+  + "start) — the fallback when the headless run cannot reuse the sign-in. "
+  + "Use enabled:false to detach.",
+  { name: { type: "string" }, url: { type: "string" }, enabled: { type: "boolean" },
+    use_claude_code_connections: { type: "boolean" } },
   ["name"], { readonly: true }, async (s, a) => {
     const name = String(a.name || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
     if (!name || name === "ae") throw new Error("Give the server's name (letters, digits, - or _).");
@@ -1224,16 +1242,35 @@ tool("mcp_connect",
     extra = Object.assign({}, extra || {});
     if (a.enabled === false) delete extra[name];
     else extra[name] = a.url ? { type: "http", url: String(a.url) } : true;
-    track.writeConfig({ extra_mcp: extra });
+    const patch = { extra_mcp: extra };
+    if (typeof a.use_claude_code_connections === "boolean")
+      patch.extra_mcp_mode = a.use_claude_code_connections ? "inherit" : "strict";
+    track.writeConfig(patch);
+    const mode = mcpMode(Object.assign({}, cfg, patch));
     const known = track.claudeCodeServers();
     const now = track.extraMcpServers({ extra_mcp: extra }, known);
-    return { extra_mcp: extra, attached_next_turn: Object.keys(now.servers),
-      missing: now.missing,
-      next: now.missing.includes(name)
-        ? "Claude Code does not know '" + name + "' yet: in Terminal run  claude mcp add "
-          + "--transport http " + name + " " + (a.url || "<url>") + "  then `claude`, /mcp, "
-          + "authenticate. The panel picks it up on the next message."
-        : "Attached from the next message (a new chat is not needed)." };
+    const out = { extra_mcp: extra, mode, attached_next_turn: Object.keys(now.servers),
+      missing: now.missing };
+    const def = now.servers[name];
+    if (def && def.url && mode === "strict") {
+      out.endpoint = await track.probeMcpEndpoint(def.url);
+      if (!out.endpoint.alive)
+        out.next = "The URL Claude Code has for " + name + " is wrong (" + out.endpoint.note
+          + ") In Terminal: claude mcp remove " + name + " ; claude mcp add -s user --transport http "
+          + name + " " + (track.KNOWN_MCP_URLS[name] || "<correct url>") + " ; then `claude`, /mcp, "
+          + name + ", Authenticate, /exit.";
+    }
+    if (!out.next) out.next = mode === "inherit"
+      ? "From the next message the CLI loads Claude Code's own servers and " + name
+        + "'s tools are allowed — this uses the sign-in Claude Code already has."
+      : now.missing.includes(name)
+        ? "Claude Code does not know '" + name + "' yet: in Terminal run  claude mcp add -s user "
+          + "--transport http " + name + " " + (a.url || track.KNOWN_MCP_URLS[name] || "<url>")
+          + "  then `claude`, /mcp, Authenticate, /exit. The panel picks it up on the next message."
+        : "Attached from the next message (a new chat is not needed). If the next turn's NOTE says "
+          + "needs sign-in even after you authenticated in Terminal, call mcp_connect " + name
+          + " use_claude_code_connections:true.";
+    return out;
   });
 
 // ------------------------------------------------------------ approvals
@@ -1446,14 +1483,20 @@ function buildTurn(workdir, model, effort) {
   const mcpPath = path.join(workdir, "mcp.json");
   const sysPath = path.join(workdir, "system.txt");
   // Extra MCP servers (Higgsfield etc.) ride along on every turn.
-  const extra = track.extraMcpServers(track.readConfig(), track.claudeCodeServers());
-  const servers = Object.assign({}, extra.servers, { ae: {
+  const cfg = track.readConfig();
+  const extra = track.extraMcpServers(cfg, track.claudeCodeServers());
+  const inherit = mcpMode(cfg) === "inherit";
+  // inherit: the CLI loads Claude Code's own servers (connectors included) and
+  // only the AE bridge is added; strict: exactly ae + the extra definitions.
+  const servers = Object.assign({}, inherit ? {} : extra.servers, { ae: {
     type: "http",
     url: "http://127.0.0.1:" + bridge.port + "/mcp",
     headers: { Authorization: "Bearer " + bridge.token } } });
   fs.writeFileSync(mcpPath, JSON.stringify({ mcpServers: servers }));
-  const extraNames = Object.keys(extra.servers);
-  turnExtra = extra;
+  const extraNames = Object.keys(extra.servers).concat(inherit ? extra.missing : [])
+    .filter((n, i, arr) => arr.indexOf(n) === i);
+  turnExtra = { servers: Object.assign({}, extra.servers), missing: inherit ? [] : extra.missing };
+  if (inherit) for (const n of extra.missing) turnExtra.servers[n] = { inherited: true };
   let sys = SYSTEM_PROMPT;
   if (extraNames.length) {
     sys += "\nOther MCP servers attached this turn: " + extraNames.map((n) =>
@@ -1479,13 +1522,13 @@ function buildTurn(workdir, model, effort) {
           + ". mcp_status lists what this CLI actually got.";
     }
   }
-  if (extra.missing.length)
+  if (turnExtra.missing.length)
     sys += "\nextra_mcp names not found in Claude Code's config (not attached): "
-      + extra.missing.join(", ") + " — tell the user to run `claude mcp add`.";
+      + turnExtra.missing.join(", ") + " — tell the user to run `claude mcp add`.";
   fs.writeFileSync(sysPath, sys);
-  const argv = ["-p", "--output-format", "stream-json", "--verbose",
-                "--strict-mcp-config", "--mcp-config", mcpPath,
-                "--allowedTools", "mcp__ae__*"]
+  const argv = ["-p", "--output-format", "stream-json", "--verbose"]
+    .concat(inherit ? [] : ["--strict-mcp-config"])
+    .concat(["--mcp-config", mcpPath, "--allowedTools", "mcp__ae__*"])
     .concat(extraNames.map((n) => "mcp__" + n + "__*"))
     .concat(["--tools", "",
              "--append-system-prompt-file", sysPath, "--model", model]);
