@@ -16,6 +16,9 @@ const shot = async (page, name) => { const p = path.join(__dirname, "shot-" + na
 const cards = (page) => page.evaluate(() => [...document.querySelectorAll("#chat .card, #chat .toolline")]
   .map((c) => (c.classList.contains("toolline") ? "TOOL " : "") + c.className.replace("card ", "") + " | " + c.textContent.replace(/\s+/g, " ").trim().slice(0, 120)));
 const status = (page) => page.evaluate(() => document.getElementById("status").textContent);
+// Full card text (cards() truncates at 120 chars): [{cls, text}]
+const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#chat .card")]
+  .map((c) => ({ cls: c.className.replace("card ", ""), text: c.textContent.replace(/\s+/g, " ").trim() })));
 
 (async () => {
   const app = await _electron.launch({
@@ -170,6 +173,34 @@ const status = (page) => page.evaluate(() => document.getElementById("status").t
     higgsfield_url: mcp && mcp.mcpServers.higgsfield && mcp.mcpServers.higgsfield.url,
     allowed: argvDump && argvDump.slice(argvDump.indexOf("--allowedTools") + 1, argvDump.indexOf("--tools")),
     prompt_mentions: /mcp__higgsfield__/.test(sysTxt) && /ghost/.test(sysTxt) }, null, 1));
+  console.log("### 10b. 🔍 server needs sign-in: the init event says needs-auth -> NOTE card + mcp_status says so; after sign-in the real tool names reach the prompt");
+  const before10 = (await fullCards(page)).length;
+  await page.fill("#input", "is higgsfield working");
+  await page.press("#input", "Enter");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 30000 });
+  let after10 = (await fullCards(page)).slice(before10);
+  const mcpJson = (c) => { try { return JSON.parse(c.text.replace(/^.*?MCP — /, "").replace(/Copy$/, "")); } catch (e) { return null; } };
+  const stJson1 = after10.filter((c) => c.cls === "claude" && /MCP — /.test(c.text)).map(mcpJson).pop() || null;
+  console.log(JSON.stringify({ note: (after10.find((c) => c.cls === "notice" && /higgsfield/.test(c.text)) || {}).text || null,
+    status: stJson1 && stJson1.servers && stJson1.servers.higgsfield, attached: stJson1 && stJson1.attached }, null, 1));
+  await shot(page, "10b-needs-auth");
+  fs.writeFileSync(path.join(HOME, ".fake-mcp-authed"), "1");
+  const sysBefore = JSON.parse(fs.readFileSync(path.join(HOME, "last-turn.json"), "utf8")).system;
+  await page.fill("#input", "is higgsfield working now");
+  await page.press("#input", "Enter");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 30000 });
+  after10 = (await fullCards(page)).slice(before10);
+  const stJson2 = after10.filter((c) => c.cls === "claude" && /MCP — /.test(c.text)).map(mcpJson).pop() || null;
+  await page.fill("#input", "hello");
+  await page.press("#input", "Enter");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 30000 });
+  const sysAfter = JSON.parse(fs.readFileSync(path.join(HOME, "last-turn.json"), "utf8")).system;
+  const observed = JSON.parse(fs.readFileSync(path.join(HOME, "Library", "Application Support", "ClaudeAssistantAE", "mcp-observed.json"), "utf8"));
+  console.log(JSON.stringify({ status_after_signin: stJson2 && stJson2.servers && stJson2.servers.higgsfield,
+    notes_after_signin: (await fullCards(page)).slice(before10).filter((c) => c.cls === "notice" && /higgsfield/.test(c.text)).length,
+    prompt_before_signin: (sysBefore.match(/Last turn higgsfield was [^\n]*/) || [null])[0],
+    prompt_after_signin: (sysAfter.match(/higgsfield tools seen last turn: [^\n]*/) || [null])[0],
+    persisted: observed.servers && observed.servers.higgsfield }, null, 1));
 
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {

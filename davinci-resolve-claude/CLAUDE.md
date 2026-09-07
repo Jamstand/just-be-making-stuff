@@ -296,6 +296,22 @@ in the plugin dir. Needs one-time chown of the install dir on macOS.
   for minutes). Keys from cloud.higgsfield.ai, stored as cfg higgsfield_key.
   Higgsfield's own Resolve plugin is a separate Workflow Integration that
   imports into the media pool directly — no stable output folder to watch.
+- AE panel + other MCP servers (Higgsfield via `claude mcp add --transport
+  http higgsfield https://mcp.higgsfield.ai`): the panel merges the server
+  into its per-turn mcp.json and allows mcp__<name>__*. Documented CLI
+  facts (code.claude.com/docs/en/agent-sdk/mcp): the stream-json
+  system/init event carries mcp_servers [{name,status}] with status one of
+  pending/connected/failed/needs-auth/disabled, plus tools[] where MCP
+  tools are mcp__<server>__<tool>; a server whose OAuth token is missing
+  reports needs-auth (init may still say pending) and its tools are simply
+  absent — headless runs cannot sign in. Live symptom before this was
+  handled: mcp_status said attached, every guessed mcp__higgsfield__* call
+  got "No such tool available". Now observeMcpInit/mcpAdvice (tracklib)
+  record status + names per server, a NOTE card names the fix, mcp_status
+  reports usable/tools/problem, the next prompt lists the seen names
+  (KNOWN_MCP_TOOLS gives Higgsfield's core names before any turn). Whether
+  the headless CLI reuses the interactive sign-in's token for a same-named
+  --mcp-config server is still unproven live; the panel now says which.
 - Chat history: autosaves to <config dir>/chats/<uuid>.json after every
   completed turn (images stripped from the stored API messages). History
   button opens a Tree browser (ComboBox fallback). Resume semantics: the CLI

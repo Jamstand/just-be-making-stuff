@@ -164,6 +164,23 @@ const exe = (name, body) => {
   check("extraMcpServers: nothing configured -> nothing attached", Object.keys(track.extraMcpServers({}, known).servers).length === 0
     && Object.keys(track.claudeCodeServers(path.join(tmp, "nope.json"))).length === 0);
 
+  const obs = track.observeMcpInit({ mcp_servers: [{ name: "ae", status: "connected" }, { name: "higgsfield", status: "needs-auth" }],
+    tools: ["mcp__ae__grab_frame", "mcp__higgsfield__generate_video", "Bash"] }, ["higgsfield", "other"]);
+  check("observeMcpInit: status per server, tools split by prefix, unreported extras marked",
+    obs.servers.ae.status === "connected" && obs.servers.ae.tools.join() === "grab_frame"
+    && obs.servers.higgsfield.status === "needs-auth" && obs.servers.higgsfield.tools.join() === "generate_video"
+    && obs.servers.other.status === "not-reported" && obs.tools_listed === true, JSON.stringify(obs));
+  const obs2 = track.observeMcpInit({ mcp_servers: [{ name: "higgsfield", status: "connected" }] }, ["higgsfield"]);
+  check("observeMcpInit: no tools array (older CLI) -> tools_listed false, empty tools", obs2.tools_listed === false && obs2.servers.higgsfield.tools.length === 0);
+  const adv = (st, tools) => track.mcpAdvice("higgsfield", { status: st, tools: tools || [] }, { url: "https://mcp.higgsfield.ai" });
+  check("mcpAdvice: connected with tools -> null; needs-auth/failed/pending/disabled/unknown -> the exact Terminal step",
+    adv("connected", ["x"]) === null && /listed no tools/.test(adv("connected"))
+    && /run `claude`, type \/mcp, pick higgsfield, Authenticate/.test(adv("needs-auth"))
+    && /could not connect \(https:\/\/mcp\.higgsfield\.ai\)/.test(adv("failed"))
+    && /sign-in is missing/.test(adv("pending")) && /disabled/.test(adv("disabled")) && /not reported/.test(adv("not-reported")),
+    [adv("connected"), adv("needs-auth"), adv("failed"), adv("pending")].join(" | "));
+  check("KNOWN_MCP_TOOLS: higgsfield core names present", track.KNOWN_MCP_TOOLS.higgsfield.includes("generate_video") && track.KNOWN_MCP_TOOLS.higgsfield.includes("jobs_wait"));
+
   // ------------------------------------------------ PNG readiness (panel-side wait)
   const png = path.join(tmp, "grab.png");
   fs.writeFileSync(png, "partial");

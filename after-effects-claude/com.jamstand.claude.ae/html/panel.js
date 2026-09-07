@@ -1188,11 +1188,24 @@ tool("mcp_status",
     const cfg = track.readConfig();
     const known = track.claudeCodeServers();
     const extra = track.extraMcpServers(cfg, known);
+    const servers = {};
+    for (const name of Object.keys(extra.servers)) {
+      const seen = mcpObserved && mcpObserved.servers && mcpObserved.servers[name];
+      const advice = seen ? track.mcpAdvice(name, seen, extra.servers[name])
+        : "no turn has reported on it yet";
+      servers[name] = { status: seen ? seen.status : "unknown",
+        usable: !!seen && !advice,
+        tools: seen ? seen.tools.map((t) => "mcp__" + name + "__" + t) : [],
+        problem: advice };
+    }
     return { extra_mcp: cfg.extra_mcp || null, attached: Object.keys(extra.servers),
+      servers, observed_at: mcpObserved ? mcpObserved.at : null,
       missing: extra.missing, known_in_claude_code: Object.keys(known),
-      hint: "Add a server to Claude Code once (claude mcp add --transport http "
-        + "<name> <url>, then `claude` → /mcp → authenticate), then mcp_connect "
-        + "<name> here." };
+      hint: "'attached' only means the server is in this turn's mcp.json; "
+        + "'usable' means the CLI reported it connected and listed its tools. "
+        + "Never guess tool names: call only the ones listed here. Add a server "
+        + "to Claude Code once (claude mcp add --transport http <name> <url>, "
+        + "then `claude` → /mcp → Authenticate), then mcp_connect <name> here." };
   });
 
 tool("mcp_connect",
@@ -1404,6 +1417,13 @@ let history = historyLib.makeHistory(path.join(USER_DATA, "chats"));
 let chatId = historyLib.newChatId();
 let msgLog = [];
 let pendingRecap = "";
+// What the CLI last reported about the extra MCP servers (system/init
+// event): status + tool names. Persisted so the next chat's prompt and
+// mcp_status know it too. turnExtra = the servers attached to the current turn.
+const MCP_OBSERVED_FILE = path.join(USER_DATA, "mcp-observed.json");
+let mcpObserved = null;
+try { mcpObserved = JSON.parse(fs.readFileSync(MCP_OBSERVED_FILE, "utf8")); } catch (e) {}
+let turnExtra = { servers: {}, missing: [] };
 const PERSISTED_KINDS = new Set(["you", "assistant", "error", "notice",
                                  "toolcall", "toolresult"]);
 let uiHandler = null;
@@ -1433,12 +1453,32 @@ function buildTurn(workdir, model, effort) {
     headers: { Authorization: "Bearer " + bridge.token } } });
   fs.writeFileSync(mcpPath, JSON.stringify({ mcpServers: servers }));
   const extraNames = Object.keys(extra.servers);
+  turnExtra = extra;
   let sys = SYSTEM_PROMPT;
-  if (extraNames.length)
+  if (extraNames.length) {
     sys += "\nOther MCP servers attached this turn: " + extraNames.map((n) =>
       n + " (tools mcp__" + n + "__*)").join(", ") + ". Their results are "
       + "URLs, not files: download_file the ones you need, then import_media / "
-      + "add_clip them. Say when a step spends that service's credits.";
+      + "add_clip them. Say when a step spends that service's credits."
+      + " 'Attached' is not 'connected': if a call returns 'No such tool "
+      + "available', call mcp_status — it reports each server's real status "
+      + "and tool names — and relay its problem text to the user instead of "
+      + "guessing other names.";
+    for (const n of extraNames) {
+      const seen = mcpObserved && mcpObserved.servers && mcpObserved.servers[n];
+      const advice = seen ? track.mcpAdvice(n, seen, extra.servers[n]) : null;
+      if (seen && advice)
+        sys += "\nLast turn " + n + " was " + seen.status + " — " + advice
+          + " Until then do not call its tools.";
+      else if (seen && seen.tools.length)
+        sys += "\n" + n + " tools seen last turn: " + seen.tools.map((t) =>
+          "mcp__" + n + "__" + t).join(", ") + ".";
+      else if (track.KNOWN_MCP_TOOLS[n])
+        sys += "\n" + n + " core tools (from its published server): "
+          + track.KNOWN_MCP_TOOLS[n].map((t) => "mcp__" + n + "__" + t).join(", ")
+          + ". mcp_status lists what this CLI actually got.";
+    }
+  }
   if (extra.missing.length)
     sys += "\nextra_mcp names not found in Claude Code's config (not attached): "
       + extra.missing.join(", ") + " — tell the user to run `claude mcp add`.";
@@ -1461,6 +1501,16 @@ function handleCliEvent(event) {
     for (const server of event.mcp_servers || [])
       if (server.name === "ae" && server.status === "failed")
         sendUI("notice", "The AE tool bridge did not connect this turn.");
+    const extraNames = Object.keys(turnExtra.servers);
+    if (extraNames.length || (event.mcp_servers || []).length > 1) {
+      mcpObserved = track.observeMcpInit(event, extraNames);
+      try { fs.writeFileSync(MCP_OBSERVED_FILE, JSON.stringify(mcpObserved)); }
+      catch (e) {}
+      for (const n of extraNames) {
+        const advice = track.mcpAdvice(n, mcpObserved.servers[n], turnExtra.servers[n]);
+        if (advice) sendUI("notice", n + " " + advice);
+      }
+    }
     return;
   }
   if (event.type === "assistant") {

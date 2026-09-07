@@ -155,3 +155,12 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   mcp.json and the system prompt there, since turn dirs are transient):
   expect servers [higgsfield, ae], allowedTools mcp__ae__* mcp__higgsfield__*,
   and the prompt naming both the attached server and the missing "ghost".
+  Step 10b: the fake CLI's init event lists every server in mcp.json as
+  needs-auth (no tools) until ~/.fake-mcp-authed exists in the harness
+  HOME, then connected with mcp__<name>__generate_video / jobs_wait; the
+  "is higgsfield working" prompt makes it call mcp_status. Expect a NOTE
+  card naming the sign-in step, mcp_status usable:false + problem text,
+  then after the marker: usable:true with the real names, the next
+  prompt's "higgsfield tools seen last turn: …" line, and
+  <USER_DATA>/mcp-observed.json. Use fullCards() (not cards(), which
+  truncates at 120 chars) to parse JSON out of a card.

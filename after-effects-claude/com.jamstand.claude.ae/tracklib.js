@@ -667,7 +667,47 @@ function extraMcpServers(cfg, known) {
   return { servers: out, missing };
 }
 
-module.exports = { claudeCodeServers, extraMcpServers, cornersFromQuad, describeBlocks, parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
+// What the CLI reported about the attached servers in its stream-json
+// system/init event: a status per server and, when the CLI lists them, the
+// tool names each one exposed (mcp__<server>__<tool>). This is the only
+// place the panel can learn whether a hosted server (Higgsfield) actually
+// connected or is waiting for a sign-in the headless CLI cannot do.
+const KNOWN_MCP_TOOLS = {
+  higgsfield: ["generate_video", "generate_image", "generate_audio", "jobs_wait",
+    "show_generation_by_ids", "show_generations", "media_import_url", "media_upload",
+    "models_explore", "balance", "upscale_video", "remove_background"] };
+
+function observeMcpInit(event, extraNames) {
+  const tools = Array.isArray((event || {}).tools) ? event.tools.map(String) : null;
+  const out = { at: new Date().toISOString(), tools_listed: !!tools, servers: {} };
+  for (const s of ((event || {}).mcp_servers || [])) {
+    if (!s || !s.name) continue;
+    const prefix = "mcp__" + s.name + "__";
+    out.servers[s.name] = { status: String(s.status || "unknown").toLowerCase(),
+      tools: (tools || []).filter((t) => t.indexOf(prefix) === 0).map((t) => t.slice(prefix.length)) };
+  }
+  for (const n of extraNames || [])
+    if (!out.servers[n]) out.servers[n] = { status: "not-reported", tools: [] };
+  return out;
+}
+
+// One plain sentence per server that is not usable, or null when it is.
+function mcpAdvice(name, entry, def) {
+  const st = (entry || {}).status || "unknown";
+  const url = def && def.url ? " (" + def.url + ")" : "";
+  if (st === "connected")
+    return entry.tools.length ? null : "connected, but the CLI listed no tools for it — try again; if it persists check `claude mcp list` in Terminal.";
+  if (/auth/.test(st))
+    return "needs sign-in: in Terminal run `claude`, type /mcp, pick " + name + ", Authenticate (browser opens), then /exit and send again here.";
+  if (st === "failed")
+    return "could not connect" + url + ": in Terminal run `claude mcp list` — it should say ✓ Connected; if it says needs authentication, run `claude`, /mcp, Authenticate.";
+  if (st === "pending")
+    return "was still connecting when the turn started (the CLI also reports this while a sign-in is missing): send again once; if it repeats, run `claude` in Terminal, /mcp, pick " + name + ", Authenticate.";
+  if (st === "disabled") return "is disabled in Claude Code (`claude mcp list`).";
+  return "not reported by the CLI this turn — check `claude mcp list` in Terminal.";
+}
+
+module.exports = { observeMcpInit, mcpAdvice, KNOWN_MCP_TOOLS, claudeCodeServers, extraMcpServers, cornersFromQuad, describeBlocks, parseMochaShapeText, maskReport, motionReport, pngComplete, waitForPng, solveHomography, applyH, retargetCornerPin, trackReport,
   cornerBlocks, mochaEnv, explainMochaError, CONFIG_FILE, readConfig, writeConfig, findMochaPython,
   expandPattern, runMochaJob, parseAeKeyframeText, httpRequest, falUpload,
   falSubmit, falWait, download, mimeFor, FAL_QUEUE, FAL_REST };

@@ -24,7 +24,16 @@ process.stdin.on("end", async () => {
   let id = 0;
   const init = await rpc({ jsonrpc: "2.0", id: ++id, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "fake-claude", version: "0" } } });
   await rpc({ jsonrpc: "2.0", method: "notifications/initialized" });
-  out({ type: "system", subtype: "init", session_id: "sess-fake-1", mcp_servers: [{ name: "ae", status: init ? "connected" : "failed" }] });
+  const allServers = JSON.parse(fs.readFileSync(mcpPath, "utf8")).mcpServers;
+  const authed = fs.existsSync(require("path").join(require("os").homedir(), ".fake-mcp-authed"));
+  const servers = [{ name: "ae", status: init ? "connected" : "failed" }];
+  let tools = ["mcp__ae__get_project_overview", "mcp__ae__create_comp", "mcp__ae__mcp_status"];
+  for (const n of Object.keys(allServers)) {
+    if (n === "ae") continue;
+    servers.push({ name: n, status: authed ? "connected" : "needs-auth" });
+    if (authed) tools = tools.concat(["mcp__" + n + "__generate_video", "mcp__" + n + "__jobs_wait"]);
+  }
+  out({ type: "system", subtype: "init", session_id: "sess-fake-1", mcp_servers: servers, tools });
   const call = async (name, input) => {
     out({ type: "assistant", message: { content: [{ type: "tool_use", name: "mcp__ae__" + name, input }] } });
     const r = await rpc({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name, arguments: input } });
@@ -34,6 +43,9 @@ process.stdin.on("end", async () => {
     out({ type: "assistant", message: { content: [{ type: "text", text: "Connected. Overview: " + ov.content[0].text }] } });
     const cc = await call("create_comp", { name: "Hello Comp", width: 1080, height: 1920, fps: 59.94, duration_s: 10 });
     out({ type: "assistant", message: { content: [{ type: "text", text: cc.isError ? "create_comp was declined: " + cc.content[0].text : "Made **Hello Comp** — `" + cc.content[0].text + "`" }] } });
+  } else if (/higgsfield/i.test(prompt)) {
+    const st = await call("mcp_status", {});
+    out({ type: "assistant", message: { content: [{ type: "text", text: "MCP — " + st.content[0].text }] } });
   } else if (/beat|music/i.test(prompt)) {
     const os = require("os"), path = require("path");
     const audio = require(path.join(process.env.AE_EXT, "audiolib.js"));

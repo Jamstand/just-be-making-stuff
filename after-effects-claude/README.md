@@ -146,8 +146,16 @@ claude            # then type /mcp and authenticate higgsfield
 Then, in the panel, `connect higgsfield` (the `mcp_connect` tool). From the
 next message every turn attaches that server: its tools are allowed, the
 system prompt says so, and `download_file` turns the URLs it returns into
-local files for `import_media` / `add_clip`. `mcp_status` shows what is
-attached; `extra_mcp` in `~/.claude-assistant.json` is the record (names
+local files for `import_media` / `add_clip`. `extra_mcp` in `~/.claude-assistant.json` is the record (names
 resolved against Claude Code's `~/.claude.json`, or inline `{type, url}`).
-Not yet verified live: that the headless CLI reuses the OAuth token stored
-by the interactive sign-in for a server named the same way.
+
+"Attached" is not "connected". Every turn the CLI reports each server's
+status (`connected`, `needs-auth`, `failed`, `pending`, `disabled`) and
+the tool names it actually got; the panel records that
+(`mcp-observed.json` in its data folder), shows a NOTE card when a server
+is not usable ("higgsfield needs sign-in: in Terminal run claude, type
+/mcp, pick higgsfield, Authenticate…"), and `mcp_status` returns the real
+status, the real `mcp__higgsfield__*` names and the fix. The next turn's
+prompt carries the names, so Claude calls real tools instead of guessing.
+A headless CLI cannot do the OAuth dance itself: `needs-auth` (or a
+`pending` that repeats) always means "sign in once in a terminal".
