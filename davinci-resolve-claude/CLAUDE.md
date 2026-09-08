@@ -199,6 +199,20 @@ behaviour; extend them when adding tools.
   auto_balance: warm cast 3.3/-3.8% → -0.2/0.1%, neutral frame left alone
   (gains 0.9995/1.0011, 0 stops); exposure only moves a luma median outside
   the 30-55% band. Skin: a 12° rotation reads as -8.9° off the line.
+  bench_photos.js (OpenCV sample photos portrait/fruits/baboon at 256 px,
+  ΔE2000 over EVERY pixel, mean / p95): exposure+WB 7.9 → 0.18, 6.5 → 0.40,
+  9.1 → 0.22; over+cool+flat 5.7 → 0.38 / 0.51 / 0.42; tungsten 8.8 → 0.77,
+  5.2 → 0.36, 9.6 → 0.75 (p95 ≤ 2.4) — invisible. The verified hue pass
+  correctly does nothing on those. sat 0.7 + contrast + tungsten stays
+  3.6-5.7 (visible). DIFFERENT FRAMING (left 60% vs right 60% crop, same
+  shift) is the real weakness of statistics matching: 8.4 → 6.8, 6.0 →
+  10.5 (worse), 9.1 → 4.8; an offsets-only neutral-pixel/median variant
+  did not fix it (fruits 6.0 → 21) because the two crops' "neutral"
+  content differs — this is what a neural matcher (Colourlab) is for, and
+  match_shot's description should keep saying "same scene". auto_balance
+  refuses colourful frames with no neutrals (portrait 0%, fruits 0.7%
+  neutral weight) rather than guess. Different subjects: match_hues
+  refuses (global gap 27%), match_shot runs (by design).
   Tool surface: match_shot (power/saturation params), match_timeline (hero
   given or medoid, one approval), auto_balance, match_hues (.cube via the
   look designer, SetLUT dead on the Mac → manual load), qc_scan skin-cast
