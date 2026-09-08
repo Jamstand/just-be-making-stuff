@@ -132,6 +132,12 @@ function fakeResolve(mediaDir) {
     },
     GrabStill: () => {                    // intermittently falsy, like life
       grabState.calls += 1;
+      if (grabState.failGrabFor !== undefined && grabState.failGrabFor !== null) {
+        const tc = grabState.timecodes[grabState.timecodes.length - 1] || "";
+        const [hh, mm, ss, ff] = tc.split(":").map(Number);
+        const frame = ((hh * 60 + mm) * 60 + ss) * 24 + ff;
+        if (frame < 86484 && grabState.failGrabFor === 86400) return null;   // hero frame dead every time
+      }
       return grabState.calls < 2 ? null : { still: true };
     },
     GetStartFrame: () => 86400,
@@ -595,8 +601,17 @@ async function main() {
   check("match_timeline picks a hero, matches the other clip, logs and returns revert",
         rT2.ok && t2.hero && /auto/.test(t2.hero.chosen) && t2.matched === 1 && t2.results[0].final_cdl && t2.log_file && fsmod.existsSync(t2.log_file) && t2.revert_each,
         JSON.stringify(t2));
+  const est5 = tools.balanceEstimate(tools.measureBuffer(tools.writeTiff16(resolve._grab.scene.target, 13600, 1)), { strength: 0.5 });
+  const est1 = tools.balanceEstimate(tools.measureBuffer(tools.writeTiff16(resolve._grab.scene.target, 13600, 1)), {});
+  check("balanceEstimate at strength 0.5 reports the gains it actually applies (square root of the full ones)",
+        est5.gains.every((g, c) => Math.abs(g - Math.sqrt(est1.gains[c])) < 0.002) && Math.abs(est5.offset[0] - est1.offset[0] / 2) < 1e-6, JSON.stringify([est5.gains, est1.gains]));
   const rTd = await tools.executeTool(state, "match_timeline", { hero: 1, dry_run: true, out_dir: stillDir });
   check("match_timeline dry_run with a given hero proposes only", rTd.ok && JSON.parse(rTd.text).dry_run && JSON.parse(rTd.text).hero.chosen === "given" && JSON.parse(rTd.text).results[0].proposed_cdl && !JSON.parse(rTd.text).results[0].final_cdl);
+
+  resolve._grab.failGrabFor = 86400;          // the hero's frame cannot be grabbed
+  const rTh = await tools.executeTool(state, "match_timeline", { hero: 1, dry_run: true, out_dir: stillDir });
+  check("match_timeline names an unmeasurable hero instead of failing every row", !rTh.ok && /hero clip .*could not be measured/i.test(rTh.text), rTh.text);
+  resolve._grab.failGrabFor = null;
 
   // match_hues: greens-only cast -> verified recipe -> cube; SetLUT dead -> manual load
   const greenPx = bench.disturb(bench.scene(2), { hueOnly: [1.15, 0.95, 0.8] });
@@ -613,6 +628,10 @@ async function main() {
   resolve._grab.lutReject = true;
   const rH2 = await tools.executeTool(state, "match_hues", { reference: 1, target: 2, out_dir: stillDir });
   check("match_hues degrades to manual-load when SetLUT is dead", rH2.ok && JSON.parse(rH2.text).applied === false && /manual/.test(JSON.parse(rH2.text).manual_load), rH2.text.slice(0, 600));
+  resolve._grab.scene = { ref: refPx, target: warmPx };
+  const rHg = await tools.executeTool(state, "match_hues", { reference: 1, target: 2, max_global_gap_pct: 2, dry_run: true, out_dir: stillDir });
+  check("match_hues refuses while the global gap exceeds the caller's limit, and quotes that limit",
+        rHg.ok && /limit 2%/.test(JSON.parse(rHg.text).refused || ""), rHg.text.slice(0, 300));
   resolve._grab.lutReject = false;
   resolve._grab.scene = { ref: refPx, target: bench.scene(2) };
   const rH3 = await tools.executeTool(state, "match_hues", { reference: 1, target: 2, dry_run: true, out_dir: stillDir });

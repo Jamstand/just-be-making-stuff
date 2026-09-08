@@ -1190,8 +1190,11 @@ tool("mcp_status",
     const extra = track.extraMcpServers(cfg, known);
     const inherit = mcpMode(cfg) === "inherit";
     const servers = {};
-    for (const name of Object.keys(extra.servers)) {
-      const def = extra.servers[name];
+    // inherit: names Claude Code resolves itself (claude.ai connectors) are
+    // attached too, even with no local definition to show a URL for.
+    const names = Object.keys(extra.servers).concat(inherit ? extra.missing : []);
+    for (const name of names) {
+      const def = extra.servers[name] || { inherited: true };
       const seen = mcpObserved && mcpObserved.servers && mcpObserved.servers[name];
       let advice = seen ? track.mcpAdvice(name, seen, def) : "no turn has reported on it yet";
       const entry = { status: seen ? seen.status : "unknown", usable: !!seen && !advice,
@@ -1208,9 +1211,9 @@ tool("mcp_status",
       servers[name] = entry;
     }
     return { extra_mcp: cfg.extra_mcp || null, mode: inherit ? "inherit" : "strict",
-      attached: Object.keys(extra.servers),
+      attached: names,
       servers, observed_at: mcpObserved ? mcpObserved.at : null,
-      missing: extra.missing, known_in_claude_code: Object.keys(known),
+      missing: inherit ? [] : extra.missing, known_in_claude_code: Object.keys(known),
       hint: "'attached' only means the server is in this turn's config; "
         + "'usable' means the CLI reported it connected and listed its tools. "
         + "Never guess tool names: call only the ones listed here. mode strict = "

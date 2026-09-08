@@ -1086,6 +1086,9 @@ function tiffStats(buffer, info) {
 const P_LEVELS = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99];
 const HUE_SECTORS = 12;                          // 30° each, centred on 0,30,…
 const HUE_BINS = 72;                             // 5° hue histogram bins
+// The one definition of "a pixel with a hue worth counting" — jointStats
+// (the measurement) and simHueStats (the simulation) must agree on it.
+const isColoured = (sat, mx, d) => sat >= 0.1 && mx >= 0.08 && d >= 0.02;
 const SKIN_LINE_DEG = 123;                       // vectorscope skin-tone line
 
 // One pass over (a stride of) the pixels for everything a per-channel
@@ -1127,10 +1130,8 @@ function jointStats(buffer, info, channels, bits, full) {
       const wn = Math.max(0, 1 - sat / 0.25);
       const w = wn * wn * (luma > 0.03 && luma < 0.97 ? 1 : 0);
       wSum += w; wr += w * r; wg += w * g; wb += w * b;
-      if (sat >= 0.1 && mx >= 0.08 && d >= 0.02) {
-        let h = 0;
-        if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4;
-        h *= 60; if (h < 0) h += 360;
+      if (isColoured(sat, mx, d)) {
+        const h = rgbToHsv(r, g, b)[0];
         // Soft membership: the two nearest sector centres share the pixel,
         // so a patch sitting on a boundary cannot flip sectors between frames.
         const hb = Math.floor(h / (360 / HUE_BINS)) % HUE_BINS;
@@ -1282,10 +1283,8 @@ function simHueStats(samples, look) {
     if (adjustments.length) p = applyLook(p, look);
     const d3 = p.map((y) => Math.min(1, Math.max(0, Math.pow(diDecode(Math.max(0, y)), 1 / 2.4))));
     const [r, g, b] = d3, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, sat = mx > 1e-6 ? d / mx : 0;
-    if (!(sat >= 0.1 && mx >= 0.08 && d >= 0.02)) continue;
-    let h = 0;
-    if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4;
-    h *= 60; if (h < 0) h += 360;
+    if (!isColoured(sat, mx, d)) continue;
+    const h = rgbToHsv(r, g, b)[0];
     const k = Math.floor(h / (360 / HUE_BINS)) % HUE_BINS;
     hist[k] += 1; rgb[0][k] += r; rgb[1][k] += g; rgb[2][k] += b; total += 1;
   }
@@ -1297,7 +1296,7 @@ function simHueStats(samples, look) {
 // the hues in the same places) plus, per bin both frames occupy, the DI-space
 // saturation and value gap of the bin's mean colour, weighted by shared mass.
 function hueCost(refJoint, sim) {
-  const diHsv = (rgbPct) => rgbToHsv(...rgbPct.map((v) => diEncode(Math.pow(Math.max(0, v) / 100, 2.4))));
+  const diHsv = diHsvPct;
   let l1 = 0, colour = 0;
   for (let k = 0; k < HUE_BINS; k++) {
     const a = refJoint.hue_hist[k] || 0, b = sim.hue_hist[k] || 0;
@@ -1345,6 +1344,18 @@ function refineHueRecipe(refJoint, samples, adjustments, opts) {
   if (after > before * (1 - minGain)) kept = [];
   return { hue_adjustments: kept, cost_before: +before.toFixed(4), cost_after: +(kept.length ? after : before).toFixed(4), evals,
            rejected: kept.length ? null : "improvement under " + Math.round(minGain * 100) + "% — not worth a LUT" };
+}
+
+// Grab a clip's mid frame as a measurement TIFF and reduce it — the one
+// measure step every colour tool shares. `a.out_dir` is the grab dir;
+// grabOpts overrides (no_proxy, pre_grade...).
+async function measureItem(state, item, a, grabOpts) {
+  const grabEntry = TOOLS.find((t) => t.name === "grab_still");
+  const frame = item.GetStart() + Math.floor((Number(item.GetDuration()) || 2) / 2);
+  const g = await grabEntry.fn(state, Object.assign({ frame, format: "tif", out_dir: (a || {}).out_dir }, grabOpts || {}));
+  const m = measureBuffer(fs.readFileSync(g.measurement_file));
+  if (m.error) throw new ResolveError("Could not measure " + item.GetName() + ": " + m.error);
+  return Object.assign(m, { proxy: (g._images || [])[0], file: g.measurement_file, timecode: g.timecode });
 }
 
 // Everything the matcher needs from one grab, from its bytes.
@@ -1511,8 +1522,8 @@ tool("qc_scan",
         flags.push({ clip: c.name, kind: "skin-cast",
           detail: c.skin.pct + "% skin pixels sit " + c.skin.line_deviation_deg
             + "° off the skin-tone line (threshold 8°, " + (c.skin.line_deviation_deg > 0 ? "toward red/magenta" : "toward yellow/green")
-            + "): match_hues against a good clip, or design_look hue_adjustments {hue: "
-            + Math.round(c.skin.angle_deg < 180 ? 25 : 25) + ", shift: " + (-c.skin.line_deviation_deg / 2).toFixed(0) + "}." });
+            + "): match_hues against a good clip, or design_look hue_adjustments {hue: 25, width: 30, shift: "
+            + (-c.skin.line_deviation_deg / 2).toFixed(0) + "} (skin sits near HSV hue 25°)." });
       for (let ch = 0; ch < 3; ch++) {
         const cs = c.stats.channels[ch], name = "RGB"[ch];
         if (cs.at_exact_max_pct > 0.5)
@@ -1695,7 +1706,8 @@ function balanceEstimate(stats, opts) {
   let gains = gw.map((g, c) => Math.exp((1 - blend) * Math.log(g) + blend * Math.log(wp[c])));
   gains = gains.map((g) => clampN(g / gains[1], 0.5, 2));         // green = 1
   const strength = opts.strength === undefined ? 1 : clampN(Number(opts.strength), 0, 1);
-  const wbOffset = gains.map((g) => DI.C * Math.log2(g) * strength);
+  gains = gains.map((g) => Math.pow(g, strength));               // what is actually applied
+  const wbOffset = gains.map((g) => DI.C * Math.log2(g));
   let stops = 0;
   if (opts.exposure !== false) {
     // A luma median anywhere in the band is "exposed"; outside it, move to
@@ -1708,7 +1720,7 @@ function balanceEstimate(stats, opts) {
     if (Math.abs(stops) < 0.1) stops = 0;                          // dead band
   }
   const offset = wbOffset.map((o) => o + DI.C * stops);
-  return { refuse: false, gains: gains.map((g) => +g.toFixed(4)), exposure_stops: +stops.toFixed(2),
+  return { refuse: false, gains: gains.map((g) => +g.toFixed(4)), strength, exposure_stops: +stops.toFixed(2),
     slope: [1, 1, 1], offset, power: [1, 1, 1], saturation: 1,
     cast_before: { r_minus_g_pct: +(J.neutral_mean_pct[0] - J.neutral_mean_pct[1]).toFixed(2),
                    b_minus_g_pct: +(J.neutral_mean_pct[2] - J.neutral_mean_pct[1]).toFixed(2) },
@@ -1740,10 +1752,11 @@ function hueMatchRecipe(refJoint, tgtJoint, opts) {
   // subjects make a hue-to-hue mapping meaningless.
   let overlap = 0;
   for (let i = 0; i < HUE_BINS; i++) overlap += Math.sqrt(RH[i] * TH[i]);
-  if (overlap < (opts.min_similarity === undefined ? 0.6 : Number(opts.min_similarity)))
+  const minSim = opts.min_similarity === undefined ? 0.6 : Number(opts.min_similarity);
+  if (overlap < minSim)
     return { hue_adjustments: [], sectors, skipped, similarity: +overlap.toFixed(3),
       refused: "Hue content differs too much between the frames (overlap " + overlap.toFixed(2)
-        + " < 0.6): these are different subjects, a hue-to-hue map would be fiction." };
+        + " < " + minSim + "): these are different subjects, a hue-to-hue map would be fiction." };
   // Where did each hue go? Match the two chroma-weighted hue CDFs, cutting
   // the circle at the emptiest bin, so a patch that crossed a sector
   // boundary is still paired with itself instead of with its neighbour.
@@ -1764,7 +1777,7 @@ function hueMatchRecipe(refJoint, tgtJoint, opts) {
   };
   // The LUT works in DI-log, where saturation and value are not what the
   // display-referred grab shows: judge sector colours in that space.
-  const diHsv = (rgbPct) => rgbToHsv(...rgbPct.map((v) => diEncode(Math.pow(Math.max(0, v) / 100, 2.4))));
+  const diHsv = diHsvPct;
   // Reference colour (DI-space HSV) at a hue, from the 5° bin means.
   const refBinHsv = (h) => {
     const k0 = Math.floor((((h / binDeg) % HUE_BINS) + HUE_BINS) % HUE_BINS);
@@ -1819,10 +1832,12 @@ function hueMatchRecipe(refJoint, tgtJoint, opts) {
   return { hue_adjustments: adjustments, sectors, skipped, similarity: +overlap.toFixed(3) };
 }
 
-// The measure -> apply -> regrab loop shared by match_shot, match_timeline
-// and auto_balance. `fit(goalPctl, measured)` returns a CDL for the ORIGINAL
-// target; each round shifts the goal by the measured residual, so pipeline
-// errors the DI-log model does not know about (the DRT) are absorbed.
+// The measure -> apply -> regrab loop shared by match_shot and
+// match_timeline. Each round refits the ORIGINAL target to a goal shifted by
+// the measured residual, so pipeline errors the DI-log model does not know
+// about (the DRT) are absorbed. Converged = every channel's mean and median
+// within TOLERANCE_PCT of the reference.
+const TOLERANCE_PCT = 0.75;
 async function runCdlLoop(ref, tgtItem, measure, opts) {
   const nodeIndex = opts.nodeIndex || 1;
   const maxIter = Math.min(5, Math.max(1, Number(opts.maxIterations) || 3));
@@ -1834,11 +1849,11 @@ async function runCdlLoop(ref, tgtItem, measure, opts) {
   const satOn = opts.saturation !== false && ref.joint && tgt.joint
     && tgt.joint.chroma_p90_pct > 1 && ref.joint.chroma_p90_pct > 1;
   const satErrOf = (t) => (satOn ? Math.abs(ref.joint.chroma_p90_pct - t.joint.chroma_p90_pct) / Math.max(1, ref.joint.chroma_p90_pct) : 0);
-  let cdl = opts.fixed || fitCdl(goal, base, { power: opts.power });
+  let cdl = fitCdl(goal, base, { power: opts.power });
   // Refine on the grab's own pixels: the per-channel fit cannot see how
   // saturation mixes channels, the simulated node can.
   const refine = (init) => {
-    if (opts.fixed || !samples0 || !samples0.length) return init;
+    if (!samples0 || !samples0.length) return init;
     const r = refineCdl(goal, satOn ? ref.joint.chroma_p90_pct : null, samples0,
       { slope: init.slope, offset: init.offset, power: init.power, sat }, { power: opts.power, saturation: satOn });
     sat = satOn ? r.sat : 1;
@@ -1867,21 +1882,21 @@ async function runCdlLoop(ref, tgtItem, measure, opts) {
     const score = worst + 25 * satErrOf(tgt);
     if (score < bestScore) { bestScore = score; bestCdl = cdl; bestSat = sat; bestTgt = tgt; }
     else {                                                         // regressed: restore the best round
-      cdl = bestCdl; sat = bestSat; tgt = bestTgt; write();
+      cdl = bestCdl; sat = bestSat; tgt = bestTgt;
+      if (!write())
+        throw new ResolveError("SetCDL returned false while restoring round " + (iterations.length - 1)
+          + " on node " + nodeIndex + " of " + tgtItem.GetName() + " — the node may hold the worse round " + i + ".");
       iterations[iterations.length - 1].regressed = "worse than round " + (iterations.length - 1) + " — restored it";
       break;
     }
-    if (worst < (opts.tolerance_pct || 0.75) && satErrOf(tgt) < 0.03) break;
-    if (opts.fixed) break;                                         // one-shot callers
+    if (worst < TOLERANCE_PCT && satErrOf(tgt) < 0.03) break;
     if (i === maxIter) break;
     goal = goal.map((row, c) => row.map((v, k) => v + (ref.stats[c].pctl[k] - tgt.stats[c].pctl[k])));
-    if (satOn && !samples0)
-      sat = clampN(sat * ref.joint.chroma_p90_pct / Math.max(1, tgt.joint.chroma_p90_pct), 0.5, 2);
     cdl = refine(fitCdl(goal, base, { power: opts.power }));
   }
   const last = iterations[iterations.length - 1].regressed ? iterations[iterations.length - 2] : iterations[iterations.length - 1];
   return { iterations, final_cdl: last.cdl, final_residual_mean_pct_rgb: last.residual_mean_pct_rgb,
-    converged: Math.max(...last.residual_mean_pct_rgb.map(Math.abs)) < (opts.tolerance_pct || 0.75),
+    converged: Math.max(...last.residual_mean_pct_rgb.map(Math.abs)) < TOLERANCE_PCT,
     final: tgt };
 }
 
@@ -1935,18 +1950,7 @@ tool("match_shot",
       throw new ResolveError("Reference and target are the same clip.");
     const tlFps = Number(tl.GetSetting("timelineFrameRate")) || 24;
     const nodeIndex = Number(a.node_index) || 1;
-    const grabEntry = TOOLS.find((t) => t.name === "grab_still");
-    const midFrame = (item) => item.GetStart()
-      + Math.floor((Number(item.GetDuration()) || 2) / 2);
-    const measure = async (item) => {
-      const g = await grabEntry.fn(state, { frame: midFrame(item),
-                                            format: "tif",
-                                            out_dir: a.out_dir });
-      const m = measureBuffer(fs.readFileSync(g.measurement_file));
-      if (m.error)
-        throw new ResolveError("Could not measure " + item.GetName() + ": " + m.error);
-      return Object.assign(m, { proxy: (g._images || [])[0], file: g.measurement_file });
-    };
+    const measure = (item) => measureItem(state, item, a);
 
     const ref = await measure(refItem);
     const tgt0 = await measure(tgtItem);
@@ -1981,7 +1985,7 @@ tool("match_shot",
     out.final_residual_mean_pct_rgb = loop.final_residual_mean_pct_rgb;
     out.converged = loop.converged;
     if (!loop.converged)
-      out.note = "Residual above 0.75% after " + loop.iterations.length
+      out.note = "Residual above " + TOLERANCE_PCT + "% after " + loop.iterations.length
         + " rounds — the shots differ in a way a global CDL cannot express "
         + "(a hue or region): try match_hues on top, or more max_iterations.";
     out.revert = { NodeIndex: String(nodeIndex), Slope: "1 1 1",
@@ -2010,7 +2014,7 @@ tool("auto_balance",
     node_index: { type: "number", description: "Node for the CDL (default 1; use a spare node)." },
     strength: { type: "number", description: "0-1, default 1 (full correction)." },
     exposure: { type: "boolean", description: "Also normalise exposure (default true)." },
-    target_median_pct: { type: "number", description: "Luma median to aim for, % of display (default 42)." },
+    target_median_pct: { type: "number", description: "Force the luma median to this % of display. Default: leave exposure alone while the median is within 30-55%, else move it to the nearest edge of that band." },
     max_stops: { type: "number", description: "Exposure change cap in stops (default 1.5)." },
     max_iterations: { type: "number", description: "Measure-apply-regrab rounds (default 2)." },
     dry_run: { type: "boolean", description: "true = measure and propose only." },
@@ -2027,14 +2031,7 @@ tool("auto_balance",
       if (!item) throw new ResolveError("No clip under the playhead — park on one or pass clip/track.");
     }
     const nodeIndex = Number(a.node_index) || 1;
-    const grabEntry = TOOLS.find((t) => t.name === "grab_still");
-    const measure = async (it) => {
-      const g = await grabEntry.fn(state, { frame: it.GetStart() + Math.floor((Number(it.GetDuration()) || 2) / 2),
-                                            format: "tif", out_dir: a.out_dir });
-      const m = measureBuffer(fs.readFileSync(g.measurement_file));
-      if (m.error) throw new ResolveError("Could not measure " + it.GetName() + ": " + m.error);
-      return Object.assign(m, { proxy: (g._images || [])[0], file: g.measurement_file });
-    };
+    const measure = (it) => measureItem(state, it, a);
     const before = await measure(item);
     const est = balanceEstimate({ channels: before.stats, joint: before.joint }, a);
     const out = { clip: item.GetName(), node: nodeIndex, estimate: est };
@@ -2090,14 +2087,7 @@ tool("match_timeline",
     const items = tl.GetItemListInTrack("video", track) || [];
     if (items.length < 2) throw new ResolveError("Track " + track + " has " + items.length + " clip(s); nothing to match.");
     const nodeIndex = Number(a.node_index) || 1;
-    const grabEntry = TOOLS.find((t) => t.name === "grab_still");
-    const measure = async (it) => {
-      const g = await grabEntry.fn(state, { frame: it.GetStart() + Math.floor((Number(it.GetDuration()) || 2) / 2),
-                                            format: "tif", out_dir: a.out_dir, no_proxy: true });
-      const m = measureBuffer(fs.readFileSync(g.measurement_file));
-      if (m.error) throw new ResolveError("Could not measure " + it.GetName() + ": " + m.error);
-      return Object.assign(m, { file: g.measurement_file });
-    };
+    const measure = (it) => measureItem(state, it, a, { no_proxy: true });
     let wanted = Array.isArray(a.clips) && a.clips.length ? a.clips.map(Number) : null;
     const heroPos = a.hero !== undefined ? Number(a.hero) : null;
     if (heroPos !== null && !items[heroPos - 1]) throw new ResolveError("No clip at hero position " + heroPos + ".");
@@ -2123,6 +2113,9 @@ tool("match_timeline",
       }
       hero = best.p;
     }
+    if (!measured[hero])
+      throw new ResolveError("The hero clip (" + items[hero - 1].GetName() + ", position " + hero + ") could not be measured: "
+        + ((errors.find((e) => e.clip === hero) || {}).error || "no grab") + " — pick another hero.");
     const ref = measured[hero];
     const out = { track, hero: { position: hero, name: items[hero - 1].GetName(), chosen: heroPos ? "given" : "auto (medoid)" },
                   results: [], errors, node: nodeIndex };
@@ -2188,6 +2181,8 @@ function hsvToRgb(h, sv, v) {
           : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
   return [k[0] + m, k[1] + m, k[2] + m];
 }
+// Display-referred % RGB -> HSV of the same colour in DI-log (the LUT's space).
+const diHsvPct = (rgbPct) => rgbToHsv(...rgbPct.map((v) => diEncode(Math.pow(Math.max(0, v) / 100, 2.4))));
 const DI_STOP = 0.0733;                  // 1 stop in DI-log units (= DI.C)
 const DI_MID = 0.336;                    // 18% grey, DI-encoded
 
@@ -2371,15 +2366,8 @@ tool("match_hues",
     const refItem = items[Number(a.reference) - 1], tgtItem = items[Number(a.target) - 1];
     if (!refItem || !tgtItem) throw new ResolveError("Track has " + items.length + " clips; reference/target must be 1-based positions on it.");
     if (refItem === tgtItem) throw new ResolveError("Reference and target are the same clip.");
-    const grabEntry = TOOLS.find((t) => t.name === "grab_still");
-    const measure = async (it) => {
-      const g = await grabEntry.fn(state, { frame: it.GetStart() + Math.floor((Number(it.GetDuration()) || 2) / 2),
-                                            format: "tif", out_dir: a.out_dir && /^\/tmp|ClaudeAssistantStills/.test(a.out_dir) ? a.out_dir : undefined });
-      const buf = fs.readFileSync(g.measurement_file);
-      const m = measureBuffer(buf);
-      if (m.error) throw new ResolveError("Could not measure " + it.GetName() + ": " + m.error);
-      return Object.assign(m, { proxy: (g._images || [])[0] });
-    };
+    // a.out_dir is where the .cube goes; grabs take the default still dir.
+    const measure = (it) => measureItem(state, it, {});
     const ref = await measure(refItem), tgt = await measure(tgtItem);
     const out = { reference: refItem.GetName(), target: tgtItem.GetName(),
       skin: { reference: ref.joint.skin, target: tgt.joint.skin } };
@@ -2387,8 +2375,9 @@ tool("match_hues",
     // apart, a hue-to-hue map corrects the wrong thing.
     const globalGap = Math.max(...ref.stats.map((c, i) => Math.max(Math.abs(c.mean_pct - tgt.stats[i].mean_pct), Math.abs(c.pctl[4] - tgt.stats[i].pctl[4]))));
     out.global_gap_pct = +globalGap.toFixed(2);
-    if (globalGap > (Number(a.max_global_gap_pct) || 3)) {
-      out.refused = "The clips are still " + globalGap.toFixed(1) + "% apart in overall level/balance (limit 3%): run match_shot first, then match_hues for what is left.";
+    const gapLimit = Number(a.max_global_gap_pct) || 3;
+    if (globalGap > gapLimit) {
+      out.refused = "The clips are still " + globalGap.toFixed(1) + "% apart in overall level/balance (limit " + gapLimit + "%): run match_shot first, then match_hues for what is left.";
       out._images = [ref.proxy, tgt.proxy].filter(Boolean);
       return out;
     }
@@ -3710,7 +3699,7 @@ module.exports = {
   parseSonySidecar, tiffStats, matchGate, deriveCdl, displayPctToDi,
   diDecode, diEncode, applyLook, generateCube, detectCuts, styleAggregate,
   fitCdl, balanceEstimate, hueMatchRecipe, writeTiff16, jointStats, runCdlLoop,
-  sampleDi, simStats, refineCdl, measureBuffer, simHueStats, hueCost, refineHueRecipe,
+  sampleDi, simStats, refineCdl, measureBuffer, measureItem, simHueStats, hueCost, refineHueRecipe, TOLERANCE_PCT,
   rgbToHsv, hsvToRgb, P_LEVELS, HUE_SECTORS, HUE_BINS, SKIN_LINE_DEG, DI,
   percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash,
   readConfig, writeConfig, geminiKey, CONFIG_FILE, geminiErrorText,

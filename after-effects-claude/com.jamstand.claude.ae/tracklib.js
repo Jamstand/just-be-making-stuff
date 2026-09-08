@@ -715,11 +715,11 @@ function observeMcpInit(event, extraNames) {
   for (const s of ((event || {}).mcp_servers || [])) {
     if (!s || !s.name) continue;
     const prefix = "mcp__" + s.name + "__";
-    out.servers[s.name] = { status: String(s.status || "unknown").toLowerCase(),
+    out.servers[s.name] = { status: String(s.status || "unknown").toLowerCase(), tools_listed: !!tools,
       tools: (tools || []).filter((t) => t.indexOf(prefix) === 0).map((t) => t.slice(prefix.length)) };
   }
   for (const n of extraNames || [])
-    if (!out.servers[n]) out.servers[n] = { status: "not-reported", tools: [] };
+    if (!out.servers[n]) out.servers[n] = { status: "not-reported", tools_listed: !!tools, tools: [] };
   return out;
 }
 
@@ -727,8 +727,10 @@ function observeMcpInit(event, extraNames) {
 function mcpAdvice(name, entry, def) {
   const st = (entry || {}).status || "unknown";
   const url = def && def.url ? " (" + def.url + ")" : "";
-  if (st === "connected")
-    return entry.tools.length ? null : "connected, but the CLI listed no tools for it — try again; if it persists check `claude mcp list` in Terminal.";
+  if (st === "connected") {
+    if (entry.tools.length || entry.tools_listed === false) return null;   // older CLIs list no tools at all
+    return "connected, but the CLI listed no tools for it — try again; if it persists check `claude mcp list` in Terminal.";
+  }
   if (/auth/.test(st))
     return "needs sign-in: in Terminal run `claude`, type /mcp, pick " + name + ", Authenticate (browser opens), then /exit and send again here.";
   if (st === "failed")

@@ -191,6 +191,9 @@ const exe = (name, body) => {
   const pr3 = await track.probeMcpEndpoint("https://nope.invalid/mcp", async () => { throw new Error("ENOTFOUND"); });
   check("probeMcpEndpoint: POSTs initialize, classifies, never throws",
     pr1.alive && pr1.oauth && pr1.status === 401 && !pr2.alive && /\/mcp/.test(pr2.note) && !pr3.alive && /ENOTFOUND/.test(pr3.note), JSON.stringify([pr1, pr2, pr3]));
+  check("mcpAdvice: connected with no tools is fine when the CLI listed no tools at all (older CLI), a problem when it did",
+    track.mcpAdvice("higgsfield", { status: "connected", tools: [], tools_listed: false }, {}) === null
+    && /listed no tools/.test(track.mcpAdvice("higgsfield", { status: "connected", tools: [], tools_listed: true }, {})));
   check("KNOWN_MCP_URLS: higgsfield's real endpoint has the /mcp path", track.KNOWN_MCP_URLS.higgsfield === "https://mcp.higgsfield.ai/mcp");
   check("KNOWN_MCP_TOOLS: higgsfield core names present", track.KNOWN_MCP_TOOLS.higgsfield.includes("generate_video") && track.KNOWN_MCP_TOOLS.higgsfield.includes("jobs_wait"));
 
