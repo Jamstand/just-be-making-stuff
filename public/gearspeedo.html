@@ -1,0 +1,553 @@
+<title>Gear Speedo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500&family=Open+Sans:wght@700&display=swap">
+<style>
+  /* A night session. The page commits to one dark world so the HUD reads
+     the way it does over a track; every colour below is painted explicitly. */
+  :root {
+    --ground: #0E1013;
+    --stage: #0A0B0D;
+    --panel: #15181C;
+    --line: #262A31;
+    --text: #E8EAEE;
+    --dim: #8B919B;
+    --faint: #5A606A;
+    --accent: #7FB0D0;
+    --accent-ink: #0B1117;
+    --ok: #59D96B;
+    --warn: #FABF29;
+    --hot: #F23D3D;
+    --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --body: "Barlow", "Segoe UI", system-ui, sans-serif;
+    --hud: "Segoe UI", system-ui, "Open Sans", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover, a:focus-visible { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px 56px; }
+
+  /* Header strip: a pit-wall monitor's top bar. */
+  header {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    padding: 22px 0 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 30px;
+    letter-spacing: .01em;
+    text-wrap: balance;
+  }
+  header h1 small {
+    font-family: var(--body);
+    font-weight: 400;
+    font-size: 14px;
+    color: var(--dim);
+    margin-left: 12px;
+  }
+  .session {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 14px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+  .session b { color: var(--text); font-weight: 600; }
+
+  /* The stage the widget floats over. */
+  .stage {
+    position: relative;
+    height: 440px;
+    margin-top: 18px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.035) 0, rgba(255,255,255,0) 38%),
+      radial-gradient(120% 80% at 50% 110%, #16191E 0, var(--stage) 62%);
+  }
+  .stage::before {           /* horizon: the far edge of the tarmac */
+    content: "";
+    position: absolute; left: 0; right: 0; top: 41%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.10) 30%, rgba(255,255,255,.10) 70%, transparent);
+  }
+  .stage::after {            /* a hint of a racing line, nothing more */
+    content: "";
+    position: absolute; left: -10%; right: -10%; bottom: 0; height: 59%;
+    background: repeating-linear-gradient(180deg, transparent 0 22px, rgba(255,255,255,.018) 22px 23px);
+    pointer-events: none;
+  }
+  .hint {
+    position: absolute; left: 14px; bottom: 12px;
+    font-family: var(--display); font-weight: 500; font-size: 13px;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
+    pointer-events: none;
+  }
+
+  /* The widget window, behaving like a CSP app window: drag to move,
+     drag the corner to resize, within the manifest's bounds. */
+  .widget {
+    position: absolute;
+    left: 90px; top: 120px;
+    width: 420px; height: 180px;
+    min-width: 140px; min-height: 60px;
+    max-width: 840px; max-height: 360px;
+    resize: both;
+    overflow: hidden;
+    background: rgba(6, 7, 9, .84);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 5px;
+    box-shadow: 0 14px 40px rgba(0,0,0,.55);
+    cursor: grab;
+    touch-action: none;
+  }
+  .widget.dragging { cursor: grabbing; box-shadow: 0 22px 54px rgba(0,0,0,.7); }
+  .widget canvas { display: block; width: 100%; height: 100%; }
+  .widget .grip {
+    position: absolute; right: 3px; bottom: 3px; width: 10px; height: 10px;
+    border-right: 2px solid rgba(255,255,255,.28);
+    border-bottom: 2px solid rgba(255,255,255,.28);
+    pointer-events: none;
+  }
+
+  /* Telemetry readout row: what the simulation is feeding the widget. */
+  .telemetry {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1px;
+    margin-top: 14px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .cell { background: var(--panel); padding: 12px 16px 10px; min-width: 0; }
+  .cell .k {
+    font-family: var(--display); font-weight: 500; font-size: 12px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+  }
+  .cell .v {
+    font-family: var(--display); font-weight: 700; font-size: 30px; line-height: 1.1;
+    font-variant-numeric: tabular-nums; margin-top: 2px;
+  }
+  .cell .v small { font-size: 14px; font-weight: 500; color: var(--dim); margin-left: 4px; }
+  .lamp {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    background: #2A2E35; vertical-align: middle; margin-right: 8px;
+    transition: background .08s;
+  }
+  .lamp.on { background: var(--hot); box-shadow: 0 0 10px var(--hot); }
+
+  /* Control rail. */
+  .rail {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px;
+    margin-top: 14px; padding: 12px 16px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  }
+  .group { display: flex; align-items: center; gap: 8px; }
+  .group > .k {
+    font-family: var(--display); font-weight: 500; font-size: 12px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+    margin-right: 2px;
+  }
+  button {
+    font: 500 14px var(--body);
+    color: var(--text);
+    background: #1C2026;
+    border: 1px solid #2C3139;
+    border-radius: 4px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover { border-color: #3A404A; }
+  button[aria-pressed="true"], button.primary {
+    background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+  }
+  .seg { display: inline-flex; }
+  .seg button { border-radius: 0; margin-left: -1px; }
+  .seg button:first-child { border-radius: 4px 0 0 4px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 4px 4px 0; }
+  input[type=range] { accent-color: var(--accent); width: 150px; }
+  .val { font-family: var(--display); font-weight: 600; font-variant-numeric: tabular-nums; min-width: 3.2ch; }
+
+  /* Notes. */
+  .notes {
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 28px;
+    margin-top: 28px; max-width: 70ch;
+  }
+  .notes { max-width: none; }
+  .notes p { margin: 0 0 10px; max-width: 62ch; color: var(--text); }
+  .notes h2 {
+    margin: 0 0 8px;
+    font-family: var(--display); font-weight: 600; font-size: 15px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+  }
+  code {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 13px; background: #1C2026; padding: 1px 6px; border-radius: 3px;
+  }
+  .gears { font-variant-numeric: tabular-nums; border-collapse: collapse; margin-top: 2px; }
+  .gears td { padding: 2px 12px 2px 0; color: var(--dim); }
+  .gears td:first-child { color: var(--text); font-family: var(--display); font-weight: 600; }
+
+  @media (max-width: 760px) {
+    .telemetry { grid-template-columns: repeat(3, 1fr); }
+    .notes { grid-template-columns: 1fr; }
+    header { flex-direction: column; gap: 4px; }
+    .stage { height: 380px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lamp { transition: none; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Gear Speedo <small>preview of the in-game widget</small></h1>
+    <div class="session">Mazda MX-5 ND &middot; 7,500 rpm limiter &middot; <b>simulated lap</b></div>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="widget" id="widget" aria-label="Gear Speedo widget. Drag to move, drag the corner to resize.">
+      <canvas id="hud"></canvas>
+      <div class="grip" aria-hidden="true"></div>
+    </div>
+    <div class="hint">drag to move &middot; corner to resize</div>
+  </div>
+
+  <div class="telemetry" aria-live="off">
+    <div class="cell"><div class="k">Gear</div><div class="v" id="tGear">N</div></div>
+    <div class="cell"><div class="k">RPM</div><div class="v" id="tRpm">850</div></div>
+    <div class="cell"><div class="k">Speed</div><div class="v"><span id="tSpeed">0</span><small id="tUnit">km/h</small></div></div>
+    <div class="cell"><div class="k">Throttle</div><div class="v"><span id="tThr">0</span><small>%</small></div></div>
+    <div class="cell"><div class="k">Brake</div><div class="v"><span id="tBrk">0</span><small>%</small></div></div>
+    <div class="cell"><div class="k">Limiter</div><div class="v"><span class="lamp" id="lamp"></span><span id="tLim">off</span></div></div>
+  </div>
+
+  <div class="rail">
+    <div class="group">
+      <button id="play" class="primary" aria-pressed="true">Pause</button>
+      <button id="restart">Restart lap</button>
+    </div>
+    <div class="group">
+      <span class="k">Replay</span>
+      <span class="seg" id="speedSeg">
+        <button data-rate="0.5">&frac12;&times;</button>
+        <button data-rate="1" aria-pressed="true">1&times;</button>
+        <button data-rate="2">2&times;</button>
+      </span>
+    </div>
+    <div class="group">
+      <span class="k">Units</span>
+      <span class="seg" id="unitSeg">
+        <button data-mph="0" aria-pressed="true">km/h</button>
+        <button data-mph="1">mph</button>
+      </span>
+    </div>
+    <div class="group">
+      <button id="showSpeed" aria-pressed="true">Speed readout</button>
+    </div>
+    <div class="group">
+      <span class="k">Shift light</span>
+      <input type="range" id="shiftAt" min="80" max="100" step="1" value="95" aria-label="Shift light threshold, percent of rev limit">
+      <span class="val" id="shiftVal">95%</span>
+    </div>
+    <div class="group">
+      <span class="k">Size</span>
+      <span class="seg" id="sizeSeg">
+        <button data-scale="0.5">50%</button>
+        <button data-scale="1">100%</button>
+        <button data-scale="1.5" aria-pressed="true">150%</button>
+        <button data-scale="2">200%</button>
+      </span>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div>
+      <h2>What you're looking at</h2>
+      <p>The widget is drawn here by the same layout logic as the in-game Lua app: an 18-segment rev bar that runs green, amber, then red, and flashes white once revs pass the shift point. The gear number goes red at the same moment. Everything scales with the window, so dragging the corner is exactly what resizing does in the game.</p>
+      <p>The car is a simulated MX-5 ND: full throttle up through the gears, a bounce off the limiter in fifth, a hard braking zone with downshifts, then a reverse out of the pit box. The replay loops.</p>
+      <h2>Install</h2>
+      <p>Copy <code>apps/lua/GearSpeedo</code> into <code>&lt;AC root&gt;/apps/lua/</code>. It appears under <em>Your apps</em> in the Custom Shaders Patch app list; nothing to switch on. Needs CSP build 2512 or newer.</p>
+    </div>
+    <div>
+      <h2>Simulated gearing</h2>
+      <table class="gears" aria-label="Speed at the rev limit in each gear">
+        <tr><td>1st</td><td>58 km/h at 7,500</td></tr>
+        <tr><td>2nd</td><td>95 km/h</td></tr>
+        <tr><td>3rd</td><td>138 km/h</td></tr>
+        <tr><td>4th</td><td>176 km/h</td></tr>
+        <tr><td>5th</td><td>214 km/h</td></tr>
+        <tr><td>6th</td><td>not reached on this lap</td></tr>
+      </table>
+      <h2 style="margin-top:14px">Gear convention</h2>
+      <p>CSP reports the gear directly: negative is reverse, zero is neutral, one and up is the gear itself. The Python build of this app uses AC's older API, which offsets by one.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ------------------------------------------------------------ widget port
+  // A line-for-line port of apps/lua/GearSpeedo/GearSpeedo.lua's layout.
+  // Same design units, same constants, same colours. It returns a draw list
+  // so it can be diffed against the Lua app's output; paint() consumes it.
+  const HUD = { W: 280, H: 120, SEG: 18, GAP: 2, BAR_X: 14, BAR_W: 252, BAR_Y: 10, BAR_Y2: 22,
+                GREEN_UNTIL: 0.55, AMBER_UNTIL: 0.78, BLINK: 0.22 };
+  const COL = {
+    track: [1, 1, 1, 0.10], green: [0.35, 0.85, 0.42, 1], amber: [0.98, 0.75, 0.16, 1],
+    red: [0.95, 0.24, 0.24, 1], flash: [1, 1, 1, 1], text: [0.94, 0.95, 0.97, 1],
+    dim: [0.55, 0.58, 0.64, 1], div: [1, 1, 1, 0.12],
+  };
+  const gearLabel = g => g < 0 ? 'R' : g === 0 ? 'N' : String(g);
+  const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+
+  function layout(car, st, w, h, blinkOn) {
+    const s = Math.min(w / HUD.W, h / HUD.H);
+    const out = { rects: [], texts: [] };
+    if (!(s > 0)) return out;
+    const ox = (w - HUD.W * s) / 2, oy = (h - HUD.H * s) / 2;
+    const P = (x, y) => [ox + x * s, oy + y * s];
+
+    let limit = car.rpmLimiter;
+    if (!(limit > 0)) limit = Math.max(car.rpm, 1000);
+    const frac = clamp01(car.rpm / limit);
+    const shift = car.rpm >= limit * (st.shiftAt / 100);
+    const flash = shift && blinkOn;
+
+    const segW = (HUD.BAR_W - (HUD.SEG - 1) * HUD.GAP) / HUD.SEG;
+    const lit = Math.floor(frac * HUD.SEG + 1e-4);
+    for (let i = 0; i < HUD.SEG; i++) {
+      const x = HUD.BAR_X + i * (segW + HUD.GAP);
+      let col;
+      if (i >= lit) col = COL.track;
+      else if (flash) col = COL.flash;
+      else {
+        const pos = (i + 1) / HUD.SEG;
+        col = pos <= HUD.GREEN_UNTIL ? COL.green : pos <= HUD.AMBER_UNTIL ? COL.amber : COL.red;
+      }
+      out.rects.push([...P(x, HUD.BAR_Y), ...P(x + segW, HUD.BAR_Y2), ...col]);
+    }
+
+    const gearCx = st.showSpeed ? 70 : HUD.W / 2;
+    out.texts.push({ t: gearLabel(car.gear), size: 58 * s, box: [...P(gearCx - 60, 24), ...P(gearCx + 60, 90)], c: shift ? COL.red : COL.text });
+    out.texts.push({ t: 'GEAR', size: 10 * s, box: [...P(gearCx - 60, 90), ...P(gearCx + 60, 106)], c: COL.dim });
+
+    if (st.showSpeed) {
+      out.rects.push([...P(139, 34), ...P(140, 86), ...COL.div]);
+      let speed = st.mph ? car.speedKmh * 0.621371 : car.speedKmh;
+      if (speed < 0) speed = 0;
+      out.texts.push({ t: String(Math.floor(speed)), size: 44 * s, box: [...P(136, 34), ...P(256, 90)], c: COL.text });
+      out.texts.push({ t: st.mph ? 'MPH' : 'KM/H', size: 10 * s, box: [...P(136, 90), ...P(256, 106)], c: COL.dim });
+    }
+    return out;
+  }
+
+  const rgba = c => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3]})`;
+  function paint(ctx, L, w, h) {
+    ctx.clearRect(0, 0, w, h);
+    for (const r of L.rects) { ctx.fillStyle = rgba(r.slice(4)); ctx.fillRect(r[0], r[1], r[2] - r[0], r[3] - r[1]); }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const t of L.texts) {
+      ctx.font = `700 ${t.size}px "Segoe UI", system-ui, "Open Sans", sans-serif`;
+      ctx.fillStyle = rgba(t.c);
+      ctx.fillText(t.t, (t.box[0] + t.box[2]) / 2, (t.box[1] + t.box[3]) / 2);
+    }
+  }
+
+  // Deterministic dump for diffing against the Lua app (?dump=1).
+  window.__gearspeedo = { layout };
+  const params = new URLSearchParams(location.search);
+  if (params.has('dump')) {
+    const states = [
+      { gear: 3, rpm: 4300, rpmLimiter: 8000, speedKmh: 126 },
+      { gear: 5, rpm: 6900, rpmLimiter: 8000, speedKmh: 214 },
+      { gear: 5, rpm: 7950, rpmLimiter: 8000, speedKmh: 231 },
+      { gear: -1, rpm: 1200, rpmLimiter: 8000, speedKmh: 4 },
+      { gear: 0, rpm: 900, rpmLimiter: 8000, speedKmh: 0 },
+    ];
+    const pre = document.createElement('pre'); pre.id = 'dump';
+    pre.textContent = JSON.stringify(states.map(c => layout(c, { showSpeed: true, mph: false, shiftAt: 95 }, 280, 120, true)));
+    document.body.appendChild(pre);
+    return;
+  }
+
+  // ------------------------------------------------------------ simulation
+  // A light model of an MX-5 ND, tuned so the numbers on the page are real:
+  // 7,500 limiter, and each gear tops out at the speed in the table.
+  const CAR = { idle: 850, limit: 7500, k: [0.00773, 0.01267, 0.0184, 0.02347, 0.02853, 0.032] };
+  const sim = {};
+  function reset() {
+    Object.assign(sim, { t: 0, phase: 'launch', pt: 0, gear: 0, rpm: CAR.idle, throttle: 0, brake: 0, kmh: 0, limiter: false });
+  }
+  function step(dt) {
+    sim.t += dt; sim.pt += dt;
+    const g = sim.gear;
+    switch (sim.phase) {
+      case 'launch':
+        sim.throttle = 0.35; sim.brake = 0; sim.gear = 0;
+        sim.rpm = Math.min(2600, sim.rpm + 2500 * dt);
+        if (sim.pt >= 0.7) { sim.gear = 1; go('accel'); }
+        break;
+      case 'accel': {
+        sim.throttle = 1; sim.brake = 0;
+        sim.rpm += (6200 / Math.pow(sim.gear, 0.55)) * dt;
+        if (sim.rpm >= CAR.limit) {
+          if (sim.gear < 5) { sim.rpm = CAR.limit * CAR.k[sim.gear - 1] / CAR.k[sim.gear]; sim.gear += 1; }
+          else { sim.rpm = CAR.limit; go('bounce'); }
+        }
+        break;
+      }
+      case 'bounce':
+        sim.throttle = 1;
+        sim.rpm = CAR.limit - 60 + 60 * Math.sin(sim.pt * 46);
+        if (sim.pt >= 1.1) go('brake');
+        break;
+      case 'brake':
+        sim.throttle = 0; sim.brake = 1;
+        sim.rpm -= 3800 * dt;
+        if (sim.rpm < 3100 && sim.gear > 1) { sim.rpm = Math.min(7200, sim.rpm * CAR.k[sim.gear - 1] / CAR.k[sim.gear - 2]); sim.gear -= 1; }
+        if (sim.gear === 1 && sim.rpm < 1400) { sim.gear = 0; sim.rpm = CAR.idle; go('stop'); }
+        break;
+      case 'stop':
+        sim.throttle = 0; sim.brake = 0.3; sim.rpm = CAR.idle;
+        if (sim.pt >= 0.6) { sim.gear = -1; go('reverse'); }
+        break;
+      case 'reverse':
+        sim.throttle = 0.2; sim.brake = 0;
+        sim.rpm = Math.min(1800, sim.rpm + 900 * dt);
+        if (sim.pt >= 1.4) { sim.gear = 0; sim.rpm = CAR.idle; go('park'); }
+        break;
+      case 'park':
+        sim.throttle = 0; sim.brake = 0.3;
+        if (sim.pt >= 0.6) go('launch');
+        break;
+    }
+    sim.limiter = sim.phase === 'bounce' && sim.rpm >= CAR.limit - 90;
+    sim.kmh = sim.gear > 0 ? sim.rpm * CAR.k[sim.gear - 1] : sim.gear < 0 ? sim.rpm * 0.0031 : 0;
+  }
+  function go(phase) { sim.phase = phase; sim.pt = 0; }
+
+  // ------------------------------------------------------------ page wiring
+  const settings = { showSpeed: true, mph: false, shiftAt: 95 };
+  const widget = document.getElementById('widget');
+  const canvas = document.getElementById('hud');
+  const ctx = canvas.getContext('2d');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let playing = !reduced, rate = 1, blink = 0, last = null, acc = 0;
+  const STEP = 1 / 120;
+
+  const $ = id => document.getElementById(id);
+  const tGear = $('tGear'), tRpm = $('tRpm'), tSpeed = $('tSpeed'), tUnit = $('tUnit'),
+        tThr = $('tThr'), tBrk = $('tBrk'), tLim = $('tLim'), lamp = $('lamp');
+
+  function size() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const w = widget.clientWidth, h = widget.clientHeight;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return [w, h];
+  }
+  new ResizeObserver(() => draw()).observe(widget);
+
+  function draw() {
+    const [w, h] = size();
+    const car = { gear: sim.gear, rpm: sim.rpm, rpmLimiter: CAR.limit, speedKmh: sim.kmh };
+    paint(ctx, layout(car, settings, w, h, blink < HUD.BLINK / 2), w, h);
+    tGear.textContent = gearLabel(sim.gear);
+    tRpm.textContent = Math.round(sim.rpm).toLocaleString();
+    tSpeed.textContent = Math.floor(settings.mph ? sim.kmh * 0.621371 : sim.kmh);
+    tUnit.textContent = settings.mph ? 'mph' : 'km/h';
+    tThr.textContent = Math.round(sim.throttle * 100);
+    tBrk.textContent = Math.round(sim.brake * 100);
+    tLim.textContent = sim.limiter ? 'cutting' : 'off';
+    lamp.classList.toggle('on', sim.limiter);
+  }
+
+  function frame(now) {
+    if (last === null) last = now;
+    let dt = Math.min((now - last) / 1000, 0.1); last = now;
+    if (playing) {
+      acc += dt * rate;
+      while (acc >= STEP) { step(STEP); acc -= STEP; }
+    }
+    // The shift flash runs on wall-clock time like the game's, not replay
+    // time: pausing or slowing the replay doesn't slow the flash.
+    blink = (blink + dt) % HUD.BLINK;
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  // Controls.
+  const play = $('play');
+  function setPlaying(p) { playing = p; play.textContent = p ? 'Pause' : 'Play'; play.setAttribute('aria-pressed', String(p)); }
+  play.addEventListener('click', () => setPlaying(!playing));
+  $('restart').addEventListener('click', () => { reset(); draw(); });
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && !/input|button/i.test(e.target.tagName)) { e.preventDefault(); setPlaying(!playing); }
+  });
+  const pressGroup = (seg, fn) => seg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    for (const x of seg.querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b));
+    fn(b);
+  });
+  pressGroup($('speedSeg'), b => { rate = Number(b.dataset.rate); });
+  pressGroup($('unitSeg'), b => { settings.mph = b.dataset.mph === '1'; draw(); });
+  pressGroup($('sizeSeg'), b => {
+    const sc = Number(b.dataset.scale);
+    widget.style.width = HUD.W * sc + 'px'; widget.style.height = HUD.H * sc + 'px';
+  });
+  const showSpeed = $('showSpeed');
+  showSpeed.addEventListener('click', () => {
+    settings.showSpeed = !settings.showSpeed;
+    showSpeed.setAttribute('aria-pressed', String(settings.showSpeed)); draw();
+  });
+  const shiftAt = $('shiftAt'), shiftVal = $('shiftVal');
+  shiftAt.addEventListener('input', () => { settings.shiftAt = Number(shiftAt.value); shiftVal.textContent = shiftAt.value + '%'; draw(); });
+
+  // Drag to move, like a CSP window. The bottom-right corner is left to the
+  // native resize handle.
+  const stage = $('stage');
+  let drag = null;
+  widget.addEventListener('pointerdown', e => {
+    const r = widget.getBoundingClientRect();
+    if (e.clientX > r.right - 18 && e.clientY > r.bottom - 18) return;
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    widget.classList.add('dragging'); widget.setPointerCapture(e.pointerId);
+  });
+  widget.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const s = stage.getBoundingClientRect();
+    const x = Math.max(0, Math.min(s.width - widget.offsetWidth, e.clientX - s.left - drag.dx));
+    const y = Math.max(0, Math.min(s.height - widget.offsetHeight, e.clientY - s.top - drag.dy));
+    widget.style.left = x + 'px'; widget.style.top = y + 'px';
+  });
+  const endDrag = () => { drag = null; widget.classList.remove('dragging'); };
+  widget.addEventListener('pointerup', endDrag);
+  widget.addEventListener('pointercancel', endDrag);
+
+  // Open in a working state: a few seconds into the lap, not at idle.
+  reset();
+  for (let i = 0; i < 2.4 * 120; i++) step(STEP);
+  if (reduced) setPlaying(false);
+  draw();
+  requestAnimationFrame(frame);
+})();
+</script>

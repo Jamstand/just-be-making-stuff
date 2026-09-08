@@ -66,7 +66,7 @@ function script.windowMain(dt)
   -- app has to infer it from the limiter flag, because the Python API has no
   -- equivalent of rpmLimiter.)
   local limit = car.rpmLimiter
-  if limit == nil or limit <= 0 then limit = math.max(car.rpm, 1000) end
+  if not (limit and limit > 0) then limit = math.max(car.rpm, 1000) end  -- nil, 0, negative or NaN
 
   local frac = clamp01(car.rpm / limit)
   local shift = car.rpm >= limit * (settings.shiftAt / 100)

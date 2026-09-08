@@ -31,7 +31,14 @@ Drag the window to move it, drag its edge to resize it (everything scales
 with the window). The gear icon in its title bar opens settings: speed on/off,
 KM/H or MPH, and where the shift light kicks in.
 
-![Gear Speedo in each of its states](preview.png)
+![Gear Speedo through a simulated lap](preview.gif)
+
+**Live preview:** open [`public/gearspeedo.html`](../public/gearspeedo.html) in a
+browser (or run the repo's server and visit `/gearspeedo.html`). It's the same
+layout logic as the in-game app, driven by a simulated MX-5 lap, and you can
+drag it, resize it, and change its settings. The clip above is the real Lua
+app's frame output, rendered outside the game; `preview.webm` is the same
+clip at 30 fps.
 
 The gear is the hero — big, centre-left, and it turns red when you should be
 pulling the next one. The bar runs green → amber → red as revs climb, then the
