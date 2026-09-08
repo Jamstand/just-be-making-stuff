@@ -6,6 +6,7 @@
 
 const chat = document.getElementById("chat");
 const input = document.getElementById("input");
+const IDLE_PLACEHOLDER = input.placeholder;   // set per panel in the HTML
 const sendBtn = document.getElementById("send");
 const statusEl = document.getElementById("status");
 const dot = document.getElementById("dot");
@@ -253,7 +254,7 @@ function answerApproval(decision, guidance) {
   if (!approvalPending) return;
   approvalPending = false;
   approvalBox.hidden = true;
-  input.placeholder = (window.CLAUDE_PANEL === "music" ? "Ask Claude Music…" : "Ask Claude…") + "  (Enter to send)";
+  input.placeholder = IDLE_PLACEHOLDER;
   assistant.approval(decision, guidance || "");
   card("notice", "NOTE", decision === "decline"
     ? "Declined." + (guidance ? " Sent your guidance to Claude." : "")

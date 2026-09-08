@@ -177,7 +177,12 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   reaches Ready), then reads ~/last-turn.json for the bridge url + token
   and POSTs tools/list and a tools/call of mocha_track straight to the
   panel's MCP server. Expect title "Claude Music", the system prompt
-  starting "You are Claude Music", 26 tools with the music set present and
-  mocha_track / ai_segment / apply_track_file / add_mask absent, the hidden
-  call answering isError with a pointer to Claude Assistant, and both
-  chats/ and chats-music/ under the harness USER_DATA.
+  starting "You are Claude Music", 28 tools with the music set present,
+  mocha_track / ai_segment / apply_track_file / track_history absent and
+  the basics (grab_frame, grab_source_frame, add_mask, run_extendscript)
+  kept, the hidden call answering isError with a pointer to Claude
+  Assistant, both chats/ and chats-music/ under the harness USER_DATA, and
+  music.html differing from index.html in 3 lines only (title,
+  placeholder, the CLAUDE_PANEL flag — the startup error painter lives in
+  the shared startup.js). The MCP POST helper is verify-electron/mcp-rpc.js,
+  shared by fakebin/claude and drive.js.

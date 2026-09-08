@@ -66,8 +66,7 @@ const USER_DATA = path.join(os.homedir(), "Library", "Application Support",
 const PANEL = (typeof window !== "undefined" && window.CLAUDE_PANEL === "music")
   ? "music" : "assistant";
 const HIDDEN_IN_MUSIC = new Set(["mocha_status", "mocha_track", "mocha_cancel",
-  "apply_track_file", "track_history", "set_fal_key", "fal_status", "ai_segment",
-  "grab_source_frame", "add_mask"]);
+  "apply_track_file", "track_history", "set_fal_key", "fal_status", "ai_segment"]);
 const isHidden = (name) => PANEL === "music" && HIDDEN_IN_MUSIC.has(name);
 fs.mkdirSync(USER_DATA, { recursive: true });
 
@@ -127,6 +126,12 @@ const MUSIC_SYSTEM_PROMPT = [
   "land on drop_s. Pick a song whose length and energy suit the edit and",
   "say which and why; when the library is empty, say where to drop files.",
   "Tracking, mattes and Mocha live in the Claude Assistant panel, not here.",
+  "Chats do not share memory but the PROJECT persists, and the Claude",
+  "Assistant panel may be open beside you: keyframes, masks, Corner Pins",
+  "and layers you do not remember are someone else's work — never rebuild",
+  "or delete keyframes you did not create in THIS chat without asking.",
+  "apply_effect returns each effect's real property list, use it; output",
+  "codecs are template-only.",
   "run_extendscript is the escape hatch (full AE DOM); ES3 ONLY in that",
   "code — var, no arrow functions, no const/let, no template strings, no",
   "JSON object. Times are SECONDS. Layer indexes are 1-based, top of stack",
@@ -1628,7 +1633,8 @@ function runTurn(model, effort, text) {
     busy = false; sendUI("done", {});
     return;
   }
-  const workdir = path.join(USER_DATA, "turn-" + Date.now());
+  const workdir = path.join(USER_DATA, "turn-" + PANEL + "-" + Date.now()
+                            + "-" + Math.random().toString(36).slice(2, 7));
   if (!sessionId && pendingRecap) text = pendingRecap + "\n\n" + text;
   let argv;
   try { argv = buildTurn(workdir, model, effort); }

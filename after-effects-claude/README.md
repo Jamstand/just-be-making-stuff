@@ -137,9 +137,9 @@ The same bundle installs a second entry, Window > Extensions > **Claude
 Music**: the same engine and the same `panel.js`, opened in music mode
 (`music.html` sets `window.CLAUDE_PANEL = "music"`). It exposes the music
 and beat tools plus the basics (project overview, import, comps, clips,
-keyframes, effects, text, markers, expressions, render, run_extendscript,
-Higgsfield attachment) and hides tracking, mattes and Mocha, which stay in
-Claude Assistant. It has a music-first system prompt and its own chat
+keyframes, effects, text, masks, frame grabs, markers, expressions,
+render, run_extendscript, Higgsfield attachment) and hides Mocha tracking
+and AI mattes, which stay in Claude Assistant. It has a music-first system prompt and its own chat
 history (`chats-music`), so the two panels can be open side by side; the
 song library and analysis cache are shared. A hidden tool called from
 Claude Music answers with a pointer to the Claude Assistant panel.

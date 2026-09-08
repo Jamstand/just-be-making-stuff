@@ -239,19 +239,18 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   await page2.click("#ap-run");
   await page2.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 30000 });
   const mt = JSON.parse(fs.readFileSync(path.join(HOME, "last-turn.json"), "utf8"));
-  const ae = mt.mcp.mcpServers.ae;
-  const rpc = (body) => new Promise((res, rej) => { const u = new URL(ae.url); const data = JSON.stringify(body);
-    const req = require("http").request({ host: u.hostname, port: u.port, path: u.pathname, method: "POST",
-      headers: Object.assign({ "Content-Type": "application/json", "Accept": "application/json, text/event-stream" }, ae.headers) },
-      (r) => { let t = ""; r.on("data", (d) => { t += d; }); r.on("end", () => res(JSON.parse(t))); });
-    req.on("error", rej); req.end(data); });
+  const rpc = require("./mcp-rpc.js")(mt.mcp.mcpServers.ae);
   const list = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
   const names = list.result.tools.map((t) => t.name);
   const hiddenCall = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "mocha_track", arguments: {} } });
   console.log(JSON.stringify({ title: await page2.title(), placeholder: await page2.$eval("#input", (i) => i.placeholder),
     prompt_is_music: /^You are Claude Music/.test(mt.system), tools: names.length,
     has_music_tools: ["music_list", "analyze_music", "add_music", "beat_control", "cut_to_beats", "beat_effects"].every((n) => names.includes(n)),
-    hides_tracking: ["mocha_track", "ai_segment", "apply_track_file", "add_mask"].every((n) => !names.includes(n)),
+    hides_tracking: ["mocha_track", "ai_segment", "apply_track_file", "track_history"].every((n) => !names.includes(n)),
+    keeps_basics: ["grab_frame", "grab_source_frame", "add_mask", "run_extendscript"].every((n) => names.includes(n)),
+    music_html_drift_lines: (() => { const a = fs.readFileSync(path.join(EXT, "html", "index.html"), "utf8").split("\n"), b = fs.readFileSync(path.join(EXT, "html", "music.html"), "utf8").split("\n");
+      return b.filter((l) => !a.includes(l)).length; })(),
+    workdir_names_per_panel: fs.readdirSync(path.join(HOME, "Library", "Application Support", "ClaudeAssistantAE")).filter((d) => /^turn-/.test(d)).length === 0,
     hidden_call: hiddenCall.result && hiddenCall.result.isError && hiddenCall.result.content[0].text.slice(0, 60),
     history_dirs: fs.readdirSync(path.join(HOME, "Library", "Application Support", "ClaudeAssistantAE")).filter((d) => /^chats/.test(d)).sort(),
     last_card: (await page2.$$eval("#chat .card", (cs) => cs.map((c) => c.textContent.replace(/\s+/g, " ").trim().slice(0, 80)))).pop() }, null, 1));
