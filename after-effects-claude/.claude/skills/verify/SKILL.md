@@ -170,3 +170,14 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   while not usable, and no probe once connected. Step 10c sets
   extra_mcp_mode "inherit": argv without --strict-mcp-config, mcp.json
   holding only ae, allowedTools still mcp__higgsfield__* (and ghost).
+- Claude Music (second extension in the same bundle, html/music.html sets
+  window.CLAUDE_PANEL = "music"): drive step 11 launches a SECOND Electron
+  instance with AE_PAGE=music.html (verify-electron/main.js honours it),
+  sends "hello" (approve the create_comp card with #ap-run or it never
+  reaches Ready), then reads ~/last-turn.json for the bridge url + token
+  and POSTs tools/list and a tools/call of mocha_track straight to the
+  panel's MCP server. Expect title "Claude Music", the system prompt
+  starting "You are Claude Music", 26 tools with the music set present and
+  mocha_track / ai_segment / apply_track_file / add_mask absent, the hidden
+  call answering isError with a pointer to Claude Assistant, and both
+  chats/ and chats-music/ under the harness USER_DATA.

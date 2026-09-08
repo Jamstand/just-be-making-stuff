@@ -11,6 +11,6 @@ app.whenReady().then(() => {
     console.error("RENDER-PROCESS-GONE " + JSON.stringify(d)));
   app.on("child-process-gone", (e, d) =>
     console.error("CHILD-PROCESS-GONE " + JSON.stringify(d)));
-  win.loadFile(path.join(EXT, "html", "index.html"));
+  win.loadFile(path.join(EXT, "html", process.env.AE_PAGE || "index.html"));
 });
 app.on("window-all-closed", () => app.quit());

@@ -5,4 +5,9 @@
       <Host Name="AEFT" Port="8092"/>
     </HostList>
   </Extension>
+  <Extension Id="com.jamstand.claude.ae.music">
+    <HostList>
+      <Host Name="AEFT" Port="8093"/>
+    </HostList>
+  </Extension>
 </ExtensionList>

@@ -60,6 +60,15 @@ const audio = require(path.join(EXT_ROOT, "audiolib.js"));
 const MOCHA_SCRIPT = path.join(EXT_ROOT, "host", "mocha_job.py");
 const USER_DATA = path.join(os.homedir(), "Library", "Application Support",
                             "ClaudeAssistantAE");
+// Which panel this page is: "assistant" (everything) or "music" (Claude
+// Music: the music / beat tools plus the basics, tracking and mattes
+// hidden, its own prompt and chat history). Set by music.html.
+const PANEL = (typeof window !== "undefined" && window.CLAUDE_PANEL === "music")
+  ? "music" : "assistant";
+const HIDDEN_IN_MUSIC = new Set(["mocha_status", "mocha_track", "mocha_cancel",
+  "apply_track_file", "track_history", "set_fal_key", "fal_status", "ai_segment",
+  "grab_source_frame", "add_mask"]);
+const isHidden = (name) => PANEL === "music" && HIDDEN_IN_MUSIC.has(name);
 fs.mkdirSync(USER_DATA, { recursive: true });
 
 const MODELS = ["claude-opus-5", "claude-fable-5", "claude-sonnet-5",
@@ -104,6 +113,26 @@ const SYSTEM_PROMPT = [
   "The panel may pause a modifying tool call for the user's approval; if",
   "declined or timed out, never retry unchanged. Be concise: lead with",
   "the result.",
+].join(" ");
+
+const MUSIC_SYSTEM_PROMPT = [
+  "You are Claude Music, a panel inside Adobe After Effects that cuts and",
+  "animates to music through the mcp__ae__* tools. Workflow: music_list",
+  "(songs in ~/Music/Claude Assistant or music_dirs in the config) →",
+  "analyze_music (bpm, beats, downbeats, bass hits, sections, drop_s) →",
+  "add_music → beat_control (a BEAT null with keyframed Beat / Bar / Bass /",
+  "Energy / BPM sliders plus bar and drop markers) → cut_to_beats (clips on",
+  "the beat grid, patterns in beats) → beat_effects (punch, shake, flash,",
+  "zoom, opacity expressions driven by those sliders) and speed_ramp to",
+  "land on drop_s. Pick a song whose length and energy suit the edit and",
+  "say which and why; when the library is empty, say where to drop files.",
+  "Tracking, mattes and Mocha live in the Claude Assistant panel, not here.",
+  "run_extendscript is the escape hatch (full AE DOM); ES3 ONLY in that",
+  "code — var, no arrow functions, no const/let, no template strings, no",
+  "JSON object. Times are SECONDS. Layer indexes are 1-based, top of stack",
+  "= 1; add_clip appends to the bottom. Name what you add. The panel may",
+  "pause a modifying tool call for the user's approval; if declined or",
+  "timed out, never retry unchanged. Be concise: lead with the result.",
 ].join(" ");
 
 // ------------------------------------------------------------ host bridge
@@ -1338,7 +1367,7 @@ async function executeTool(name, input) {
 }
 
 function toolSchemas() {
-  return TOOLS.map((t) => ({ name: t.name, description: t.description,
+  return TOOLS.filter((t) => !isHidden(t.name)).map((t) => ({ name: t.name, description: t.description,
     inputSchema: { type: "object", properties: t.params,
                    required: t.required } }));
 }
@@ -1371,6 +1400,10 @@ async function handleRpc(msg, onEvent) {
       if (typeof p.name !== "string")
         return { jsonrpc: "2.0", id, error: { code: -32602,
                  message: "Invalid params: 'name' must be a string" } };
+      if (isHidden(p.name))
+        return { jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text",
+          text: p.name + " is not part of Claude Music — open Window > Extensions > "
+            + "Claude Assistant for tracking, mattes and Mocha." }] } };
       const args = p.arguments || {};
       if (onEvent) onEvent("call", p.name, args);
       const started = Date.now();
@@ -1453,7 +1486,8 @@ function cliEnv() {
 
 // ------------------------------------------------------------ chat session
 let sessionId = null, busy = false, currentModel = "";
-let history = historyLib.makeHistory(path.join(USER_DATA, "chats"));
+let history = historyLib.makeHistory(path.join(USER_DATA,
+  PANEL === "music" ? "chats-music" : "chats"));
 let chatId = historyLib.newChatId();
 let msgLog = [];
 let pendingRecap = "";
@@ -1500,7 +1534,7 @@ function buildTurn(workdir, model, effort) {
     .filter((n, i, arr) => arr.indexOf(n) === i);
   turnExtra = { servers: Object.assign({}, extra.servers), missing: inherit ? [] : extra.missing };
   if (inherit) for (const n of extra.missing) turnExtra.servers[n] = { inherited: true };
-  let sys = SYSTEM_PROMPT;
+  let sys = PANEL === "music" ? MUSIC_SYSTEM_PROMPT : SYSTEM_PROMPT;
   if (extraNames.length) {
     sys += "\nOther MCP servers attached this turn: " + extraNames.map((n) =>
       n + " (tools mcp__" + n + "__*)").join(", ") + ". Their results are "

@@ -224,6 +224,41 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
 
   probeSrv.close();
 
+  console.log("### 11. 🔍 Claude Music panel: music.html = same engine, music prompt, tracking tools hidden, own history dir");
+  const app2 = await _electron.launch({
+    executablePath: require("electron"),
+    args: ["--no-sandbox", "--no-zygote", path.join(__dirname, "main.js")],
+    env: Object.assign({}, process.env, { AE_EXT: EXT, HOME, AE_PAGE: "music.html",
+      PATH: path.join(__dirname, "fakebin") + ":" + process.env.PATH }) });
+  const page2 = await app2.firstWindow();
+  page2.on("pageerror", (e) => console.log("  [pageerror music] " + e.message));
+  await page2.waitForFunction(() => document.querySelector("#chat .card.notice"), null, { timeout: 8000 });
+  await page2.fill("#input", "hello");
+  await page2.press("#input", "Enter");
+  await page2.waitForSelector("#approval:not([hidden])", { timeout: 15000 });   // create_comp asks, like step 2
+  await page2.click("#ap-run");
+  await page2.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 30000 });
+  const mt = JSON.parse(fs.readFileSync(path.join(HOME, "last-turn.json"), "utf8"));
+  const ae = mt.mcp.mcpServers.ae;
+  const rpc = (body) => new Promise((res, rej) => { const u = new URL(ae.url); const data = JSON.stringify(body);
+    const req = require("http").request({ host: u.hostname, port: u.port, path: u.pathname, method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json", "Accept": "application/json, text/event-stream" }, ae.headers) },
+      (r) => { let t = ""; r.on("data", (d) => { t += d; }); r.on("end", () => res(JSON.parse(t))); });
+    req.on("error", rej); req.end(data); });
+  const list = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+  const names = list.result.tools.map((t) => t.name);
+  const hiddenCall = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "mocha_track", arguments: {} } });
+  console.log(JSON.stringify({ title: await page2.title(), placeholder: await page2.$eval("#input", (i) => i.placeholder),
+    prompt_is_music: /^You are Claude Music/.test(mt.system), tools: names.length,
+    has_music_tools: ["music_list", "analyze_music", "add_music", "beat_control", "cut_to_beats", "beat_effects"].every((n) => names.includes(n)),
+    hides_tracking: ["mocha_track", "ai_segment", "apply_track_file", "add_mask"].every((n) => !names.includes(n)),
+    hidden_call: hiddenCall.result && hiddenCall.result.isError && hiddenCall.result.content[0].text.slice(0, 60),
+    history_dirs: fs.readdirSync(path.join(HOME, "Library", "Application Support", "ClaudeAssistantAE")).filter((d) => /^chats/.test(d)).sort(),
+    last_card: (await page2.$$eval("#chat .card", (cs) => cs.map((c) => c.textContent.replace(/\s+/g, " ").trim().slice(0, 80)))).pop() }, null, 1));
+  await page2.screenshot({ path: path.join(__dirname, "shot-11-music.png") });
+  console.log("  [shot] 11-music");
+  await app2.close();
+
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {
     await page.setViewportSize({ width: w, height: 560 });

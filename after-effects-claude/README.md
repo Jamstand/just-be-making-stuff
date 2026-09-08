@@ -131,6 +131,19 @@ JS on PCM (biquad bass band, log-energy onsets, autocorrelation tempo with a
 on a synthetic 128 BPM track it lands within 1 BPM, 94% of beats within
 35 ms, every kick found.
 
+## Claude Music (second panel)
+
+The same bundle installs a second entry, Window > Extensions > **Claude
+Music**: the same engine and the same `panel.js`, opened in music mode
+(`music.html` sets `window.CLAUDE_PANEL = "music"`). It exposes the music
+and beat tools plus the basics (project overview, import, comps, clips,
+keyframes, effects, text, markers, expressions, render, run_extendscript,
+Higgsfield attachment) and hides tracking, mattes and Mocha, which stay in
+Claude Assistant. It has a music-first system prompt and its own chat
+history (`chats-music`), so the two panels can be open side by side; the
+song library and analysis cache are shared. A hidden tool called from
+Claude Music answers with a pointer to the Claude Assistant panel.
+
 ## Other MCP servers (Higgsfield and friends)
 
 The panel runs Claude Code with only its own tools attached. To let the

@@ -4,11 +4,12 @@
      through AE 2026; PlayerDebugMode needed for both CSXS.11 and .12. -->
 <ExtensionManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     ExtensionBundleId="com.jamstand.claude.ae"
-    ExtensionBundleVersion="1.0.18"
+    ExtensionBundleVersion="1.0.19"
     ExtensionBundleName="Claude Assistant"
     Version="5.0">
   <ExtensionList>
-    <Extension Id="com.jamstand.claude.ae.panel" Version="1.0.18"/>
+    <Extension Id="com.jamstand.claude.ae.panel" Version="1.0.19"/>
+    <Extension Id="com.jamstand.claude.ae.music" Version="1.0.19"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
@@ -34,6 +35,29 @@
         <UI>
           <Type>Panel</Type>
           <Menu>Claude Assistant</Menu>
+          <Geometry>
+            <Size><Height>600</Height><Width>420</Width></Size>
+            <MinSize><Height>300</Height><Width>320</Width></MinSize>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+    <!-- Claude Music: the same engine, its own menu entry and chat history,
+         only the music / beat tools exposed (window.CLAUDE_PANEL = "music"). -->
+    <Extension Id="com.jamstand.claude.ae.music">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./html/music.html</MainPath>
+          <ScriptPath>./host/ae-tools.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle><AutoVisible>true</AutoVisible></Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>Claude Music</Menu>
           <Geometry>
             <Size><Height>600</Height><Width>420</Width></Size>
             <MinSize><Height>300</Height><Width>320</Width></MinSize>

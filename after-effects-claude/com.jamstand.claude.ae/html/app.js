@@ -253,7 +253,7 @@ function answerApproval(decision, guidance) {
   if (!approvalPending) return;
   approvalPending = false;
   approvalBox.hidden = true;
-  input.placeholder = "Ask Claude…  (Enter to send)";
+  input.placeholder = (window.CLAUDE_PANEL === "music" ? "Ask Claude Music…" : "Ask Claude…") + "  (Enter to send)";
   assistant.approval(decision, guidance || "");
   card("notice", "NOTE", decision === "decline"
     ? "Declined." + (guidance ? " Sent your guidance to Claude." : "")

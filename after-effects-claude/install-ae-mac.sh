@@ -36,6 +36,7 @@ Two manual steps, one-time:
    "Allow Scripts to Write Files and Access Network" (frame grabs and
    renders need it — the panel will tell you if it's off).
 2. Restart After Effects, then open:  Window > Extensions > Claude Assistant
+   (and Window > Extensions > Claude Music for the music / beat panel)
 
 Update later: git pull in the repo, re-run this script, close+reopen the panel.
 NOTES
