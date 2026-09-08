@@ -165,15 +165,45 @@ behaviour; extend them when adding tools.
   back to raw PNG. compare_stills settles same-image questions by bytes +
   per-channel pixel stats.
 
-- Matcher benchmark (bench_match.js, headless, the tool's own maths on a
-  24-patch ColorChecker scene, ΔE2000 over patch means, same DI-log CDL
-  pipeline model the tool assumes — NOT a live Resolve measurement):
-  -0.7 stop + warm WB 8.9 → 0.34; +0.5 stop + cool WB + contrast 0.85
-  5.96 → 0.98; tungsten-vs-daylight 9.3 → 0.88 mean but max 6.3 (a strong
-  WB swing is not exactly slope/offset in log); 3 stops under = refused by
-  matchGate; greens-only cast 0.54 → 0.82 (a global CDL cannot do a
-  region/hue match — that is Colourlab's Region Match territory, and a
-  LUT via design_look is the only hue-selective path here).
+- Colour suite v2 (built after the Colourlab comparison; headless-verified
+  only, no live Resolve run yet). Measurement: tiffStats now returns
+  per-channel percentiles (P_LEVELS) and one joint pixel pass (jointStats:
+  HSV saturation, chroma p90, luma median, greyness-weighted neutral means,
+  12 chroma-weighted hue sectors + a 72-bin count hue histogram with
+  per-bin mean colour, YCbCr skin cluster with its vectorscope angle vs
+  the 123° skin line); measureBuffer adds DI-log samples (sampleDi, ~40k px).
+  Matching: fitCdl = per-channel least squares of (slope*x+offset)^power
+  over p05..p95 in DI-log (power grid 0.5-2 with a pull toward 1);
+  refineCdl = coordinate descent of all 10 CDL numbers against the goal
+  curves + reference chroma p90 through simStats (the node simulated on
+  the grab's own pixels — the only way to see how saturation mixes
+  channels); runCdlLoop = write, regrab, shift the goal by the residual,
+  refit, with a regression guard that restores the best round. Lessons
+  paid for: HSV mean saturation is a bad yardstick (a cast inflates it),
+  chroma p90 is not; saturation estimated before the cast is removed is
+  wrong; a per-channel percentile fit rewards desaturation whenever it is
+  imperfect (hence the chroma term); hard 30° hue sectors flip membership
+  between frames (soft membership + CDF-matched hue mapping fixed it;
+  count-weighted histogram because chroma weighting makes mass content-
+  dependent); a hue recipe must be verified by simulation (refineHueRecipe:
+  greedy add, 0.5% per step, 25% overall gain or nothing) or it invents
+  shifts on near-identical frames; a hue pass is refused while the global
+  gap is > 3% (a hue map over a level mismatch corrects the wrong thing).
+  bench_match.js (ColorChecker scene, ΔE2000 over 24 patches, the tools'
+  own pipeline model): -0.7 stop + warm 8.9 → 0.47; +0.5 stop + cool +
+  contrast 6.0 → 0.68; tungsten-vs-daylight 9.3 → 0.68 (worst patch 6.1);
+  3 stops under = refused; greens-only cast with match_hues alone 0.54/4.5
+  → 0.16/1.7, after match_shot then match_hues 0.63/1.6; sat 0.7 + contrast
+  1.2 + tungsten stays ~8 (order of operations: the CDL applies sat AFTER
+  its RGB terms, the disturbance did the reverse — documented limit).
+  auto_balance: warm cast 3.3/-3.8% → -0.2/0.1%, neutral frame left alone
+  (gains 0.9995/1.0011, 0 stops); exposure only moves a luma median outside
+  the 30-55% band. Skin: a 12° rotation reads as -8.9° off the line.
+  Tool surface: match_shot (power/saturation params), match_timeline (hero
+  given or medoid, one approval), auto_balance, match_hues (.cube via the
+  look designer, SetLUT dead on the Mac → manual load), qc_scan skin-cast
+  flag. Test fake renders scene frames through the last SetCDL
+  (grabState.scene) so the closed loop is exercised for real.
 
 ### Assemble-an-edit live findings (Lambo session)
 

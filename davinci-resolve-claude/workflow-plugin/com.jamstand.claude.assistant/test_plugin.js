@@ -5,6 +5,7 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const tools = require("./tools");
+const bench = require("./bench_match");   // scene/disturb/applyCdl/dE helpers
 
 let failures = 0;
 function check(label, ok, detail) {
@@ -40,7 +41,21 @@ function fakeResolve(mediaDir) {
     ExportStills: (stills, dir, prefix, fmt) => {
       // Real Resolve: unpredictable filename + a .drx sidecar.
       const file = path.join(dir, prefix + "_1.20260827." + fmt);
-      fsmod.writeFileSync(file, fmt === "tif" ? buildTiff16()
+      // grabState.scene = {ref, target}: render the parked clip's frame
+      // (ref = C0797 at 86400.., target = C0572 at 86484..) through the
+      // last CDL written to it, like the Color page would.
+      const rendered = () => {
+        const tc = grabState.timecodes[grabState.timecodes.length - 1] || "01:00:00:00";
+        const [hh, mm, ss, ff] = tc.split(":").map(Number);
+        const frame = ((hh * 60 + mm) * 60 + ss) * 24 + ff;
+        const isTarget = frame >= 86484;
+        let px = isTarget ? grabState.scene.target : grabState.scene.ref;
+        const cdl = isTarget ? grabState.cdls[grabState.cdls.length - 1] : null;
+        if (cdl) px = bench.applyCdl(px, cdl);
+        grabState.lastRendered = { isTarget, px };
+        return tools.writeTiff16(px, px.length, 1);
+      };
+      fsmod.writeFileSync(file, fmt === "tif" ? (grabState.scene ? rendered() : buildTiff16())
         : Buffer.from("89504e470d0a1a0a0011", "hex"));
       fsmod.writeFileSync(path.join(dir, prefix + "_1.drx"), "sidecar");
       grabState.exported.push(file);
@@ -83,7 +98,11 @@ function fakeResolve(mediaDir) {
     GetStart: () => 86484,
     GetDuration: () => 84,
     GetLeftOffset: () => 0,
-    GetLUT: () => "",
+    GetLUT: (i) => grabState.setLuts["b" + i] || "",
+    SetLUT: (i, lutPath) => {
+      if (grabState.lutReject) return false;
+      grabState.setLuts["b" + i] = lutPath; return true;
+    },
     GetMediaPoolItem: currentItem.GetMediaPoolItem,
     SetCDL: (m) => { grabState.cdls.push(m); return true; },
   };
@@ -511,6 +530,97 @@ async function main() {
         rLook2.ok && rLook2.text.includes('"applied":false')
         && rLook2.text.includes("manual_load"), rLook2.text);
   resolve._grab.lutReject = false;
+
+  // Phase 4b: the upgraded matcher on a rendered scene with a KNOWN shift
+  const mkPctl = (fn) => [0, 1, 2].map((c) => tools.P_LEVELS.map((p) => fn(c, p)));
+  const tgtCurve = mkPctl((c, p) => 5 + 80 * p + 3 * c);
+  const trueCdl = { slope: [1.1, 0.95, 1.05], offset: [0.02, -0.01, 0.03], power: [1.1, 1, 0.9] };
+  const refCurve = mkPctl((c, p) => {
+    const x = tools.displayPctToDi(5 + 80 * p + 3 * c);
+    const y = Math.pow(Math.max(0, x * trueCdl.slope[c] + trueCdl.offset[c]), trueCdl.power[c]);
+    return 100 * Math.pow(tools.diDecode(y), 1 / 2.4);
+  });
+  const fit = tools.fitCdl(refCurve, tgtCurve, {});
+  check("fitCdl recovers a known slope/offset/power from percentile curves",
+        fit.slope.every((v, c) => Math.abs(v - trueCdl.slope[c]) < 0.03)
+        && fit.offset.every((v, c) => Math.abs(v - trueCdl.offset[c]) < 0.02)
+        && fit.power.every((v, c) => Math.abs(v - trueCdl.power[c]) < 0.06)
+        && fit.rms_di.every((v) => v < 0.003), JSON.stringify(fit));
+  const idFit = tools.fitCdl(tgtCurve, tgtCurve, {});
+  check("fitCdl on identical curves is the exact identity",
+        idFit.slope.every((v) => v === 1) && idFit.offset.every((v) => v === 0) && idFit.power.every((v) => v === 1), JSON.stringify(idFit));
+  const refPx = bench.scene(1), warmPx = bench.disturb(bench.scene(2), { stops: -0.7, wb: [1.12, 1, 0.88] });
+  const mRef = tools.measureBuffer(tools.writeTiff16(refPx, refPx.length, 1));
+  check("measureBuffer: percentiles, joint stats (sat, luma median, neutral means, 12 hue sectors, 72-bin hue histogram, skin) and DI samples",
+        mRef.stats.length === 3 && mRef.stats[0].pctl.length === 9 && mRef.stats[0].pctl[0] <= mRef.stats[0].pctl[8]
+        && mRef.joint.hue_sectors.length === 12 && mRef.joint.hue_hist.length === 72 && Math.abs(mRef.joint.hue_hist.reduce((a, b) => a + b, 0) - 1) < 0.01
+        && mRef.joint.neutral_mean_pct && mRef.joint.skin.pct > 0 && mRef.joint.luma.median_pct > 0 && mRef.samples.length > 0,
+        JSON.stringify({ joint: Object.keys(mRef.joint), samples: mRef.samples.length }));
+  check("skin check: the two skin patches sit near the skin-tone line, a 12° hue rotation is reported as off it",
+        Math.abs(mRef.joint.skin.line_deviation_deg) < 6
+        && (() => { const rot = refPx.slice(0, 800).map((p) => { const [h, s, v] = tools.rgbToHsv(...p); return tools.hsvToRgb((h - 12 + 360) % 360, s, v); });
+                    const m = tools.measureBuffer(tools.writeTiff16(rot, rot.length, 1)); return m.joint.skin.line_deviation_deg < -6; })(),
+        JSON.stringify(mRef.joint.skin));
+  resolve._grab.scene = { ref: refPx, target: warmPx };
+  resolve._grab.cdls.length = 0;
+  const rM2 = await tools.executeTool(state, "match_shot", { reference: 1, target: 2, out_dir: stillDir });
+  const m2 = JSON.parse(rM2.text);
+  const dEafter = bench.dE(refPx, resolve._grab.lastRendered.px);
+  check("match_shot on a -0.7 stop warm shift: converges, writes a 5-key CDL with power and saturation, ΔE2000 under 1 after",
+        rM2.ok && m2.converged && m2.final_cdl.power && m2.final_cdl.saturation
+        && resolve._grab.cdls.every((c) => Object.keys(c).sort().join() === "NodeIndex,Offset,Power,Saturation,Slope")
+        && dEafter.mean < 1, JSON.stringify({ dEafter, cdl: m2.final_cdl, rounds: m2.iterations.length }));
+  check("match_shot reports skin for both clips and a proposed CDL with fit residual",
+        m2.skin && m2.skin.reference && m2.proposed_cdl.fit_rms_log, JSON.stringify(m2.proposed_cdl));
+
+  // auto_balance: no reference
+  resolve._grab.scene = { ref: refPx, target: bench.disturb(bench.scene(2), { stops: -0.7, wb: [1.18, 1, 0.82] }) };
+  resolve._grab.cdls.length = 0;
+  const rB = await tools.executeTool(state, "auto_balance", { clip: 2, out_dir: stillDir });
+  const b = JSON.parse(rB.text);
+  check("auto_balance removes a warm cast with a slope-1 CDL and reports the exposure change",
+        rB.ok && !b.refused && b.final_cdl.slope === "1 1 1" && Math.abs(b.cast_after.r_minus_g_pct) < 1 && Math.abs(b.cast_after.b_minus_g_pct) < 1
+        && Math.abs(b.cast_before.r_minus_g_pct) > 2 && typeof b.exposure_change_stops === "number" && b.revert, JSON.stringify(b));
+  const rBd = await tools.executeTool(state, "auto_balance", { clip: 2, dry_run: true, out_dir: stillDir });
+  check("auto_balance dry_run proposes without writing", rBd.ok && JSON.parse(rBd.text).dry_run && resolve._grab.cdls.length === b.iterations.length);
+  resolve._grab.scene = { ref: refPx, target: bench.scene(2).map(() => [0.9, 0.1, 0.1]) };
+  const rBr = await tools.executeTool(state, "auto_balance", { clip: 2, out_dir: stillDir });
+  check("auto_balance refuses a frame with no neutral pixels", rBr.ok && JSON.parse(rBr.text).refused && /near-neutral/.test(rBr.text), rBr.text);
+
+  // match_timeline: two clips -> hero auto (medoid), one match
+  resolve._grab.scene = { ref: refPx, target: warmPx };
+  resolve._grab.cdls.length = 0;
+  const rT2 = await tools.executeTool(state, "match_timeline", { max_iterations: 2, out_dir: stillDir });
+  const t2 = JSON.parse(rT2.text);
+  check("match_timeline picks a hero, matches the other clip, logs and returns revert",
+        rT2.ok && t2.hero && /auto/.test(t2.hero.chosen) && t2.matched === 1 && t2.results[0].final_cdl && t2.log_file && fsmod.existsSync(t2.log_file) && t2.revert_each,
+        JSON.stringify(t2));
+  const rTd = await tools.executeTool(state, "match_timeline", { hero: 1, dry_run: true, out_dir: stillDir });
+  check("match_timeline dry_run with a given hero proposes only", rTd.ok && JSON.parse(rTd.text).dry_run && JSON.parse(rTd.text).hero.chosen === "given" && JSON.parse(rTd.text).results[0].proposed_cdl && !JSON.parse(rTd.text).results[0].final_cdl);
+
+  // match_hues: greens-only cast -> verified recipe -> cube; SetLUT dead -> manual load
+  const greenPx = bench.disturb(bench.scene(2), { hueOnly: [1.15, 0.95, 0.8] });
+  resolve._grab.scene = { ref: refPx, target: greenPx };
+  resolve._grab.cdls.length = 0;
+  const rH = await tools.executeTool(state, "match_hues", { reference: 1, target: 2, out_dir: stillDir });
+  const hh = JSON.parse(rH.text);
+  check("match_hues: hue-selective recipe survives simulation, writes a .cube, applies via SetLUT on node 2",
+        rH.ok && hh.look.hue_adjustments.length >= 1 && hh.verified_by_simulation.cost_after < hh.verified_by_simulation.cost_before
+        && hh.lut_file && fsmod.existsSync(hh.lut_file) && hh.applied === true && hh.node === 2, JSON.stringify(hh));
+  check("match_hues: the LUT actually reduces ΔE on the greens case",
+        bench.dE(refPx, bench.applyLut(greenPx, hh.look)).max < bench.dE(refPx, greenPx).max,
+        JSON.stringify([bench.dE(refPx, greenPx), bench.dE(refPx, bench.applyLut(greenPx, hh.look))]));
+  resolve._grab.lutReject = true;
+  const rH2 = await tools.executeTool(state, "match_hues", { reference: 1, target: 2, out_dir: stillDir });
+  check("match_hues degrades to manual-load when SetLUT is dead", rH2.ok && JSON.parse(rH2.text).applied === false && /manual/.test(JSON.parse(rH2.text).manual_load), rH2.text.slice(0, 600));
+  resolve._grab.lutReject = false;
+  resolve._grab.scene = { ref: refPx, target: bench.scene(2) };
+  const rH3 = await tools.executeTool(state, "match_hues", { reference: 1, target: 2, dry_run: true, out_dir: stillDir });
+  check("match_hues on identical frames: nothing to do", rH3.ok && /nothing_to_do/.test(rH3.text), rH3.text.slice(0, 300));
+  const farJoint = tools.measureBuffer(tools.writeTiff16(bench.scene(2).map(() => [0.2, 0.3, 0.9]), 800, 1)).joint;
+  check("hueMatchRecipe refuses different subjects (hue overlap gate)", /different subjects/.test(tools.hueMatchRecipe(mRef.joint, farJoint, {}).refused || ""));
+  resolve._grab.scene = null;
+
   const rVig = await tools.executeTool(state, "apply_vignette",
     { amount: 0.4 });
   check("apply_vignette drives Fusion via Execute lua, then verifies",

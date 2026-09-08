@@ -1063,9 +1063,320 @@ function tiffStats(buffer, info) {
       at_exact_max_pct: pct(max < 0 ? 0 : h[max]),
       bottom_1pct_of_scale_pct: pct(lo),
       top_1pct_of_scale_pct: pct(hi),
+      // Percentile levels (P_LEVELS) as % of full scale: the matcher fits
+      // its CDL to these curves, not just to mean/std.
+      pctl: (() => {
+        const res = [];
+        let cum = 0, li = 0;
+        for (let v = 0; v <= full && li < P_LEVELS.length; v++) {
+          cum += h[v];
+          while (li < P_LEVELS.length && cum >= P_LEVELS[li] * (n || 1)) {
+            res.push(+((100 * v) / full).toFixed(3)); li += 1;
+          }
+        }
+        while (res.length < P_LEVELS.length) res.push(+((100 * (max < 0 ? 0 : max)) / full).toFixed(3));
+        return res;
+      })(),
     });
   }
+  out.joint = jointStats(buffer, info, channels, bits, full);
   return out;
+}
+
+const P_LEVELS = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99];
+const HUE_SECTORS = 12;                          // 30° each, centred on 0,30,…
+const HUE_BINS = 72;                             // 5° hue histogram bins
+const SKIN_LINE_DEG = 123;                       // vectorscope skin-tone line
+
+// One pass over (a stride of) the pixels for everything a per-channel
+// histogram cannot give: saturation, a luma median, greyness-weighted
+// neutral means (auto balance), per-hue-sector means (hue-selective match)
+// and a skin-tone cluster (YCbCr rule, Chai & Ngan) with its vectorscope
+// angle. Display-referred RGB in, everything in % of full scale.
+function jointStats(buffer, info, channels, bits, full) {
+  const step = bits >> 3, pxBytes = step * channels;
+  let total = 0;
+  for (let st = 0; st < info.stripOffsets.length; st++)
+    total += Math.floor(info.stripByteCounts[st] / pxBytes);
+  const stride = Math.max(1, Math.floor(total / 400000));
+  const rd = (o) => (bits === 8 ? buffer[o] : (info.littleEndian
+    ? buffer.readUInt16LE(o) : buffer.readUInt16BE(o))) / full;
+  const lumaHist = new Uint32Array(1024), chromaHist = new Uint32Array(1001);
+  const sec = Array.from({ length: HUE_SECTORS }, () =>
+    ({ n: 0, r: 0, g: 0, b: 0, cos: 0, sin: 0, sat: 0, val: 0 }));
+  const skin = { n: 0, cb: 0, cr: 0, y: 0, cos: 0, sin: 0 };
+  const hueHist = new Float64Array(HUE_BINS);
+  const binRgb = [new Float64Array(HUE_BINS), new Float64Array(HUE_BINS), new Float64Array(HUE_BINS)];
+  let n = 0, sumSat = 0, sumChroma = 0, sumLuma = 0, wSum = 0, wr = 0, wg = 0, wb = 0;
+  const p95 = [0, 0, 0];
+  let k = 0;
+  for (let st = 0; st < info.stripOffsets.length; st++) {
+    const start = info.stripOffsets[st];
+    const end = Math.min(buffer.length, start + info.stripByteCounts[st]);
+    for (let o = start; o + pxBytes <= end; o += pxBytes, k++) {
+      if (k % stride) continue;
+      const r = rd(o), g = channels > 1 ? rd(o + step) : r, b = channels > 2 ? rd(o + 2 * step) : r;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      const sat = mx > 1e-6 ? d / mx : 0;
+      const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      n += 1; sumSat += sat; sumChroma += d; sumLuma += luma;
+      lumaHist[Math.min(1023, Math.round(luma * 1023))] += 1;
+      chromaHist[Math.min(1000, Math.round(d * 1000))] += 1;
+      // Near-neutral vote: only barely-tinted mid-tones count, and the
+      // less tinted the louder (pastel skin must not pull a white balance).
+      const wn = Math.max(0, 1 - sat / 0.25);
+      const w = wn * wn * (luma > 0.03 && luma < 0.97 ? 1 : 0);
+      wSum += w; wr += w * r; wg += w * g; wb += w * b;
+      if (sat >= 0.1 && mx >= 0.08 && d >= 0.02) {
+        let h = 0;
+        if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4;
+        h *= 60; if (h < 0) h += 360;
+        // Soft membership: the two nearest sector centres share the pixel,
+        // so a patch sitting on a boundary cannot flip sectors between frames.
+        const hb = Math.floor(h / (360 / HUE_BINS)) % HUE_BINS;
+        hueHist[hb] += 1; binRgb[0][hb] += r; binRgb[1][hb] += g; binRgb[2][hb] += b;
+        const span = 360 / HUE_SECTORS, lo = Math.floor(h / span), frac = h / span - lo;
+        const cs = Math.cos(h * Math.PI / 180), sn = Math.sin(h * Math.PI / 180);
+        // Weighted by chroma: a vivid pixel says more about its hue than a
+        // barely-tinted one, and sensor noise in the darks says nothing.
+        for (const [si, w0] of [[lo % HUE_SECTORS, 1 - frac], [(lo + 1) % HUE_SECTORS, frac]]) {
+          const w = w0 * d;
+          if (w <= 0) continue;
+          const S = sec[si];
+          S.n += w; S.r += w * r; S.g += w * g; S.b += w * b; S.sat += w * sat; S.val += w * mx;
+          S.cos += w * cs; S.sin += w * sn;
+        }
+      }
+      const cb = 128 + 255 * (-0.168736 * r - 0.331264 * g + 0.5 * b);
+      const cr = 128 + 255 * (0.5 * r - 0.418688 * g - 0.081312 * b);
+      if (cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173 && luma > 0.1 && luma < 0.9) {
+        skin.n += 1; skin.cb += cb - 128; skin.cr += cr - 128; skin.y += luma;
+      }
+    }
+  }
+  const N = n || 1;
+  const pctOf = (hist, p) => { let cum = 0; for (let v = 0; v < hist.length; v++) { cum += hist[v]; if (cum >= p * N) return +((100 * v) / (hist.length - 1)).toFixed(2); } return 100; };
+  const chromaTotal = sec.reduce((t, S) => t + S.n, 0) || 1;
+  const sectors = sec.map((S, i) => ({
+    hue_centre: i * (360 / HUE_SECTORS),
+    pct: +((100 * S.n) / chromaTotal).toFixed(2),        // share of the frame's chroma
+    mean_rgb_pct: S.n ? [S.r, S.g, S.b].map((v) => +((100 * v) / S.n).toFixed(2)) : null,
+    mean_hue: S.n ? +((((Math.atan2(S.sin, S.cos) * 180 / Math.PI) % 360) + 360) % 360).toFixed(1) : null,
+    mean_sat: S.n ? +(S.sat / S.n).toFixed(3) : null,
+    mean_val: S.n ? +(S.val / S.n).toFixed(3) : null }));
+  const skinAngle = skin.n ? ((Math.atan2(skin.cr / skin.n, skin.cb / skin.n) * 180 / Math.PI) + 360) % 360 : null;
+  return {
+    sampled_pixels: n, stride,
+    mean_sat: +(sumSat / N).toFixed(4),
+    mean_chroma_pct: +((100 * sumChroma) / N).toFixed(2),
+    chroma_p90_pct: pctOf(chromaHist, 0.9),
+    luma: { mean_pct: +((100 * sumLuma) / N).toFixed(2), median_pct: pctOf(lumaHist, 0.5),
+            p05_pct: pctOf(lumaHist, 0.05), p95_pct: pctOf(lumaHist, 0.95) },
+    neutral_mean_pct: wSum > 0 ? [wr, wg, wb].map((v) => +((100 * v) / wSum).toFixed(2)) : null,
+    neutral_weight_pct: +((100 * wSum) / N).toFixed(1),
+    hue_sectors: sectors,
+    hue_hist: (() => { const t = hueHist.reduce((a, b) => a + b, 0) || 1; return Array.from(hueHist, (v) => +(v / t).toFixed(5)); })(),   // 5° bins, share of coloured pixels
+    hue_bins_rgb_pct: Array.from(hueHist, (cnt, k) => (cnt ? [0, 1, 2].map((c) => +((100 * binRgb[c][k]) / cnt).toFixed(2)) : null)),
+    skin: { pct: +((100 * skin.n) / N).toFixed(2),
+            angle_deg: skinAngle === null ? null : +skinAngle.toFixed(1),
+            line_deviation_deg: skinAngle === null ? null : +(((skinAngle - SKIN_LINE_DEG + 540) % 360) - 180).toFixed(1),
+            mean_chroma: skin.n ? +Math.hypot(skin.cb / skin.n, skin.cr / skin.n).toFixed(1) : null,
+            mean_luma_pct: skin.n ? +((100 * skin.y) / skin.n).toFixed(1) : null },
+  };
+}
+
+// A stride of the grab's pixels taken into the node's working space (DI-log
+// via the display->DI model). The matcher simulates candidate CDLs on these
+// instead of guessing how saturation and per-channel terms interact.
+function sampleDi(buffer, info, maxN) {
+  const bits = info.bitsPerSample, channels = Math.max(1, Math.min(4, info.samplesPerPixel || 3));
+  const step = bits >> 3, pxBytes = step * channels, full = bits === 8 ? 255 : 65535;
+  let total = 0;
+  for (let st = 0; st < info.stripOffsets.length; st++) total += Math.floor(info.stripByteCounts[st] / pxBytes);
+  const stride = Math.max(1, Math.ceil(total / (maxN || 40000)));
+  const out = new Float32Array(3 * Math.ceil(total / stride));
+  const rd = (o) => (bits === 8 ? buffer[o] : (info.littleEndian ? buffer.readUInt16LE(o) : buffer.readUInt16BE(o)));
+  let k = 0, n = 0;
+  for (let st = 0; st < info.stripOffsets.length; st++) {
+    const start = info.stripOffsets[st], end = Math.min(buffer.length, start + info.stripByteCounts[st]);
+    for (let o = start; o + pxBytes <= end; o += pxBytes, k++) {
+      if (k % stride) continue;
+      for (let c = 0; c < 3; c++) out[3 * n + c] = displayPctToDi(100 * rd(o + Math.min(c, channels - 1) * step) / full);
+      n += 1;
+    }
+  }
+  return out.subarray(0, 3 * n);
+}
+
+// What the grab would measure if this CDL sat on the node (DI-log model):
+// per-channel percentile curves + means in display %, and HSV saturation.
+function simStats(samples, cdl, sat) {
+  const n = samples.length / 3, hist = [new Uint32Array(1001), new Uint32Array(1001), new Uint32Array(1001)];
+  const chromaHist = new Uint32Array(1001);
+  const sum = [0, 0, 0]; let satSum = 0;
+  const px = [0, 0, 0];
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < 3; c++) px[c] = Math.pow(Math.max(0, samples[3 * i + c] * cdl.slope[c] + cdl.offset[c]), cdl.power[c]);
+    if (sat !== 1) { const l = 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]; for (let c = 0; c < 3; c++) px[c] = l + (px[c] - l) * sat; }
+    let mx = 0, mn = 100;
+    for (let c = 0; c < 3; c++) {
+      const v = Math.min(100, Math.max(0, 100 * Math.pow(diDecode(Math.max(0, px[c])), 1 / 2.4)));
+      px[c] = v; sum[c] += v; hist[c][Math.round(v * 10)] += 1;
+      if (v > mx) mx = v; if (v < mn) mn = v;
+    }
+    satSum += mx > 1e-3 ? (mx - mn) / mx : 0;
+    chromaHist[Math.min(1000, Math.round((mx - mn) * 10))] += 1;
+  }
+  let chromaP90 = 100;
+  for (let v = 0, cum = 0; v <= 1000; v++) { cum += chromaHist[v]; if (cum >= 0.9 * n) { chromaP90 = v / 10; break; } }
+  const pctl = hist.map((h) => { const res = []; let cum = 0, li = 0;
+    for (let v = 0; v <= 1000 && li < P_LEVELS.length; v++) { cum += h[v]; while (li < P_LEVELS.length && cum >= P_LEVELS[li] * n) { res.push(v / 10); li += 1; } }
+    while (res.length < P_LEVELS.length) res.push(100); return res; });
+  return { pctl, mean: sum.map((v) => v / (n || 1)), mean_sat: satSum / (n || 1), chroma_p90: chromaP90 };
+}
+
+// Coordinate descent on (slope, offset, power) x3 + saturation against the
+// goal percentile curves and the reference saturation, evaluated through
+// simStats. fitCdl gives the starting point; this fixes what a per-channel
+// fit cannot see (saturation mixes the channels).
+function refineCdl(goalPctl, refSat, samples, init, opts) {
+  opts = opts || {};
+  const P = [init.slope[0], init.slope[1], init.slope[2], init.offset[0], init.offset[1], init.offset[2],
+             init.power[0], init.power[1], init.power[2], init.sat === undefined ? 1 : init.sat];
+  const lo = [0.25, 0.25, 0.25, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5], hi = [4, 4, 4, 0.5, 0.5, 0.5, 2, 2, 2, 2];
+  let steps = [0.04, 0.04, 0.04, 0.01, 0.01, 0.01, 0.05, 0.05, 0.05, 0.08];
+  const active = [0, 1, 2, 3, 4, 5].concat(opts.power === false ? [] : [6, 7, 8]).concat(opts.saturation === false || refSat === null ? [] : [9]);
+  const cost = (v) => {
+    const st = simStats(samples, { slope: v.slice(0, 3), offset: v.slice(3, 6), power: v.slice(6, 9) }, v[9]);
+    let j = 0;
+    for (let c = 0; c < 3; c++) for (let k = 1; k <= 7; k++) j += (st.pctl[c][k] - goalPctl[c][k]) ** 2;
+    if (refSat !== null && active.includes(9)) j += 4 * (st.chroma_p90 - refSat) ** 2;
+    return j;
+  };
+  let best = cost(P), evals = 1;
+  for (let pass = 0; pass < (opts.passes || 4); pass++) {
+    for (const i of active) {
+      for (const dir of [1, -1]) {
+        for (let rep = 0; rep < 3; rep++) {
+          const trial = P.slice(); trial[i] = clampN(trial[i] + dir * steps[i], lo[i], hi[i]);
+          if (trial[i] === P[i]) break;
+          const j = cost(trial); evals += 1;
+          if (j < best - 1e-9) { best = j; P[i] = trial[i]; } else break;
+        }
+      }
+    }
+    steps = steps.map((v) => v / 2);
+  }
+  return { slope: P.slice(0, 3), offset: P.slice(3, 6), power: P.slice(6, 9), sat: P[9], cost: best, evals };
+}
+
+// Hue statistics the recipe would produce, simulated on the target's own DI
+// samples: run each pixel through the look, back to display, then the same
+// thresholds and 5° bins jointStats uses.
+function simHueStats(samples, look) {
+  const n = samples.length / 3, hist = new Float64Array(HUE_BINS), rgb = [new Float64Array(HUE_BINS), new Float64Array(HUE_BINS), new Float64Array(HUE_BINS)];
+  const adjustments = (look && look.hue_adjustments) || [];
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    let p = [samples[3 * i], samples[3 * i + 1], samples[3 * i + 2]];
+    if (adjustments.length) p = applyLook(p, look);
+    const d3 = p.map((y) => Math.min(1, Math.max(0, Math.pow(diDecode(Math.max(0, y)), 1 / 2.4))));
+    const [r, g, b] = d3, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, sat = mx > 1e-6 ? d / mx : 0;
+    if (!(sat >= 0.1 && mx >= 0.08 && d >= 0.02)) continue;
+    let h = 0;
+    if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+    const k = Math.floor(h / (360 / HUE_BINS)) % HUE_BINS;
+    hist[k] += 1; rgb[0][k] += r; rgb[1][k] += g; rgb[2][k] += b; total += 1;
+  }
+  return { hue_hist: Array.from(hist, (v) => v / (total || 1)),
+           hue_bins_rgb_pct: Array.from(hist, (cnt, k) => (cnt ? [0, 1, 2].map((c) => (100 * rgb[c][k]) / cnt) : null)) };
+}
+
+// How far a frame's hue content sits from the reference: histogram L1 (are
+// the hues in the same places) plus, per bin both frames occupy, the DI-space
+// saturation and value gap of the bin's mean colour, weighted by shared mass.
+function hueCost(refJoint, sim) {
+  const diHsv = (rgbPct) => rgbToHsv(...rgbPct.map((v) => diEncode(Math.pow(Math.max(0, v) / 100, 2.4))));
+  let l1 = 0, colour = 0;
+  for (let k = 0; k < HUE_BINS; k++) {
+    const a = refJoint.hue_hist[k] || 0, b = sim.hue_hist[k] || 0;
+    l1 += Math.abs(a - b);
+    const ra = refJoint.hue_bins_rgb_pct && refJoint.hue_bins_rgb_pct[k], rb = sim.hue_bins_rgb_pct && sim.hue_bins_rgb_pct[k];
+    if (ra && rb) { const ha = diHsv(ra), hb = diHsv(rb); colour += Math.min(a, b) * (Math.abs(ha[1] - hb[1]) + Math.abs(ha[2] - hb[2])); }
+  }
+  return l1 + 10 * colour;
+}
+
+// Keep only the adjustments that measurably move the target's hue content
+// toward the reference (greedy add, then a short coordinate descent), so a
+// recipe can never make a frame worse by its own yardstick.
+function refineHueRecipe(refJoint, samples, adjustments, opts) {
+  opts = opts || {};
+  const cost = (adj) => hueCost(refJoint, simHueStats(samples, { hue_adjustments: adj }));
+  const before = cost([]);
+  let kept = [], best = before, evals = 1;
+  const order = adjustments.slice().sort((a, b) => Math.abs(b.shift) - Math.abs(a.shift));
+  for (const adj of order) {
+    let winner = null;
+    for (const scale of [1, 0.5]) {
+      const trial = Object.assign({}, adj, { shift: +(adj.shift * scale).toFixed(1), sat: +Math.pow(adj.sat, scale).toFixed(3), gain: +(adj.gain * scale).toFixed(3) });
+      const c = cost(kept.concat([trial])); evals += 1;
+      if (c < best - 0.005 * before) { best = c; winner = trial; break; }  // must earn its keep
+    }
+    if (winner) kept.push(winner);
+  }
+  const steps = { shift: 2, sat: 0.05, gain: 0.02 }, lo = { shift: -25, sat: 0.7, gain: -0.1 }, hi = { shift: 25, sat: 1.4, gain: 0.1 };
+  for (let pass = 0; pass < (opts.passes === undefined ? 2 : opts.passes); pass++)
+    for (let i = 0; i < kept.length; i++)
+      for (const key of ["shift", "sat", "gain"])
+        for (const dir of [1, -1]) {
+          const trial = kept.slice(); trial[i] = Object.assign({}, kept[i]);
+          trial[i][key] = +clampN(kept[i][key] + dir * steps[key] / (pass + 1), lo[key], hi[key]).toFixed(3);
+          if (trial[i][key] === kept[i][key]) continue;
+          const c = cost(trial); evals += 1;
+          if (c < best - 1e-6) { best = c; kept = trial; }
+        }
+  kept = kept.filter((a) => Math.abs(a.shift) >= 1 || Math.abs(a.sat - 1) >= 0.02 || Math.abs(a.gain) >= 0.02);
+  const after = cost(kept);
+  // Noise-level differences produce noise-level recipes: below a 25% gain
+  // in the frame's own yardstick, nothing is worth a LUT.
+  const minGain = opts.min_gain === undefined ? 0.25 : Number(opts.min_gain);
+  if (after > before * (1 - minGain)) kept = [];
+  return { hue_adjustments: kept, cost_before: +before.toFixed(4), cost_after: +(kept.length ? after : before).toFixed(4), evals,
+           rejected: kept.length ? null : "improvement under " + Math.round(minGain * 100) + "% — not worth a LUT" };
+}
+
+// Everything the matcher needs from one grab, from its bytes.
+function measureBuffer(buffer) {
+  const info = parseTiff(buffer);
+  const st = tiffStats(buffer, info);
+  if (!st.channels) return { error: st.skipped || "no stats" };
+  return { stats: st.channels, joint: st.joint, samples: sampleDi(buffer, info, 40000) };
+}
+
+// Minimal little-endian uncompressed RGB16 TIFF from [r,g,b] 0..1 pixels —
+// what the tests and the benchmark feed tiffStats (Resolve's own TIFF
+// grabs are exactly this shape).
+function writeTiff16(pixels, width, height) {
+  const entries = 9, ifd = 8, dataOff = ifd + 2 + entries * 12 + 4;
+  const bpsOff = dataOff, stripOff = dataOff + 6, bytes = pixels.length * 6;
+  const buf = Buffer.alloc(stripOff + bytes);
+  buf.write("II", 0); buf.writeUInt16LE(42, 2); buf.writeUInt32LE(ifd, 4);
+  buf.writeUInt16LE(entries, ifd);
+  const tag = (i, id, type, count, value) => {
+    const o = ifd + 2 + i * 12;
+    buf.writeUInt16LE(id, o); buf.writeUInt16LE(type, o + 2);
+    buf.writeUInt32LE(count, o + 4); buf.writeUInt32LE(value, o + 8);
+  };
+  tag(0, 256, 4, 1, width); tag(1, 257, 4, 1, height); tag(2, 258, 3, 3, bpsOff);
+  tag(3, 259, 3, 1, 1); tag(4, 262, 3, 1, 2); tag(5, 273, 4, 1, stripOff);
+  tag(6, 277, 3, 1, 3); tag(7, 278, 4, 1, height); tag(8, 279, 4, 1, bytes);
+  for (let i = 0; i < 3; i++) buf.writeUInt16LE(16, bpsOff + i * 2);
+  for (let i = 0; i < pixels.length; i++)
+    for (let c = 0; c < 3; c++)
+      buf.writeUInt16LE(Math.round(Math.max(0, Math.min(1, pixels[i][c])) * 65535), stripOff + (i * 3 + c) * 2);
+  return buf;
 }
 
 // ~7.7% of full scale per stop: S-Log3's log segment slope (261.5/1023 code
@@ -1149,6 +1460,14 @@ tool("qc_scan",
             b_minus_g_pct: +(stats.channels[2].mean_pct
                              - stats.channels[1].mean_pct).toFixed(2),
           };
+          if (stats.joint) {
+            row.saturation = stats.joint.mean_sat;
+            row.skin = stats.joint.skin;
+            row.neutral_cast = stats.joint.neutral_mean_pct ? {
+              r_minus_g_pct: +(stats.joint.neutral_mean_pct[0] - stats.joint.neutral_mean_pct[1]).toFixed(2),
+              b_minus_g_pct: +(stats.joint.neutral_mean_pct[2] - stats.joint.neutral_mean_pct[1]).toFixed(2) } : null;
+          }
+          delete row.stats.joint;          // the summary above is the readable form
         }
         const mp = item.GetMediaPoolItem && item.GetMediaPoolItem();
         const ics = mp ? String(clipProp(mp, "Input Color Space")) : "";
@@ -1188,6 +1507,12 @@ tool("qc_scan",
     };
     for (const c of clips) {
       if (!c.stats || !c.stats.channels) continue;
+      if (c.skin && c.skin.pct >= 2 && Math.abs(c.skin.line_deviation_deg) > 8)
+        flags.push({ clip: c.name, kind: "skin-cast",
+          detail: c.skin.pct + "% skin pixels sit " + c.skin.line_deviation_deg
+            + "° off the skin-tone line (threshold 8°, " + (c.skin.line_deviation_deg > 0 ? "toward red/magenta" : "toward yellow/green")
+            + "): match_hues against a good clip, or design_look hue_adjustments {hue: "
+            + Math.round(c.skin.angle_deg < 180 ? 25 : 25) + ", shift: " + (-c.skin.line_deviation_deg / 2).toFixed(0) + "}." });
       for (let ch = 0; ch < 3; ch++) {
         const cs = c.stats.channels[ch], name = "RGB"[ch];
         if (cs.at_exact_max_pct > 0.5)
@@ -1314,15 +1639,262 @@ function deriveCdl(refCh, tgtCh) {
   return { slope, offset };
 }
 const cdlStr = (v) => v.map((x) => x.toFixed(4)).join(" ");
+const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// Full CDL fit per channel from percentile curves: out = (slope*x +
+// offset)^power in DI-log, least squares over p05..p95 (p01/p99 left out
+// so clipped rails cannot steer it), power on a grid with a small pull
+// toward 1 so identical curves fit the identity exactly.
+function fitCdl(refPctl, tgtPctl, opts) {
+  opts = opts || {};
+  const idx = [1, 2, 3, 4, 5, 6, 7];
+  const grid = opts.power === false ? [1]
+    : Array.from({ length: 31 }, (_, i) => +(0.5 + i * 0.05).toFixed(2));
+  const slope = [], offset = [], power = [], rms = [];
+  for (let c = 0; c < 3; c++) {
+    const xs = idx.map((i) => displayPctToDi(tgtPctl[c][i]));
+    const ys = idx.map((i) => displayPctToDi(refPctl[c][i]));
+    let best = null;
+    for (const p of grid) {
+      const yt = ys.map((y) => Math.pow(Math.max(0, y), 1 / p));
+      const mx = xs.reduce((t, v) => t + v, 0) / xs.length;
+      const my = yt.reduce((t, v) => t + v, 0) / yt.length;
+      let sxx = 0, sxy = 0;
+      for (let i = 0; i < xs.length; i++) { sxx += (xs[i] - mx) ** 2; sxy += (xs[i] - mx) * (yt[i] - my); }
+      const sl = clampN(sxx > 1e-12 ? sxy / sxx : 1, 0.25, 4);
+      const of = clampN(my - sl * mx, -0.5, 0.5);
+      let err = 0;
+      for (let i = 0; i < xs.length; i++) err += (Math.pow(Math.max(0, sl * xs[i] + of), p) - ys[i]) ** 2;
+      err = err / xs.length + 0.0004 * (p - 1) ** 2;
+      if (!best || err < best.err) best = { sl, of, p, err };
+    }
+    slope.push(best.sl); offset.push(best.of); power.push(best.p);
+    rms.push(+Math.sqrt(Math.max(0, best.err)).toFixed(4));
+  }
+  return { slope, offset, power, rms_di: rms };
+}
+
+// Auto balance with no reference: greyness-weighted grey-world gains
+// blended with a white-patch estimate, then exposure from the luma median.
+// A linear gain is an OFFSET in DI-log (C*log2(gain)), so the whole thing
+// is a slope-1 CDL: honest to the node's working space.
+function balanceEstimate(stats, opts) {
+  opts = opts || {};
+  const J = stats.joint;
+  if (!J || !J.neutral_mean_pct || J.neutral_weight_pct < 1)
+    return { refuse: true, reason: "Too few near-neutral pixels to judge a "
+      + "white balance from (" + (J ? J.neutral_weight_pct : 0) + "% weight)." };
+  const lin = (pct) => Math.pow(Math.max(0, pct) / 100, 2.4);
+  const nl = J.neutral_mean_pct.map(lin);
+  const grey = (nl[0] + nl[1] + nl[2]) / 3;
+  const gw = nl.map((v) => grey / Math.max(1e-6, v));
+  const wpl = stats.channels.map((ch) => lin(ch.pctl[7]));       // p95
+  const wmax = Math.max(...wpl);
+  const wp = wpl.map((v) => wmax / Math.max(1e-6, v));
+  const blend = opts.white_patch_weight === undefined ? 0.3 : clampN(Number(opts.white_patch_weight), 0, 1);
+  let gains = gw.map((g, c) => Math.exp((1 - blend) * Math.log(g) + blend * Math.log(wp[c])));
+  gains = gains.map((g) => clampN(g / gains[1], 0.5, 2));         // green = 1
+  const strength = opts.strength === undefined ? 1 : clampN(Number(opts.strength), 0, 1);
+  const wbOffset = gains.map((g) => DI.C * Math.log2(g) * strength);
+  let stops = 0;
+  if (opts.exposure !== false) {
+    // A luma median anywhere in the band is "exposed"; outside it, move to
+    // the nearest edge (or to target_median_pct when one is given).
+    const maxStops = Number(opts.max_stops) || 1.5;
+    const med = J.luma.median_pct;
+    let target = Number(opts.target_median_pct) || 0;
+    if (!target) { const band = [Number(opts.band_low_pct) || 30, Number(opts.band_high_pct) || 55]; target = med < band[0] ? band[0] : med > band[1] ? band[1] : med; }
+    stops = clampN(Math.log2(lin(target) / Math.max(1e-6, lin(med))), -maxStops, maxStops) * strength;
+    if (Math.abs(stops) < 0.1) stops = 0;                          // dead band
+  }
+  const offset = wbOffset.map((o) => o + DI.C * stops);
+  return { refuse: false, gains: gains.map((g) => +g.toFixed(4)), exposure_stops: +stops.toFixed(2),
+    slope: [1, 1, 1], offset, power: [1, 1, 1], saturation: 1,
+    cast_before: { r_minus_g_pct: +(J.neutral_mean_pct[0] - J.neutral_mean_pct[1]).toFixed(2),
+                   b_minus_g_pct: +(J.neutral_mean_pct[2] - J.neutral_mean_pct[1]).toFixed(2) },
+    luma_median_pct: J.luma.median_pct, neutral_weight_pct: J.neutral_weight_pct };
+}
+
+// Hue-selective correction from two frames' hue-sector means: per sector a
+// hue shift, a saturation ratio and a value gain, in the look designer's
+// hue_adjustments form (so it becomes a .cube). Sectors too thin in either
+// frame are skipped and named.
+function hueMatchRecipe(refJoint, tgtJoint, opts) {
+  opts = opts || {};
+  const minPct = opts.min_sector_pct === undefined ? 1 : Number(opts.min_sector_pct);
+  const strength = opts.strength === undefined ? 1 : clampN(Number(opts.strength), 0, 1);
+  const adjustments = [], skipped = [], sectors = [];
+  // Adjustment sectors are finer than the 30° stats sectors: 15° keeps a
+  // yellow-green fix off the yellows next door. Mass guards use the 5° bins.
+  const span = clampN(Number(opts.sector_deg) || 15, 10, 60), binDeg = 360 / HUE_BINS;
+  const nSec = Math.round(360 / span);
+  const width = span;
+  if (!refJoint.hue_hist || !tgtJoint.hue_hist) return { hue_adjustments: [], sectors, skipped, error: "no hue histograms" };
+  // Light smoothing (±1 bin) so spiky content (charts, graphics) does not
+  // turn the CDF into a staircase.
+  const smooth = (H) => H.map((v, k) => 0.25 * H[(k + HUE_BINS - 1) % HUE_BINS] + 0.5 * v + 0.25 * H[(k + 1) % HUE_BINS]);
+  const RH = smooth(refJoint.hue_hist), TH = smooth(tgtJoint.hue_hist);
+  const minBin = opts.min_bin_pct === undefined ? 0.2 : Number(opts.min_bin_pct);   // % of coloured pixels per 5° bin
+  const satGain = opts.sat_gain !== false;
+  // Same scene? Bhattacharyya overlap of the two hue histograms; different
+  // subjects make a hue-to-hue mapping meaningless.
+  let overlap = 0;
+  for (let i = 0; i < HUE_BINS; i++) overlap += Math.sqrt(RH[i] * TH[i]);
+  if (overlap < (opts.min_similarity === undefined ? 0.6 : Number(opts.min_similarity)))
+    return { hue_adjustments: [], sectors, skipped, similarity: +overlap.toFixed(3),
+      refused: "Hue content differs too much between the frames (overlap " + overlap.toFixed(2)
+        + " < 0.6): these are different subjects, a hue-to-hue map would be fiction." };
+  // Where did each hue go? Match the two chroma-weighted hue CDFs, cutting
+  // the circle at the emptiest bin, so a patch that crossed a sector
+  // boundary is still paired with itself instead of with its neighbour.
+  let cut = 0, least = Infinity;
+  for (let i = 0; i < HUE_BINS; i++) { const m = RH[i] + TH[i]; if (m < least) { least = m; cut = i; } }
+  // start[k] = mass before the k-th bin counted from the cut; mass[k] = that bin's.
+  const cum = (H) => { const start = [], mass = []; let c = 0; for (let k = 0; k < HUE_BINS; k++) { const m = H[(cut + k) % HUE_BINS]; start.push(c); mass.push(m); c += m; } return { start: start.map((v) => v / (c || 1)), mass: mass.map((v) => v / (c || 1)) }; };
+  const FR = cum(RH), FT = cum(TH);
+  const mapHue = (h) => {                        // target hue -> reference hue
+    const pos = ((h / binDeg - cut) % HUE_BINS + HUE_BINS) % HUE_BINS;
+    const k = Math.floor(pos), fr = pos - k;
+    const c = FT.start[k] + fr * FT.mass[k];
+    let j = 0;
+    while (j < HUE_BINS - 1 && FR.start[j] + FR.mass[j] < c) j++;
+    while (j < HUE_BINS - 1 && FR.mass[j] <= 0) j++;
+    const within = FR.mass[j] > 1e-12 ? clampN((c - FR.start[j]) / FR.mass[j], 0, 1) : 0.5;
+    return (((cut + j + within) * binDeg) % 360 + 360) % 360;
+  };
+  // The LUT works in DI-log, where saturation and value are not what the
+  // display-referred grab shows: judge sector colours in that space.
+  const diHsv = (rgbPct) => rgbToHsv(...rgbPct.map((v) => diEncode(Math.pow(Math.max(0, v) / 100, 2.4))));
+  // Reference colour (DI-space HSV) at a hue, from the 5° bin means.
+  const refBinHsv = (h) => {
+    const k0 = Math.floor((((h / binDeg) % HUE_BINS) + HUE_BINS) % HUE_BINS);
+    for (const k of [k0, (k0 + 1) % HUE_BINS, (k0 + HUE_BINS - 1) % HUE_BINS]) {
+      const rgb = refJoint.hue_bins_rgb_pct && refJoint.hue_bins_rgb_pct[k];
+      if (rgb && refJoint.hue_hist[k] * 100 >= minBin) return diHsv(rgb);
+    }
+    return null;
+  };
+  // Mass of a frame's coloured pixels within ±span/2 of a hue (% of coloured).
+  const massNear = (H, centre) => { let m = 0; for (let k = 0; k < HUE_BINS; k++) { const h = (k + 0.5) * binDeg, dist = Math.min(Math.abs(h - centre), 360 - Math.abs(h - centre)); if (dist <= span / 2) m += H[k]; } return 100 * m; };
+  for (let i = 0; i < nSec; i++) {
+    const centre = i * span;
+    const tgtPct = +massNear(tgtJoint.hue_hist, centre).toFixed(2);
+    // The reference is checked where these pixels are GOING (their mapped
+    // hue), so a patch that left its sector still finds its twin.
+    const refPct = +massNear(refJoint.hue_hist, tgtPct >= minPct ? mapHue(centre) : centre).toFixed(2);
+    if (refPct < minPct || tgtPct < minPct) {
+      if (refPct >= minPct || tgtPct >= minPct) skipped.push({ hue: centre, ref_pct_at_mapped_hue: refPct, target_pct: tgtPct });
+      continue;
+    }
+    // Per 5° bin inside the sector: where its pixels went (CDF map), and the
+    // reference colour there vs the target colour here. Mass-weighted; a
+    // sector whose bins disagree on the shift gets a smaller one.
+    let wsum = 0, ssum = 0, s2 = 0, satSum = 0, gainSum = 0, wsg = 0;
+    for (let k = 0; k < HUE_BINS; k++) {
+      const h = (k + 0.5) * binDeg, dist = Math.min(Math.abs(h - centre), 360 - Math.abs(h - centre));
+      if (dist > span / 2 || tgtJoint.hue_hist[k] * 100 < minBin) continue;
+      const w = TH[k] * (1 - dist / (span / 2 + 1e-9));
+      const mapped = mapHue(h), dh = (((mapped - h) + 540) % 360) - 180;
+      ssum += w * dh; s2 += w * dh * dh; wsum += w;
+      const trgb = tgtJoint.hue_bins_rgb_pct && tgtJoint.hue_bins_rgb_pct[k];
+      const rh = refBinHsv(mapped);
+      if (satGain && trgb && rh) {
+        const th = diHsv(trgb);
+        satSum += w * Math.log(rh[1] / Math.max(0.005, th[1]));
+        gainSum += w * (rh[2] / Math.max(0.01, th[2]) - 1); wsg += w;
+      }
+    }
+    if (wsum <= 0) continue;
+    const meanShift = ssum / wsum, sd = Math.sqrt(Math.max(0, s2 / wsum - meanShift * meanShift));
+    const confidence = clampN(1 - sd / 10, 0, 1);
+    let shift = clampN(meanShift, -25, 25) * strength * confidence;
+    const sat = wsg > 0 ? clampN(Math.exp(satSum / wsg * strength), 0.7, 1.4) : 1;
+    const gain = wsg > 0 ? clampN(gainSum / wsg * strength, -0.1, 0.1) : 0;
+    const row = { hue: centre, ref_pct: refPct, target_pct: tgtPct, shift_spread_deg: +sd.toFixed(1),
+      shift: +shift.toFixed(1), sat: +sat.toFixed(3), gain: +gain.toFixed(3) };
+    sectors.push(row);
+    if (Math.abs(shift) < 1.5 && Math.abs(sat - 1) < 0.03 && Math.abs(gain) < 0.02) continue;
+    adjustments.push({ hue: centre, width, shift: row.shift, sat: row.sat, gain: row.gain });
+  }
+  return { hue_adjustments: adjustments, sectors, skipped, similarity: +overlap.toFixed(3) };
+}
+
+// The measure -> apply -> regrab loop shared by match_shot, match_timeline
+// and auto_balance. `fit(goalPctl, measured)` returns a CDL for the ORIGINAL
+// target; each round shifts the goal by the measured residual, so pipeline
+// errors the DI-log model does not know about (the DRT) are absorbed.
+async function runCdlLoop(ref, tgtItem, measure, opts) {
+  const nodeIndex = opts.nodeIndex || 1;
+  const maxIter = Math.min(5, Math.max(1, Number(opts.maxIterations) || 3));
+  let tgt = opts.tgt0;
+  const samples0 = tgt.samples;
+  const base = tgt.stats.map((ch) => ch.pctl.slice());
+  let goal = ref.stats.map((ch) => ch.pctl.slice());
+  let sat = 1;
+  const satOn = opts.saturation !== false && ref.joint && tgt.joint
+    && tgt.joint.chroma_p90_pct > 1 && ref.joint.chroma_p90_pct > 1;
+  const satErrOf = (t) => (satOn ? Math.abs(ref.joint.chroma_p90_pct - t.joint.chroma_p90_pct) / Math.max(1, ref.joint.chroma_p90_pct) : 0);
+  let cdl = opts.fixed || fitCdl(goal, base, { power: opts.power });
+  // Refine on the grab's own pixels: the per-channel fit cannot see how
+  // saturation mixes channels, the simulated node can.
+  const refine = (init) => {
+    if (opts.fixed || !samples0 || !samples0.length) return init;
+    const r = refineCdl(goal, satOn ? ref.joint.chroma_p90_pct : null, samples0,
+      { slope: init.slope, offset: init.offset, power: init.power, sat }, { power: opts.power, saturation: satOn });
+    sat = satOn ? r.sat : 1;
+    return { slope: r.slope, offset: r.offset, power: r.power, refined: true, evals: r.evals };
+  };
+  cdl = refine(cdl);
+  const iterations = [];
+  let bestScore = Infinity, bestCdl = null, bestSat = 1, bestTgt = null;
+  const write = () => tgtItem.SetCDL({
+    NodeIndex: String(nodeIndex), Slope: cdlStr(cdl.slope),
+    Offset: cdlStr(cdl.offset), Power: cdlStr(cdl.power || [1, 1, 1]),
+    Saturation: (satOn ? sat : 1).toFixed(4) });
+  for (let i = 1; i <= maxIter; i++) {
+    if (!write())
+      throw new ResolveError("SetCDL returned false on node " + nodeIndex
+        + " of " + tgtItem.GetName() + " (iteration " + i + ").");
+    tgt = await measure(tgtItem);
+    const resid = ref.stats.map((rc, c) => +(rc.mean_pct - tgt.stats[c].mean_pct).toFixed(2));
+    const p50 = ref.stats.map((rc, c) => +(rc.pctl[4] - tgt.stats[c].pctl[4]).toFixed(2));
+    iterations.push({ iteration: i,
+      cdl: { slope: cdlStr(cdl.slope), offset: cdlStr(cdl.offset),
+             power: cdlStr(cdl.power || [1, 1, 1]), saturation: (satOn ? sat : 1).toFixed(4) },
+      residual_mean_pct_rgb: resid, residual_median_pct_rgb: p50,
+      residual_chroma_p90_pct: satOn ? +(ref.joint.chroma_p90_pct - tgt.joint.chroma_p90_pct).toFixed(2) : null });
+    const worst = Math.max(...resid.map(Math.abs), ...p50.map(Math.abs));
+    const score = worst + 25 * satErrOf(tgt);
+    if (score < bestScore) { bestScore = score; bestCdl = cdl; bestSat = sat; bestTgt = tgt; }
+    else {                                                         // regressed: restore the best round
+      cdl = bestCdl; sat = bestSat; tgt = bestTgt; write();
+      iterations[iterations.length - 1].regressed = "worse than round " + (iterations.length - 1) + " — restored it";
+      break;
+    }
+    if (worst < (opts.tolerance_pct || 0.75) && satErrOf(tgt) < 0.03) break;
+    if (opts.fixed) break;                                         // one-shot callers
+    if (i === maxIter) break;
+    goal = goal.map((row, c) => row.map((v, k) => v + (ref.stats[c].pctl[k] - tgt.stats[c].pctl[k])));
+    if (satOn && !samples0)
+      sat = clampN(sat * ref.joint.chroma_p90_pct / Math.max(1, tgt.joint.chroma_p90_pct), 0.5, 2);
+    cdl = refine(fitCdl(goal, base, { power: opts.power }));
+  }
+  const last = iterations[iterations.length - 1].regressed ? iterations[iterations.length - 2] : iterations[iterations.length - 1];
+  return { iterations, final_cdl: last.cdl, final_residual_mean_pct_rgb: last.residual_mean_pct_rgb,
+    converged: Math.max(...last.residual_mean_pct_rgb.map(Math.abs)) < (opts.tolerance_pct || 0.75),
+    final: tgt };
+}
 
 tool("match_shot",
-  "Phase 4: match one clip's colour to a reference clip using per-channel "
-  + "Reinhard statistics (mean/stddev) computed in the CDL's own working "
-  + "space (DaVinci Intermediate log, estimated from display-referred "
-  + "grabs and refined by a measure-apply-regrab loop). Writes the result "
-  + "as CDL slope/offset on ONE node of the target (power 1, saturation "
-  + "1) — non-destructive, revert values included, every write logged to "
-  + "a JSON sidecar. REFUSES to match shots in different exposure or "
+  "Phase 4: match one clip's colour to a reference clip. Fits a FULL CDL "
+  + "(slope, offset, power per channel + saturation) to the two frames' "
+  + "percentile curves in the node's own working space (DaVinci "
+  + "Intermediate log, estimated from display-referred grabs) and refines "
+  + "it with a measure-apply-regrab loop. Global only: exposure, white "
+  + "balance, contrast, saturation — a single hue or region that differs "
+  + "needs match_hues on top. Writes ONE node of the target — "
+  + "non-destructive, revert values included, every write logged to a "
+  + "JSON sidecar. REFUSES to match shots in different exposure or "
   + "contrast regimes (night vs day) instead of faking it. WARNING: any "
   + "CDL already on that node is overwritten and cannot be read back "
   + "first (API has no grade readback) — point node_index at a spare "
@@ -1343,6 +1915,11 @@ tool("match_shot",
     dry_run: { type: "boolean",
                description: "true = measure, gate, and propose the CDL "
                             + "without writing anything." },
+    power: { type: "boolean",
+             description: "Fit the power (contrast) term too (default "
+                          + "true). false = slope/offset only." },
+    saturation: { type: "boolean",
+                  description: "Match saturation too (default true)." },
     out_dir: { type: "string",
                description: "Grab/log directory; default /tmp." } },
   ["reference", "target"], async (state, a) => {
@@ -1365,63 +1942,48 @@ tool("match_shot",
       const g = await grabEntry.fn(state, { frame: midFrame(item),
                                             format: "tif",
                                             out_dir: a.out_dir });
-      const buf = fs.readFileSync(g.measurement_file);
-      const st = tiffStats(buf, parseTiff(buf));
-      if (!st.channels)
-        throw new ResolveError("Could not measure " + item.GetName() + ": "
-                               + (st.skipped || "no stats"));
-      return { stats: st.channels, proxy: (g._images || [])[0],
-               file: g.measurement_file };
+      const m = measureBuffer(fs.readFileSync(g.measurement_file));
+      if (m.error)
+        throw new ResolveError("Could not measure " + item.GetName() + ": " + m.error);
+      return Object.assign(m, { proxy: (g._images || [])[0], file: g.measurement_file });
     };
 
     const ref = await measure(refItem);
-    let tgt = await measure(tgtItem);
-    const gate = matchGate(ref.stats, tgt.stats);
+    const tgt0 = await measure(tgtItem);
+    const gate = matchGate(ref.stats, tgt0.stats);
     const out = { reference: refItem.GetName(), target: tgtItem.GetName(),
                   gate };
+    if (ref.joint && tgt0.joint)
+      out.skin = { reference: ref.joint.skin, target: tgt0.joint.skin };
     if (gate.refuse) {
       out.refused = true;
-      out._images = [ref.proxy, tgt.proxy].filter(Boolean);
+      out._images = [ref.proxy, tgt0.proxy].filter(Boolean);
       return out;                       // nothing written, and we say why
     }
 
-    let cdl = deriveCdl(ref.stats, tgt.stats);
-    out.proposed_cdl = { node: nodeIndex, slope: cdlStr(cdl.slope),
-                         offset: cdlStr(cdl.offset), power: "1 1 1",
-                         saturation: "1" };
+    const first = fitCdl(ref.stats.map((c) => c.pctl), tgt0.stats.map((c) => c.pctl), { power: a.power });
+    const satOn = a.saturation !== false && ref.joint && tgt0.joint && tgt0.joint.chroma_p90_pct > 1;
+    out.proposed_cdl = { node: nodeIndex, slope: cdlStr(first.slope),
+                         offset: cdlStr(first.offset), power: cdlStr(first.power),
+                         saturation: (satOn ? clampN(ref.joint.chroma_p90_pct / Math.max(1, tgt0.joint.chroma_p90_pct), 0.5, 2) : 1).toFixed(4),
+                         fit_rms_log: first.rms_di };
     if (a.dry_run) {
       out.dry_run = true;
-      out._images = [ref.proxy, tgt.proxy].filter(Boolean);
+      out._images = [ref.proxy, tgt0.proxy].filter(Boolean);
       return out;
     }
 
-    const iterations = [];
-    const maxIter = Math.min(5, Math.max(1, Number(a.max_iterations) || 3));
-    for (let i = 1; i <= maxIter; i++) {
-      const okWrite = tgtItem.SetCDL({
-        NodeIndex: String(nodeIndex), Slope: cdlStr(cdl.slope),
-        Offset: cdlStr(cdl.offset), Power: "1 1 1", Saturation: "1" });
-      if (!okWrite)
-        throw new ResolveError("SetCDL returned false on node " + nodeIndex
-          + " of " + tgtItem.GetName() + " (iteration " + i + ").");
-      tgt = await measure(tgtItem);
-      const resid = ref.stats.map((rc, c) =>
-        +(rc.mean_pct - tgt.stats[c].mean_pct).toFixed(2));
-      iterations.push({ iteration: i,
-        cdl: { slope: cdlStr(cdl.slope), offset: cdlStr(cdl.offset) },
-        residual_mean_pct_rgb: resid });
-      if (Math.max.apply(null, resid.map(Math.abs)) < 0.75) break;
-      // Compose the residual correction onto the running CDL.
-      const corr = deriveCdl(ref.stats, tgt.stats);
-      cdl = { slope: cdl.slope.map((sl, c) => Math.min(4, Math.max(0.25,
-                sl * corr.slope[c]))),
-              offset: cdl.offset.map((of, c) =>
-                of * corr.slope[c] + corr.offset[c]) };
-    }
-    out.iterations = iterations;
-    out.final_cdl = iterations[iterations.length - 1].cdl;
-    out.final_residual_mean_pct_rgb =
-      iterations[iterations.length - 1].residual_mean_pct_rgb;
+    const loop = await runCdlLoop(ref, tgtItem, measure, { tgt0, nodeIndex,
+      maxIterations: a.max_iterations, power: a.power, saturation: a.saturation });
+    const tgt = loop.final;
+    out.iterations = loop.iterations;
+    out.final_cdl = loop.final_cdl;
+    out.final_residual_mean_pct_rgb = loop.final_residual_mean_pct_rgb;
+    out.converged = loop.converged;
+    if (!loop.converged)
+      out.note = "Residual above 0.75% after " + loop.iterations.length
+        + " rounds — the shots differ in a way a global CDL cannot express "
+        + "(a hue or region): try match_hues on top, or more max_iterations.";
     out.revert = { NodeIndex: String(nodeIndex), Slope: "1 1 1",
                    Offset: "0 0 0", Power: "1 1 1", Saturation: "1" };
     const logDir = String(a.out_dir || (process.platform === "win32"
@@ -1433,6 +1995,167 @@ tool("match_shot",
       out.log_file = logFile;           // grades are write-only: this JSON
     } catch (e) {}                      // is the only readable record
     out._images = [ref.proxy, tgt.proxy].filter(Boolean);
+    return out;
+  });
+
+tool("auto_balance",
+  "Balance a clip with NO reference (Colourlab-style 'Balance'): white "
+  + "balance from greyness-weighted grey-world + white-patch estimates and "
+  + "exposure from the luma median, written as a slope-1 CDL (offsets in "
+  + "DI-log = linear gains) on one node, refined by a measure-apply-regrab "
+  + "loop. Refuses frames with too few near-neutral pixels. Says what it "
+  + "changed in stops and gains. Overwrites any CDL on that node.",
+  { clip: { type: "number", description: "1-based track position; default: clip under the playhead." },
+    track: { type: "number", description: "Video track (default 1)." },
+    node_index: { type: "number", description: "Node for the CDL (default 1; use a spare node)." },
+    strength: { type: "number", description: "0-1, default 1 (full correction)." },
+    exposure: { type: "boolean", description: "Also normalise exposure (default true)." },
+    target_median_pct: { type: "number", description: "Luma median to aim for, % of display (default 42)." },
+    max_stops: { type: "number", description: "Exposure change cap in stops (default 1.5)." },
+    max_iterations: { type: "number", description: "Measure-apply-regrab rounds (default 2)." },
+    dry_run: { type: "boolean", description: "true = measure and propose only." },
+    out_dir: { type: "string", description: "Grab/log directory; default /tmp." } },
+  [], async (state, a) => {
+    const tl = timeline(state);
+    let item;
+    if (a.clip !== undefined) {
+      const items = tl.GetItemListInTrack("video", Number(a.track) || 1) || [];
+      item = items[Number(a.clip) - 1];
+      if (!item) throw new ResolveError("No clip at position " + a.clip + ".");
+    } else {
+      item = tl.GetCurrentVideoItem && tl.GetCurrentVideoItem();
+      if (!item) throw new ResolveError("No clip under the playhead — park on one or pass clip/track.");
+    }
+    const nodeIndex = Number(a.node_index) || 1;
+    const grabEntry = TOOLS.find((t) => t.name === "grab_still");
+    const measure = async (it) => {
+      const g = await grabEntry.fn(state, { frame: it.GetStart() + Math.floor((Number(it.GetDuration()) || 2) / 2),
+                                            format: "tif", out_dir: a.out_dir });
+      const m = measureBuffer(fs.readFileSync(g.measurement_file));
+      if (m.error) throw new ResolveError("Could not measure " + it.GetName() + ": " + m.error);
+      return Object.assign(m, { proxy: (g._images || [])[0], file: g.measurement_file });
+    };
+    const before = await measure(item);
+    const est = balanceEstimate({ channels: before.stats, joint: before.joint }, a);
+    const out = { clip: item.GetName(), node: nodeIndex, estimate: est };
+    if (est.refuse) { out.refused = true; out._images = [before.proxy].filter(Boolean); return out; }
+    out.proposed_cdl = { slope: "1 1 1", offset: cdlStr(est.offset), power: "1 1 1", saturation: "1" };
+    if (a.dry_run) { out.dry_run = true; out._images = [before.proxy].filter(Boolean); return out; }
+    const maxIter = Math.min(4, Math.max(1, Number(a.max_iterations) || 2));
+    let offset = est.offset.slice();
+    const rounds = [];
+    for (let i = 1; i <= maxIter; i++) {
+      if (!item.SetCDL({ NodeIndex: String(nodeIndex), Slope: "1 1 1", Offset: cdlStr(offset), Power: "1 1 1", Saturation: "1" }))
+        throw new ResolveError("SetCDL returned false on node " + nodeIndex + " of " + item.GetName() + ".");
+      const now = await measure(item);
+      const nm = now.joint.neutral_mean_pct || [0, 0, 0];
+      const cast = { r_minus_g_pct: +(nm[0] - nm[1]).toFixed(2), b_minus_g_pct: +(nm[2] - nm[1]).toFixed(2) };
+      rounds.push({ iteration: i, offset: cdlStr(offset), cast_after: cast, luma_median_pct: now.joint.luma.median_pct });
+      if (Math.abs(cast.r_minus_g_pct) < 0.5 && Math.abs(cast.b_minus_g_pct) < 0.5) break;
+      if (i === maxIter) break;
+      const corr = balanceEstimate({ channels: now.stats, joint: now.joint }, Object.assign({}, a, { exposure: false }));
+      if (corr.refuse) break;
+      offset = offset.map((o, c) => o + corr.offset[c]);
+    }
+    out.iterations = rounds;
+    out.final_cdl = { slope: "1 1 1", offset: cdlStr(offset), power: "1 1 1", saturation: "1" };
+    out.cast_before = est.cast_before;
+    out.cast_after = rounds[rounds.length - 1].cast_after;
+    out.exposure_change_stops = est.exposure_stops;
+    out.revert = { NodeIndex: String(nodeIndex), Slope: "1 1 1", Offset: "0 0 0", Power: "1 1 1", Saturation: "1" };
+    out._images = [before.proxy].filter(Boolean);
+    return out;
+  });
+
+tool("match_timeline",
+  "Match every clip on a track to one hero shot (Colourlab-style timeline "
+  + "match): measures all clips, picks the hero (given, or 'auto' = the "
+  + "most central clip so the total change is smallest), gates each pair "
+  + "(night-vs-day refused, named), then runs the match_shot loop on each. "
+  + "One approval, one log. Slow: (1 + rounds) grabs per clip, ~3 s each — "
+  + "use clips/max_clips to batch. Overwrites the CDL on node_index of "
+  + "every matched clip; revert values are returned per clip.",
+  { track: { type: "number", description: "Video track (default 1)." },
+    hero: { type: "number", description: "1-based position of the reference clip; omit = auto." },
+    clips: { type: "array", items: { type: "number" }, description: "Positions to match (default: all others)." },
+    max_clips: { type: "number", description: "Cap when clips is omitted (default 12)." },
+    node_index: { type: "number", description: "Node for each CDL (default 1; use a spare node)." },
+    max_iterations: { type: "number", description: "Rounds per clip (default 2)." },
+    power: { type: "boolean" }, saturation: { type: "boolean" },
+    dry_run: { type: "boolean", description: "true = measure, pick hero, gate and propose only." },
+    out_dir: { type: "string", description: "Grab/log directory; default /tmp." } },
+  [], async (state, a) => {
+    const tl = timeline(state);
+    const track = Number(a.track) || 1;
+    const items = tl.GetItemListInTrack("video", track) || [];
+    if (items.length < 2) throw new ResolveError("Track " + track + " has " + items.length + " clip(s); nothing to match.");
+    const nodeIndex = Number(a.node_index) || 1;
+    const grabEntry = TOOLS.find((t) => t.name === "grab_still");
+    const measure = async (it) => {
+      const g = await grabEntry.fn(state, { frame: it.GetStart() + Math.floor((Number(it.GetDuration()) || 2) / 2),
+                                            format: "tif", out_dir: a.out_dir, no_proxy: true });
+      const m = measureBuffer(fs.readFileSync(g.measurement_file));
+      if (m.error) throw new ResolveError("Could not measure " + it.GetName() + ": " + m.error);
+      return Object.assign(m, { file: g.measurement_file });
+    };
+    let wanted = Array.isArray(a.clips) && a.clips.length ? a.clips.map(Number) : null;
+    const heroPos = a.hero !== undefined ? Number(a.hero) : null;
+    if (heroPos !== null && !items[heroPos - 1]) throw new ResolveError("No clip at hero position " + heroPos + ".");
+    const cap = Math.max(1, Number(a.max_clips) || 12);
+    const positions = wanted ? wanted.filter((p) => items[p - 1]) : items.map((_, i) => i + 1).slice(0, cap + (heroPos ? 1 : 0));
+    const pool = Array.from(new Set(positions.concat(heroPos ? [heroPos] : [])));
+    const measured = {};
+    const errors = [];
+    for (const p of pool) {
+      try { measured[p] = await measure(items[p - 1]); }
+      catch (e) { errors.push({ clip: p, name: items[p - 1].GetName(), error: e.message }); }
+    }
+    const ok = pool.filter((p) => measured[p]);
+    if (ok.length < 2) throw new ResolveError("Could not measure enough clips: " + JSON.stringify(errors));
+    // Hero = medoid over (mean, std) per channel: the clip closest to all others.
+    const dist = (x, y) => x.stats.reduce((t, ch, c) => t + Math.abs(ch.mean_pct - y.stats[c].mean_pct) + 0.5 * Math.abs(ch.std_pct - y.stats[c].std_pct), 0);
+    let hero = heroPos;
+    if (hero === null) {
+      let best = null;
+      for (const p of ok) {
+        const d = ok.reduce((t, q) => t + (q === p ? 0 : dist(measured[p], measured[q])), 0);
+        if (!best || d < best.d) best = { p, d };
+      }
+      hero = best.p;
+    }
+    const ref = measured[hero];
+    const out = { track, hero: { position: hero, name: items[hero - 1].GetName(), chosen: heroPos ? "given" : "auto (medoid)" },
+                  results: [], errors, node: nodeIndex };
+    for (const p of ok) {
+      if (p === hero) continue;
+      const item = items[p - 1];
+      const row = { position: p, name: item.GetName() };
+      try {
+        const tgt0 = measured[p];
+        row.gate = matchGate(ref.stats, tgt0.stats);
+        if (row.gate.refuse) { row.refused = true; out.results.push(row); continue; }
+        const first = fitCdl(ref.stats.map((c) => c.pctl), tgt0.stats.map((c) => c.pctl), { power: a.power });
+        row.proposed_cdl = { slope: cdlStr(first.slope), offset: cdlStr(first.offset), power: cdlStr(first.power) };
+        if (a.dry_run) { out.results.push(row); continue; }
+        const loop = await runCdlLoop(ref, item, measure, { tgt0, nodeIndex, maxIterations: Number(a.max_iterations) || 2,
+          power: a.power, saturation: a.saturation });
+        row.final_cdl = loop.final_cdl;
+        row.final_residual_mean_pct_rgb = loop.final_residual_mean_pct_rgb;
+        row.converged = loop.converged;
+        row.rounds = loop.iterations.length;
+      } catch (e) { row.error = e.message; }
+      out.results.push(row);
+    }
+    out.matched = out.results.filter((r) => r.final_cdl).length;
+    out.refused = out.results.filter((r) => r.refused).map((r) => ({ position: r.position, name: r.name, reason: r.gate.reason }));
+    if (!a.dry_run) out.revert_each = { NodeIndex: String(nodeIndex), Slope: "1 1 1", Offset: "0 0 0", Power: "1 1 1", Saturation: "1" };
+    if (a.dry_run) out.dry_run = true;
+    const logDir = String(a.out_dir || (process.platform === "win32" ? os.tmpdir() : "/tmp"));
+    try {
+      const logFile = path.join(logDir, "timeline_match_" + Date.now().toString(36) + ".json");
+      fs.writeFileSync(logFile, JSON.stringify(out, null, 2));
+      out.log_file = logFile;
+    } catch (e) {}
     return out;
   });
 
@@ -1620,6 +2343,87 @@ tool("design_look",
         + "DaVinci Resolve/LUT/, update the LUT list in Project Settings, "
         + "then right-click the node > LUT. The file is valid and ready.";
     }
+    return out;
+  });
+
+tool("match_hues",
+  "Hue-selective match (the part of Colourlab's Region Match a LUT can do): "
+  + "compares the two frames per 30° hue sector — mean hue, saturation, "
+  + "brightness — and writes the per-sector corrections as a .cube through "
+  + "the look designer (hue_adjustments), then tries SetLUT on the target "
+  + "node. Run match_shot FIRST so only the hue-specific residue is left. "
+  + "Colour-based only: no spatial windows, no tracking. On installs where "
+  + "SetLUT is dead the .cube is the deliverable with manual-load steps, "
+  + "and the recipe is returned so design_look can tweak it.",
+  { reference: { type: "number", description: "1-based track position of the reference clip." },
+    target: { type: "number", description: "1-based track position of the clip to fix." },
+    track: { type: "number", description: "Video track (default 1)." },
+    node_index: { type: "number", description: "Node for the LUT (default 2, after the match CDL)." },
+    strength: { type: "number", description: "0-1, default 1." },
+    min_sector_pct: { type: "number", description: "Skip hue sectors thinner than this % of coloured pixels in either frame (default 1)." },
+    max_global_gap_pct: { type: "number", description: "Refuse when the clips' overall level/balance still differ by more than this % (default 3) — match_shot first." },
+    name: { type: "string" }, size: { type: "number" },
+    dry_run: { type: "boolean", description: "true = measure and return the recipe only." },
+    out_dir: { type: "string", description: "Where to write the .cube (default ~/ClaudeAssistantLooks)." } },
+  ["reference", "target"], async (state, a) => {
+    const tl = timeline(state);
+    const items = tl.GetItemListInTrack("video", Number(a.track) || 1) || [];
+    const refItem = items[Number(a.reference) - 1], tgtItem = items[Number(a.target) - 1];
+    if (!refItem || !tgtItem) throw new ResolveError("Track has " + items.length + " clips; reference/target must be 1-based positions on it.");
+    if (refItem === tgtItem) throw new ResolveError("Reference and target are the same clip.");
+    const grabEntry = TOOLS.find((t) => t.name === "grab_still");
+    const measure = async (it) => {
+      const g = await grabEntry.fn(state, { frame: it.GetStart() + Math.floor((Number(it.GetDuration()) || 2) / 2),
+                                            format: "tif", out_dir: a.out_dir && /^\/tmp|ClaudeAssistantStills/.test(a.out_dir) ? a.out_dir : undefined });
+      const buf = fs.readFileSync(g.measurement_file);
+      const m = measureBuffer(buf);
+      if (m.error) throw new ResolveError("Could not measure " + it.GetName() + ": " + m.error);
+      return Object.assign(m, { proxy: (g._images || [])[0] });
+    };
+    const ref = await measure(refItem), tgt = await measure(tgtItem);
+    const out = { reference: refItem.GetName(), target: tgtItem.GetName(),
+      skin: { reference: ref.joint.skin, target: tgt.joint.skin } };
+    // A hue pass sits on top of a global match: with the overall levels still
+    // apart, a hue-to-hue map corrects the wrong thing.
+    const globalGap = Math.max(...ref.stats.map((c, i) => Math.max(Math.abs(c.mean_pct - tgt.stats[i].mean_pct), Math.abs(c.pctl[4] - tgt.stats[i].pctl[4]))));
+    out.global_gap_pct = +globalGap.toFixed(2);
+    if (globalGap > (Number(a.max_global_gap_pct) || 3)) {
+      out.refused = "The clips are still " + globalGap.toFixed(1) + "% apart in overall level/balance (limit 3%): run match_shot first, then match_hues for what is left.";
+      out._images = [ref.proxy, tgt.proxy].filter(Boolean);
+      return out;
+    }
+    const recipe = hueMatchRecipe(ref.joint, tgt.joint, a);
+    out.similarity = recipe.similarity; out.sectors = recipe.sectors; out.skipped_sectors = recipe.skipped;
+    if (recipe.refused) { out.refused = recipe.refused; out._images = [ref.proxy, tgt.proxy].filter(Boolean); return out; }
+    // Never trust the recipe blind: keep only what moves the target's hue
+    // content toward the reference when simulated on its own pixels.
+    const verified = refineHueRecipe(ref.joint, tgt.samples, recipe.hue_adjustments, {});
+    out.verified_by_simulation = { cost_before: verified.cost_before, cost_after: verified.cost_after,
+      proposed: recipe.hue_adjustments.length, kept: verified.hue_adjustments.length, rejected: verified.rejected };
+    out.look = { hue_adjustments: verified.hue_adjustments };
+    if (!verified.hue_adjustments.length) {
+      out.nothing_to_do = recipe.hue_adjustments.length
+        ? "The measured hue differences do not survive simulation on this frame — nothing a hue LUT would improve; a global match_shot covers this pair."
+        : "No hue sector differs beyond 1.5° / 3% between the frames — a global match_shot covers this pair.";
+      out._images = [ref.proxy, tgt.proxy].filter(Boolean);
+      return out;
+    }
+    if (a.dry_run) { out.dry_run = true; out._images = [ref.proxy, tgt.proxy].filter(Boolean); return out; }
+    const dir = String(a.out_dir || path.join(os.homedir(), "ClaudeAssistantLooks"));
+    fs.mkdirSync(dir, { recursive: true });
+    const base = String(a.name || ("hue-match-" + tgtItem.GetName())).replace(/[^\w.-]+/g, "_").slice(0, 60);
+    const file = path.join(dir, base + "_" + Date.now().toString(36) + ".cube");
+    fs.writeFileSync(file, generateCube(out.look, a.size));
+    out.lut_file = file;
+    const nodeIndex = Number(a.node_index) || 2;
+    out.node = nodeIndex;
+    const applied = typeof tgtItem.SetLUT === "function" ? !!tgtItem.SetLUT(nodeIndex, file) : false;
+    out.applied = applied;
+    if (applied) out.verify = "grab_still the target and compare with the reference; iterate with design_look on the returned recipe.";
+    else out.manual_load = "SetLUT cannot resolve paths on this install (live-verified) — manual load: copy " + file
+      + " into /Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/, update the LUT list in Project Settings, "
+      + "then right-click node " + nodeIndex + " of " + tgtItem.GetName() + " > LUT. Then grab_still to verify.";
+    out._images = [ref.proxy, tgt.proxy].filter(Boolean);
     return out;
   });
 
@@ -2904,7 +3708,10 @@ module.exports = {
   startBridge, TOOLS,
   parseTiff, tiffCensus, parseExr, effectiveDepthLabel, shrinkProxy,
   parseSonySidecar, tiffStats, matchGate, deriveCdl, displayPctToDi,
-  diDecode, applyLook, generateCube, detectCuts, styleAggregate,
+  diDecode, diEncode, applyLook, generateCube, detectCuts, styleAggregate,
+  fitCdl, balanceEstimate, hueMatchRecipe, writeTiff16, jointStats, runCdlLoop,
+  sampleDi, simStats, refineCdl, measureBuffer, simHueStats, hueCost, refineHueRecipe,
+  rgbToHsv, hsvToRgb, P_LEVELS, HUE_SECTORS, HUE_BINS, SKIN_LINE_DEG, DI,
   percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash,
   readConfig, writeConfig, geminiKey, CONFIG_FILE, geminiErrorText,
 };
