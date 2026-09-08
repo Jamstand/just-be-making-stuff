@@ -29,7 +29,8 @@ because CSP picks up Lua apps from the folder directly.
 
 Drag the window to move it, drag its edge to resize it (everything scales
 with the window). The gear icon in its title bar opens settings: speed on/off,
-KM/H or MPH, and where the shift light kicks in.
+KM/H or MPH, where the shift light kicks in, and the background opacity
+(0% is fully see-through, 100% solid black).
 
 ![Gear Speedo through a simulated lap](preview.gif)
 

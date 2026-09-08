@@ -110,7 +110,7 @@
     max-width: 840px; max-height: 360px;
     resize: both;
     overflow: hidden;
-    background: rgba(6, 7, 9, .84);
+    background: transparent;          /* the canvas paints the fill */
     border: 1px solid rgba(255,255,255,.07);
     border-radius: 5px;
     box-shadow: 0 14px 40px rgba(0,0,0,.55);
@@ -269,6 +269,11 @@
       <span class="val" id="shiftVal">95%</span>
     </div>
     <div class="group">
+      <span class="k">Background</span>
+      <input type="range" id="opacity" min="0" max="100" step="5" value="70" aria-label="Background opacity, percent">
+      <span class="val" id="opacityVal">70%</span>
+    </div>
+    <div class="group">
       <span class="k">Size</span>
       <span class="seg" id="sizeSeg">
         <button data-scale="0.5">50%</button>
@@ -282,7 +287,7 @@
   <div class="notes">
     <div>
       <h2>What you're looking at</h2>
-      <p>The widget is drawn here by the same layout logic as the in-game Lua app: an 18-segment rev bar that runs green, amber, then red, and flashes white once revs pass the shift point. The gear number goes red at the same moment. Everything scales with the window, so dragging the corner is exactly what resizing does in the game.</p>
+      <p>The widget is drawn here by the same layout logic as the in-game Lua app: an 18-segment rev bar that runs green, amber, then red, and flashes white once revs pass the shift point. The gear number goes red at the same moment. Everything scales with the window, so dragging the corner is exactly what resizing does in the game, and the background slider is the same setting the app has behind its gear icon.</p>
       <p>The car is a simulated MX-5 ND: full throttle up through the gears, a bounce off the limiter in fifth, a hard braking zone with downshifts, then a reverse out of the pit box. The replay loops.</p>
       <h2>Install</h2>
       <p>Copy <code>apps/lua/GearSpeedo</code> into <code>&lt;AC root&gt;/apps/lua/</code>. It appears under <em>Your apps</em> in the Custom Shaders Patch app list; nothing to switch on. Needs CSP build 2512 or newer.</p>
@@ -320,8 +325,11 @@
   const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
 
   function layout(car, st, w, h, blinkOn) {
-    const s = Math.min(w / HUD.W, h / HUD.H);
     const out = { rects: [], texts: [] };
+    // The app paints its own background at the chosen opacity (the window
+    // has NO_BACKGROUND), so it is the first thing in the draw list.
+    out.rects.push([0, 0, w, h, 0, 0, 0, st.opacity / 100]);
+    const s = Math.min(w / HUD.W, h / HUD.H);
     if (!(s > 0)) return out;
     const ox = (w - HUD.W * s) / 2, oy = (h - HUD.H * s) / 2;
     const P = (x, y) => [ox + x * s, oy + y * s];
@@ -384,7 +392,7 @@
       { gear: 0, rpm: 900, rpmLimiter: 8000, speedKmh: 0 },
     ];
     const pre = document.createElement('pre'); pre.id = 'dump';
-    pre.textContent = JSON.stringify(states.map(c => layout(c, { showSpeed: true, mph: false, shiftAt: 95 }, 280, 120, true)));
+    pre.textContent = JSON.stringify(states.map(c => layout(c, { showSpeed: true, mph: false, shiftAt: 95, opacity: 70 }, 280, 120, true)));
     document.body.appendChild(pre);
     return;
   }
@@ -446,7 +454,7 @@
   function go(phase) { sim.phase = phase; sim.pt = 0; }
 
   // ------------------------------------------------------------ page wiring
-  const settings = { showSpeed: true, mph: false, shiftAt: 95 };
+  const settings = { showSpeed: true, mph: false, shiftAt: 95, opacity: 70 };
   const widget = document.getElementById('widget');
   const canvas = document.getElementById('hud');
   const ctx = canvas.getContext('2d');
@@ -519,6 +527,8 @@
     settings.showSpeed = !settings.showSpeed;
     showSpeed.setAttribute('aria-pressed', String(settings.showSpeed)); draw();
   });
+  const opacity = $('opacity'), opacityVal = $('opacityVal');
+  opacity.addEventListener('input', () => { settings.opacity = Number(opacity.value); opacityVal.textContent = opacity.value + '%'; draw(); });
   const shiftAt = $('shiftAt'), shiftVal = $('shiftVal');
   shiftAt.addEventListener('input', () => { settings.shiftAt = Number(shiftAt.value); shiftVal.textContent = shiftAt.value + '%'; draw(); });
 

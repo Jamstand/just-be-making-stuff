@@ -31,7 +31,8 @@ local settings = ac.storage{
   mph = false,
   showSpeed = true,
   shiftAt = 95,
-}
+  opacity = 70,      -- background, percent. The window has NO_BACKGROUND in
+}                    -- its manifest so this is the only fill behind the HUD.
 
 local blink = 0
 
@@ -51,11 +52,14 @@ local function clamp01(v)
 end
 
 function script.windowMain(dt)
+  -- Our own background first, at the chosen opacity, before anything else.
+  local size = ui.windowSize()
+  ui.drawRectFilled(vec2(0, 0), size, rgbm(0, 0, 0, settings.opacity / 100), 4)
+
   -- ac.getCar can be nil for a frame or two while a session loads.
   local car = ac.getCar(0)
   if not car then return end
 
-  local size = ui.windowSize()
   local s = math.min(size.x / BASE_W, size.y / BASE_H)
   if s <= 0 then return end
   local ox = (size.x - BASE_W * s) / 2
@@ -133,6 +137,12 @@ function script.windowSettings(dt)
   local v = ui.slider('##shiftAt', settings.shiftAt, 80, 100, 'Shift light: %.0f%%')
   if ui.itemEdited() then
     settings.shiftAt = v
+  end
+
+  ui.setNextItemWidth(180)
+  local o = ui.slider('##opacity', settings.opacity, 0, 100, 'Background: %.0f%%')
+  if ui.itemEdited() then
+    settings.opacity = o
   end
 
   ui.text('Drag the window edge to resize.')
