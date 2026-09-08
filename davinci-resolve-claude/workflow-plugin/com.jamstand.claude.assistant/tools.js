@@ -1691,6 +1691,7 @@ function fitCdl(refPctl, tgtPctl, opts) {
 // is a slope-1 CDL: honest to the node's working space.
 function balanceEstimate(stats, opts) {
   opts = opts || {};
+  const channels = stats.channels || stats.stats;              // tiffStats or measureBuffer shape
   const J = stats.joint;
   if (!J || !J.neutral_mean_pct || J.neutral_weight_pct < 1)
     return { refuse: true, reason: "Too few near-neutral pixels to judge a "
@@ -1699,7 +1700,7 @@ function balanceEstimate(stats, opts) {
   const nl = J.neutral_mean_pct.map(lin);
   const grey = (nl[0] + nl[1] + nl[2]) / 3;
   const gw = nl.map((v) => grey / Math.max(1e-6, v));
-  const wpl = stats.channels.map((ch) => lin(ch.pctl[7]));       // p95
+  const wpl = channels.map((ch) => lin(ch.pctl[7]));             // p95
   const wmax = Math.max(...wpl);
   const wp = wpl.map((v) => wmax / Math.max(1e-6, v));
   const blend = opts.white_patch_weight === undefined ? 0.3 : clampN(Number(opts.white_patch_weight), 0, 1);
@@ -2101,6 +2102,9 @@ tool("match_timeline",
       catch (e) { errors.push({ clip: p, name: items[p - 1].GetName(), error: e.message }); }
     }
     const ok = pool.filter((p) => measured[p]);
+    if (heroPos !== null && !measured[heroPos])
+      throw new ResolveError("The hero clip (" + items[heroPos - 1].GetName() + ", position " + heroPos + ") could not be measured: "
+        + ((errors.find((e) => e.clip === heroPos) || {}).error || "no grab") + " — pick another hero.");
     if (ok.length < 2) throw new ResolveError("Could not measure enough clips: " + JSON.stringify(errors));
     // Hero = medoid over (mean, std) per channel: the clip closest to all others.
     const dist = (x, y) => x.stats.reduce((t, ch, c) => t + Math.abs(ch.mean_pct - y.stats[c].mean_pct) + 0.5 * Math.abs(ch.std_pct - y.stats[c].std_pct), 0);
@@ -2113,9 +2117,6 @@ tool("match_timeline",
       }
       hero = best.p;
     }
-    if (!measured[hero])
-      throw new ResolveError("The hero clip (" + items[hero - 1].GetName() + ", position " + hero + ") could not be measured: "
-        + ((errors.find((e) => e.clip === hero) || {}).error || "no grab") + " — pick another hero.");
     const ref = measured[hero];
     const out = { track, hero: { position: hero, name: items[hero - 1].GetName(), chosen: heroPos ? "given" : "auto (medoid)" },
                   results: [], errors, node: nodeIndex };
