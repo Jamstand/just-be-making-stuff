@@ -1086,6 +1086,9 @@ function tiffStats(buffer, info) {
 const P_LEVELS = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99];
 const HUE_SECTORS = 12;                          // 30° each, centred on 0,30,…
 const HUE_BINS = 72;                             // 5° hue histogram bins
+// ±1-bin smoothing of a hue histogram, so spiky content (charts, graphics)
+// does not turn a 5° shift into a lost overlap or a staircase CDF.
+const smoothHue = (H) => H.map((v, k) => 0.25 * (H[(k + HUE_BINS - 1) % HUE_BINS] || 0) + 0.5 * (v || 0) + 0.25 * (H[(k + 1) % HUE_BINS] || 0));
 // The one definition of "a pixel with a hue worth counting" — jointStats
 // (the measurement) and simHueStats (the simulation) must agree on it.
 const isColoured = (sat, mx, d) => sat >= 0.1 && mx >= 0.08 && d >= 0.02;
@@ -1743,10 +1746,7 @@ function hueMatchRecipe(refJoint, tgtJoint, opts) {
   const nSec = Math.round(360 / span);
   const width = span;
   if (!refJoint.hue_hist || !tgtJoint.hue_hist) return { hue_adjustments: [], sectors, skipped, error: "no hue histograms" };
-  // Light smoothing (±1 bin) so spiky content (charts, graphics) does not
-  // turn the CDF into a staircase.
-  const smooth = (H) => H.map((v, k) => 0.25 * H[(k + HUE_BINS - 1) % HUE_BINS] + 0.5 * v + 0.25 * H[(k + 1) % HUE_BINS]);
-  const RH = smooth(refJoint.hue_hist), TH = smooth(tgtJoint.hue_hist);
+  const RH = smoothHue(refJoint.hue_hist), TH = smoothHue(tgtJoint.hue_hist);
   const minBin = opts.min_bin_pct === undefined ? 0.2 : Number(opts.min_bin_pct);   // % of coloured pixels per 5° bin
   const satGain = opts.sat_gain !== false;
   // Same scene? Bhattacharyya overlap of the two hue histograms; different
@@ -3542,18 +3542,29 @@ function deltaE2000([L1, a1, b1], [L2, a2, b2]) {
 // Per-pixel ΔE2000 between two grabs of the SAME content (same source
 // frame): mean, p95, max and the share of pixels a viewer would notice.
 function tiffDeltaE(bufA, infoA, bufB, infoB, maxPixels) {
-  const comparable = infoA && infoB && infoA.compression === 1 && infoB.compression === 1
-    && infoA.bitsPerSample === infoB.bitsPerSample && infoA.width === infoB.width && infoA.height === infoB.height
-    && infoA.stripOffsets && infoB.stripOffsets;
-  if (!comparable) return { skipped: "per-pixel ΔE needs two uncompressed TIFFs of the same size and depth" };
+  const okInfo = (info, buf) => info && info.compression === 1 && (info.bitsPerSample === 8 || info.bitsPerSample === 16)
+    && info.stripOffsets && info.stripByteCounts && info.stripOffsets.length === info.stripByteCounts.length;
+  const comparable = okInfo(infoA, bufA) && okInfo(infoB, bufB) && infoA.bitsPerSample === infoB.bitsPerSample
+    && infoA.width === infoB.width && infoA.height === infoB.height;
+  if (!comparable) return { skipped: "per-pixel ΔE needs two uncompressed 8/16-bit strip TIFFs of the same size and depth" };
   const bits = infoA.bitsPerSample, full = bits === 8 ? 255 : 65535, step = bits >> 3;
   const chA = Math.max(1, Math.min(4, infoA.samplesPerPixel || 3)), chB = Math.max(1, Math.min(4, infoB.samplesPerPixel || 3));
   const rd = (buf, info, o) => (bits === 8 ? buf[o] : (info.littleEndian ? buf.readUInt16LE(o) : buf.readUInt16BE(o))) / full;
-  const offsets = (info, ch) => { const out = []; for (let st = 0; st < info.stripOffsets.length; st++) { const start = info.stripOffsets[st], end = Math.min(Number.MAX_SAFE_INTEGER, start + info.stripByteCounts[st]); for (let o = start; o + step * ch <= end; o += step * ch) out.push(o); } return out; };
-  const oa = offsets(infoA, chA), ob = offsets(infoB, chB);
-  const n = Math.min(oa.length, ob.length), stride = Math.max(1, Math.ceil(n / (maxPixels || 250000)));
+  // Pixels actually present in the file (a truncated grab has fewer than the header says).
+  const count = (buf, info, ch) => { let n = 0; for (let st = 0; st < info.stripOffsets.length; st++) { const start = info.stripOffsets[st], end = Math.min(buf.length, start + info.stripByteCounts[st]); n += Math.max(0, Math.floor((end - start) / (step * ch))); } return n; };
+  const n = Math.min(count(bufA, infoA, chA), count(bufB, infoB, chB));
+  if (n < 1) return { skipped: "no pixel data in one of the grabs (truncated file?)" };
+  const stride = Math.max(1, Math.ceil(n / (maxPixels || 250000)));
+  // Every stride-th pixel's byte offset, walking the strips once — never one entry per pixel.
+  const strided = (buf, info, ch) => { const out = []; let next = 0, seen = 0; const px = step * ch;
+    for (let st = 0; st < info.stripOffsets.length && out.length * stride < n; st++) {
+      const start = info.stripOffsets[st], end = Math.min(buf.length, start + info.stripByteCounts[st]), inStrip = Math.max(0, Math.floor((end - start) / px));
+      while (next < seen + inStrip && out.length * stride < n) { out.push(start + (next - seen) * px); next += stride; }
+      seen += inStrip;
+    } return out; };
+  const oa = strided(bufA, infoA, chA), ob = strided(bufB, infoB, chB), m = Math.min(oa.length, ob.length);
   const d = [];
-  for (let i = 0; i < n; i += stride) {
+  for (let i = 0; i < m; i++) {
     const A = [0, 1, 2].map((c) => rd(bufA, infoA, oa[i] + Math.min(c, chA - 1) * step));
     const Bp = [0, 1, 2].map((c) => rd(bufB, infoB, ob[i] + Math.min(c, chB - 1) * step));
     d.push(deltaE2000(labOf(A), labOf(Bp)));
@@ -3573,10 +3584,7 @@ function statsDistance(ref, tgt) {
   const meanDiff = ref.stats.map((c, i) => +(tgt.stats[i].mean_pct - c.mean_pct).toFixed(2));
   const curveRms = ref.stats.map((c, i) => { let e = 0; for (let k = 1; k <= 7; k++) e += (tgt.stats[i].pctl[k] - c.pctl[k]) ** 2; return +Math.sqrt(e / 7).toFixed(2); });
   const chroma = +(tgt.joint.chroma_p90_pct - ref.joint.chroma_p90_pct).toFixed(2);
-  // ±1-bin smoothing first: spiky content (charts, graphics) would otherwise
-  // lose most of its overlap to a 5° shift.
-  const smooth = (H) => H.map((v, k) => 0.25 * (H[(k + HUE_BINS - 1) % HUE_BINS] || 0) + 0.5 * (v || 0) + 0.25 * (H[(k + 1) % HUE_BINS] || 0));
-  const RH = smooth(ref.joint.hue_hist), TH = smooth(tgt.joint.hue_hist);
+  const RH = smoothHue(ref.joint.hue_hist), TH = smoothHue(tgt.joint.hue_hist);
   let overlap = 0;
   for (let k = 0; k < HUE_BINS; k++) overlap += Math.sqrt(RH[k] * TH[k]);
   const skinA = ref.joint.skin.angle_deg, skinB = tgt.joint.skin.angle_deg;
@@ -3696,17 +3704,26 @@ tool("compare_grades",
     const refItem = items[Number(a.reference) - 1], tgtItem = items[Number(a.target) - 1];
     if (!refItem || !tgtItem) throw new ResolveError("Track has " + items.length + " clips; reference/target must be 1-based positions on it.");
     if (refItem === tgtItem) throw new ResolveError("Reference and target are the same clip — compare a duplicate or another shot.");
-    if (typeof tgtItem.LoadVersionByName !== "function" || typeof tgtItem.GetVersionNameList !== "function")
-      throw new ResolveError("This Resolve exposes no version API on timeline items (LoadVersionByName / GetVersionNameList).");
+    if (typeof tgtItem.LoadVersionByName !== "function" || typeof tgtItem.GetVersionNameList !== "function"
+        || typeof tgtItem.GetCurrentVersion !== "function")
+      throw new ResolveError("This Resolve exposes no complete version API on timeline items (LoadVersionByName / "
+        + "GetVersionNameList / GetCurrentVersion) — without it the active version could not be put back afterwards.");
     const available = tgtItem.GetVersionNameList(0) || [];
     const wanted = Array.isArray(a.versions) && a.versions.length ? a.versions.map(String) : available.slice();
     const missing = wanted.filter((v) => !available.includes(v));
     if (missing.length) throw new ResolveError("No local version named " + missing.join(", ") + " on " + tgtItem.GetName() + "; it has: " + (available.join(", ") || "none") + ".");
     if (!wanted.length) throw new ResolveError(tgtItem.GetName() + " has no local versions to compare.");
-    const current = typeof tgtItem.GetCurrentVersion === "function" ? tgtItem.GetCurrentVersion() : null;
-    const mpName = (it) => { const mp = it.GetMediaPoolItem && it.GetMediaPoolItem(); return mp && mp.GetName ? String(mp.GetName()) : null; };
-    const sameMedia = mpName(refItem) !== null && mpName(refItem) === mpName(tgtItem)
-      && (refItem.GetLeftOffset ? refItem.GetLeftOffset() : 0) === (tgtItem.GetLeftOffset ? tgtItem.GetLeftOffset() : 0);
+    const current = tgtItem.GetCurrentVersion();
+    if (!current || !current.versionName)
+      throw new ResolveError("GetCurrentVersion returned nothing for " + tgtItem.GetName() + " — cannot promise to restore the active version, so nothing was loaded.");
+    // Same content = same media (unique id, else file path, else name) AND
+    // the same SOURCE mid-frame, which is what each grab measures.
+    const mediaKey = (it) => { const mp = it.GetMediaPoolItem && it.GetMediaPoolItem(); if (!mp) return null;
+      try { if (typeof mp.GetUniqueId === "function") { const u = mp.GetUniqueId(); if (u) return "id:" + u; } } catch (e) {}
+      try { const fp = mp.GetClipProperty && mp.GetClipProperty("File Path"); if (fp) return "path:" + fp; } catch (e) {}
+      return mp.GetName ? "name:" + mp.GetName() : null; };
+    const srcMid = (it) => (it.GetLeftOffset ? it.GetLeftOffset() : 0) + Math.floor((Number(it.GetDuration()) || 2) / 2);
+    const sameMedia = mediaKey(refItem) !== null && mediaKey(refItem) === mediaKey(tgtItem) && srcMid(refItem) === srcMid(tgtItem);
     const mode = a.mode && a.mode !== "auto" ? String(a.mode) : (sameMedia ? "pixel" : "stats");
     const ref = await measureItem(state, refItem, a, { no_proxy: true });
     const refBuf = fs.readFileSync(ref.file), refInfo = parseTiff(refBuf);
@@ -3733,11 +3750,13 @@ tool("compare_grades",
         out.results.push(row);
       }
     } finally {
-      if (current && current.versionName) {
-        out.restored = tgtItem.LoadVersionByName(current.versionName, current.versionType === undefined ? 0 : current.versionType)
-          ? current.versionName : "FAILED to restore " + current.versionName + " — check the clip's version in the Color page";
-      }
+      out.restored = tgtItem.LoadVersionByName(current.versionName, current.versionType === undefined ? 0 : current.versionType)
+        ? current.versionName : "FAILED to restore " + current.versionName + " — check the clip's version in the Color page";
     }
+    const skipped = out.results.filter((r) => r.delta_e && r.delta_e.skipped);
+    if (skipped.length)
+      out.note = "Per-pixel ΔE skipped for " + skipped.map((r) => r.version).join(", ") + ": " + skipped[0].delta_e.skipped
+        + " — rerun with mode stats, or compare grabs of the same size.";
     const scored = out.results.filter((r) => typeof r.score === "number").sort((x, y) => x.score - y.score);
     if (scored.length) {
       out.ranking = scored.map((r) => r.version + " (" + r.score + ")");

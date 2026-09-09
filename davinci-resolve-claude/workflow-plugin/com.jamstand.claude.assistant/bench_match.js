@@ -42,28 +42,7 @@ function applyCdl(px, m) {
   });
 }
 function applyLut(px, look) { return px.map((p) => tools.applyLook(p.map((v) => encDI(g24(v))), look).map((y) => c01(ig24(decDI(y))))); }
-function lab(rgb) {
-  const [r, g, b] = rgb.map(g24);
-  const X = 0.4124 * r + 0.3576 * g + 0.1805 * b, Y = 0.2126 * r + 0.7152 * g + 0.0722 * b, Z = 0.0193 * r + 0.1192 * g + 0.9505 * b;
-  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
-  const fx = f(X / 0.95047), fy = f(Y), fz = f(Z / 1.08883);
-  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
-}
-function de2000([L1, a1, b1], [L2, a2, b2]) {
-  const C1 = Math.hypot(a1, b1), C2 = Math.hypot(a2, b2), Cb = (C1 + C2) / 2;
-  const G = 0.5 * (1 - Math.sqrt(Math.pow(Cb, 7) / (Math.pow(Cb, 7) + Math.pow(25, 7))));
-  const ap1 = a1 * (1 + G), ap2 = a2 * (1 + G), Cp1 = Math.hypot(ap1, b1), Cp2 = Math.hypot(ap2, b2);
-  const h = (a, b) => { let t = Math.atan2(b, a) * 180 / Math.PI; return t < 0 ? t + 360 : t; };
-  const hp1 = h(ap1, b1), hp2 = h(ap2, b2), dL = L2 - L1, dC = Cp2 - Cp1;
-  let dh = hp2 - hp1; if (Cp1 * Cp2 === 0) dh = 0; else if (dh > 180) dh -= 360; else if (dh < -180) dh += 360;
-  const dH = 2 * Math.sqrt(Cp1 * Cp2) * Math.sin(dh / 2 * Math.PI / 180);
-  const Lb = (L1 + L2) / 2, Cpb = (Cp1 + Cp2) / 2;
-  let hb = hp1 + hp2; if (Cp1 * Cp2 !== 0) { if (Math.abs(hp1 - hp2) > 180) hb += hb < 360 ? 360 : -360; hb /= 2; }
-  const T = 1 - 0.17 * Math.cos((hb - 30) * Math.PI / 180) + 0.24 * Math.cos(2 * hb * Math.PI / 180) + 0.32 * Math.cos((3 * hb + 6) * Math.PI / 180) - 0.20 * Math.cos((4 * hb - 63) * Math.PI / 180);
-  const Sl = 1 + 0.015 * (Lb - 50) ** 2 / Math.sqrt(20 + (Lb - 50) ** 2), Sc = 1 + 0.045 * Cpb, Sh = 1 + 0.015 * Cpb * T;
-  const Rt = -2 * Math.sqrt(Math.pow(Cpb, 7) / (Math.pow(Cpb, 7) + Math.pow(25, 7))) * Math.sin(60 * Math.exp(-(((hb - 275) / 25) ** 2)) * Math.PI / 180);
-  return Math.sqrt((dL / Sl) ** 2 + (dC / Sc) ** 2 + (dH / Sh) ** 2 + Rt * (dC / Sc) * (dH / Sh));
-}
+const lab = tools.labOf, de2000 = tools.deltaE2000;   // the project's one perceptual yardstick
 function patchMeans(px) { const out = []; for (let i = 0; i < 24; i++) { const s = px.slice(i * 400, i * 400 + 400); out.push([0, 1, 2].map((c) => s.reduce((t, p) => t + p[c], 0) / s.length)); } return out; }
 function dE(refPx, px) { const a = patchMeans(refPx), b = patchMeans(px); const d = a.map((p, i) => de2000(lab(p), lab(b[i]))); return { mean: +(d.reduce((t, x) => t + x, 0) / 24).toFixed(2), max: +Math.max(...d).toFixed(2), skin: +((d[0] + d[1]) / 2).toFixed(2) }; }
 const greyCast = (px) => { const m = patchMeans(px).slice(18); const rg = m.reduce((t, p) => t + (p[0] - p[1]), 0) / 6, bg = m.reduce((t, p) => t + (p[2] - p[1]), 0) / 6; return { r_minus_g_pct: +(100 * rg).toFixed(2), b_minus_g_pct: +(100 * bg).toFixed(2) }; };

@@ -667,6 +667,10 @@ async function main() {
         JSON.stringify({ mode: cg2.mode, ranking: cg2.ranking, d: cg2.results.map((r) => [r.version, r.distance]) }));
   const rCg3 = await tools.executeTool(state, "compare_grades", { reference: 1, target: 2, versions: ["Nope"], out_dir: stillDir });
   check("compare_grades names a missing version and lists what exists", !rCg3.ok && /No local version named Nope/.test(rCg3.text) && /Colourlab/.test(rCg3.text), rCg3.text);
+  const okTiff = tools.writeTiff16(refPx.slice(0, 400), 400, 1), cut = okTiff.subarray(0, okTiff.length - 900);
+  const dCut = tools.tiffDeltaE(okTiff, tools.parseTiff(okTiff), cut, tools.parseTiff(cut));
+  check("tiffDeltaE on a truncated grab scores the pixels that exist instead of throwing", dCut.pixels > 0 && dCut.pixels < 400 && dCut.mean === 0, JSON.stringify(dCut));
+  check("tiffDeltaE skips a 32-bit or count-less TIFF with a reason", /skipped/.test(JSON.stringify(tools.tiffDeltaE(okTiff, Object.assign({}, tools.parseTiff(okTiff), { bitsPerSample: 32 }), okTiff, Object.assign({}, tools.parseTiff(okTiff), { bitsPerSample: 32 })))));
   check("deltaE2000 / labOf: identical = 0, a 5% grey step is ~visible", tools.deltaE2000(tools.labOf([0.5, 0.5, 0.5]), tools.labOf([0.5, 0.5, 0.5])) === 0
         && tools.deltaE2000(tools.labOf([0.5, 0.5, 0.5]), tools.labOf([0.55, 0.55, 0.55])) > 2);
   resolve._grab.versionCdl = null; resolve._grab.currentVersion = null;
