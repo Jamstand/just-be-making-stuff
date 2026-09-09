@@ -191,7 +191,7 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   through assistant.callTool, then clicks library → #tracklist2 .track →
   Listen → Apply → picks fake-logo.mp4 in the first wiring select → Write
   expressions → widens to 940 (dateline flex, #stage 3 columns) → a
-  "hello" turn (#ap-run) → Take it all back → ≡ settings. Expect 119.7
+  "hello" turn (#ap-run) → Undo all → ≡ settings. Expect 119.7
   BPM, 6 bars, 110 wave bars, a comp veil, 7 bar markers, 3 wiring rows,
   written ["fake-logo.mp4 › Scale, driven by Kick, punchy"], a system
   prompt carrying "Panel state right now" with track=beat-test and

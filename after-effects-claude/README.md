@@ -162,7 +162,7 @@ the engine is still the shared `panel.js`. Top to bottom:
   sliders.
 - **Wiring** — choose which layer the Kick, Bass and Energy drive (punch,
   zoom, shake, opacity or a flash solid), then "Write expressions".
-- **Take it all back** — removes the music layer, BEAT, flash solids, the
+- **Undo all** — removes the music layer, BEAT, flash solids, the
   expressions it wrote and the ♪ markers. Nothing else is touched, and the
   panel stays on the comp the music is on even if you switch comps.
 
