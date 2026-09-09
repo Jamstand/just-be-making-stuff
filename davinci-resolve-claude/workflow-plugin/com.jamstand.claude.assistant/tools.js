@@ -3514,6 +3514,79 @@ tool("study_url",
 
 // Settles "are these two grabs the same image?" with arithmetic instead of
 // eyeballs — the model's JS sandbox has no fs, but this process does.
+// CIE Lab (D65) of a display-referred RGB triple (0..1, Rec.709 gamma 2.4)
+// and CIEDE2000 — the perceptual yardstick the benchmarks use.
+function labOf(rgb) {
+  const [r, g, b] = rgb.map((v) => Math.pow(Math.max(0, v), 2.4));
+  const X = 0.4124 * r + 0.3576 * g + 0.1805 * b, Y = 0.2126 * r + 0.7152 * g + 0.0722 * b, Z = 0.0193 * r + 0.1192 * g + 0.9505 * b;
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const fx = f(X / 0.95047), fy = f(Y), fz = f(Z / 1.08883);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+function deltaE2000([L1, a1, b1], [L2, a2, b2]) {
+  const C1 = Math.hypot(a1, b1), C2 = Math.hypot(a2, b2), Cb = (C1 + C2) / 2;
+  const G = 0.5 * (1 - Math.sqrt(Math.pow(Cb, 7) / (Math.pow(Cb, 7) + Math.pow(25, 7))));
+  const ap1 = a1 * (1 + G), ap2 = a2 * (1 + G), Cp1 = Math.hypot(ap1, b1), Cp2 = Math.hypot(ap2, b2);
+  const h = (a, b) => { let t = Math.atan2(b, a) * 180 / Math.PI; return t < 0 ? t + 360 : t; };
+  const hp1 = h(ap1, b1), hp2 = h(ap2, b2), dL = L2 - L1, dC = Cp2 - Cp1;
+  let dh = hp2 - hp1; if (Cp1 * Cp2 === 0) dh = 0; else if (dh > 180) dh -= 360; else if (dh < -180) dh += 360;
+  const dH = 2 * Math.sqrt(Cp1 * Cp2) * Math.sin(dh / 2 * Math.PI / 180);
+  const Lb = (L1 + L2) / 2, Cpb = (Cp1 + Cp2) / 2;
+  let hb = hp1 + hp2; if (Cp1 * Cp2 !== 0) { if (Math.abs(hp1 - hp2) > 180) hb += hb < 360 ? 360 : -360; hb /= 2; }
+  const T = 1 - 0.17 * Math.cos((hb - 30) * Math.PI / 180) + 0.24 * Math.cos(2 * hb * Math.PI / 180) + 0.32 * Math.cos((3 * hb + 6) * Math.PI / 180) - 0.20 * Math.cos((4 * hb - 63) * Math.PI / 180);
+  const Sl = 1 + 0.015 * (Lb - 50) ** 2 / Math.sqrt(20 + (Lb - 50) ** 2), Sc = 1 + 0.045 * Cpb, Sh = 1 + 0.015 * Cpb * T;
+  const Rt = -2 * Math.sqrt(Math.pow(Cpb, 7) / (Math.pow(Cpb, 7) + Math.pow(25, 7))) * Math.sin(60 * Math.exp(-(((hb - 275) / 25) ** 2)) * Math.PI / 180);
+  return Math.sqrt((dL / Sl) ** 2 + (dC / Sc) ** 2 + (dH / Sh) ** 2 + Rt * (dC / Sc) * (dH / Sh));
+}
+
+// Per-pixel ΔE2000 between two grabs of the SAME content (same source
+// frame): mean, p95, max and the share of pixels a viewer would notice.
+function tiffDeltaE(bufA, infoA, bufB, infoB, maxPixels) {
+  const comparable = infoA && infoB && infoA.compression === 1 && infoB.compression === 1
+    && infoA.bitsPerSample === infoB.bitsPerSample && infoA.width === infoB.width && infoA.height === infoB.height
+    && infoA.stripOffsets && infoB.stripOffsets;
+  if (!comparable) return { skipped: "per-pixel ΔE needs two uncompressed TIFFs of the same size and depth" };
+  const bits = infoA.bitsPerSample, full = bits === 8 ? 255 : 65535, step = bits >> 3;
+  const chA = Math.max(1, Math.min(4, infoA.samplesPerPixel || 3)), chB = Math.max(1, Math.min(4, infoB.samplesPerPixel || 3));
+  const rd = (buf, info, o) => (bits === 8 ? buf[o] : (info.littleEndian ? buf.readUInt16LE(o) : buf.readUInt16BE(o))) / full;
+  const offsets = (info, ch) => { const out = []; for (let st = 0; st < info.stripOffsets.length; st++) { const start = info.stripOffsets[st], end = Math.min(Number.MAX_SAFE_INTEGER, start + info.stripByteCounts[st]); for (let o = start; o + step * ch <= end; o += step * ch) out.push(o); } return out; };
+  const oa = offsets(infoA, chA), ob = offsets(infoB, chB);
+  const n = Math.min(oa.length, ob.length), stride = Math.max(1, Math.ceil(n / (maxPixels || 250000)));
+  const d = [];
+  for (let i = 0; i < n; i += stride) {
+    const A = [0, 1, 2].map((c) => rd(bufA, infoA, oa[i] + Math.min(c, chA - 1) * step));
+    const Bp = [0, 1, 2].map((c) => rd(bufB, infoB, ob[i] + Math.min(c, chB - 1) * step));
+    d.push(deltaE2000(labOf(A), labOf(Bp)));
+  }
+  d.sort((x, y) => x - y);
+  const mean = d.reduce((t, v) => t + v, 0) / (d.length || 1);
+  return { pixels: d.length, stride, mean: +mean.toFixed(2), p95: +(d[Math.floor(0.95 * (d.length - 1))] || 0).toFixed(2),
+    max: +(d[d.length - 1] || 0).toFixed(2), visible_pct: +((100 * d.filter((v) => v > 2).length) / (d.length || 1)).toFixed(1),
+    reading: mean < 1 ? "invisible" : mean < 2 ? "just visible" : mean < 5 ? "visible" : "obvious" };
+}
+
+// Distribution distance between two grabs of DIFFERENT content (two shots
+// of a scene): how far the target's levels, curves, chroma and hue content
+// sit from the reference. Lower is closer; the parts are reported so the
+// number can be argued with.
+function statsDistance(ref, tgt) {
+  const meanDiff = ref.stats.map((c, i) => +(tgt.stats[i].mean_pct - c.mean_pct).toFixed(2));
+  const curveRms = ref.stats.map((c, i) => { let e = 0; for (let k = 1; k <= 7; k++) e += (tgt.stats[i].pctl[k] - c.pctl[k]) ** 2; return +Math.sqrt(e / 7).toFixed(2); });
+  const chroma = +(tgt.joint.chroma_p90_pct - ref.joint.chroma_p90_pct).toFixed(2);
+  // ±1-bin smoothing first: spiky content (charts, graphics) would otherwise
+  // lose most of its overlap to a 5° shift.
+  const smooth = (H) => H.map((v, k) => 0.25 * (H[(k + HUE_BINS - 1) % HUE_BINS] || 0) + 0.5 * (v || 0) + 0.25 * (H[(k + 1) % HUE_BINS] || 0));
+  const RH = smooth(ref.joint.hue_hist), TH = smooth(tgt.joint.hue_hist);
+  let overlap = 0;
+  for (let k = 0; k < HUE_BINS; k++) overlap += Math.sqrt(RH[k] * TH[k]);
+  const skinA = ref.joint.skin.angle_deg, skinB = tgt.joint.skin.angle_deg;
+  const skin = skinA !== null && skinB !== null ? +((((skinB - skinA) + 540) % 360) - 180).toFixed(1) : null;
+  const score = curveRms.reduce((t, v) => t + v, 0) / 3 + Math.abs(meanDiff.reduce((t, v) => t + Math.abs(v), 0)) / 3
+    + 0.5 * Math.abs(chroma) + 10 * (1 - overlap) + (skin === null ? 0 : Math.abs(skin) / 5);
+  return { score: +score.toFixed(2), mean_rgb_diff_pct: meanDiff, curve_rms_pct: curveRms, chroma_p90_diff_pct: chroma,
+    hue_overlap: +overlap.toFixed(3), skin_angle_diff_deg: skin };
+}
+
 function tiffDiffStats(bufA, infoA, bufB, infoB) {
   const comparable = infoA && infoB && infoA.compression === 1
     && infoB.compression === 1 && infoA.bitsPerSample === infoB.bitsPerSample
@@ -3596,6 +3669,87 @@ tool("compare_stills",
       : (out.pixel_stats && out.pixel_stats.differing_samples_pct === 0
          ? "same pixels, different bytes (metadata differs)"
          : "images differ");
+    return out;
+  });
+
+tool("compare_grades",
+  "Head-to-head scoring of grade VERSIONS on one clip against a reference "
+  + "clip (e.g. a 'Colourlab' version vs a 'Claude' version, made by "
+  + "Colour page > Local Versions). Loads each named version in turn, "
+  + "grabs the clip, scores it, then restores the version that was active. "
+  + "Same source content (a duplicate of the reference clip, or the same "
+  + "media and frame) gives per-pixel ΔE2000 (mean/p95, under 1 invisible); "
+  + "different shots of a scene give a distribution distance (levels, "
+  + "curves, chroma, hue overlap, skin angle; lower is closer) because "
+  + "per-pixel ΔE between different content means nothing. mode auto "
+  + "picks by media identity; force it with mode pixel|stats. Nothing is "
+  + "changed on the clip except the active version, which is put back.",
+  { reference: { type: "number", description: "1-based track position of the reference clip." },
+    target: { type: "number", description: "1-based track position of the clip that carries the versions." },
+    versions: { type: "array", items: { type: "string" }, description: "Local version names to score (default: every local version on the target)." },
+    track: { type: "number", description: "Video track (default 1)." },
+    mode: { type: "string", enum: ["auto", "pixel", "stats"], description: "auto (default), pixel = per-pixel ΔE2000, stats = distribution distance." },
+    out_dir: { type: "string", description: "Grab directory; default /tmp." } },
+  ["reference", "target"], async (state, a) => {
+    const tl = timeline(state);
+    const items = tl.GetItemListInTrack("video", Number(a.track) || 1) || [];
+    const refItem = items[Number(a.reference) - 1], tgtItem = items[Number(a.target) - 1];
+    if (!refItem || !tgtItem) throw new ResolveError("Track has " + items.length + " clips; reference/target must be 1-based positions on it.");
+    if (refItem === tgtItem) throw new ResolveError("Reference and target are the same clip — compare a duplicate or another shot.");
+    if (typeof tgtItem.LoadVersionByName !== "function" || typeof tgtItem.GetVersionNameList !== "function")
+      throw new ResolveError("This Resolve exposes no version API on timeline items (LoadVersionByName / GetVersionNameList).");
+    const available = tgtItem.GetVersionNameList(0) || [];
+    const wanted = Array.isArray(a.versions) && a.versions.length ? a.versions.map(String) : available.slice();
+    const missing = wanted.filter((v) => !available.includes(v));
+    if (missing.length) throw new ResolveError("No local version named " + missing.join(", ") + " on " + tgtItem.GetName() + "; it has: " + (available.join(", ") || "none") + ".");
+    if (!wanted.length) throw new ResolveError(tgtItem.GetName() + " has no local versions to compare.");
+    const current = typeof tgtItem.GetCurrentVersion === "function" ? tgtItem.GetCurrentVersion() : null;
+    const mpName = (it) => { const mp = it.GetMediaPoolItem && it.GetMediaPoolItem(); return mp && mp.GetName ? String(mp.GetName()) : null; };
+    const sameMedia = mpName(refItem) !== null && mpName(refItem) === mpName(tgtItem)
+      && (refItem.GetLeftOffset ? refItem.GetLeftOffset() : 0) === (tgtItem.GetLeftOffset ? tgtItem.GetLeftOffset() : 0);
+    const mode = a.mode && a.mode !== "auto" ? String(a.mode) : (sameMedia ? "pixel" : "stats");
+    const ref = await measureItem(state, refItem, a, { no_proxy: true });
+    const refBuf = fs.readFileSync(ref.file), refInfo = parseTiff(refBuf);
+    const out = { reference: refItem.GetName(), target: tgtItem.GetName(), mode,
+      why_mode: mode === "pixel" ? (sameMedia ? "same media and source frame: per-pixel ΔE2000 is meaningful" : "forced: only meaningful if both grabs show the same content")
+        : "different shots: distribution distance (per-pixel ΔE between different content would be noise)",
+      results: [] };
+    try {
+      for (const name of wanted) {
+        const row = { version: name };
+        try {
+          if (!tgtItem.LoadVersionByName(name, 0)) throw new ResolveError("LoadVersionByName returned false");
+          const m = await measureItem(state, tgtItem, a, { no_proxy: true });
+          if (mode === "pixel") {
+            const buf = fs.readFileSync(m.file);
+            row.delta_e = tiffDeltaE(refBuf, refInfo, buf, parseTiff(buf));
+            row.score = row.delta_e.mean;
+          } else {
+            row.distance = statsDistance(ref, m);
+            row.score = row.distance.score;
+          }
+          row.grab = m.file;
+        } catch (e) { row.error = e.message; }
+        out.results.push(row);
+      }
+    } finally {
+      if (current && current.versionName) {
+        out.restored = tgtItem.LoadVersionByName(current.versionName, current.versionType === undefined ? 0 : current.versionType)
+          ? current.versionName : "FAILED to restore " + current.versionName + " — check the clip's version in the Color page";
+      }
+    }
+    const scored = out.results.filter((r) => typeof r.score === "number").sort((x, y) => x.score - y.score);
+    if (scored.length) {
+      out.ranking = scored.map((r) => r.version + " (" + r.score + ")");
+      out.closest = scored[0].version;
+      if (scored.length > 1) {
+        const gap = scored[1].score - scored[0].score;
+        out.verdict = scored[0].version + " is closest to " + refItem.GetName() + (mode === "pixel"
+          ? " at ΔE " + scored[0].score + " (" + scored[0].delta_e.reading + "); " + scored[1].version + " is " + gap.toFixed(2) + " ΔE behind"
+            + (gap < 0.5 ? " — a tie to the eye." : ".")
+          : " (distance " + scored[0].score + " vs " + scored[1].score + "); a gap under 1 is not decisive.");
+      }
+    }
     return out;
   });
 
@@ -3701,6 +3855,7 @@ module.exports = {
   diDecode, diEncode, applyLook, generateCube, detectCuts, styleAggregate,
   fitCdl, balanceEstimate, hueMatchRecipe, writeTiff16, jointStats, runCdlLoop,
   sampleDi, simStats, refineCdl, measureBuffer, measureItem, simHueStats, hueCost, refineHueRecipe, TOLERANCE_PCT,
+  labOf, deltaE2000, tiffDeltaE, statsDistance,
   rgbToHsv, hsvToRgb, P_LEVELS, HUE_SECTORS, HUE_BINS, SKIN_LINE_DEG, DI,
   percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash,
   readConfig, writeConfig, geminiKey, CONFIG_FILE, geminiErrorText,

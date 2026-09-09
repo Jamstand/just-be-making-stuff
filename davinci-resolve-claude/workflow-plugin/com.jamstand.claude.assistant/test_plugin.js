@@ -50,7 +50,8 @@ function fakeResolve(mediaDir) {
         const frame = ((hh * 60 + mm) * 60 + ss) * 24 + ff;
         const isTarget = frame >= 86484;
         let px = isTarget ? grabState.scene.target : grabState.scene.ref;
-        const cdl = isTarget ? grabState.cdls[grabState.cdls.length - 1] : null;
+        const vcdl = isTarget && grabState.versionCdl ? grabState.versionCdl[grabState.currentVersion || "Version 1"] : undefined;
+        const cdl = vcdl !== undefined ? vcdl : (isTarget ? grabState.cdls[grabState.cdls.length - 1] : null);
         if (cdl) px = bench.applyCdl(px, cdl);
         grabState.lastRendered = { isTarget, px };
         return tools.writeTiff16(px, px.length, 1);
@@ -105,6 +106,11 @@ function fakeResolve(mediaDir) {
     },
     GetMediaPoolItem: currentItem.GetMediaPoolItem,
     SetCDL: (m) => { grabState.cdls.push(m); return true; },
+    // Local versions: grabState.versionCdl[name] is the CDL the fake renders
+    // for that version of the target (null = the clip as disturbed).
+    GetVersionNameList: (t) => Object.keys(grabState.versionCdl || { "Version 1": null }),
+    GetCurrentVersion: () => ({ versionName: grabState.currentVersion || "Version 1", versionType: 0 }),
+    LoadVersionByName: (name, t) => { if (!(name in (grabState.versionCdl || { "Version 1": null }))) return false; grabState.currentVersion = name; grabState.versionLoads = (grabState.versionLoads || []).concat(name); return true; },
   };
   const timeline = {
     GetName: () => "Timeline 1",
@@ -638,6 +644,32 @@ async function main() {
   check("match_hues on identical frames: nothing to do", rH3.ok && /nothing_to_do/.test(rH3.text), rH3.text.slice(0, 300));
   const farJoint = tools.measureBuffer(tools.writeTiff16(bench.scene(2).map(() => [0.2, 0.3, 0.9]), 800, 1)).joint;
   check("hueMatchRecipe refuses different subjects (hue overlap gate)", /different subjects/.test(tools.hueMatchRecipe(mRef.joint, farJoint, {}).refused || ""));
+  // compare_grades: three local versions on the target, scored against the reference
+  resolve._grab.scene = { ref: refPx, target: warmPx };
+  resolve._grab.cdls.length = 0;
+  const rMatch2 = await tools.executeTool(state, "match_shot", { reference: 1, target: 2, out_dir: stillDir });
+  const claudeCdl = resolve._grab.cdls[resolve._grab.cdls.length - 1];
+  resolve._grab.versionCdl = { "Version 1": null, "Colourlab": { Slope: "1 1 1", Offset: "0.03 0.03 0.03", Power: "1 1 1", Saturation: "1" }, "Claude": claudeCdl };
+  resolve._grab.currentVersion = "Version 1"; resolve._grab.versionLoads = [];
+  const rCg = await tools.executeTool(state, "compare_grades", { reference: 1, target: 2, mode: "pixel", out_dir: stillDir });
+  const cg = JSON.parse(rCg.text);
+  check("compare_grades (pixel mode): scores every local version with ΔE2000, ranks them, names the closest, restores the active version",
+        rCg.ok && cg.results.length === 3 && cg.closest === "Claude" && cg.results.find((r) => r.version === "Claude").delta_e.mean < 1.5   // ~1 is this scene's own noise floor
+        && cg.results.find((r) => r.version === "Version 1").delta_e.mean > 5 && cg.results.every((r) => r.delta_e && r.delta_e.reading)
+        && cg.restored === "Version 1" && resolve._grab.versionLoads.join() === "Version 1,Colourlab,Claude,Version 1" && /closest/.test(cg.verdict),
+        JSON.stringify({ ranking: cg.ranking, restored: cg.restored, loads: resolve._grab.versionLoads, verdict: cg.verdict }));
+  const rCg2 = await tools.executeTool(state, "compare_grades", { reference: 1, target: 2, versions: ["Colourlab", "Claude"], out_dir: stillDir });
+  const cg2 = JSON.parse(rCg2.text);
+  check("compare_grades (auto -> stats for different media): distribution distance with parts, lower is closer, Claude closest",
+        rCg2.ok && cg2.mode === "stats" && cg2.results.length === 2 && cg2.closest === "Claude"
+        && cg2.results.find((r) => r.version === "Claude").distance.hue_overlap > 0.9
+        && cg2.results.find((r) => r.version === "Colourlab").distance.score > cg2.results.find((r) => r.version === "Claude").distance.score + 1,
+        JSON.stringify({ mode: cg2.mode, ranking: cg2.ranking, d: cg2.results.map((r) => [r.version, r.distance]) }));
+  const rCg3 = await tools.executeTool(state, "compare_grades", { reference: 1, target: 2, versions: ["Nope"], out_dir: stillDir });
+  check("compare_grades names a missing version and lists what exists", !rCg3.ok && /No local version named Nope/.test(rCg3.text) && /Colourlab/.test(rCg3.text), rCg3.text);
+  check("deltaE2000 / labOf: identical = 0, a 5% grey step is ~visible", tools.deltaE2000(tools.labOf([0.5, 0.5, 0.5]), tools.labOf([0.5, 0.5, 0.5])) === 0
+        && tools.deltaE2000(tools.labOf([0.5, 0.5, 0.5]), tools.labOf([0.55, 0.55, 0.55])) > 2);
+  resolve._grab.versionCdl = null; resolve._grab.currentVersion = null;
   resolve._grab.scene = null;
 
   const rVig = await tools.executeTool(state, "apply_vignette",

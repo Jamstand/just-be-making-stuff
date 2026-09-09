@@ -213,6 +213,13 @@ behaviour; extend them when adding tools.
   refuses colourful frames with no neutrals (portrait 0%, fruits 0.7%
   neutral weight) rather than guess. Different subjects: match_hues
   refuses (global gap 27%), match_shot runs (by design).
+  compare_grades (head-to-head vs Colourlab): loads each local version of
+  the target (GetVersionNameList / GetCurrentVersion / LoadVersionByName,
+  versionType 0 — documented API, NOT yet live-probed here), grabs, scores
+  against the reference grab: tiffDeltaE (per-pixel ΔE2000, same media +
+  source frame, auto-detected via media pool name + left offset) or
+  statsDistance (curve RMS + mean diff + chroma p90 + hue overlap + skin
+  angle) for different shots; restores the active version in a finally.
   Tool surface: match_shot (power/saturation params), match_timeline (hero
   given or medoid, one approval), auto_balance, match_hues (.cube via the
   look designer, SetLUT dead on the Mac → manual load), qc_scan skin-cast

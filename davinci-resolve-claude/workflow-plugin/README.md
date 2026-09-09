@@ -9,7 +9,7 @@ can be installed side by side; they are separate entries in the menu.
 renderer (HTML chat UI, the design-file look)
    ↕ IPC
 main.js — WorkflowIntegration.node → live Resolve object
-        — tools.js: 34 JS tools + run_javascript (grab_still vision, colour suite: pipeline_doctor, qc_scan, match_shot, match_timeline, auto_balance, match_hues, design_look, apply_vignette)
+        — tools.js: 35 JS tools + run_javascript (grab_still vision, colour suite: pipeline_doctor, qc_scan, match_shot, match_timeline, auto_balance, match_hues, design_look, apply_vignette)
         — spawns claude CLI (-p, stream-json) on your subscription
              └─ bridge.js (MCP stdio) → TCP loopback → tools.js
 ```
@@ -31,7 +31,7 @@ edition does not load workflow integrations) and the Claude Code CLI
 
 | | Python panel (Scripts menu) | This plugin |
 |---|---|---|
-| Tools | 70, incl. grading/Fusion/Higgsfield | 35 incl. `grab_still` vision, colour suite (`pipeline_doctor`, `qc_scan`, `match_shot`, `match_timeline`, `auto_balance`, `match_hues`, `design_look`, `apply_vignette`) + `run_javascript` |
+| Tools | 70, incl. grading/Fusion/Higgsfield | 36 incl. `grab_still` vision, colour suite (`pipeline_doctor`, `qc_scan`, `match_shot`, `match_timeline`, `auto_balance`, `match_hues`, `design_look`, `apply_vignette`) + `run_javascript` |
 | Approvals | buttons above the input | real inline amber card, per the design |
 | UI | Qt rich-text subset | full HTML/CSS (the design file, faithfully) |
 | History browser | yes | yes — autosaved chats, reopen + resume, transcript recap when the session expired |
@@ -67,6 +67,13 @@ invisible). It is the tool's pipeline model, not a live Resolve grab.
   so the .cube is loaded by hand (the tool says how).
 - `qc_scan` now also reports saturation, the cast on near-neutral pixels
   and the skin-tone cluster's angle off the vectorscope skin line.
+- `compare_grades`: the head-to-head. Make local versions of a clip
+  (e.g. "Colourlab" and "Claude"), name a reference clip, and it loads each
+  version, grabs it and scores it: per-pixel ΔE2000 when the target is
+  the same media and frame as the reference (a duplicate you deliberately
+  mis-graded), or a distribution distance (levels, curves, chroma, hue
+  overlap, skin angle) for two different shots of a scene. Restores the
+  active version afterwards.
 
 ## Honesty notes
 
