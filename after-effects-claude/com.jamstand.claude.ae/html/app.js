@@ -404,11 +404,13 @@ assistant.config().then(({ models, efforts, modes }) => {
   fill("model", models, models[0]);
   fill("effort", efforts, "medium");
   fill("mode", modes, "Ask before edits");
-  card("notice", "NOTE", window.CLAUDE_PANEL === "music"
-    ? "Claude Music — connected to After Effects. Drop songs into " +
-      "~/Music/Claude Assistant, then ask: \"cut my selects to the beat\", " +
-      "\"add punches on the bass\", or \"speed-ramp layer 2 into the drop\"."
-    : "Connected to After Effects. Ask me anything — " +
+  if (window.CLAUDE_PANEL === "music")
+    card("claude", "CLAUDE", "Hi. Three things I'm good for here:\n\n" +
+      "1. Marking the beats, bars and sections of a track on your comp.\n" +
+      "2. Fitting a long song to a short comp so the good part lands where you need it.\n" +
+      "3. Driving layers from the music — the kick on a scale, the bass on an opacity.");
+  else
+    card("notice", "NOTE", "Connected to After Effects. Ask me anything — " +
       "e.g. \"speed-ramp layer 2 into the drop\" or \"build a 2.39:1 comp " +
       "from my selects\".");
 }).catch((e) => card("error", "ERROR", "Panel setup failed: " +

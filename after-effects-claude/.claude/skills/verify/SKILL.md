@@ -177,12 +177,34 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   reaches Ready), then reads ~/last-turn.json for the bridge url + token
   and POSTs tools/list and a tools/call of mocha_track straight to the
   panel's MCP server. Expect title "Claude Music", the system prompt
-  starting "You are Claude Music", 28 tools with the music set present,
+  starting "You are Claude Music", 31 tools with the music set present,
   mocha_track / ai_segment / apply_track_file / track_history absent and
   the basics (grab_frame, grab_source_frame, add_mask, run_extendscript)
   kept, the hidden call answering isError with a pointer to Claude
-  Assistant, both chats/ and chats-music/ under the harness USER_DATA, and
-  music.html differing from index.html in 3 lines only (title,
-  placeholder, the CLAUDE_PANEL flag — the startup error painter lives in
-  the shared startup.js). The MCP POST helper is verify-electron/mcp-rpc.js,
-  shared by fakebin/claude and drive.js.
+  Assistant, both chats/ and chats-music/ under the harness USER_DATA.
+  music.html is its own page (the designed UI, see below) that shares
+  startup.js, panel.js and app.js with index.html; the drift-line count
+  step 11 prints is informational. The MCP POST helper is
+  verify-electron/mcp-rpc.js, shared by fakebin/claude and drive.js.
+- Claude Music UI (drive step 12, a THIRD Electron instance with
+  AE_PAGE=music.html at 420×680): makes comp "Ident" plus a fake clip
+  through assistant.callTool, then clicks library → #tracklist2 .track →
+  Listen → Apply → picks fake-logo.mp4 in the first wiring select → Write
+  expressions → widens to 940 (dateline flex, #stage 3 columns) → a
+  "hello" turn (#ap-run) → Take it all back → ≡ settings. Expect 119.7
+  BPM, 6 bars, 110 wave bars, a comp veil, 7 bar markers, 3 wiring rows,
+  written ["fake-logo.mp4 › Scale, driven by Kick, punchy"], a system
+  prompt carrying "Panel state right now" with track=beat-test and
+  "applied: music layer", stays_on_applied_comp_after_turn true (the fake
+  hello turn makes and activates "Hello Comp"; the panel must stay on
+  Ident until undo), then view "results" with layers ["fake-logo.mp4"].
+  Screenshots shot-12a-track, shot-12b-results-narrow,
+  shot-12c-applied-wide. Gotchas: step 10's fake turn already analysed
+  beat-test, so Listen here hits the cache and sends NO music_progress
+  events — the progress path (decoding → listening → done arriving
+  before the analysis object exists) only runs with a fresh HOME; sendUI
+  is synchronous, so a throw inside a UI handler rejects the tool call in
+  flight (that is how a checklist TypeError once surfaced as "I couldn't
+  listen"). A Playwright click on .chooser-lib fails at ≥820 px because
+  the library column replaces it; use the narrow viewport or
+  #tracklist .track.

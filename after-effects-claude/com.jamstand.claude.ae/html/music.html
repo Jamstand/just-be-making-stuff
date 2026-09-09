@@ -2,50 +2,220 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <link rel="stylesheet" href="style.css">
+  <!-- Source Serif 4, non-blocking: the page must render offline too (system-ui falls in). -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="broadsheet.css">
+  <link rel="stylesheet" href="music.css">
   <title>Claude Music</title>
   <script src="startup.js"></script>
 </head>
 <body>
-  <header id="topbar">
-    <span class="ctl"><span class="lbl">MODEL</span><select id="model"></select></span>
-    <span class="ctl"><span class="lbl">EFFORT</span><select id="effort"></select></span>
-    <span class="ctl"><span class="lbl">PERMISSIONS</span><select id="mode"></select></span>
-    <span id="modehint">read-only tools run freely · edits ask</span>
-    <button id="copychat" title="Copy the whole conversation as text">Copy chat</button>
-    <button id="historybtn">History</button>
-    <button id="newchat">New chat</button>
+  <!-- the host frame: Claude Music sits as a docked panel in the dark host -->
+  <header id="host">
+    <span class="dot" id="hostdot"></span><span>Claude Music</span>
+    <button id="menubtn" title="Settings" aria-label="Settings">≡</button>
   </header>
 
-  <main id="chat"></main>
-
-  <section id="histpanel" hidden>
-    <div class="hp-head">Past chats <button id="histclose">✕</button></div>
-    <div id="histlist"></div>
-  </section>
-
-  <section id="approval" hidden>
-    <div class="ap-head">⚠ <span id="ap-title">Approval</span></div>
-    <pre id="ap-detail"></pre>
-    <div class="ap-choices">
-      <button id="ap-run"><b>1</b> Yes, run it</button>
-      <button id="ap-always"><b>2</b> Yes for this session</button>
-      <button id="ap-no"><b>3</b> No</button>
+  <div id="paper">
+    <div id="dateline">
+      <span class="name">Claude Music</span>
+      <span id="dl-comp">no comp open</span>
+      <span class="date" id="dl-date"></span>
+      <span id="dl-lib">Library</span>
     </div>
-    <div class="ap-hint">Enter runs · Esc declines · or type guidance below and press Enter</div>
-  </section>
 
-  <footer>
-    <div id="statusbar"><span id="dot"></span><span id="status">Ready</span></div>
-    <div id="inputrow">
-      <input id="input" placeholder="Ask Claude Music…  (Enter to send)" autofocus>
-      <button id="send">Send</button>
+    <div id="stage">
+      <!-- library column (wide) -->
+      <aside id="library">
+        <div class="eyebrow">Library</div>
+        <div class="search">
+          <svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M192,112a80,80,0,1,1-80-80A80,80,0,0,1,192,112Z" opacity="0.25"/><path d="M229.66,218.34,179.6,168.28a88.21,88.21,0,1,0-11.32,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></svg>
+          <input class="input" id="libsearch" placeholder="Find a track">
+        </div>
+        <div class="tracks" id="tracklist"></div>
+        <div class="eyebrow" style="margin-top:6px">In this comp</div>
+        <div class="tracks" id="complayers"></div>
+      </aside>
+
+      <!-- work column: one view at a time -->
+      <section id="work">
+        <div id="view-empty" class="stack">
+          <div>
+            <div class="eyebrow accent comp-eyebrow" data-comp-eyebrow>no comp open</div>
+            <h2 class="title big">Let's find the beat.</h2>
+            <p class="lede">Pick a track and I'll listen for the tempo, the bars and the moment the song turns — then lay them on your timeline as markers, keyframes or live expressions.</p>
+          </div>
+          <div class="row">
+            <button class="btn btn-primary chooser-lib" data-act="library">Choose from the library</button>
+            <button class="btn btn-secondary" data-act="comp-audio">Use this comp's audio</button>
+          </div>
+          <div class="dropzone" id="dropzone">or drop an audio file here</div>
+          <div style="margin-top:auto">
+            <div class="eyebrow" style="margin-bottom:6px">Good to know</div>
+            <p class="small muted" style="margin:0;max-width:44ch">Analysis runs on your machine; Claude reads the numbers, never the audio. Everything lands on this comp only, and you can undo it in one step.</p>
+          </div>
+        </div>
+
+        <div id="view-library" class="stack" hidden>
+          <div>
+            <div class="eyebrow accent comp-eyebrow" data-comp-eyebrow>no comp open</div>
+            <h2 class="title">Library</h2>
+            <div class="sub" id="lib-sub"></div>
+          </div>
+          <div class="search">
+            <svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M192,112a80,80,0,1,1-80-80A80,80,0,0,1,192,112Z" opacity="0.25"/><path d="M229.66,218.34,179.6,168.28a88.21,88.21,0,1,0-11.32,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></svg>
+            <input class="input" id="libsearch2" placeholder="Find a track">
+          </div>
+          <div class="tracks" id="tracklist2"></div>
+          <div class="eyebrow" style="margin-top:6px">In this comp</div>
+          <div class="tracks" id="complayers2"></div>
+          <div class="row" style="margin-top:auto"><button class="btn btn-ghost" data-act="back">Back</button></div>
+        </div>
+
+        <div id="view-track" class="stack" hidden>
+          <div>
+            <div class="eyebrow accent comp-eyebrow" data-comp-eyebrow></div>
+            <h2 class="title" data-song-title></h2>
+            <div class="sub" data-song-sub></div>
+          </div>
+          <div class="wave placeholder" id="wave-track"></div>
+          <div class="grid2">
+            <span>Markers at</span>
+            <div class="seg" data-opt="markers"><label class="seg-opt sm"><input type="radio" name="t-m" value="beats">Beats</label><label class="seg-opt sm"><input type="radio" name="t-m" value="bars" checked>Bars</label><label class="seg-opt sm"><input type="radio" name="t-m" value="sections">Sections</label></div>
+            <span>Range</span>
+            <div class="seg" data-opt="range"><label class="seg-opt sm"><input type="radio" name="t-r" value="fit" checked><span data-fit-label>Fit to comp</span></label><label class="seg-opt sm"><input type="radio" name="t-r" value="whole">Whole track</label></div>
+            <span>Tempo</span>
+            <div class="row" style="font-size:13px"><span data-tempo>found when I listen</span><button class="btn btn-ghost tiny" data-act="tap">Tap to override</button></div>
+            <span>Offset</span>
+            <div class="row" style="font-size:13px"><input class="input" id="offset" value="0" style="width:56px;min-height:30px;text-align:right"><span>frames</span></div>
+          </div>
+          <div class="field">
+            <label>Tell me the feel you're after</label>
+            <textarea class="input" id="feel" rows="2" placeholder="Punchy on the kick, a slow swell on the pads…" style="min-height:56px"></textarea>
+            <div class="row" style="margin-top:8px;gap:6px"><span class="tag tag-neutral" data-feel>Punchy</span><span class="tag tag-neutral" data-feel>Gentle</span><span class="tag tag-neutral" data-feel>Cinematic</span><span class="tag tag-neutral" data-feel>Bouncy</span></div>
+          </div>
+          <div class="row" style="margin-top:auto"><button class="btn btn-primary" data-act="listen">Listen to the track</button><button class="btn btn-ghost" data-act="quick">Skip the notes, just mark bars</button></div>
+        </div>
+
+        <div id="view-listening" class="stack" hidden>
+          <div>
+            <div class="eyebrow accent comp-eyebrow" data-comp-eyebrow></div>
+            <h2 class="title" data-song-title></h2>
+            <div class="sub" data-song-sub></div>
+          </div>
+          <div class="listening"><span class="pulse"><i></i><i></i><i></i></span><span id="listen-word">Listening…</span></div>
+          <div class="wave" id="wave-listen"></div>
+          <div class="checklist" id="checklist"></div>
+          <p class="small muted" style="margin:0">About as long as the intro. I'll flag the drop the moment I find it.</p>
+          <div class="row" style="margin-top:auto"><button class="btn btn-ghost push" data-act="stop">Stop</button></div>
+        </div>
+
+        <div id="view-results" class="stack" hidden>
+          <div>
+            <div class="eyebrow accent comp-eyebrow" data-comp-eyebrow></div>
+            <h2 class="title" data-song-title></h2>
+            <div class="sub" data-song-sub></div>
+          </div>
+          <div class="stats" id="stats"></div>
+          <div class="wave" id="wave-results"></div>
+          <div>
+            <div class="eyebrow" style="margin-bottom:6px">What I heard</div>
+            <p class="lede" id="heard" style="font-size:13px"></p>
+          </div>
+          <div class="sections" id="sections"></div>
+          <div id="fitbox">
+            <div class="eyebrow" style="margin-bottom:10px" id="fit-eyebrow">Ways to fit</div>
+            <div class="fits" id="fits"></div>
+          </div>
+          <div class="row">
+            <div class="seg" data-opt="markers2"><label class="seg-opt sm"><input type="radio" name="r-m" value="beats">Beats</label><label class="seg-opt sm"><input type="radio" name="r-m" value="bars" checked>Bars</label><label class="seg-opt sm"><input type="radio" name="r-m" value="sections">Sections</label></div>
+            <button class="btn btn-primary push" data-act="apply">Put it on the timeline</button>
+          </div>
+        </div>
+
+        <div id="view-applied" class="stack" hidden>
+          <div>
+            <div class="eyebrow accent comp-eyebrow" data-comp-eyebrow></div>
+            <h2 class="title">It's on your timeline.</h2>
+            <div class="sub" id="applied-sub"></div>
+          </div>
+          <div class="wave" id="wave-applied"></div>
+          <div class="done-list" id="donelist"></div>
+          <div>
+            <div class="eyebrow" style="margin-bottom:10px">Drive layers from the music</div>
+            <div class="wiring" id="wiring"></div>
+            <p class="note">Kick, bass and energy are read from the mix — there is no stem separation here, so vocals cannot be picked out.</p>
+          </div>
+          <div class="row" style="margin-top:auto">
+            <button class="btn btn-primary" data-act="write">Write expressions</button>
+            <button class="btn btn-secondary" disabled title="Expressions only for now — keyframes can be baked in After Effects with Animation › Keyframe Assistant › Convert Expression to Keyframes">Bake keyframes instead</button>
+            <button class="btn btn-ghost push" data-act="undo">Undo all</button>
+          </div>
+        </div>
+
+        <div id="view-settings" class="stack" hidden>
+          <div>
+            <div class="eyebrow accent">Claude Music</div>
+            <h2 class="title">Settings</h2>
+          </div>
+          <div class="field"><label>Model</label><select class="input" id="model"></select></div>
+          <div class="field"><label>Effort</label><select class="input" id="effort"></select></div>
+          <div class="field"><label>Permissions</label><select class="input" id="mode"></select><div class="note">Read-only tools run freely; edits Claude makes from the notes ask first. What you click here never asks.</div></div>
+          <div class="field"><label>Library folder</label><div class="row" style="flex-wrap:nowrap"><input class="input" id="libdir" readonly><button class="btn btn-secondary" data-act="libdir">Change</button></div><div class="note" id="libdir-note"></div></div>
+          <div class="grid2">
+            <span>Markers go on</span>
+            <div class="seg"><label class="seg-opt sm"><input type="radio" name="s-m" value="comp" checked>The comp</label><label class="seg-opt sm" title="Coming later — for now markers land on the comp" style="opacity:.45"><input type="radio" name="s-m" value="layer" disabled>The audio layer</label></div>
+            <span>Drive layers with</span>
+            <div class="seg"><label class="seg-opt sm"><input type="radio" name="s-d" value="expr" checked>Expressions</label><label class="seg-opt sm" title="Coming later" style="opacity:.45"><input type="radio" name="s-d" value="keys" disabled>Keyframes</label></div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn btn-secondary" id="historybtn">History</button>
+            <button class="btn btn-secondary" id="copychat" title="Copy the whole conversation as text">Copy chat</button>
+            <button class="btn btn-secondary" id="newchat">New chat</button>
+            <button class="btn btn-primary push" data-act="back">Done</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- notes column: the conversation -->
+      <aside id="notes">
+        <div class="head eyebrow accent">
+          <svg width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path opacity="0.25" d="M194.82,151.43l-55.09,20.3-20.3,55.09a7.92,7.92,0,0,1-14.86,0l-20.3-55.09-55.09-20.3a7.92,7.92,0,0,1,0-14.86l55.09-20.3,20.3-55.09a7.92,7.92,0,0,1,14.86,0l20.3,55.09,55.09,20.3A7.92,7.92,0,0,1,194.82,151.43Z"/><path d="M197.58,129.06,146,110l-19-51.62a15.92,15.92,0,0,0-29.88,0L78,110l-51.62,19a15.92,15.92,0,0,0,0,29.88L78,178l19,51.62a15.92,15.92,0,0,0,29.88,0L146,178l51.62-19a15.92,15.92,0,0,0,0-29.88ZM137,164.22a8,8,0,0,0-4.74,4.74L112,223.85,91.78,169A8,8,0,0,0,87,164.22L32.15,144,87,123.78A8,8,0,0,0,91.78,119L112,64.15,132.22,119a8,8,0,0,0,4.74,4.74L191.85,144ZM144,40a8,8,0,0,1,8-8h16V16a8,8,0,0,1,16,0V32h16a8,8,0,0,1,0,16H184V64a8,8,0,0,1-16,0V48H152A8,8,0,0,1,144,40ZM248,88a8,8,0,0,1-8,8h-8v8a8,8,0,0,1-16,0V96h-8a8,8,0,0,1,0-16h8V72a8,8,0,0,1,16,0v8h8A8,8,0,0,1,248,88Z"/></svg>
+          <span>Claude's notes</span>
+          <button class="btn btn-ghost tiny toggle" id="notes-toggle" type="button">More</button>
+        </div>
+        <main id="chat"></main>
+        <div class="row" id="suggest" style="gap:6px"></div>
+        <section id="histpanel" hidden>
+          <div class="hp-head">Past chats <button id="histclose">✕</button></div>
+          <div id="histlist"></div>
+        </section>
+        <section id="approval" hidden>
+          <div class="ap-head">⚠ <span id="ap-title">Approval</span></div>
+          <pre id="ap-detail"></pre>
+          <div class="ap-choices">
+            <button id="ap-run"><b>1</b> Yes, run it</button>
+            <button id="ap-always"><b>2</b> Yes for this session</button>
+            <button id="ap-no"><b>3</b> No</button>
+          </div>
+          <div class="ap-hint">Enter runs · Esc declines · or type guidance below and press Enter</div>
+        </section>
+        <div id="inputrow">
+          <input id="input" class="input" placeholder="Ask anything — “what fits a 30 s ident?”" autofocus>
+          <button id="send" class="btn btn-primary btn-icon" aria-label="Send"><svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path opacity="0.25" d="M216,128l-72,72V56Z"/><path d="M221.66,122.34l-72-72A8,8,0,0,0,136,56v64H40a8,8,0,0,0,0,16h96v64a8,8,0,0,0,13.66,5.66l72-72A8,8,0,0,0,221.66,122.34ZM152,180.69V75.31L204.69,128Z"/></svg></button>
+        </div>
+        <div id="statusbar"><span id="dot"></span><span id="status">Ready</span></div>
+      </aside>
     </div>
-  </footer>
+  </div>
 
   <script src="CSInterface.js"></script>
+  <!-- Same engine as Claude Assistant, music mode: only the music / beat
+       tools, a music-first system prompt, its own chat history. music.js
+       must load before app.js: it composes the event stream app.js binds. -->
   <script>window.CLAUDE_PANEL = "music";</script>
   <script src="panel.js"></script>
+  <script src="music.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -537,6 +537,43 @@ CA_TOOLS.find_layer = function (a) {
   return { comp: comp.name, name: a.name, index: l ? l.index : null };
 };
 
+CA_TOOLS.list_layers = function (a) {
+  var comp = CA_comp(a.comp);
+  var out = { comp: comp.name, width: comp.width, height: comp.height,
+              fps: comp.frameRate, duration_s: comp.duration, layers: [] };
+  var i, l, src, kind, file, hasAudio, hasVideo;
+  for (i = 1; i <= comp.numLayers; i++) {
+    l = comp.layer(i);
+    src = null; file = null; kind = "layer"; hasAudio = false; hasVideo = false;
+    try { src = l.source; } catch (e) { src = null; }
+    try { hasAudio = !!l.hasAudio; } catch (e1) {}
+    try { hasVideo = !!l.hasVideo; } catch (e2) {}
+    if (l.nullLayer) kind = "null";
+    else if (src && src instanceof CompItem) kind = "comp";
+    else if (src && src.mainSource && src.mainSource instanceof SolidSource) kind = "solid";
+    else if (l instanceof TextLayer) kind = "text";
+    else if (src) kind = hasVideo ? "footage" : "audio";
+    if (src && src.mainSource) { try { if (src.mainSource.file) file = src.mainSource.file.fsName; } catch (e3) {} }
+    out.layers.push({ index: i, name: l.name, kind: kind, has_audio: hasAudio,
+      has_video: hasVideo, in_s: l.inPoint, out_s: l.outPoint, start_s: l.startTime,
+      guide: !!l.guideLayer, source: src ? src.name : null, file: file });
+  }
+  return out;
+};
+
+// Remove every layer whose name is in a.names (all matches). Nothing else.
+CA_TOOLS.remove_layers = function (a) {
+  var comp = CA_comp(a.comp);
+  var i, j, l, removed = [], names = a.names || [];
+  for (i = comp.numLayers; i >= 1; i--) {
+    l = comp.layer(i);
+    for (j = 0; j < names.length; j++) {
+      if (l.name === String(names[j])) { removed.push(l.name); l.remove(); break; }
+    }
+  }
+  return { comp: comp.name, removed: removed };
+};
+
 CA_TOOLS.set_markers = function (a) {
   var comp = CA_comp(a.comp);
   var target = (a.layer !== undefined && a.layer !== null)

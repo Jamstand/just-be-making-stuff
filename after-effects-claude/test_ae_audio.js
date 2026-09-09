@@ -90,6 +90,9 @@ function synth(sr, bpm, seconds, firstBeat) {
     a.sections.length >= 2 && a.sections[0].kind === "intro" && a.sections.some((s) => s.kind === "drop")
     && a.energy.length === Math.ceil(24 / 0.25) && Math.max(...a.energy) === 1, JSON.stringify(a.sections.map((s) => s.kind)));
 
+  check("analyze: 110-bucket waveform envelope, normalised, version 2", a.v === 2 && a.wave.length === 110 && Math.max(...a.wave) === 1
+    && a.wave.slice(0, 15).every((w) => w < 0.3) && a.wave.slice(40, 60).some((w) => w > 0.6), JSON.stringify(a.wave.slice(0, 20)));
+
   // resample path (44.1k input)
   const up = audio.resample(parsed.samples, sr, 44100);
   const a2 = audio.analyze(up, 44100);

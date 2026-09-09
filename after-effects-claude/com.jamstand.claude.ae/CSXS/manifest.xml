@@ -4,12 +4,12 @@
      through AE 2026; PlayerDebugMode needed for both CSXS.11 and .12. -->
 <ExtensionManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     ExtensionBundleId="com.jamstand.claude.ae"
-    ExtensionBundleVersion="1.0.19"
+    ExtensionBundleVersion="1.0.20"
     ExtensionBundleName="Claude Assistant"
     Version="5.0">
   <ExtensionList>
-    <Extension Id="com.jamstand.claude.ae.panel" Version="1.0.19"/>
-    <Extension Id="com.jamstand.claude.ae.music" Version="1.0.19"/>
+    <Extension Id="com.jamstand.claude.ae.panel" Version="1.0.20"/>
+    <Extension Id="com.jamstand.claude.ae.music" Version="1.0.20"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>

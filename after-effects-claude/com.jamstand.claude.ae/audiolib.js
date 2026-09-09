@@ -348,7 +348,19 @@ function analyze(samplesIn, sampleRate, opts) {
   }
   const curveMax = Math.max(1e-9, ...energyCurve);
   for (let i = 0; i < energyCurve.length; i++) energyCurve[i] = Math.round(energyCurve[i] / curveMax * 100) / 100;
+  // A 110-bucket RMS envelope for the panel's waveform strip (0..1).
+  const wave = [];
+  const WB = 110;
+  for (let k = 0; k < WB; k++) {
+    const a = Math.floor(k * full.length / WB), b = Math.max(a + 1, Math.floor((k + 1) * full.length / WB));
+    let s = 0, c = 0;
+    for (let i = a; i < b && i < full.length; i++) { s += full[i]; c++; }
+    wave.push(c ? s / c : 0);
+  }
+  const waveMax = Math.max(1e-9, ...wave);
+  for (let i = 0; i < wave.length; i++) wave[i] = Math.round(wave[i] / waveMax * 100) / 100;
   return {
+    v: 2, wave,
     duration_s: Math.round(duration * 1000) / 1000, bpm: Math.round(tempo.bpm * 10) / 10,
     tempo_confidence: Math.round(tempo.confidence * 100) / 100,
     beat_s: Math.round(60 / tempo.bpm * 1000) / 1000, beats, downbeats,

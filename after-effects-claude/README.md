@@ -144,6 +144,38 @@ history (`chats-music`), so the two panels can be open side by side; the
 song library and analysis cache are shared. A hidden tool called from
 Claude Music answers with a pointer to the Claude Assistant panel.
 
+Claude Music has its own front page rather than a chat window. Its look
+comes from the "Claude Music Panel" Claude Design project (the Broadsheet
+design system: Source Serif 4, 2 px corners, whitespace instead of boxes,
+accents #0088b0 and #d6006c). The files are `html/music.html`,
+`html/music.css`, `html/music.js` and the vendored `html/broadsheet.css`;
+the engine is still the shared `panel.js`. Top to bottom:
+
+- **Library** — songs in `~/Music/Claude Assistant` (change the folder
+  behind the ≡ button) or the audio already on the comp.
+- **Track → Listen** — tempo, bars, sections and the drop, drawn over a
+  waveform with your comp's length veiled on it.
+- **Results** — the stats row, the section table and the fits: open six
+  bars before the drop, start from the top, or start at the break.
+- **Apply** — puts the song on the comp, lays ♪ markers (bars, beats or
+  sections) and adds the BEAT null with Beat, Bar, Bass, Energy and BPM
+  sliders.
+- **Wiring** — choose which layer the Kick, Bass and Energy drive (punch,
+  zoom, shake, opacity or a flash solid), then "Write expressions".
+- **Take it all back** — removes the music layer, BEAT, flash solids, the
+  expressions it wrote and the ♪ markers. Nothing else is touched, and the
+  panel stays on the comp the music is on even if you switch comps.
+
+The notes column is the chat. The panel tells Claude what is on screen
+(track, analysis, chosen fit, options, what was applied), so "land the
+drop at 0:08" or "ease the bass on the background" work without
+repeating yourself. At 820 px and wider it becomes the three-column front
+page with the dateline; narrower, one column. Deliberate departures from
+the design: no stem separation (Kick, Bass and Energy are read from the
+mix), no key detection, no API-key field (the panel runs your Claude Code
+subscription), and "Bake keyframes instead" and "Markers on the audio
+layer" are shown disabled until they exist.
+
 ## Other MCP servers (Higgsfield and friends)
 
 The panel runs Claude Code with only its own tools attached. To let the

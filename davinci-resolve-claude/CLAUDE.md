@@ -533,3 +533,30 @@ items cycle with per-item source cursor, add_clip), beat_effects
 plus set_expression/add_solid/add_null/set_markers/find_layer hosts.
 Unknown until live: afconvert -c support on josh's macOS, MarkerValue on
 comp.markerProperty in AE 2026, expression text accepted verbatim.
+
+## Claude Music panel UI (built 2026-09-09 from the Claude Design "Claude Music Panel" project, harness-verified, not yet live)
+
+html/music.html + music.css + music.js over the shared panel.js/app.js;
+html/broadsheet.css is the design system's styles.css with the Google
+Fonts @import removed (a blocking @import hung the whole page offline —
+the font now comes from a non-blocking <link media="print" onload>).
+music.js is a state machine, S.view ∈ empty / library / track /
+listening / results / applied / settings; it wraps A.onEvent so
+music_progress events and the "done" comp refresh run before app.js's
+handler, and A.setContext(contextText()) puts the panel state into the
+system prompt ("Panel state right now: …"). Fits: six bars before the
+drop (only when the drop is past 37.5 % of the comp), start from the top,
+start at the break; drop_s ≤ 0.5 counts as "no drop". Wiring rows Kick /
+Bass / Energy → beat_effects (punch 8/4, zoom 6/3, shake 12/6, opacity
+and flash 60/30 by feel); music_undo removes the music layer, BEAT, FLASH
+solids, the listed expressions and ♪ markers, nothing else. Two bugs the
+harness found: renderChecklist read a.bars when the "done" progress event
+(pct 100) arrived before S.analysis was set, and because sendUI is
+synchronous that throw rejected analyze_music itself ("I couldn't
+listen…"); and undo used the ACTIVE comp, so a turn that made another
+comp (the fake "hello" makes Hello Comp) broke it — S.applied.comp now
+anchors refreshComp, expressions and undo to the comp the music is on,
+and a deleted comp clears the applied state with a note. Deliberate
+departures from the design: no stems (Kick/Bass/Energy come from the
+mix), no key detection, no API-key field, "Bake keyframes instead" and
+"Markers on the audio layer" disabled.

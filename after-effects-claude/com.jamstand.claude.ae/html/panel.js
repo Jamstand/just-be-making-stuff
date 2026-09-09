@@ -922,11 +922,14 @@ async function analysisFor(file, force) {
   const key = audio.cacheKey(file);
   const cache = path.join(AUDIO_DIR, key + ".json");
   if (!force && fs.existsSync(cache)) {
-    try { return JSON.parse(fs.readFileSync(cache, "utf8")); } catch (e) {}
+    try { const c = JSON.parse(fs.readFileSync(cache, "utf8")); if (c && c.v >= 2) return c; } catch (e) {}
   }
+  sendUI("music_progress", { file, stage: "decoding", pct: 10 }, false);
   const wav = await audio.decodeToWav(file, AUDIO_DIR);
+  sendUI("music_progress", { file, stage: "listening", pct: 45 }, false);
   const pcm = audio.parseWav(fs.readFileSync(wav));
   const a = audio.analyze(pcm.samples, pcm.sampleRate);
+  sendUI("music_progress", { file, stage: "done", pct: 100 }, false);
   a.file = file; a.analyzed_at = new Date().toISOString();
   fs.writeFileSync(cache, JSON.stringify(a));
   return a;
@@ -939,6 +942,8 @@ function summary(a) {
     drop_s: a.drop_s, sections: a.sections.map((s) => ({ kind: s.kind, start_s: s.start_s,
       end_s: s.end_s, bars: s.bars, energy: s.energy })),
     downbeats_first_32: a.downbeats.slice(0, 32),
+    downbeats: a.downbeats,                  // every bar, for the panel's marker strip
+    wave: a.wave || null,                     // 110-bucket envelope for the panel's strip
     note: "beat/downbeat/bass-hit times are SONG seconds; add the music layer's "
       + "start (offset_s) to get comp time" };
 }
@@ -971,7 +976,7 @@ tool("music_list",
       } catch (e) {}
       return out;
     });
-    return { folders: dirs, songs, count: songs.length,
+    return { dirs, folders: dirs, songs, count: songs.length,
       hint: songs.length ? "analyze_music <name> for beats; add_music <name> to put it in the comp"
         : "No songs yet — drop MP3/M4A/WAV files into " + audio.defaultMusicDir() };
   });
@@ -991,6 +996,7 @@ tool("add_music",
   + "offset_s = start_s so beat times can be placed in comp time. "
   + "extend_comp lengthens the comp to fit the song.",
   { song: { type: "string" }, comp: { type: "string" }, start_s: { type: "number" },
+    in_s: { type: "number", description: "SONG time the clip starts from (default 0): trim so a drop lands where you want" },
     extend_comp: { type: "boolean" } }, ["song"], {},
   async (s, a) => {
     const file = resolveSong(a.song);
@@ -998,17 +1004,19 @@ tool("add_music",
     await evalHost("import_media", { paths: [file] });
     const itemName = path.basename(file);
     const start = a.start_s !== undefined ? Number(a.start_s) : 0;
+    const inS = Math.max(0, Math.min(analysis.duration_s - 0.1, Number(a.in_s) || 0));
     const clip = await evalHost("add_clip", { item_name: itemName, comp: a.comp,
-      start_s: start, in_s: 0, out_s: analysis.duration_s });
+      start_s: start, in_s: inS, out_s: analysis.duration_s });
     let extended = null;
     if (a.extend_comp)
       extended = await evalHost("run_extendscript", { code:
         "var c=null,i;for(i=1;i<=app.project.numItems;i++){var it=app.project.item(i);"
         + "if(it instanceof CompItem&&it.name===" + JSON.stringify(a.comp || "") + ")c=it;}"
-        + "if(!c)c=app.project.activeItem;var need=" + (start + analysis.duration_s)
+        + "if(!c)c=app.project.activeItem;var need=" + (start + analysis.duration_s - inS)
         + ";if(c.duration<need)c.duration=need;c.duration" });
-    return Object.assign({ layer: clip.layer, item: itemName, offset_s: start,
-      comp_end_s: start + analysis.duration_s, comp_extended_to_s: extended && extended.result },
+    // offset_s maps SONG time to comp time: comp_t = song_t + offset_s
+    return Object.assign({ layer: clip.layer, item: itemName, offset_s: start - inS, in_s: inS,
+      comp_end_s: start + analysis.duration_s - inS, comp_extended_to_s: extended && extended.result },
       summary(analysis));
   });
 
@@ -1022,7 +1030,8 @@ tool("beat_control",
   + "expressions: thisComp.layer(\"BEAT\").effect(\"Bass\")(\"Slider\").",
   { song: { type: "string" }, comp: { type: "string" }, offset_s: { type: "number" },
     layer_name: { type: "string" },
-    markers: { type: "string", description: "bars (default), beats, or none" } },
+    markers: { type: "string", description: "bars (default), beats, sections, or none" },
+    until_s: { type: "number", description: "comp time to stop at (default: the whole song)" } },
   ["song"], {},
   async (s, a) => {
     const file = resolveSong(a.song);
@@ -1038,7 +1047,11 @@ tool("beat_control",
     for (const t of an.downbeats) { barKeys.push([off + t, 1], [off + t + beatLen * 4 * 0.9, 0]); }
     for (const h of an.bass_hits) { bassKeys.push([off + h.t - 0.02, 0], [off + h.t, h.strength], [off + h.t + 0.15, 0]); }
     an.energy.forEach((e, i) => energyKeys.push([off + i * an.energy_step_s, e]));
-    const dedupe = (keys) => { const m = new Map(); for (const k of keys) m.set(Math.round(k[0] * 1000), k); return [...m.values()].sort((x, y) => x[0] - y[0]); };
+    // A trimmed song (add_music in_s) starts before comp time 0: keys and
+    // markers before 0 (or past until_s) are dropped, not written negative.
+    const until = a.until_s !== undefined ? Number(a.until_s) : Infinity;
+    const inRange = (k) => k[0] >= -1e-6 && k[0] <= until;
+    const dedupe = (keys) => { const m = new Map(); for (const k of keys.filter(inRange)) m.set(Math.round(k[0] * 1000), k); return [...m.values()].sort((x, y) => x[0] - y[0]); };
     const out = { layer, name, offset_s: off, sliders: {} };
     out.sliders.Beat = (await sliderKeys(a.comp, layer, "Beat", dedupe(beatKeys))).keys;
     out.sliders.Bar = (await sliderKeys(a.comp, layer, "Bar", dedupe(barKeys))).keys;
@@ -1049,14 +1062,17 @@ tool("beat_control",
     if (mode !== "none") {
       const marks = [];
       if (mode === "beats") an.beats.forEach((t, i) => marks.push({ t: off + t, comment: "♪ beat " + (i + 1) }));
-      else an.downbeats.forEach((t, i) => marks.push({ t: off + t, comment: "♪ bar " + (i + 1) }));
+      else if (mode === "bars") an.downbeats.forEach((t, i) => marks.push({ t: off + t, comment: "♪ bar " + (i + 1) }));
       if (an.drop_s !== null) marks.push({ t: off + an.drop_s, comment: "♪ DROP" });
       for (const sec of an.sections) if (sec.kind !== "drop") marks.push({ t: off + sec.start_s, comment: "♪ " + sec.kind });
+      const kept = marks.filter((m) => m.t >= -1e-6 && m.t <= until);
       let r = null;
-      for (let i = 0; i < marks.length; i += 300)
-        r = await evalHost("set_markers", { comp: a.comp, markers: marks.slice(i, i + 300),
+      if (!kept.length) r = await evalHost("set_markers", { comp: a.comp, markers: [], clear_prefix: "♪" });
+      for (let i = 0; i < kept.length; i += 300)
+        r = await evalHost("set_markers", { comp: a.comp, markers: kept.slice(i, i + 300),
           clear_prefix: i === 0 ? "♪" : undefined });
       out.markers = r && r.total;
+      out.markers_written = kept.length;
     }
     out.expression_example = "thisComp.layer(\"" + name + "\").effect(\"Bass\")(\"Slider\")";
     out.drop_comp_s = an.drop_s === null ? null : off + an.drop_s;
@@ -1110,7 +1126,7 @@ tool("beat_effects",
   "Wire a layer to the BEAT sliders (beat_control first): style punch "
   + "(scale pumps on hits), shake (position jitter on hits), zoom (slow "
   + "scale on bars), flash (a white ADD solid above the layer that pops on "
-  + "hits), opacity (dips between beats). on: bass (default), beat or bar. "
+  + "hits), opacity (dips between beats). on: bass (default), beat, bar or energy. "
   + "amount: punch/zoom = percent (8), shake = px (12), flash/opacity = "
   + "percent (60). Expressions stay editable in AE.",
   { layer: { type: "number" }, comp: { type: "string" },
@@ -1118,7 +1134,7 @@ tool("beat_effects",
     control_layer: { type: "string" } }, ["layer", "style"], {},
   async (s, a) => {
     const ctl = a.control_layer || "BEAT";
-    const sliderName = a.on === "beat" ? "Beat" : a.on === "bar" ? "Bar" : "Bass";
+    const sliderName = a.on === "beat" ? "Beat" : a.on === "bar" ? "Bar" : a.on === "energy" ? "Energy" : "Bass";
     const src = "thisComp.layer(\"" + ctl + "\").effect(\"" + sliderName + "\")(\"Slider\")";
     const found = await evalHost("find_layer", { comp: a.comp, name: ctl });
     if (!found.index) throw new Error("No '" + ctl + "' layer in the comp — run beat_control first.");
@@ -1196,6 +1212,51 @@ tool("set_markers",
     clear_prefix: { type: "string" } }, ["markers"], {});
 
 // ------------------------------------------------- other MCP servers
+tool("list_layers",
+  "Every layer in a comp (default: the active comp): index, name, kind "
+  + "(footage/solid/null/text/comp/audio), in/out, whether it carries audio "
+  + "or video, and the source file where there is one.",
+  { comp: { type: "string" } }, [], { readonly: true },
+  (s, a) => evalHost("list_layers", { comp: a.comp }));
+
+tool("music_undo",
+  "Take back what Claude Music put in a comp: remove layers by name (the "
+  + "music layer, BEAT, FLASH solids), clear expressions on the listed "
+  + "properties, and remove the ♪ markers. Only what is named is touched.",
+  { comp: { type: "string" }, layers: { type: "array", items: { type: "string" } },
+    expressions: { type: "array", items: { type: "object" },
+      description: "[{layer: index or name, path: [match names]}]" },
+    clear_markers: { type: "boolean" } }, [], {},
+  async (s, a) => {
+    const out = { comp: a.comp || null, removed: [], cleared: 0, markers_cleared: false };
+    for (const e of a.expressions || []) {
+      let idx = e.layer;
+      if (typeof idx === "string") idx = (await evalHost("find_layer", { comp: a.comp, name: idx })).index;
+      if (!idx) continue;
+      const r = await evalHost("set_expression", { comp: a.comp, layer: idx, path: e.path, expression: "" });
+      if (!r.error) out.cleared += 1;
+    }
+    if (a.layers && a.layers.length) {
+      const r = await evalHost("remove_layers", { comp: a.comp, names: a.layers });
+      out.removed = r.removed || [];
+    }
+    if (a.clear_markers !== false) {
+      await evalHost("set_markers", { comp: a.comp, markers: [], clear_prefix: "♪" });
+      out.markers_cleared = true;
+    }
+    return out;
+  });
+
+tool("set_music_dir",
+  "Set the song library folder (music_dirs in ~/.claude-assistant.json); "
+  + "empty resets to ~/Music/Claude Assistant.",
+  { dir: { type: "string" } }, [], {},
+  (s, a) => {
+    const dir = String(a.dir || "").trim();
+    track.writeConfig({ music_dirs: dir ? [dir] : [] });
+    return { music_dirs: musicDirs() };
+  });
+
 tool("download_file",
   "Fetch a URL (e.g. a clip another MCP server generated) into "
   + "~/Library/Application Support/ClaudeAssistantAE/downloads and return "
@@ -1503,6 +1564,7 @@ const MCP_OBSERVED_FILE = path.join(USER_DATA, "mcp-observed.json");
 let mcpObserved = null;
 try { mcpObserved = JSON.parse(fs.readFileSync(MCP_OBSERVED_FILE, "utf8")); } catch (e) {}
 let turnExtra = { servers: {}, missing: [] };
+let panelContext = "";
 const PERSISTED_KINDS = new Set(["you", "assistant", "error", "notice",
                                  "toolcall", "toolresult"]);
 let uiHandler = null;
@@ -1567,6 +1629,7 @@ function buildTurn(workdir, model, effort) {
   if (turnExtra.missing.length)
     sys += "\nextra_mcp names not found in Claude Code's config (not attached): "
       + turnExtra.missing.join(", ") + " — tell the user to run `claude mcp add`.";
+  if (panelContext) sys += "\nPanel state right now (what the user sees): " + panelContext;
   fs.writeFileSync(sysPath, sys);
   const argv = ["-p", "--output-format", "stream-json", "--verbose"]
     .concat(inherit ? [] : ["--strict-mcp-config"])
@@ -1726,6 +1789,19 @@ window.assistant = {
   },
   onEvent(handler) { uiHandler = handler; },
   clipboard: clipboardApi,
+  // The panel's own controls (Claude Music) call tools directly: the user
+  // clicked, so no approval card. Throws on failure.
+  async callTool(name, args) {
+    const entry = TOOLS.find((t) => t.name === name);
+    if (!entry || isHidden(name)) throw new Error("No tool " + name + " in this panel.");
+    const result = await entry.fn(state, args || {});
+    if (result && typeof result === "object") delete result._images;
+    return result;
+  },
+  // What the panel is showing (track, analysis, comp) — appended to the
+  // system prompt each turn so the notes column knows the state.
+  setContext(text) { panelContext = String(text || "").slice(0, 4000); },
+  panel: PANEL,
 };
 
 state.onApprovalNeeded = (pending) =>

@@ -99,8 +99,9 @@ function CompItem() {} function FootageItem() {}
 function makeLayer(name, comp) {
   const layer = {
     name: name, startTime: 0, inPoint: 0, outPoint: 10, stretch: 100,
-    hasVideo: true, selected: false, source: null, _trackMatte: null,
+    hasVideo: true, hasAudio: false, nullLayer: false, guideLayer: false, selected: false, source: null, _trackMatte: null,
     timeRemapEnabled: false, canSetTimeRemapEnabled: true,
+    remove: function () { const a = comp._layers; a.splice(a.indexOf(layer), 1); comp.numLayers = a.length; },
     moveToEnd: function () { comp._order.push(name); },
     moveBefore: function (other) {
       const arr = comp._layers;
@@ -231,7 +232,7 @@ function buildSandbox() {
                    mp.setValueAtTime(it.time + k / 24, { vertices: [[k, k]] });
                }
            } },
-    CompItem: CompItem, FootageItem: FootageItem,
+    CompItem: CompItem, FootageItem: FootageItem, TextLayer: function TextLayer() {}, SolidSource: function SolidSource() {},
     File: (function () {
       function F(p) { this.fsName = p; this._path = p; this._pos = 0; }
       Object.defineProperty(F.prototype, "exists",
@@ -527,6 +528,13 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
     && !trackComp.markerProperty._keys.some((k) => /bar/.test(k.v.comment))
     && trackComp.markerProperty._keys.some((k) => k.v.comment === "♪ DROP" && k.v.duration === 0.5),
     JSON.stringify([sm, sm2]));
+  const ll = invoke("list_layers", { comp: c });
+  check("list_layers: every layer with index, name, kind and audio/video flags", ll.ok && ll.data.comp === c && ll.data.layers.length === trackComp.numLayers
+    && ll.data.layers.every((l, i) => l.index === i + 1 && typeof l.name === "string" && typeof l.kind === "string" && "has_audio" in l), JSON.stringify(ll).slice(0, 300));
+  const nBefore = trackComp.numLayers;
+  const rmNull = invoke("add_null", { comp: c, name: "BEAT", guide: true });
+  const rl = invoke("remove_layers", { comp: c, names: ["BEAT", "nope"] });
+  check("remove_layers: removes exactly the named layers and reports them", rmNull.ok && rl.ok && rl.data.removed.join() === "BEAT" && trackComp.numLayers === nBefore, JSON.stringify(rl));
   const lm = invoke("set_markers", { comp: c, layer: trackLayer.index, markers: [{ t: 0.5, comment: "hit" }] });
   check("set_markers: layer markers land on the layer", lm.ok && trackLayer._groups["ADBE Marker"]._keys.length === 1, JSON.stringify(lm));
   let sk = invoke("set_slider_keys", { comp: c, layer: trackLayer.index, effect_name: "Bass", keys: [[1, 0], [1.02, 0.8], [1.17, 0]] });
