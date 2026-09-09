@@ -560,3 +560,35 @@ and a deleted comp clears the applied state with a note. Deliberate
 departures from the design: no stems (Kick/Bass/Energy come from the
 mix), no key detection, no API-key field, "Bake keyframes instead" and
 "Markers on the audio layer" disabled.
+
+Review round (5 lenses, adversarially verified where the usage limit
+allowed) and what changed: CEP 12 = Chromium 99, which has NO :has() and
+NO color-mix() — the harness's Electron renders both, so it cannot catch
+them; broadsheet.css/music.css now use rgba() and a JS-kept .seg-opt.on /
+.focus class (syncSegs in music.js); grep both files for the two
+functions after any style change. Flash rows insert a solid above their
+layer and shift every index below, so writeExpressions sorts flash rows
+last, resolves each row by NAME against a fresh list_layers just before
+writing, and records expressions by name (music_undo resolves names via
+find_layer). remove_layers now removes ONE layer per name, the topmost
+(all_matches:true for every one) — the panel's layers are added at the
+top, a user's same-named layer below survives. A song picked from the
+comp ("Use this comp's audio" / In this comp) is never re-added: the fit
+is "As it sits on your timeline" (in_s = layer in − start, offset_s =
+start), applied.layerName is null and undo leaves the layer. Tool results
+may carry panel-only fields under keys starting with "_": the MCP path
+strips them before the model sees the JSON, assistant.callTool merges
+_panel up (summary() puts downbeats + wave there; music_list puts the
+cached waves there and adds library_dir, the folder the user chose —
+musicDirs() always lists the default first, which is why the settings
+field once always showed the default). withBusy serialises apply / write
+/ undo; listen is cancellable and shares one in-flight analysis per file;
+refreshComp runs before listen/apply/comp-audio and on window focus
+because AE gives a panel no comp-changed event; "done" re-renders and
+re-sends the panel context; back/≡ compute the home view from state;
+beat_control's markers_written counts only the grid asked for
+(markers_total, drop_marker alongside) and skips the ♪ DROP marker when
+drop_s ≤ 0.5. Unverified findings still open (verifiers hit the usage
+limit): the "renamed comp counts as deleted" note (comps are matched by
+name; get_project_overview has no id), and host-sim footage reporting
+has_audio=false where AE would say true for clips with soundtracks.

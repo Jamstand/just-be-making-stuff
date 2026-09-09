@@ -254,7 +254,7 @@ function answerApproval(decision, guidance) {
   if (!approvalPending) return;
   approvalPending = false;
   approvalBox.hidden = true;
-  input.placeholder = IDLE_PLACEHOLDER;
+  input.placeholder = (window.music && window.music.placeholder) || IDLE_PLACEHOLDER;
   assistant.approval(decision, guidance || "");
   card("notice", "NOTE", decision === "decline"
     ? "Declined." + (guidance ? " Sent your guidance to Claude." : "")

@@ -21,8 +21,19 @@
     view: "empty", prev: "empty", comp: null, layers: [], library: [], dirs: [],
     song: null, analysis: null, fits: [], fit: 0,
     opt: { markers: "bars", range: "fit", tempo: null, offset: 0 },
-    applied: null, wiring: [], listenToken: 0, progress: 0,
+    applied: null, wiring: [], listenToken: 0, progress: 0, progressEvents: 0,
+    waves: {}, libdir: "", busy: null, placeholder: "",
   };
+  const libDir = () => S.libdir || S.dirs[0] || "~/Music/Claude Assistant";
+  const homeView = () => (S.applied ? "applied" : S.analysis ? "results" : S.song ? "track" : "empty");
+  // One thing at a time on the timeline: apply, write and undo refuse to
+  // overlap (a double click, or a click while a previous one is still in
+  // After Effects); listening is cancellable and stays outside this.
+  async function withBusy(what, fn) {
+    if (S.busy) { note("notice", "Still " + S.busy + " — one moment."); return; }
+    S.busy = what; document.body.classList.add("busy");
+    try { return await fn(); } finally { S.busy = null; document.body.classList.remove("busy"); }
+  }
   const TICK = { ok: '<svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor" class="ok"><path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/></svg>' };
 
   // ------------------------------------------------------------ event stream
@@ -34,11 +45,12 @@
     // sendUI is synchronous: a throw here would reject the tool call in
     // flight, so the panel's own rendering never escapes.
     if (ev && ev.kind === "music_progress") { try { onProgress(ev.payload); } catch (e) { console.error("music_progress", e); } return; }
-    if (ev && ev.kind === "done") refreshComp(false).catch(() => {});   // the model may have changed the comp
+    if (ev && ev.kind === "done") { refreshComp(true).catch(() => {}); refreshLibrary(false).catch(() => {}); }   // the model may have changed the comp or added songs
     if (inner) inner(ev);
   });
   function onProgress(p) {
-    if (S.view !== "listening") return;
+    if (S.view !== "listening" || !S.song || !p || p.file !== S.song.file) return;   // another file (the notes column asked) is not ours
+    S.progressEvents += 1;
     S.progress = Math.max(S.progress, Number(p.pct) || 0);
     $("listen-word").textContent = p.stage === "decoding" ? "Reading the file…" : p.stage === "listening" ? "Listening…" : "Writing the notes…";
     renderWave($("wave-listen"), { fogPct: 100 - S.progress, compVeil: true });
@@ -46,14 +58,15 @@
   }
 
   // ------------------------------------------------------------ data
-  async function refreshComp(render) {
+  async function refreshComp(render, anchorName) {
     try {
       const ov = await A.callTool("get_project_overview", {});
       const comps = ov.comps || [];
       // Once the music is on a comp, stay with that comp even if After Effects
       // (or a turn in the notes) activates another one: undo and the wiring
       // belong to it. If it was deleted there is nothing left to take back.
-      let anchored = S.applied ? comps.find((c) => c.name === S.applied.comp) || null : null;
+      const want = S.applied ? S.applied.comp : anchorName;
+      let anchored = want ? comps.find((c) => c.name === want) || null : null;
       if (S.applied && !anchored) {
         note("notice", S.applied.comp + " is gone from the project, so there is nothing left to take back.");
         S.applied = null; S.wiring = [];
@@ -65,10 +78,17 @@
         catch (e) { S.layers = []; }
       } else S.layers = [];
     } catch (e) { S.comp = null; S.layers = []; }
+    // the fits depend on the comp's length: keep them true to the comp now on screen
+    if (S.analysis && !S.applied) {
+      const was = S.fits[S.fit] && S.fits[S.fit].label;
+      S.fits = computeFits();
+      const same = S.fits.findIndex((f) => f.label === was);
+      S.fit = same >= 0 ? same : Math.max(0, S.fits.findIndex((f) => f.pick));
+    }
     if (render !== false) renderAll();
   }
   async function refreshLibrary(render) {
-    try { const r = await A.callTool("music_list", {}); S.library = r.songs || []; S.dirs = r.dirs || []; }
+    try { const r = await A.callTool("music_list", {}); S.library = r.songs || []; S.dirs = r.dirs || []; S.libdir = r.library_dir || ""; S.waves = r.waves || {}; }
     catch (e) { S.library = []; }
     if (render !== false) renderAll();
   }
@@ -92,7 +112,7 @@
     $("dl-comp").textContent = c ? c.name + " · " + c.width + "×" + c.height + " · " + c.fps + " fps · " + fmt(c.duration_s) : "no comp open";
     $("dl-date").textContent = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
     $("dl-lib").textContent = "Library · " + S.library.length + " track" + (S.library.length === 1 ? "" : "s");
-    $("lib-sub").textContent = S.library.length ? S.library.length + " tracks in " + (S.dirs[0] || "your library") : "Nothing here yet";
+    $("lib-sub").textContent = S.library.length ? S.library.length + " track" + (S.library.length === 1 ? "" : "s") + " in " + libDir() : "Nothing here yet";
     renderLibrary($("tracklist"), $("libsearch").value); renderLibrary($("tracklist2"), $("libsearch2").value);
     renderCompLayers($("complayers")); renderCompLayers($("complayers2"));
     if (S.song) {
@@ -105,8 +125,21 @@
     if (S.view === "applied") renderApplied();
     if (S.view === "settings") renderSettings();
     renderSuggestions();
+    syncSegs();
+    S.placeholder = S.view === "applied" ? "Ask anything — “bigger bump on the logo”" : S.view === "results" ? "Ask anything — “land the drop at 0:08”"
+      : S.song ? "Ask anything — “where's the drop?”" : "Ask anything — “what fits a 30 s ident?”";
+    window.music.placeholder = S.placeholder;
+    const ap = $("approval"); if (!ap || ap.hidden) $("input").placeholder = S.placeholder;
     A.setContext(contextText());
   }
+  // Chromium 99 (CEP 12) has no :has(): the segmented control's selected
+  // and focus states are classes on the label, kept in step with the radio.
+  function syncSegs(root) {
+    for (const lab of $$(".seg-opt", root)) { const i = lab.querySelector("input"); lab.classList.toggle("on", !!(i && i.checked)); }
+  }
+  document.addEventListener("change", (e) => { if (e.target.matches && e.target.matches(".seg-opt input")) syncSegs(e.target.closest(".seg")); });
+  document.addEventListener("focusin", (e) => { if (e.target.matches && e.target.matches(".seg-opt input")) e.target.parentElement.classList.toggle("focus", e.target.matches(":focus-visible")); });
+  document.addEventListener("focusout", (e) => { if (e.target.matches && e.target.matches(".seg-opt input")) e.target.parentElement.classList.remove("focus"); });
   function songSub() {
     const s = S.song, a = S.analysis;
     if (!s) return "";
@@ -123,7 +156,7 @@
     const rows = S.library.filter((t) => !q || t.name.toLowerCase().includes(q));
     if (!S.library.length) {
       const d = document.createElement("div"); d.className = "empty-lib";
-      d.textContent = "No tracks yet. Drop songs into " + (S.dirs[0] || "~/Music/Claude Assistant") + " and they appear here.";
+      d.textContent = "No tracks yet. Drop songs into " + libDir() + " and they appear here.";
       el.appendChild(d); return;
     }
     for (const t of rows) {
@@ -144,7 +177,8 @@
     const rows = audioLayers();
     if (!rows.length) { const d = document.createElement("div"); d.className = "empty-lib"; d.textContent = S.comp ? "No audio in " + S.comp.name + " yet." : "Open a comp in After Effects."; el.appendChild(d); return; }
     for (const l of rows) {
-      const r = document.createElement("div"); r.className = "track" + (S.song && S.song.layer === l.index ? " on" : "");
+      const isSong = (S.song && S.song.from === "comp" && l.name === S.song.name && !!l.file) || (S.applied && S.applied.layerName && l.name === S.applied.layerName);
+      const r = document.createElement("div"); r.className = "track" + (isSong ? " on" : "");
       const n = document.createElement("div"); n.className = "name"; n.textContent = l.name;
       const m = document.createElement("div"); m.className = "meta"; m.textContent = "audio · " + fmt(l.out_s - l.in_s) + " · layer " + l.index;
       r.append(n, m);
@@ -160,7 +194,7 @@
     if (!el) return;
     opts = opts || {};
     const a = S.analysis;
-    const wave = a && a.wave ? a.wave : null;
+    const wave = a && a.wave ? a.wave : (S.song && S.waves[S.song.file]) || null;   // listened before: the library remembers the strip
     el.className = "wave" + (wave ? "" : " placeholder");
     el.replaceChildren();
     const L = a ? a.duration_s : (S.song && S.song.duration_s) || 0;
@@ -258,6 +292,15 @@
     if (!a) return fits;
     const barLen = a.beat_s * 4, L = a.duration_s;
     const drop = dropOf(a);
+    // A song already on the timeline stays where the user put it: the fit is
+    // its placement, and apply adds no second copy of the audio.
+    const placed = S.song && S.song.from === "comp" ? S.layers.find((l) => l.index === S.song.layer && l.name === S.song.name) : null;
+    if (placed) {
+      const inS = Math.max(0, placed.in_s - placed.start_s);
+      fits.push({ in_s: inS, offset_s: placed.start_s, until_s: Math.min(D || placed.out_s, placed.out_s), placed: true, pick: true,
+        label: "As it sits on your timeline", detail: (inS > 0 ? "from " + fmt(inS) + " of the song" : "from the top") + (drop !== null && drop >= inS && drop - inS + placed.start_s <= (D || Infinity) ? ", the drop lands at " + fmt(drop - inS + placed.start_s) : "") });
+      return fits;
+    }
     if (drop !== null && D && drop > D * 0.375) {
       const inS = Math.max(0, drop - 6 * barLen);
       fits.push({ in_s: inS, label: "Open six bars before the drop", detail: "drop lands at " + fmt(drop - inS) + (D ? ", inside your " + fmt(D) : ""), pick: true });
@@ -306,8 +349,8 @@
       const inp = document.createElement("input"); inp.type = "radio"; inp.name = "fit"; inp.checked = i === S.fit; inp.onchange = () => { S.fit = i; renderResults(); A.setContext(contextText()); };
       const dot = document.createElement("span"); dot.className = "dot";
       const txt = document.createElement("span"); txt.innerHTML = "<span style=\"font-weight:600\"></span> — <span></span>";
-      txt.children[0].textContent = f.label; txt.children[1].textContent = f.detail;
-      if (f.pick) { const p = document.createElement("span"); p.className = "pick"; p.textContent = " My pick."; txt.appendChild(p); }
+      txt.children[0].textContent = f.label; txt.children[1].textContent = f.detail + ".";
+      if (f.pick && S.fits.length > 1) { const p = document.createElement("span"); p.className = "pick"; p.textContent = "My pick"; txt.appendChild(p); }
       lab.append(inp, dot, txt); fits.appendChild(lab);
     });
     $$('[data-opt="markers2"] input').forEach((i) => { i.checked = i.value === S.opt.markers; });
@@ -336,8 +379,8 @@
     { key: "energy", label: "Energy", on: "energy", level: 0.35 },
   ];
   const DRIVES = [
-    ["punch", "Scale · punch"], ["opacity", "Opacity · pulse"], ["shake", "Position · shake"],
-    ["zoom", "Scale · slow zoom on bars"], ["flash", "Flash above it"],
+    ["punch", "Scale punch", "Scale"], ["opacity", "Opacity pulse", "Opacity"], ["shake", "Position shake", "Position"],
+    ["zoom", "Slow zoom on bars", "Scale"], ["flash", "Flash above it", "Flash"],
   ];
   function targetLayers() {
     const skip = new Set(["BEAT", S.applied && S.applied.layerName].filter(Boolean));
@@ -346,7 +389,7 @@
   function renderWiring() {
     const el = $("wiring"); el.replaceChildren();
     const layers = targetLayers();
-    if (!S.wiring.length) S.wiring = STEMS.map((s, i) => ({ stem: s.key, layer: layers[i] ? layers[i].index : 0, drive: i === 0 ? "punch" : i === 1 ? "opacity" : "zoom", feel: i === 0 ? "punch" : "smooth" }));
+    if (!S.wiring.length) S.wiring = STEMS.map((s, i) => ({ stem: s.key, layer: layers[i] ? layers[i].index : 0, layerName: layers[i] ? layers[i].name : "", drive: i === 0 ? "punch" : i === 1 ? "opacity" : "zoom", feel: i === 0 ? "punch" : "smooth" }));
     STEMS.forEach((stem, i) => {
       const w = S.wiring[i];
       const st = document.createElement("span"); st.className = "stem"; st.innerHTML = "<b></b><span class=\"lvl\"><i></i></span>";
@@ -355,7 +398,7 @@
       const none = document.createElement("option"); none.value = "0"; none.textContent = "Choose a layer…"; sel.appendChild(none);
       for (const l of layers) { const o = document.createElement("option"); o.value = String(l.index); o.textContent = l.name; sel.appendChild(o); }
       sel.value = String(w.layer || 0);
-      sel.onchange = () => { w.layer = Number(sel.value); };
+      sel.onchange = () => { w.layer = Number(sel.value); const l = layers.find((x) => x.index === w.layer); w.layerName = l ? l.name : ""; };
       const drv = document.createElement("select"); drv.className = "input";
       for (const [v, t] of DRIVES) { const o = document.createElement("option"); o.value = v; o.textContent = t; drv.appendChild(o); }
       drv.value = w.drive; drv.onchange = () => { w.drive = drv.value; };
@@ -365,13 +408,12 @@
         const inp = document.createElement("input"); inp.type = "radio"; inp.name = "feel-" + stem.key; inp.value = v; inp.checked = w.feel === v; inp.onchange = () => { w.feel = v; };
         lab.append(inp, document.createTextNode(t)); seg.appendChild(lab);
       }
-      const mid = document.createElement("div"); mid.style.display = "flex"; mid.style.gap = "6px"; mid.style.minWidth = "0";
-      sel.style.flex = "1 1 0"; drv.style.flex = "1 1 0"; mid.append(sel, drv);
+      const mid = document.createElement("div"); mid.className = "mid"; mid.append(sel, drv);
       el.append(st, mid, seg);
     });
   }
   function renderSettings() {
-    $("libdir").value = S.dirs[0] || "~/Music/Claude Assistant";
+    $("libdir").value = libDir();
     $("libdir-note").textContent = S.library.length + " track" + (S.library.length === 1 ? "" : "s") + " here";
   }
   function renderSuggestions() {
@@ -390,25 +432,33 @@
     if (S.analysis) parts.push("analysis: " + S.analysis.bpm + " BPM, " + S.analysis.bars + " bars, " + fmt1(S.analysis.duration_s) + " s, drop_s=" + S.analysis.drop_s + ", sections=" + S.analysis.sections.map((s) => s.kind + "@" + s.start_s).join(","));
     if (S.fits.length) parts.push("fit options=" + S.fits.map((f, i) => (i === S.fit ? "*" : "") + f.label + " in_s=" + f.in_s.toFixed(1)).join("; "));
     parts.push("options: markers=" + S.opt.markers + " range=" + S.opt.range + (S.opt.tempo ? " tempo override=" + S.opt.tempo : "") + " offset_frames=" + S.opt.offset);
-    if (S.applied) parts.push("applied: music layer '" + S.applied.layerName + "' in_s=" + S.applied.in_s + " offset_s=" + S.applied.offset_s + " markers=" + S.applied.markers_written + " written=" + (S.applied.written || []).join("|"));
+    if (S.applied) parts.push("applied: music layer '" + (S.applied.layerName || (S.song ? S.song.name + " (the user's own layer, left as placed)" : "?")) + "' in_s=" + S.applied.in_s + " offset_s=" + S.applied.offset_s + " markers=" + S.applied.markers_written + " " + S.applied.markerKind + (S.applied.drop_marker ? " + DROP" : "") + " written=" + (S.applied.written || []).join("|"));
     const feel = $("feel") && $("feel").value.trim(); if (feel) parts.push("feel asked for: " + feel);
     return parts.join("; ") + ". The user's clicks in the panel already ran the tools named here; do not redo them, build on them.";
   }
 
   // ------------------------------------------------------------ actions
   function pickSong(t, from) {
+    if (S.busy) { note("notice", "Still " + S.busy + " — pick the next track when it's done."); return; }
     S.song = Object.assign({}, t, { from });
     S.analysis = null; S.fits = []; S.fit = 0; S.applied = null; S.wiring = []; S.opt.tempo = null;
     S.listenToken += 1;
     show("track");
   }
+  const inflight = new Map();   // file → analysis promise, so Stop + Listen never runs the same file twice
+  function analyze(file) {
+    if (!inflight.has(file)) inflight.set(file, A.callTool("analyze_music", { song: file }).finally(() => inflight.delete(file)));
+    return inflight.get(file);
+  }
   async function listen(quick) {
     if (!S.song) return;
     const token = ++S.listenToken;
-    S.progress = 0;
+    S.progress = 0; S.progressEvents = 0;
     show("listening");
     try {
-      const a = await A.callTool("analyze_music", { song: S.song.file });
+      await refreshComp(false);                            // the comp may have changed since boot
+      if (token !== S.listenToken) return;
+      const a = await analyze(S.song.file);
       if (token !== S.listenToken) return;                 // stopped or another track picked
       S.analysis = a; S.progress = 100;
       S.fits = computeFits(); S.fit = Math.max(0, S.fits.findIndex((f) => f.pick));
@@ -423,31 +473,47 @@
       note("error", "I couldn't listen to " + S.song.name + ": " + (e.message || e));
     }
   }
-  async function apply() {
-    const a = S.analysis; if (!a || !S.comp) { note("error", S.comp ? "Listen to the track first." : "Open a comp in After Effects first."); return; }
+  function apply() { return withBusy("putting it on the timeline", applyNow); }
+  async function applyNow() {
+    const a = S.analysis; if (!a) { note("error", "Listen to the track first."); return; }
+    const song = S.song;
+    await refreshComp(false);                              // the active comp right now, not the one from boot
+    if (!S.comp) { note("error", "Open a comp in After Effects first."); return; }
+    if (S.song !== song) return;                           // another track was picked meanwhile
     const fit = S.fits[S.fit] || { in_s: 0 };
     const D = compDur();
     const whole = S.opt.range === "whole";
     const offsetS = (Number(S.opt.offset) || 0) / compFps();
+    const kind = S.opt.markers === "beats" ? "beat" : S.opt.markers === "sections" ? "section" : "bar";
     const btn = $$('[data-act="apply"]')[0]; if (btn) { btn.disabled = true; btn.textContent = "Putting it on…"; }
     try {
-      const am = await A.callTool("add_music", { song: S.song.file, comp: S.comp.name, start_s: offsetS, in_s: fit.in_s, extend_comp: whole });
-      const until = whole ? undefined : D;
-      const bc = await A.callTool("beat_control", { song: S.song.file, comp: S.comp.name, offset_s: am.offset_s, markers: S.opt.markers, until_s: until });
-      S.applied = { comp: S.comp.name, layerName: am.item, layerIndex: am.layer, in_s: fit.in_s, offset_s: am.offset_s, until_s: whole ? a.duration_s - fit.in_s : D,
-        markers_written: bc.markers_written || 0, markerKind: S.opt.markers === "beats" ? "beat" : S.opt.markers === "sections" ? "section" : "bar", written: [], expressions: [], extraLayers: [] };
+      let am, until, layerName = null, layerIndex = null, untilS;
+      if (fit.placed) {
+        // the song is already on the timeline where the user put it: no second copy
+        am = { offset_s: fit.offset_s }; until = whole ? undefined : fit.until_s; untilS = whole ? a.duration_s - fit.in_s : fit.until_s;
+      } else {
+        am = await A.callTool("add_music", { song: song.file, comp: S.comp.name, start_s: offsetS, in_s: fit.in_s, extend_comp: whole });
+        layerName = am.item; layerIndex = am.layer; until = whole ? undefined : D; untilS = whole ? a.duration_s - fit.in_s : D;
+      }
+      const bc = await A.callTool("beat_control", { song: song.file, comp: S.comp.name, offset_s: am.offset_s, markers: S.opt.markers, until_s: until });
+      S.applied = { comp: S.comp.name, layerName, layerIndex, placed: !!fit.placed, in_s: fit.in_s, offset_s: am.offset_s, until_s: untilS,
+        markers_written: bc.markers_written || 0, drop_marker: !!bc.drop_marker, markerKind: kind, written: [], expressions: [], extraLayers: [] };
       S.wiring = [];
       await refreshComp(false);
       show("applied");
       const dropC = dropOf(a) !== null ? a.drop_s - fit.in_s : null;
-      note("claude", "Done — " + S.song.name + (fit.in_s > 0 ? " opens at " + fmt(fit.in_s) + " of the song" : " starts from the top") + (dropC !== null && dropC >= 0 && dropC <= S.applied.until_s ? ", so the drop lands at " + fmt(dropC) : "") + ". " + S.applied.markers_written + " " + S.applied.markerKind + " markers are on the comp and the BEAT null is ready. Pick what each part of the music should drive, then write the expressions.");
+      note("claude", "Done — " + song.name + (fit.placed ? " stays where it is on the timeline" : fit.in_s > 0 ? " opens at " + fmt(fit.in_s) + " of the song" : " starts from the top") + (dropC !== null && dropC >= 0 && dropC <= untilS ? ", so the drop lands at " + fmt(dropC + (fit.placed ? fit.offset_s : 0)) : "") + ". " + S.applied.markers_written + " " + kind + " markers are on the comp and the BEAT null is ready. Pick what each part of the music should drive, then write the expressions.");
     } catch (e) {
       note("error", "That didn't land: " + (e.message || e));
     } finally { if (btn) { btn.disabled = false; btn.textContent = "Put it on the timeline"; } }
   }
-  async function writeExpressions() {
-    if (!S.applied) return;
-    const rows = S.wiring.filter((w) => w.layer);
+  function writeExpressions() { return withBusy("writing expressions", writeExpressionsNow); }
+  async function writeExpressionsNow() {
+    const ap = S.applied; if (!ap) return;
+    // Flash rows add a solid above their layer, which shifts every index
+    // below it: they go last, and every row is resolved by NAME against a
+    // fresh layer list just before it is written. Undo remembers names too.
+    const rows = S.wiring.filter((w) => w.layer && w.layerName).sort((x, y) => (x.drive === "flash") - (y.drive === "flash"));
     if (!rows.length) { note("notice", "Choose a layer for at least one of Kick, Bass or Energy first."); return; }
     const btn = $$('[data-act="write"]')[0]; if (btn) { btn.disabled = true; btn.textContent = "Writing…"; }
     const T = "ADBE Transform Group";
@@ -456,28 +522,33 @@
         const stem = STEMS.find((s) => s.key === w.stem);
         const amount = w.drive === "punch" ? (w.feel === "punch" ? 8 : 4) : w.drive === "zoom" ? (w.feel === "punch" ? 6 : 3)
           : w.drive === "shake" ? (w.feel === "punch" ? 12 : 6) : (w.feel === "punch" ? 60 : 30);
-        const r = await A.callTool("beat_effects", { layer: w.layer, comp: S.applied.comp, style: w.drive, on: stem.on, amount });
-        const layer = S.layers.find((l) => l.index === w.layer);
+        const ll = await A.callTool("list_layers", { comp: ap.comp });
+        const cur = (ll.layers || []).find((l) => l.name === w.layerName) || (ll.layers || []).find((l) => l.index === w.layer);
+        if (!cur) throw new Error("'" + w.layerName + "' is no longer in " + ap.comp + ".");
+        const r = await A.callTool("beat_effects", { layer: cur.index, comp: ap.comp, style: w.drive, on: stem.on, amount });
         const prop = w.drive === "shake" ? "ADBE Position" : w.drive === "opacity" ? "ADBE Opacity" : "ADBE Scale";
-        if (w.drive === "flash") { if (r.solid_layer) { S.applied.extraLayers.push("FLASH (" + r.on + ")"); } }
-        else S.applied.expressions.push({ layer: w.layer, path: [T, prop] });
-        S.applied.written.push((layer ? layer.name : "Layer " + w.layer) + " › " + DRIVES.find((d) => d[0] === w.drive)[1].split(" · ")[0] + ", driven by " + stem.label + (w.feel === "punch" ? ", punchy" : ", smoothed"));
+        if (w.drive === "flash") { if (r.solid_layer) ap.extraLayers.push("FLASH (" + r.on + ")"); }
+        else ap.expressions.push({ layer: cur.name, path: [T, prop] });
+        const drive = DRIVES.find((d) => d[0] === w.drive);
+        ap.written.push(cur.name + " › " + drive[2] + ", driven by " + stem.label + (w.feel === "punch" ? ", punchy" : ", smoothed"));
       }
       await refreshComp(false);
       renderApplied();
-      note("claude", "Written. " + S.applied.written.slice(-rows.length).join("; ") + ". Scrub it — if a bump feels big, tell me and I'll ease it.");
-    } catch (e) { note("error", "An expression was refused: " + (e.message || e)); }
+      note("claude", "Written. " + ap.written.slice(-rows.length).join("; ") + ". Scrub it — if a bump feels big, tell me and I'll ease it.");
+    } catch (e) { note("error", "An expression was refused: " + (e.message || e)); await refreshComp(false); renderApplied(); }
     finally { if (btn) { btn.disabled = false; btn.textContent = "Write expressions"; } }
   }
-  async function undoAll() {
-    if (!S.applied) return;
-    const ap = S.applied;
+  function undoAll() { return withBusy("taking it back", undoAllNow); }
+  async function undoAllNow() {
+    const ap = S.applied; if (!ap) return;
     try {
-      const r = await A.callTool("music_undo", { comp: ap.comp, layers: [ap.layerName, "BEAT"].concat(ap.extraLayers), expressions: ap.expressions, clear_markers: true });
+      // only what the panel added: its music layer (never one the user placed), BEAT, its FLASH solids
+      const layers = (ap.layerName ? [ap.layerName] : []).concat(["BEAT"], ap.extraLayers);
+      const r = await A.callTool("music_undo", { comp: ap.comp, layers, expressions: ap.expressions, clear_markers: true });
       S.applied = null; S.wiring = [];
-      await refreshComp(false);
+      await refreshComp(false, ap.comp);                   // stay on the comp we were working in
       show("results");
-      note("notice", "Taken back: " + (r.removed || []).join(", ") + (r.cleared ? ", " + r.cleared + " expression" + (r.cleared === 1 ? "" : "s") + " cleared" : "") + ", ♪ markers removed.");
+      note("notice", "Taken back: " + (r.removed || []).join(", ") + (r.cleared ? ", " + r.cleared + " expression" + (r.cleared === 1 ? "" : "s") + " cleared" : "") + ", ♪ markers removed" + (ap.placed ? "; your audio layer stays." : "."));
     } catch (e) { note("error", "Undo hit a wall: " + (e.message || e)); }
   }
   function ask(text) {
@@ -485,15 +556,16 @@
     if (typeof window.submit === "function") window.submit(); else $("send").click();
   }
   async function useCompAudio() {
+    await refreshComp(false);
     const rows = audioLayers().filter((l) => l.file);
     if (!rows.length) { note("notice", S.comp ? "There's no audio layer with a file in " + S.comp.name + " — put a song on the timeline or pick one from the library." : "Open a comp first."); return; }
-    const l = rows[0];
+    const l = rows.find((x) => !x.has_video) || rows[0];   // a music file before a clip's soundtrack
     pickSong({ name: l.name, file: l.file, ext: (l.file.match(/\.[a-z0-9]+$/i) || [""])[0], layer: l.index }, "comp");
   }
   async function changeLibDir() {
-    const dir = window.prompt("Song library folder (empty = ~/Music/Claude Assistant):", S.dirs[0] || "");
+    const dir = window.prompt("Song library folder (empty = ~/Music/Claude Assistant):", S.libdir || "");
     if (dir === null) return;
-    try { const r = await A.callTool("set_music_dir", { dir }); S.dirs = r.music_dirs || []; await refreshLibrary(false); renderAll(); }
+    try { const r = await A.callTool("set_music_dir", { dir }); S.dirs = r.music_dirs || []; S.libdir = r.library_dir || ""; await refreshLibrary(false); renderAll(); }
     catch (e) { note("error", e.message || String(e)); }
   }
   function tapTempo() {
@@ -508,7 +580,7 @@
     const t = e.target.closest("[data-act]"); if (!t) return;
     const act = t.dataset.act;
     if (act === "library") show("library");
-    else if (act === "back") show(S.prev === "settings" ? "empty" : (S.view === "settings" ? S.prev : (S.song ? (S.applied ? "applied" : S.analysis ? "results" : "track") : "empty")));
+    else if (act === "back") show(homeView());
     else if (act === "comp-audio") useCompAudio();
     else if (act === "listen") listen(false);
     else if (act === "quick") listen(true);
@@ -524,13 +596,17 @@
     const key = seg.dataset.opt === "markers2" ? "markers" : seg.dataset.opt;
     S.opt[key] = e.target.value;
     if (key === "markers") $$('[data-opt="markers"] input, [data-opt="markers2"] input').forEach((i) => { i.checked = i.value === e.target.value; });
+    syncSegs();                                            // the mirrored seg in the other view too
     A.setContext(contextText());
   });
   $("offset").addEventListener("change", () => { S.opt.offset = Number($("offset").value) || 0; A.setContext(contextText()); });
   $$("[data-feel]").forEach((t) => { t.onclick = () => { const f = $("feel"); f.value = (f.value ? f.value.replace(/\s*$/, " ") : "") + t.textContent.toLowerCase(); A.setContext(contextText()); }; });
   $("libsearch").addEventListener("input", () => renderLibrary($("tracklist"), $("libsearch").value));
   $("libsearch2").addEventListener("input", () => renderLibrary($("tracklist2"), $("libsearch2").value));
-  $("menubtn").onclick = () => show(S.view === "settings" ? S.prev : "settings");
+  $("menubtn").onclick = () => show(S.view === "settings" ? homeView() : "settings");
+  // After Effects has no "comp changed" event for a panel: read it again
+  // whenever the user comes back to the panel (and before every action).
+  window.addEventListener("focus", () => { if (!S.busy) refreshComp(true).catch(() => {}); });
   $("notes-toggle").onclick = () => { const n = $("notes"); n.classList.toggle("grown"); $("notes-toggle").textContent = n.classList.contains("grown") ? "Less" : "More"; };
   const dz = $("dropzone");
   dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("over"); });

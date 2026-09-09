@@ -152,7 +152,9 @@ accents #0088b0 and #d6006c). The files are `html/music.html`,
 the engine is still the shared `panel.js`. Top to bottom:
 
 - **Library** — songs in `~/Music/Claude Assistant` (change the folder
-  behind the ≡ button) or the audio already on the comp.
+  behind the ≡ button) or the audio already on the comp. A song you placed
+  yourself stays where it is: the fit is "as it sits on your timeline" and
+  no second copy is added.
 - **Track → Listen** — tempo, bars, sections and the drop, drawn over a
   waveform with your comp's length veiled on it.
 - **Results** — the stats row, the section table and the fits: open six
@@ -162,9 +164,10 @@ the engine is still the shared `panel.js`. Top to bottom:
   sliders.
 - **Wiring** — choose which layer the Kick, Bass and Energy drive (punch,
   zoom, shake, opacity or a flash solid), then "Write expressions".
-- **Undo all** — removes the music layer, BEAT, flash solids, the
-  expressions it wrote and the ♪ markers. Nothing else is touched, and the
-  panel stays on the comp the music is on even if you switch comps.
+- **Undo all** — removes the music layer it added (never one you placed),
+  BEAT, its flash solids, the expressions it wrote and the ♪ markers, one
+  layer per name from the top of the stack. Nothing else is touched, and
+  the panel stays on the comp the music is on even if you switch comps.
 
 The notes column is the chat. The panel tells Claude what is on screen
 (track, analysis, chosen fit, options, what was applied), so "land the

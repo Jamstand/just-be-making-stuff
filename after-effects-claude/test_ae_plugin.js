@@ -535,6 +535,13 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
   const rmNull = invoke("add_null", { comp: c, name: "BEAT", guide: true });
   const rl = invoke("remove_layers", { comp: c, names: ["BEAT", "nope"] });
   check("remove_layers: removes exactly the named layers and reports them", rmNull.ok && rl.ok && rl.data.removed.join() === "BEAT" && trackComp.numLayers === nBefore, JSON.stringify(rl));
+  // two layers of one name: only the topmost goes (the panel's own copy sits on top), all_matches takes both
+  const twinA = invoke("add_null", { comp: c, name: "Twin" }), twinB = invoke("add_null", { comp: c, name: "Twin" });
+  const nTwins = trackComp.numLayers;
+  const rl1 = invoke("remove_layers", { comp: c, names: ["Twin", "Nope"] });
+  check("remove_layers: one layer per name, the topmost", twinA.ok && twinB.ok && rl1.ok && rl1.data.removed.join() === "Twin" && trackComp.numLayers === nTwins - 1, JSON.stringify(rl1));
+  const rl2 = invoke("remove_layers", { comp: c, names: ["Twin"], all_matches: true });
+  check("remove_layers: all_matches removes every layer of that name", rl2.ok && rl2.data.removed.join() === "Twin" && trackComp.numLayers === nTwins - 2, JSON.stringify(rl2));
   const lm = invoke("set_markers", { comp: c, layer: trackLayer.index, markers: [{ t: 0.5, comment: "hit" }] });
   check("set_markers: layer markers land on the layer", lm.ok && trackLayer._groups["ADBE Marker"]._keys.length === 1, JSON.stringify(lm));
   let sk = invoke("set_slider_keys", { comp: c, layer: trackLayer.index, effect_name: "Bass", keys: [[1, 0], [1.02, 0.8], [1.17, 0]] });

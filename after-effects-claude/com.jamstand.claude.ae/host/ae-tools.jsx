@@ -561,14 +561,20 @@ CA_TOOLS.list_layers = function (a) {
   return out;
 };
 
-// Remove every layer whose name is in a.names (all matches). Nothing else.
+// Remove, for each name in a.names, the TOPMOST layer of that name (the
+// panel's own layers are added at the top of the stack); all_matches:true
+// removes every layer of that name. Nothing else is touched.
 CA_TOOLS.remove_layers = function (a) {
   var comp = CA_comp(a.comp);
-  var i, j, l, removed = [], names = a.names || [];
-  for (i = comp.numLayers; i >= 1; i--) {
-    l = comp.layer(i);
-    for (j = 0; j < names.length; j++) {
-      if (l.name === String(names[j])) { removed.push(l.name); l.remove(); break; }
+  var i, j, l, removed = [], names = a.names || [], all = !!a.all_matches;
+  for (j = 0; j < names.length; j++) {
+    for (i = 1; i <= comp.numLayers; i++) {
+      l = comp.layer(i);
+      if (l.name === String(names[j])) {
+        removed.push(l.name); l.remove();
+        if (!all) break;
+        i--;
+      }
     }
   }
   return { comp: comp.name, removed: removed };

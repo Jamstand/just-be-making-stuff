@@ -265,8 +265,9 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
     env: Object.assign({}, process.env, { AE_EXT: EXT, HOME, AE_PAGE: "music.html",
       PATH: path.join(__dirname, "fakebin") + ":" + process.env.PATH }) });
   const page3 = await app3.firstWindow();
-  page3.on("pageerror", (e) => console.log("  [pageerror music-ui] " + e.message));
-  page3.on("console", (m) => { if (m.type() === "error") console.log("  [console.error music-ui] " + m.text()); });
+  const uiErrors = [];
+  page3.on("pageerror", (e) => { uiErrors.push(e.message); console.log("  [pageerror music-ui] " + e.message); });
+  page3.on("console", (m) => { if (m.type() === "error") { console.log("  [console.error music-ui] " + m.text()); if (!/ERR_CONNECTION_RESET|Failed to load resource/.test(m.text())) uiErrors.push(m.text()); } });
   await page3.setViewportSize({ width: 420, height: 680 });
   await page3.waitForFunction(() => document.querySelector("#chat .card.claude") && document.querySelectorAll("#tracklist2 .track, #tracklist .track, .empty-lib").length, null, { timeout: 15000 });
   // a comp with a clip to drive, made through the panel's own tools
@@ -281,36 +282,55 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
     greeting: (document.querySelector("#chat .card.claude .body") || {}).textContent.slice(0, 40), eyebrow: document.querySelector("#view-empty [data-comp-eyebrow]").textContent,
     library: music.state.library.map((t) => t.name), title: document.title }));
   console.log(JSON.stringify(st0));
+  const expect = (cond, what, detail) => { if (!cond) throw new Error("step 12 expectation failed: " + what + " " + JSON.stringify(detail === undefined ? null : detail)); };
+  expect(st0.view === "empty" && st0.comp === "Ident" && st0.library.join() === "beat-test" && st0.title === "Claude Music", "empty view on Ident with the library", st0);
+  // the fake turn in step 9 analysed beat-test already; drop that cache so Listen runs the real decoding → listening → done path
+  const audioCache = path.join(HOME, "Library", "Application Support", "ClaudeAssistantAE", "audio");
+  for (const f of fs.readdirSync(audioCache)) if (/\.json$/.test(f)) fs.unlinkSync(path.join(audioCache, f));
   await page3.click('[data-act="library"]');
   await page3.click("#tracklist2 .track");
   const st1 = await page3.evaluate(() => ({ view: music.state.view, song: music.state.song && music.state.song.name, tempo: document.querySelector("[data-tempo]").textContent,
     sub: document.querySelector("#view-track [data-song-sub]").textContent, placeholder: document.querySelector("#wave-track").classList.contains("placeholder") }));
   console.log(JSON.stringify(st1));
+  expect(st1.view === "track" && st1.song === "beat-test", "track view for beat-test", st1);
+  const segs = await page3.evaluate(() => [...document.querySelectorAll('#view-track .seg-opt.on')].map((l) => l.textContent.trim()));
+  expect(segs.join("|") === "Bars|Fit to comp · 0:12", "segmented controls show their selected option through the .on class (no :has() in CEP)", segs);
   await page3.screenshot({ path: path.join(__dirname, "shot-12a-track.png") });
   await page3.click('[data-act="listen"]');
+  // the analysis yields a frame per stage, so the listening view is briefly observable; the hard check is the event count after results
+  const listening = await page3.evaluate(() => new Promise((res) => { const t0 = Date.now(); (function poll() {
+    if (music.state.view === "listening" && music.state.progressEvents > 0) return res({ word: document.getElementById("listen-word").textContent, rows: document.querySelectorAll("#checklist span").length, fog: !!document.querySelector("#wave-listen .fog") });
+    if (music.state.view !== "listening" || Date.now() - t0 > 30000) return res({ missed: music.state.view }); setTimeout(poll, 5); })(); }));
+  console.log(JSON.stringify(listening));
   await page3.waitForFunction(() => music.state.view === "results", null, { timeout: 60000 });
-  const st2 = await page3.evaluate(() => ({ view: music.state.view, bpm: music.state.analysis.bpm, bars: music.state.analysis.bars,
+  const st2 = await page3.evaluate(() => ({ view: music.state.view, progress_events: music.state.progressEvents, bpm: music.state.analysis.bpm, bars: music.state.analysis.bars,
     stats: [...document.querySelectorAll("#stats .n")].map((n) => n.textContent), sections: document.querySelectorAll("#sections .r").length - 1,
     fits: [...document.querySelectorAll("#fits .radio")].map((r) => r.textContent.trim().slice(0, 60)), heard: document.getElementById("heard").textContent.slice(0, 90),
     wave_bars: document.querySelectorAll("#wave-results .bars span").length, veil: !!document.querySelector("#wave-results .veil"), notes: document.querySelectorAll("#chat .card.claude").length }));
   console.log(JSON.stringify(st2));
+  expect(st2.progress_events >= 3 && st2.bpm > 118 && st2.bpm < 122 && st2.wave_bars === 110 && st2.veil, "results after the live progress path: ~120 BPM, 110 wave bars, comp veil", st2);
   await page3.screenshot({ path: path.join(__dirname, "shot-12b-results-narrow.png") });
   await page3.click('[data-act="apply"]');
   await page3.waitForFunction(() => music.state.view === "applied", null, { timeout: 30000 });
   const st3 = await page3.evaluate(() => ({ view: music.state.view, sub: document.getElementById("applied-sub").textContent, done: [...document.querySelectorAll("#donelist div")].map((d) => d.textContent),
     wiring_rows: document.querySelectorAll("#wiring select").length / 2, layers: music.state.layers.map((l) => l.name + ":" + l.kind), barmarks: document.querySelectorAll("#wave-applied .barmarks span").length }));
   console.log(JSON.stringify(st3));
+  expect(st3.view === "applied" && st3.wiring_rows === 3 && st3.layers.join() === "BEAT:null,beat-test.wav:audio,fake-logo.mp4:footage", "applied: BEAT + music layer + clip, 3 wiring rows", st3);
   await page3.selectOption("#wiring select", { label: "fake-logo.mp4" });
   await page3.click('[data-act="write"]');
   await page3.waitForFunction(() => music.state.applied && music.state.applied.written.length > 0, null, { timeout: 30000 });
   const st4 = await page3.evaluate(() => ({ written: music.state.applied.written, expressions: music.state.applied.expressions, last_note: [...document.querySelectorAll("#chat .card")].pop().textContent.slice(0, 80) }));
   console.log(JSON.stringify(st4));
+  expect(st4.written.length === 1 && st4.expressions.length === 1 && st4.expressions[0].layer === "fake-logo.mp4", "expressions recorded by layer NAME", st4);
   await page3.setViewportSize({ width: 940, height: 720 });
   await page3.waitForTimeout(300);
   await page3.screenshot({ path: path.join(__dirname, "shot-12c-applied-wide.png") });
   const wide = await page3.evaluate(() => ({ dateline: getComputedStyle(document.getElementById("dateline")).display, library_col: getComputedStyle(document.getElementById("library")).display,
     dl: document.getElementById("dl-comp").textContent + " | " + document.getElementById("dl-lib").textContent, cols: getComputedStyle(document.getElementById("stage")).gridTemplateColumns.split(" ").length }));
   console.log(JSON.stringify(wide));
+  expect(wide.dateline === "flex" && wide.library_col === "flex" && wide.cols === 3, "wide dock: dateline + three columns", wide);
+  const fitsUnclipped = await page3.evaluate(() => [...document.querySelectorAll("#wiring select")].every((s) => s.scrollWidth <= s.clientWidth + 1));
+  expect(fitsUnclipped, "wiring selects are not clipped at 940px");
   await page3.fill("#input", "hello");
   await page3.press("#input", "Enter");
   await page3.waitForSelector("#approval:not([hidden])", { timeout: 15000 });
@@ -325,9 +345,40 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   await page3.waitForFunction(() => music.state.view === "results" && !music.state.applied, null, { timeout: 30000 });
   const st5 = await page3.evaluate(() => ({ view: music.state.view, comp: music.state.comp && music.state.comp.name, layers: music.state.layers.map((l) => l.name), last_note: [...document.querySelectorAll("#chat .card")].pop().textContent.slice(0, 120) }));
   console.log(JSON.stringify(st5));
+  expect(st5.view === "results" && st5.comp === "Ident" && st5.layers.join() === "fake-logo.mp4", "after undo: still on Ident, only the clip left", st5);
   await page3.click("#menubtn");
   const st6 = await page3.evaluate(() => ({ view: music.state.view, models: document.getElementById("model").options.length, libdir: document.getElementById("libdir").value }));
   console.log(JSON.stringify(st6));
+  expect(st6.view === "settings" && st6.libdir === path.join(HOME, "Music", "Claude Assistant"), "settings shows the library folder", st6);
+  await page3.click('#view-settings [data-act="back"]');
+  expect(await page3.evaluate(() => music.state.view), "back from settings returns to the results (not a dead applied view)");
+
+  console.log("### 12b. 🔍 Claude Music UI: a song the USER placed — apply adds no second copy, undo leaves it alone");
+  await page3.setViewportSize({ width: 420, height: 680 });
+  await page3.evaluate(async () => {
+    await assistant.callTool("add_music", { song: "beat-test", comp: "Ident", start_s: 1.5 });   // the user's own placement (via the tool, as the notes column would)
+    // the fake "hello" turn left Hello Comp active; the user goes back to Ident (the sim's openInViewer is a no-op, so set activeItem too)
+    await assistant.callTool("run_extendscript", { code: "var i,it;for(i=1;i<=app.project.numItems;i++){it=app.project.item(i);if(it.name===\"Ident\"){it.openInViewer();app.project.activeItem=it;}}" });
+    await window.music.refresh();
+  });
+  await page3.click('#view-results .linkish[data-act="library"]');   // the narrow dock's "Change track"
+  await page3.click('#complayers2 .track:has-text("beat-test.wav")');
+  await page3.click('[data-act="listen"]');
+  await page3.waitForFunction(() => music.state.view === "results", null, { timeout: 60000 });
+  const placed = await page3.evaluate(() => ({ from: music.state.song.from, fits: music.state.fits.map((f) => f.label + " in_s=" + f.in_s + " offset_s=" + f.offset_s), fitText: document.querySelector("#fits .radio").textContent.trim() }));
+  console.log(JSON.stringify(placed));
+  expect(placed.from === "comp" && placed.fits.length === 1 && /As it sits/.test(placed.fits[0]) && /offset_s=1.5/.test(placed.fits[0]), "comp-sourced song gets the single 'as placed' fit", placed);
+  await page3.click('[data-act="apply"]');
+  await page3.waitForFunction(() => music.state.view === "applied", null, { timeout: 30000 });
+  const placedApplied = await page3.evaluate(() => ({ layerName: music.state.applied.layerName, placed: music.state.applied.placed, offset_s: music.state.applied.offset_s, layers: music.state.layers.map((l) => l.name), lit: [...document.querySelectorAll("#complayers .track.on .name")].map((n) => n.textContent) }));
+  console.log(JSON.stringify(placedApplied));
+  expect(placedApplied.placed && placedApplied.layerName === null && placedApplied.offset_s === 1.5 && placedApplied.layers.filter((n) => n === "beat-test.wav").length === 1, "apply on a placed song: no second audio layer, offset from the layer's start", placedApplied);
+  await page3.click('[data-act="undo"]');
+  await page3.waitForFunction(() => music.state.view === "results" && !music.state.applied, null, { timeout: 30000 });
+  const placedUndone = await page3.evaluate(() => ({ layers: music.state.layers.map((l) => l.name), last_note: [...document.querySelectorAll("#chat .card")].pop().textContent.slice(0, 140) }));
+  console.log(JSON.stringify(placedUndone));
+  expect(placedUndone.layers.join() === "beat-test.wav,fake-logo.mp4", "undo removed BEAT and markers but left the user's audio layer", placedUndone);
+  expect(uiErrors.length === 0, "no page errors or console errors in the music UI", uiErrors);
   await app3.close();
 
   console.log("### 7. 🔍 resize narrow — layout survives?");

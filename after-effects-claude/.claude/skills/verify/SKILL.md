@@ -192,19 +192,30 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   Listen → Apply → picks fake-logo.mp4 in the first wiring select → Write
   expressions → widens to 940 (dateline flex, #stage 3 columns) → a
   "hello" turn (#ap-run) → Undo all → ≡ settings. Expect 119.7
-  BPM, 6 bars, 110 wave bars, a comp veil, 7 bar markers, 3 wiring rows,
+  BPM, 6 bars, 110 wave bars, a comp veil, 6 bar markers (markers_written
+  counts the grid only; the fake track opens at full energy so there is no
+  ♪ DROP marker), 3 wiring rows,
   written ["fake-logo.mp4 › Scale, driven by Kick, punchy"], a system
   prompt carrying "Panel state right now" with track=beat-test and
   "applied: music layer", stays_on_applied_comp_after_turn true (the fake
   hello turn makes and activates "Hello Comp"; the panel must stay on
   Ident until undo), then view "results" with layers ["fake-logo.mp4"].
-  Screenshots shot-12a-track, shot-12b-results-narrow,
-  shot-12c-applied-wide. Gotchas: step 10's fake turn already analysed
-  beat-test, so Listen here hits the cache and sends NO music_progress
-  events — the progress path (decoding → listening → done arriving
-  before the analysis object exists) only runs with a fresh HOME; sendUI
-  is synchronous, so a throw inside a UI handler rejects the tool call in
+  Step 12 THROWS (expect()) on the key facts rather than only printing
+  them: .seg-opt.on carries the selected segment (CEP 12 has no :has()),
+  progressEvents ≥ 3 after Listen (the step deletes the audio cache first
+  so decoding → listening → done really runs), expressions recorded by
+  layer NAME, wiring selects unclipped at 940 px, after undo still on
+  Ident with only the clip, settings → back lands on results. Step 12b
+  places beat-test through add_music at 1.5 s as if the user had, picks
+  it from "In this comp", and expects one "As it sits on your timeline"
+  fit with offset_s 1.5, apply adding no second audio layer
+  (applied.layerName null, placed true), and undo leaving
+  beat-test.wav + fake-logo.mp4. Screenshots shot-12a-track,
+  shot-12b-results-narrow, shot-12c-applied-wide. Gotchas: sendUI is
+  synchronous, so a throw inside a UI handler rejects the tool call in
   flight (that is how a checklist TypeError once surfaced as "I couldn't
   listen"). A Playwright click on .chooser-lib fails at ≥820 px because
   the library column replaces it; use the narrow viewport or
-  #tracklist .track.
+  #tracklist .track. The harness's Electron is far newer than CEP 12's
+  Chromium 99: it will happily render :has() and color-mix(), so grep
+  html/*.css for both after touching styles — neither may appear.

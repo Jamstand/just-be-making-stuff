@@ -902,6 +902,12 @@ function musicDirs() {
   if (!dirs.includes(def)) dirs.unshift(def);
   return dirs;
 }
+// The folder the user chose (music_dirs[0]) or the default — what the panel
+// shows as "the library"; musicDirs() always lists the default first.
+function libraryDir() {
+  const cfg = track.readConfig();
+  return (Array.isArray(cfg.music_dirs) && cfg.music_dirs[0]) || audio.defaultMusicDir();
+}
 
 function resolveSong(nameOrFile) {
   if (!nameOrFile) throw new Error("Which song? Give a file path or a name from music_list.");
@@ -924,9 +930,14 @@ async function analysisFor(file, force) {
   if (!force && fs.existsSync(cache)) {
     try { const c = JSON.parse(fs.readFileSync(cache, "utf8")); if (c && c.v >= 2) return c; } catch (e) {}
   }
+  // The analysis itself is synchronous and blocks the panel for a few
+  // seconds; yielding a frame after each stage lets the listening view paint.
+  const paint = () => new Promise((r) => setTimeout(r, 30));
   sendUI("music_progress", { file, stage: "decoding", pct: 10 }, false);
+  await paint();
   const wav = await audio.decodeToWav(file, AUDIO_DIR);
   sendUI("music_progress", { file, stage: "listening", pct: 45 }, false);
+  await paint();
   const pcm = audio.parseWav(fs.readFileSync(wav));
   const a = audio.analyze(pcm.samples, pcm.sampleRate);
   sendUI("music_progress", { file, stage: "done", pct: 100 }, false);
@@ -942,8 +953,10 @@ function summary(a) {
     drop_s: a.drop_s, sections: a.sections.map((s) => ({ kind: s.kind, start_s: s.start_s,
       end_s: s.end_s, bars: s.bars, energy: s.energy })),
     downbeats_first_32: a.downbeats.slice(0, 32),
-    downbeats: a.downbeats,                  // every bar, for the panel's marker strip
-    wave: a.wave || null,                     // 110-bucket envelope for the panel's strip
+    // For the panel's strips only: every bar and the 110-bucket envelope.
+    // Keys starting with "_" never reach the model (see the MCP result path);
+    // assistant.callTool merges _panel back to the top level for the UI.
+    _panel: { downbeats: a.downbeats, wave: a.wave || null },
     note: "beat/downbeat/bass-hit times are SONG seconds; add the music layer's "
       + "start (offset_s) to get comp time" };
 }
@@ -965,6 +978,7 @@ tool("music_list",
   [], { readonly: true }, async (s, a) => {
     const dirs = musicDirs().concat(a.dir ? [String(a.dir)] : []);
     try { fs.mkdirSync(audio.defaultMusicDir(), { recursive: true }); } catch (e) {}
+    const waves = {};
     const songs = audio.listSongs(dirs).map((song) => {
       const out = Object.assign({}, song);
       try {
@@ -972,11 +986,13 @@ tool("music_list",
         if (fs.existsSync(cache)) {
           const a = JSON.parse(fs.readFileSync(cache, "utf8"));
           out.bpm = a.bpm; out.duration_s = a.duration_s; out.drop_s = a.drop_s; out.analyzed = true;
+          if (a.wave) waves[song.file] = a.wave;
         }
       } catch (e) {}
       return out;
     });
-    return { dirs, folders: dirs, songs, count: songs.length,
+    return { dirs, folders: dirs, library_dir: libraryDir(), songs, count: songs.length,
+      _panel: { waves },
       hint: songs.length ? "analyze_music <name> for beats; add_music <name> to put it in the comp"
         : "No songs yet — drop MP3/M4A/WAV files into " + audio.defaultMusicDir() };
   });
@@ -1063,7 +1079,8 @@ tool("beat_control",
       const marks = [];
       if (mode === "beats") an.beats.forEach((t, i) => marks.push({ t: off + t, comment: "♪ beat " + (i + 1) }));
       else if (mode === "bars") an.downbeats.forEach((t, i) => marks.push({ t: off + t, comment: "♪ bar " + (i + 1) }));
-      if (an.drop_s !== null) marks.push({ t: off + an.drop_s, comment: "♪ DROP" });
+      // drop_s = 0 means the song opens at full energy — nothing to mark
+      if (an.drop_s !== null && an.drop_s > 0.5) marks.push({ t: off + an.drop_s, comment: "♪ DROP" });
       for (const sec of an.sections) if (sec.kind !== "drop") marks.push({ t: off + sec.start_s, comment: "♪ " + sec.kind });
       const kept = marks.filter((m) => m.t >= -1e-6 && m.t <= until);
       let r = null;
@@ -1072,7 +1089,12 @@ tool("beat_control",
         r = await evalHost("set_markers", { comp: a.comp, markers: kept.slice(i, i + 300),
           clear_prefix: i === 0 ? "♪" : undefined });
       out.markers = r && r.total;
-      out.markers_written = kept.length;
+      // markers_written counts the grid asked for (beats/bars, or the
+      // sections); the DROP marker is reported on its own.
+      const isGrid = (m) => /^♪ (beat|bar) /.test(m.comment);
+      out.markers_written = mode === "sections" ? kept.filter((m) => m.comment !== "♪ DROP").length : kept.filter(isGrid).length;
+      out.markers_total = kept.length;
+      out.drop_marker = kept.some((m) => m.comment === "♪ DROP");
     }
     out.expression_example = "thisComp.layer(\"" + name + "\").effect(\"Bass\")(\"Slider\")";
     out.drop_comp_s = an.drop_s === null ? null : off + an.drop_s;
@@ -1254,7 +1276,7 @@ tool("set_music_dir",
   (s, a) => {
     const dir = String(a.dir || "").trim();
     track.writeConfig({ music_dirs: dir ? [dir] : [] });
-    return { music_dirs: musicDirs() };
+    return { music_dirs: musicDirs(), library_dir: libraryDir() };
   });
 
 tool("download_file",
@@ -1420,9 +1442,9 @@ async function executeTool(name, input) {
   try {
     const result = await entry.fn(state, input || {});
     let images = null;
-    if (result && typeof result === "object" && result._images) {
-      images = result._images;
-      delete result._images;
+    if (result && typeof result === "object") {
+      images = result._images || null;
+      for (const k of Object.keys(result)) if (k[0] === "_") delete result[k];   // panel-only fields
     }
     const out = { ok: true, text: JSON.stringify(result) };
     if (images) out.images = images;
@@ -1795,7 +1817,10 @@ window.assistant = {
     const entry = TOOLS.find((t) => t.name === name);
     if (!entry || isHidden(name)) throw new Error("No tool " + name + " in this panel.");
     const result = await entry.fn(state, args || {});
-    if (result && typeof result === "object") delete result._images;
+    if (result && typeof result === "object") {
+      delete result._images;
+      if (result._panel && typeof result._panel === "object") { Object.assign(result, result._panel); delete result._panel; }
+    }
     return result;
   },
   // What the panel is showing (track, analysis, comp) — appended to the
