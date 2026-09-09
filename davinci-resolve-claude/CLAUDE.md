@@ -382,8 +382,12 @@ in the plugin dir. Needs one-time chown of the install dir on macOS.
   --strict-mcp-config hides claude.ai connectors from the panel; the
   extra_mcp_mode "inherit" fallback drops it (CLI loads all of Claude
   Code's servers, only ae is added) so the connector's working sign-in can
-  be used. Whether the headless CLI reuses the interactive sign-in's token
-  for a same-named --mcp-config server is still unproven live.
+  be used. LIVE 2026-09-09 (Josh's Mac): after `claude mcp remove
+  higgsfield`, `claude mcp add -s user --transport http higgsfield
+  https://mcp.higgsfield.ai/mcp` and /mcp Authenticate, the AE panel
+  reported Higgsfield connected and working — the first live proof of the
+  extra-MCP path (which mode, strict or inherit, was not recorded; a
+  generation through it has not been run yet).
 - Chat history: autosaves to <config dir>/chats/<uuid>.json after every
   completed turn (images stripped from the stored API messages). History
   button opens a Tree browser (ComboBox fallback). Resume semantics: the CLI
