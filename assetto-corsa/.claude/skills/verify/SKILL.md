@@ -32,7 +32,9 @@ deep, in Documents, in Downloads, zip unextracted, nothing, crashed acMain.
 
 ## apps/lua — LuaJIT (CSP's runtime family)
 
-`apt-get install luajit`, then `cd verify && luajit drive-lua.lua`. `cspstub.lua`
+`apt-get install luajit`, then `cd verify && luajit drive-lua.lua` (a scripted lap plus
+probes) and `luajit probe-settings.lua` (opacity, position lock with a stubbed
+`ac.accessAppWindow`, rev-bar toggle). `cspstub.lua`
 fakes `ac`/`ui`/`vec2`/`rgbm` and records `RECT`/`TEXT` (as `p1`/`p2` vec2s, not
 scalars). Every ui call is asserted for arity/type. Gear convention here is CSP's:
 `<0`=R, `0`=N, `n`=nth — not the Python one.
