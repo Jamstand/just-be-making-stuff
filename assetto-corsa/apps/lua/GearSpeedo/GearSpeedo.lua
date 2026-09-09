@@ -30,9 +30,56 @@ local COL_DIV   = rgbm(1, 1, 1, 0.12)
 local settings = ac.storage{
   mph = false,
   showSpeed = true,
+  showBar = true,    -- the 18-segment rev bar along the top
   shiftAt = 95,
   opacity = 70,      -- background, percent. The window has NO_BACKGROUND in
-}                    -- its manifest so this is the only fill behind the HUD.
+                     -- its manifest so this is the only fill behind the HUD.
+  lockPos = false,   -- pin the window where it is; -1 means "not captured yet"
+  lockX = -1, lockY = -1, lockW = -1, lockH = -1,
+}
+
+-- Position lock. CSP has no manifest flag for this, so the app does it
+-- itself: while locked it remembers where the window sits and, if anything
+-- nudges it, moves it straight back via the window accessor. Everything is
+-- pcall-guarded and falls back to doing nothing: the accessor's move/resize
+-- need CSP 0.2.3-preview62+, and the name CSP registers the window under is
+-- taken from a short list of likely candidates.
+local ownWindow, ownWindowRetry = nil, 0
+local function findOwnWindow()
+  if ownWindow then return ownWindow end
+  if ownWindowRetry > 0 then ownWindowRetry = ownWindowRetry - 1; return nil end
+  ownWindowRetry = 120                      -- try again in ~2 s if not found
+  if type(ac.accessAppWindow) ~= 'function' then return nil end
+  for _, name in ipairs({ 'Gear Speedo', 'GearSpeedo', 'GearSpeedo.main', 'GearSpeedo:main' }) do
+    local ok, a = pcall(ac.accessAppWindow, name)
+    if ok and a ~= nil then
+      local okv, valid = pcall(function() return a:valid() end)
+      if okv and valid then ownWindow = a; return a end
+    end
+  end
+  return nil
+end
+
+local function enforceLock()
+  if not settings.lockPos then return end
+  local w = findOwnWindow()
+  if not w then return end
+  pcall(function()
+    local p, sz = w:position(), w:size()
+    if settings.lockX < 0 then
+      -- First frame after locking: this is the spot to hold.
+      settings.lockX, settings.lockY = p.x, p.y
+      settings.lockW, settings.lockH = sz.x, sz.y
+      return
+    end
+    if math.abs(p.x - settings.lockX) > 0.5 or math.abs(p.y - settings.lockY) > 0.5 then
+      w:move(vec2(settings.lockX, settings.lockY))
+    end
+    if math.abs(sz.x - settings.lockW) > 0.5 or math.abs(sz.y - settings.lockH) > 0.5 then
+      w:resize(vec2(settings.lockW, settings.lockH))
+    end
+  end)
+end
 
 local blink = 0
 
@@ -55,6 +102,8 @@ function script.windowMain(dt)
   -- Our own background first, at the chosen opacity, before anything else.
   local size = ui.windowSize()
   ui.drawRectFilled(vec2(0, 0), size, rgbm(0, 0, 0, settings.opacity / 100), 4)
+
+  enforceLock()
 
   -- ac.getCar can be nil for a frame or two while a session loads.
   local car = ac.getCar(0)
@@ -81,7 +130,7 @@ function script.windowMain(dt)
   -- RPM bar
   local segW = (BAR_W - (SEGMENTS - 1) * SEG_GAP) / SEGMENTS
   local lit = math.floor(frac * SEGMENTS + 1e-4)
-  for i = 0, SEGMENTS - 1 do
+  for i = 0, (settings.showBar and SEGMENTS - 1 or -1) do
     local x = BAR_X + i * (segW + SEG_GAP)
     local col
     if i >= lit then
@@ -127,6 +176,19 @@ end
 function script.windowSettings(dt)
   if ui.checkbox('Show speed', settings.showSpeed) then
     settings.showSpeed = not settings.showSpeed
+  end
+
+  if ui.checkbox('Show RPM bar', settings.showBar) then
+    settings.showBar = not settings.showBar
+  end
+
+  if ui.checkbox('Lock position and size', settings.lockPos) then
+    settings.lockPos = not settings.lockPos
+    -- Capture afresh at the next frame so it holds wherever it is right now.
+    settings.lockX, settings.lockY, settings.lockW, settings.lockH = -1, -1, -1, -1
+  end
+  if settings.lockPos then
+    ui.text('Locked where it is. Untick to move or resize it.')
   end
 
   if ui.checkbox('Use MPH', settings.mph) then

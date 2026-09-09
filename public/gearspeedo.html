@@ -118,6 +118,8 @@
     touch-action: none;
   }
   .widget.dragging { cursor: grabbing; box-shadow: 0 22px 54px rgba(0,0,0,.7); }
+  .widget.locked { resize: none; cursor: default; }
+  .widget.locked .grip { display: none; }
   .widget canvas { display: block; width: 100%; height: 100%; }
   .widget .grip {
     position: absolute; right: 3px; bottom: 3px; width: 10px; height: 10px;
@@ -228,7 +230,7 @@
       <canvas id="hud"></canvas>
       <div class="grip" aria-hidden="true"></div>
     </div>
-    <div class="hint">drag to move &middot; corner to resize</div>
+    <div class="hint" id="hint">drag to move &middot; corner to resize</div>
   </div>
 
   <div class="telemetry" aria-live="off">
@@ -262,6 +264,8 @@
     </div>
     <div class="group">
       <button id="showSpeed" aria-pressed="true">Speed readout</button>
+      <button id="showBar" aria-pressed="true">RPM bar</button>
+      <button id="lock" aria-pressed="false">Lock position</button>
     </div>
     <div class="group">
       <span class="k">Shift light</span>
@@ -287,7 +291,7 @@
   <div class="notes">
     <div>
       <h2>What you're looking at</h2>
-      <p>The widget is drawn here by the same layout logic as the in-game Lua app: an 18-segment rev bar that runs green, amber, then red, and flashes white once revs pass the shift point. The gear number goes red at the same moment. Everything scales with the window, so dragging the corner is exactly what resizing does in the game, and the background slider is the same setting the app has behind its gear icon.</p>
+      <p>The widget is drawn here by the same layout logic as the in-game Lua app: an 18-segment rev bar that runs green, amber, then red, and flashes white once revs pass the shift point. The gear number goes red at the same moment. Everything scales with the window, so dragging the corner is exactly what resizing does in the game. The background, RPM-bar and lock controls are the same settings the app has behind its gear icon: lock it and it stays exactly where you put it.</p>
       <p>The car is a simulated MX-5 ND: full throttle up through the gears, a bounce off the limiter in fifth, a hard braking zone with downshifts, then a reverse out of the pit box. The replay loops.</p>
       <h2>Install</h2>
       <p>Copy <code>apps/lua/GearSpeedo</code> into <code>&lt;AC root&gt;/apps/lua/</code>. It appears under <em>Your apps</em> in the Custom Shaders Patch app list; nothing to switch on. Needs CSP build 2512 or newer.</p>
@@ -342,7 +346,7 @@
 
     const segW = (HUD.BAR_W - (HUD.SEG - 1) * HUD.GAP) / HUD.SEG;
     const lit = Math.floor(frac * HUD.SEG + 1e-4);
-    for (let i = 0; i < HUD.SEG; i++) {
+    for (let i = 0; i < (st.showBar ? HUD.SEG : 0); i++) {
       const x = HUD.BAR_X + i * (segW + HUD.GAP);
       let col;
       if (i >= lit) col = COL.track;
@@ -392,7 +396,10 @@
       { gear: 0, rpm: 900, rpmLimiter: 8000, speedKmh: 0 },
     ];
     const pre = document.createElement('pre'); pre.id = 'dump';
-    pre.textContent = JSON.stringify(states.map(c => layout(c, { showSpeed: true, mph: false, shiftAt: 95, opacity: 70 }, 280, 120, true)));
+    const base = { showSpeed: true, showBar: true, mph: false, shiftAt: 95, opacity: 70 };
+    const dumps = states.map(c => layout(c, base, 280, 120, true));
+    dumps.push(layout(states[0], { ...base, showBar: false }, 280, 120, true));
+    pre.textContent = JSON.stringify(dumps);
     document.body.appendChild(pre);
     return;
   }
@@ -454,7 +461,8 @@
   function go(phase) { sim.phase = phase; sim.pt = 0; }
 
   // ------------------------------------------------------------ page wiring
-  const settings = { showSpeed: true, mph: false, shiftAt: 95, opacity: 70 };
+  const settings = { showSpeed: true, showBar: true, mph: false, shiftAt: 95, opacity: 70 };
+  let locked = false;
   const widget = document.getElementById('widget');
   const canvas = document.getElementById('hud');
   const ctx = canvas.getContext('2d');
@@ -519,6 +527,7 @@
   pressGroup($('speedSeg'), b => { rate = Number(b.dataset.rate); });
   pressGroup($('unitSeg'), b => { settings.mph = b.dataset.mph === '1'; draw(); });
   pressGroup($('sizeSeg'), b => {
+    if (locked) return;                      // size is part of what's locked
     const sc = Number(b.dataset.scale);
     widget.style.width = HUD.W * sc + 'px'; widget.style.height = HUD.H * sc + 'px';
   });
@@ -529,6 +538,19 @@
   });
   const opacity = $('opacity'), opacityVal = $('opacityVal');
   opacity.addEventListener('input', () => { settings.opacity = Number(opacity.value); opacityVal.textContent = opacity.value + '%'; draw(); });
+  const showBar = $('showBar');
+  showBar.addEventListener('click', () => {
+    settings.showBar = !settings.showBar;
+    showBar.setAttribute('aria-pressed', String(settings.showBar)); draw();
+  });
+  const lockBtn = $('lock'), hint = $('hint');
+  lockBtn.addEventListener('click', () => {
+    locked = !locked;
+    lockBtn.setAttribute('aria-pressed', String(locked));
+    lockBtn.textContent = locked ? 'Locked' : 'Lock position';
+    widget.classList.toggle('locked', locked);
+    hint.textContent = locked ? 'locked in place \u00b7 unlock to move or resize' : 'drag to move \u00b7 corner to resize';
+  });
   const shiftAt = $('shiftAt'), shiftVal = $('shiftVal');
   shiftAt.addEventListener('input', () => { settings.shiftAt = Number(shiftAt.value); shiftVal.textContent = shiftAt.value + '%'; draw(); });
 
@@ -537,6 +559,7 @@
   const stage = $('stage');
   let drag = null;
   widget.addEventListener('pointerdown', e => {
+    if (locked) return;
     const r = widget.getBoundingClientRect();
     if (e.clientX > r.right - 18 && e.clientY > r.bottom - 18) return;
     drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };

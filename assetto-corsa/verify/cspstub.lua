@@ -13,10 +13,29 @@ function ac.getCar(i)
   if CAR_NIL then return nil end
   return CAR
 end
+STORAGE = nil                      -- the app's settings table, for probes
 function ac.storage(defaults)
   local t = {}
   for k, v in pairs(defaults) do t[k] = v end
+  STORAGE = t
   return t
+end
+
+-- Window accessor: what CSP hands back for ac.accessAppWindow. Records every
+-- move/resize so a probe can see the lock working, and lets a probe "drag"
+-- the window by editing WIN_ACCESS.pos directly.
+WIN_ACCESS = { pos = {x = 100, y = 200}, size = {x = 280, y = 120}, moves = {}, resizes = {}, valid = true, name = 'Gear Speedo' }
+ACCESS_CALLS = {}
+function ac.accessAppWindow(name)
+  ACCESS_CALLS[#ACCESS_CALLS + 1] = name
+  if name ~= WIN_ACCESS.name then return nil end
+  local a = {}
+  function a:valid() return WIN_ACCESS.valid end
+  function a:position() return vec2(WIN_ACCESS.pos.x, WIN_ACCESS.pos.y) end
+  function a:size() return vec2(WIN_ACCESS.size.x, WIN_ACCESS.size.y) end
+  function a:move(v) WIN_ACCESS.pos = {x = v.x, y = v.y}; WIN_ACCESS.moves[#WIN_ACCESS.moves + 1] = {x = v.x, y = v.y}; return a end
+  function a:resize(v) WIN_ACCESS.size = {x = v.x, y = v.y}; WIN_ACCESS.resizes[#WIN_ACCESS.resizes + 1] = {x = v.x, y = v.y}; return a end
+  return a
 end
 
 ui = {}
