@@ -107,6 +107,21 @@ def parse_colour(value, defined, name):
     return None, f'{v} is not a colour WPF knows'
 
 
+def brush_colour(el, tag):
+    """WPF reads a brush's colour from the Color attribute, a
+    <SolidColorBrush.Color> child or the element's own text. Content Manager's
+    own default theme uses all three, so all three have to be understood."""
+    if tag == 'Color':
+        return (el.text or '').strip() or None
+    if el.get('Color') is not None:
+        return el.get('Color')
+    for child in el:
+        if child.tag.split('}')[-1].endswith('.Color'):
+            return (child.text or '').strip() or None
+    text = (el.text or '').strip()
+    return text or None
+
+
 def luminance(rgb):
     def ch(c):
         c /= 255
@@ -137,9 +152,9 @@ PAIRS = [
     ('ButtonTextHover', 'ButtonBackgroundHover', 4.5, 'hovered button label'),
     ('ButtonTextPressed', 'ButtonBackgroundPressed', 4.5, 'pressed button label'),
     ('InputText', 'InputBackground', 4.5, 'text you type'),
-    ('DataGridCellForeground', 'WindowBackground', 4.5, 'grid cell'),
+    ('DataGridCellForeground', 'DataGridCellBackground', 4.5, 'grid cell'),
     ('DataGridCellForegroundSelected', 'DataGridCellBackgroundSelected', 4.5, 'selected grid cell'),
-    ('DataGridHeaderForeground', 'WindowBackground', 3.0, 'grid header'),
+    ('DataGridHeaderForeground', 'DataGridHeaderBackground', 3.0, 'grid header'),
     ('ModernButtonText', 'WindowBackground', 4.5, 'modern button label'),
     ('LinkButtonText', 'WindowBackground', 3.0, 'link button'),
     ('LinkButtonTextHover', 'WindowBackground', 4.5, 'hovered link button'),
@@ -187,7 +202,15 @@ def main(path):
     print('== the file Content Manager will read ==')
     c.check('root element is a ResourceDictionary in WPF\'s namespace '
             '(Content Manager tests exactly this)', root.tag == f'{{{P}}}ResourceDictionary', root.tag)
-    c.check('no tabs (Content Manager writes spaces; keeps diffs sane)', b'\t' not in raw)
+    # Content Manager reads a theme out of a dropped archive as a *string* and
+    # hands it to XDocument.Parse, which throws on a leading U+FEFF. The theme is
+    # then not recognised at all and the drop silently installs nothing. Loading
+    # the same file from the Themes folder goes through a stream and is fine.
+    c.check('no UTF-8 BOM (a BOM stops Content Manager recognising the file as a '
+            'theme when it is installed from a zip)', not raw.startswith(b'\xef\xbb\xbf'))
+    if b'\t' in raw:
+        c.warn('the file contains tabs; Content Manager does not mind, they just '
+               'make the file harder to keep tidy')
 
     entries, defined, dupes = [], {}, []
     for el in root:
@@ -203,7 +226,7 @@ def main(path):
         if key in defined:
             dupes.append(key)
         entries.append((key, tag, el))
-        defined[key] = (el.text or '').strip() if tag == 'Color' else el.get('Color')
+        defined[key] = brush_colour(el, tag)
 
     c.check('no duplicate keys', not dupes, ', '.join(dupes))
     print(f'  {len(entries)} entries')
@@ -260,17 +283,14 @@ def main(path):
         if t == 'String':
             continue
         vals = []
-        if t == 'Color':
-            vals.append((el.text or '').strip())
-        elif el.get('Color') is not None:
-            vals.append(el.get('Color'))
+        own = brush_colour(el, t)
+        if own is not None:
+            vals.append(own)
         for stop in el.iter():
             if stop.tag.split('}')[-1] == 'GradientStop' and stop.get('Color'):
                 vals.append(stop.get('Color'))
-        if el.get('Color') is not None or t == 'Color':
-            pass
-        elif t in ('SolidColorBrush',) and not vals:
-            problems.append(f'{k} has no Color')
+        if t == 'SolidColorBrush' and not vals:
+            problems.append(f'{k} has no colour')
         for v in vals:
             _, err = parse_colour(v, defined, k)
             if err:
@@ -286,9 +306,13 @@ def main(path):
                + (' ...' if len(accent) > 6 else ''))
 
     print('\n== readable text ==')
+    # Several backgrounds are Transparent by default, which means "whatever is
+    # behind me" — in Content Manager that is the window.
     resolved, via_accent = {}, set()
     for k in set([p[0] for p in PAIRS] + [p[1] for p in PAIRS]):
         src = defined.get(k, KEYS.get(k, {}).get('default'))
+        if str(src or '').strip().lower() in ('transparent', '#00000000'):
+            src = defined.get('WindowBackground', KEYS.get('WindowBackground', {}).get('default'))
         if RES_RE.match(str(src or '')) and RES_RE.match(str(src)).group(2) in ('AccentColor', 'AccentOverlayColor'):
             via_accent.add(k)
         rgb, _ = parse_colour(src, defined, k)

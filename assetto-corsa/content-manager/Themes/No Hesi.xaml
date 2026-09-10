@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   No Hesi — a theme for Content Manager.
 
   Night on the highway: cold asphalt, lane paint, sodium lights overhead and a
@@ -23,7 +23,7 @@
 
   Palette
     #0E1013  asphalt, the window itself        #E01B24  taillight, selection
-    #14171C  panels and cards                  #B4141B  taillight, pressed
+    #171B21  popups and menus                  #B4141B  taillight, pressed
     #1A1E25  inputs and buttons                #FFB020  sodium, warnings
     #232830  hover                             #7FC7FF  headlight, links
     #2A303A  edges                             #3DDC6E  green, GO
@@ -67,8 +67,9 @@
        brightness whichever way. -->
   <Color x:Key="AccentColor">#E01B24</Color>
   <!-- Errors go amber, not red: red is the selection colour here, and a warning
-       that looks like a highlighted row is a warning nobody reads. Amber is what
-       Content Manager ships by default anyway. -->
+       that looks like a highlighted row is a warning nobody reads. Content
+       Manager's own default is orange-red (#FF4400); this pushes it further
+       round to amber so it cannot be taken for the selection bar. -->
   <Color x:Key="ErrorColor">#FFB020</Color>
   <Color x:Key="GoColor">#3DDC6E</Color>
   <Color x:Key="ThumbnailBackgroundColor">#08090B</Color>
@@ -193,8 +194,8 @@
 
   <!-- Scrollbars -->
   <SolidColorBrush x:Key="ScrollBarBackground" Color="#101318" />
-  <SolidColorBrush x:Key="ScrollBarThumb" Color="#2E353F" />
-  <SolidColorBrush x:Key="ScrollBarThumbHover" Color="#3D4653" />
+  <SolidColorBrush x:Key="ScrollBarThumb" Color="{StaticResource NoHesiPaintFaint}" />
+  <SolidColorBrush x:Key="ScrollBarThumbHover" Color="{StaticResource NoHesiPaintDim}" />
   <SolidColorBrush x:Key="ScrollBarThumbDragging" Color="{StaticResource NoHesiTaillight}" />
   <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="Transparent" />
   <SolidColorBrush x:Key="ScrollBarThumbBackgroundDragging" Color="Transparent" />
@@ -228,13 +229,15 @@
   <SolidColorBrush x:Key="CardHeaderTextDisabled" Color="#525A66" />
   <SolidColorBrush x:Key="DarkStripeBackground" Color="#C40E1013" />
   <SolidColorBrush x:Key="DarkStripeText" Color="{StaticResource NoHesiPaint}" />
-  <SolidColorBrush x:Key="SlightBackgroundHint" Color="#14FFB020" />
+  <SolidColorBrush x:Key="SlightBackgroundHint" Color="{StaticResource NoHesiSodium}" Opacity="0.08" />
   <SolidColorBrush x:Key="OverlayBackground" Color="#B308090B" />
   <SolidColorBrush x:Key="OverlayForeground" Color="{StaticResource NoHesiPaint}" />
 
   <!-- AC-specific odds and ends -->
   <SolidColorBrush x:Key="FavouriteBrush" Color="{StaticResource NoHesiTaillight}" />
-  <SolidColorBrush x:Key="RatingBrush" Color="{StaticResource NoHesiSodium}" />
+  <!-- Not amber: ratings sit in the same list row as warnings, and two
+       identical ambers side by side stop meaning different things. -->
+  <SolidColorBrush x:Key="RatingBrush" Color="{StaticResource NoHesiPaint}" />
   <SolidColorBrush x:Key="RatingCompactBackground" Color="{StaticResource NoHesiEdge}" />
   <SolidColorBrush x:Key="TimePositiveDelta" Color="{StaticResource NoHesiTaillight}" />
   <SolidColorBrush x:Key="GoldBrush" Color="#FFC53D" />

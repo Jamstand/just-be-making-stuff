@@ -210,7 +210,7 @@
   "type": "SolidColorBrush"
  },
  "Description": {
-  "default": null,
+  "default": "I recommend you to switch to a light car previews style with this theme.",
   "from": "theme",
   "type": "String"
  },
@@ -367,11 +367,6 @@
  "GoldBrush": {
   "default": "#FFFF00",
   "from": "cm",
-  "type": "SolidColorBrush"
- },
- "HighlightedBackground": {
-  "default": null,
-  "from": "referenced",
   "type": "SolidColorBrush"
  },
  "Hyperlink": {
@@ -750,27 +745,27 @@
   "type": "SolidColorBrush"
  },
  "TextEditorBackground": {
-  "default": null,
+  "default": "#202021",
   "from": "cm",
   "type": "SolidColorBrush"
  },
  "TextEditorForeground": {
-  "default": null,
+  "default": "#ffffff",
   "from": "cm",
   "type": "SolidColorBrush"
  },
  "TextEditorLineNumbersForeground": {
-  "default": null,
+  "default": "#717171",
   "from": "cm",
   "type": "SolidColorBrush"
  },
  "TextEditorSyntaxIni": {
-  "default": null,
+  "default": "<SyntaxDefinition name=\"INI\" xmlns=\"http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008\">\n\t\t\t<Color name=\"Section\" foreground=\"#FCE94F\" />\n\t\t\t<Color name=\"Comment\" foreground=\"#959A8F\" />\n\t\t\t<RuleSet>\n\t\t\t\t<Span color=\"Comment\" begin=\"//\" />\n\t\t\t\t<Span color=\"Comment\" begin=\";\" />\n\t\t\t\t<Span color=\"Section\" >\n\t\t\t\t\t<Begin>[[]</Begin>\n\t\t\t\t\t<End>[]]</End>\n\t\t\t\t</Span>\n\t\t\t\t<Rule foreground=\"#AD7FA8\">^\\s*[\\w-]+\\s*(?==)</Rule>\n\t\t\t\t<Rule foreground=\"#8AE234\">\n\t\t\t\t\t\\b0[xX][0-9a-fA-F]+  # hex number\n\t\t\t\t|    \\b\n\t\t\t\t\t(    \\d+(\\.[0-9]+)?   #number with optional floating point\n\t\t\t\t\t|    \\.[0-9]+         #or just starting with floating point\n\t\t\t\t\t)\n\t\t\t\t\t([eE][+-]?[0-9]+)? # optional exponent\n\t\t\t\t</Rule>\n\t\t\t</RuleSet>\n\t\t</SyntaxDefinition>",
   "from": "cm",
   "type": "String"
  },
  "TextEditorSyntaxLog": {
-  "default": null,
+  "default": "<SyntaxDefinition name=\"LOG\" xmlns=\"http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008\">\n\t    <Color name=\"Debug\" foreground=\"#44AAFF\" />\n\t    <Color name=\"Warning\" foreground=\"#FFFF44\" />\n\t    <Color name=\"Error\" foreground=\"#FF4444\" />\n\t    <Color name=\"Info\" foreground=\"#44FF44\" />\n\t    <RuleSet>\n\t\t    <Span color=\"Debug\" begin=\"\u2026\" />\n\t\t    <Span color=\"Warning\" begin=\"\u203d\" />\n\t\t    <Span color=\"Error\" begin=\"\u25b2\" />\n\t\t    <Span color=\"Info\" begin=\"\u2192\" />\n        <Rule foreground=\"#888888\">\\b\\d\\d:\\d\\d:\\d\\d.\\d\\d\\d:</Rule>\n\t    </RuleSet>\n    </SyntaxDefinition>",
   "from": "cm",
   "type": "String"
  },
@@ -798,11 +793,6 @@
   "default": null,
   "from": "cm",
   "type": "Null"
- },
- "UltimateBrush": {
-  "default": null,
-  "from": "referenced",
-  "type": "SolidColorBrush"
  },
  "WindowBackground": {
   "default": "{DynamicResource WindowBackgroundColor}",

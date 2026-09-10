@@ -148,11 +148,10 @@ def render(values, opacity, source):
   .go.pressed {{ background:{c('GoButtonBackgroundPressed')}; color:{c('GoButtonTextPressed')}; }}
   .ctl {{ margin-top:16px; display:grid; gap:10px; }}
   .row {{ display:flex; align-items:center; gap:9px; color:{c('WindowText')}; }}
-  .box {{ width:13px; height:13px; border:1px solid {c('CheckBoxBorder', c('ModernButtonBorder'))};
-      background:{c('CheckBoxBackground', c('InputBackground'))}; }}
-  .box.on {{ background:{c('ItemBackgroundSelected')}; border-color:{c('ItemBackgroundSelected')}; }}
+  .box {{ width:14px; height:14px; border:1px solid {c('ButtonBorder')};
+      background:{c('ButtonBackground')}; display:grid; place-items:center;
+      font-size:11px; line-height:1; color:{c('WindowText')}; }}
   .track {{ flex:1; height:3px; background:{c('SliderTrackBackground')}; position:relative; }}
-  .track i {{ position:absolute; left:0; top:0; bottom:0; width:58%; background:{c('SliderSelectionBackground')}; }}
   .track b {{ position:absolute; left:58%; top:-4px; width:8px; height:11px;
       background:{c('SliderThumbBackground')}; border:1px solid {c('SliderThumbBorder')}; }}
   .sb {{ width:9px; background:{c('ScrollBarBackground')}; position:relative; }}
@@ -198,9 +197,9 @@ def render(values, opacity, source):
       </div>
       <button class="go">GO</button>
       <div class="ctl">
-        <div class="row"><span class="box on"></span> Auto-join when a slot opens</div>
+        <div class="row"><span class="box">&check;</span> Auto-join when a slot opens</div>
         <div class="row"><span class="box"></span> Hide full servers</div>
-        <div class="row">Traffic density <span class="track"><i></i><b></b></span></div>
+        <div class="row">Traffic density <span class="track"><b></b></span></div>
       </div>
     </div>
   </div>
