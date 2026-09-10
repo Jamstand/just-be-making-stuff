@@ -1,0 +1,36 @@
+#!/usr/bin/env node
+// Fake ffmpeg for the harness: -i <fake video> alone prints the probe lines
+// to stderr like the real thing; with -f rawvideo it emits rgb24 frames at
+// the requested fps/scale from the fake video's shot plan.
+const fs = require("fs");
+const args = process.argv.slice(2);
+const file = args[args.indexOf("-i") + 1];
+let meta;
+try { meta = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { process.stderr.write(file + ": Invalid data found when processing input\n"); process.exit(1); }
+if (args.indexOf("rawvideo") === -1) {
+  process.stderr.write("Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '" + file + "':\n  Duration: 00:00:" + String(meta.duration).padStart(2, "0")
+    + ".00, start: 0.000000, bitrate: 1000 kb/s\n  Stream #0:0[0x1](und): Video: h264 (High), yuv420p, " + meta.width + "x" + meta.height + ", " + meta.fps + " fps\n"
+    + "At least one output file must be specified\n");
+  process.exit(1);
+}
+const vf = args[args.indexOf("-vf") + 1] || "";
+const fpsm = /fps=1\/([\d.]+)/.exec(vf);
+const interval = fpsm ? Number(fpsm[1]) : 0.5;
+const scale = /scale=(\d+):(\d+)/.exec(vf);
+const w = scale ? Number(scale[1]) : 64, h = scale ? Number(scale[2]) : 36;
+const n = Math.round(meta.duration / interval);
+const chunks = [];
+for (let i = 0; i < n; i++) {
+  const t = i * interval;
+  const shot = meta.shots.find((s) => t < s.until) || meta.shots[meta.shots.length - 1];
+  const px = Buffer.alloc(w * h * 3);
+  for (let p = 0; p < w * h; p++) {
+    // a little texture so frames within a shot still differ slightly
+    const tex = ((p * 7 + i) % 5) - 2;
+    px[p * 3] = Math.max(0, Math.min(255, shot.level + shot.rg + tex));
+    px[p * 3 + 1] = Math.max(0, Math.min(255, shot.level + tex));
+    px[p * 3 + 2] = Math.max(0, Math.min(255, shot.level + shot.bg + tex));
+  }
+  chunks.push(px);
+}
+process.stdout.write(Buffer.concat(chunks));

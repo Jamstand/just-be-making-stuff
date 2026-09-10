@@ -184,12 +184,29 @@ layer" are shown disabled until they exist.
 
 Type `/` in either panel's chat box and a menu opens, like Claude's:
 arrow keys to choose, Enter or Tab to fill the command in, Esc to close.
-`/tools` and `/mcp` ask Claude a set question; `/help`, `/new`, `/history`
-and `/copy` are handled by the panel itself. An unknown command such as
-`/train` is answered by the panel too (that one belongs to the DaVinci
-Resolve panel) and never reaches Claude Code, which would otherwise reply
-"Unknown command". A line that starts with a file path is passed to
-Claude as a message.
+`/train <link> <link>` (or `/study`) studies finished edits into your
+style profile — see below. `/style`, `/tools` and `/mcp` ask Claude a set
+question; `/help`, `/new`, `/history` and `/copy` are handled by the panel
+itself. An unknown command is answered by the panel and never reaches
+Claude Code, which would otherwise reply "Unknown command". A line that
+starts with a file path is passed to Claude as a message.
+
+## Studying edits (/train)
+
+Paste links after `/train` in Claude Assistant — TikTok, Instagram reels,
+YouTube, anything yt-dlp handles — and for each one Claude runs
+`study_url` (downloads it into `~/ClaudeAssistantStudy`), `study_edit`
+(ffmpeg samples a thumbnail every half second; cuts are big neighbour
+diffs; each shot's length, exposure and colour cast are measured) and
+`watch_video` (Gemini watches the footage for shot types, structure,
+look, text and transitions). The result is `~/ClaudeAssistantStyle/
+car-edits.json`, the same file the Resolve panel writes, so both panels
+learn from the same edits; `/style` or `style_profile` reads it back, and
+"cut this in my style" reads it first. One-time setup: `brew install
+yt-dlp ffmpeg`; a free Gemini key from aistudio.google.com stored with
+`set_gemini_key` (ask Claude to store it, never paste it in chat
+elsewhere). Nothing is added to the After Effects project by studying.
+Only study content you are entitled to view.
 
 ## Other MCP servers (Higgsfield and friends)
 

@@ -640,3 +640,27 @@ prefixed when it starts with "/". The AE panels (both pages, shared
 app.js) got the same "/" menu with /help /tools /mcp /new /history /copy;
 /train and /study there answer "that's a Resolve panel command". AE
 harness step 6b covers it; manifest 1.0.21.
+
+## /train in After Effects (2026-09-10, harness-verified, not yet live)
+
+The user typed /train <10 reel links> in the AE panel and got "Unknown
+command" (Claude Code) then my "that's a Resolve command" note: the
+study feature only existed in Resolve. Ported: com.jamstand.claude.ae/
+stylelib.js (profile helpers identical to Resolve's styleAggregate so
+~/ClaudeAssistantStyle/<name>.json is ONE file for both panels; findBin
+scans PATH + homebrew homes; downloadVideo = yt-dlp -f mp4/bv*+ba/b;
+probeVideo parses ffmpeg -i stderr; sampleFrames = ffmpeg -vf
+fps=1/interval,scale=64:36 -f rawvideo rgb24 → studyFile does the whole
+edit in one pass (no batching: ffmpeg is fast), entries carry start_s +
+start_timecode, studied_with "after-effects"; Gemini wire copied
+verbatim, throwing Error). slash.js holds SLASH_COMMANDS (study/train
+assistantOnly, hidden in Claude Music), expandSlash (STUDY_RE tolerant
+of /trainhttps://… and /trainn), slashRoute(text, panel). panel.js
+tools: study_url, study_edit, watch_video, gemini_status,
+set_gemini_key (all readonly: nothing touches the project; hidden in
+music) and style_profile (both panels). System prompts tell the model
+to read style_profile first when the user asks for their style. Fakes:
+fakebin/yt-dlp (JSON "video" with a shot plan), fakebin/ffmpeg (probe
++ rawvideo). Not live: real yt-dlp against Instagram/TikTok share links
+(needs cookies for some; the error text surfaces yt-dlp's stderr), real
+ffmpeg output parsing, Gemini with a real key.

@@ -22,6 +22,7 @@ const PERMISSION_MODES = ["Ask before edits", "Always ask", "Never ask"];
 const APPROVAL_TIMEOUT_MS = 120000;
 
 const READONLY_TOOLS = new Set([
+  "style_profile",
   "get_workspace_overview", "list_media_pool", "get_clip_properties",
   "pipeline_doctor", "study_edit", "watch_video", "set_gemini_key",
   "gemini_status",
@@ -3372,6 +3373,7 @@ const SLASH_COMMANDS = [
     description: "Study finished edits into your style profile (TikTok, Instagram, YouTube links)" },
   { name: "train", args: "<link> [<link> …]",
     description: "Same as /study — train the style profile on finished edits" },
+  { name: "style", args: "", description: "What the style profile has learned so far" },
   { name: "help", args: "", local: true,
     description: "What Claude can do here, and these commands" },
   { name: "new", args: "", local: true,
@@ -3382,7 +3384,15 @@ const SLASH_COMMANDS = [
 
 function expandSlash(text) {
   const t = String(text || "").trim();
-  const m = /^\/(stu+d+y|trai+n+)\b/i.exec(t);   // typo-tolerant: /stuudy, /trainn too
+  if (/^\/style\b/i.test(t))
+    return "Call style_profile and give a plain-English read of the style it "
+      + "has learned — cut rhythm, shot lengths, exposure, cast, and the "
+      + "content notes — then how you would apply it to the current "
+      + "timeline. If there is no profile yet, say so and point at "
+      + "/study <links>.";
+  // typo-tolerant (/stuudy, /trainn) and forgiving of a missing space
+  // before the first link (/trainhttps://…)
+  const m = /^\/(stu+d+y|trai+n+)(?=\s|$|https?:)/i.exec(t);
   if (!m) return null;
   const typed = /^t/i.test(m[1]) ? "/train" : "/study";
   const urls = t.match(/https?:\/\/\S+/g) || [];
@@ -3419,7 +3429,7 @@ function slashRoute(text) {
   const t = String(text || "").trim();
   const expanded = expandSlash(t);
   if (expanded) return { kind: "expand", prompt: expanded };
-  const m = /^\/([a-z][a-z-]*)$/i.exec(t.split(/\s+/)[0] || "");
+  const m = /^\/([a-z][a-z-]*)(?=$|https?:)/i.exec(t.split(/\s+/)[0] || "");
   if (m) {
     const name = m[1].toLowerCase();
     const local = SLASH_COMMANDS.find((c) => c.name === name && c.local);
@@ -3452,6 +3462,56 @@ function writeConfig(patch) {
 function geminiKey() {
   return process.env.GEMINI_API_KEY || readConfig().gemini_api_key || null;
 }
+
+tool("style_profile",
+  "Read a style profile (~/ClaudeAssistantStyle/<name>.json, default "
+  + "car-edits — the same file the After Effects panel writes): the "
+  + "aggregate (cuts per minute, shot lengths, exposure, cast tendency) "
+  + "plus one line per studied edit and its content notes. Read it FIRST "
+  + "whenever the user asks for an edit in their style.",
+  { name: { type: "string", description: "Profile name (default car-edits)." },
+    notes_chars: { type: "number",
+                   description: "Content notes per edit (default 700)." } },
+  [], async (state, a) => {
+    fs.mkdirSync(STYLE_DIR, { recursive: true });
+    const names = fs.readdirSync(STYLE_DIR)
+      .filter((n) => /\.json$/.test(n) && !/\.corrupt-/.test(n) && !/\.tmp$/.test(n))
+      .map((n) => n.replace(/\.json$/, ""));
+    const want = String(a.name || "car-edits").replace(/[^\w.-]+/g, "_").slice(0, 60);
+    const file = path.join(STYLE_DIR, want + ".json");
+    if (!fs.existsSync(file))
+      return { profile: want, exists: false, profiles: names,
+               hint: names.length ? "Pick one of profiles."
+                 : "Nothing studied yet — /study <links> builds one." };
+    let prof;
+    try {
+      prof = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (!prof || !Array.isArray(prof.edits)) throw new Error("no edits array");
+    } catch (e) {
+      throw new ResolveError("The profile file is unreadable (" + e.message
+        + ") — study_edit sets it aside on its next run.");
+    }
+    const cap = Number(a.notes_chars) || 700;
+    return { file, exists: true, profiles: names, name: prof.name,
+      updated: prof.updated || null,
+      aggregate: prof.aggregate || styleAggregate(prof.edits),
+      edits: prof.edits.map((e) => {
+        const lens = (e.shot_lengths_s || []).slice().sort((x, y) => x - y);
+        const shots = e.shots || [];
+        return { source: e.source, complete: !!e.complete,
+          duration_s: e.duration_s, cuts: e.cuts,
+          cuts_per_minute: e.duration_s
+            ? +(60 * (e.cuts || 0) / e.duration_s).toFixed(1) : null,
+          shot_length_s: { median: percentile(lens, 0.5),
+                           shortest: lens[0] || null,
+                           longest: lens[lens.length - 1] || null },
+          warm_shots: shots.filter((sh) => (sh.cast_rg || 0) > 1).length,
+          cool_shots: shots.filter((sh) => (sh.cast_bg || 0) > 1).length,
+          content_notes: e.content_notes
+            ? String(e.content_notes).slice(0, cap)
+              + (String(e.content_notes).length > cap ? " …" : "") : null };
+      }) };
+  });
 
 // ------------------------------------------------- study from a pasted link
 // GUI apps get a bare PATH on macOS (the same trap the CLI hit), so probe

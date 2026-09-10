@@ -65,7 +65,8 @@ const USER_DATA = path.join(os.homedir(), "Library", "Application Support",
 // hidden, its own prompt and chat history). Set by music.html.
 const PANEL = (typeof window !== "undefined" && window.CLAUDE_PANEL === "music")
   ? "music" : "assistant";
-const HIDDEN_IN_MUSIC = new Set(["mocha_status", "mocha_track", "mocha_cancel",
+const HIDDEN_IN_MUSIC = new Set(["study_url", "study_edit", "watch_video", "gemini_status", "set_gemini_key",
+  "mocha_status", "mocha_track", "mocha_cancel",
   "apply_track_file", "track_history", "set_fal_key", "fal_status", "ai_segment"]);
 const isHidden = (name) => PANEL === "music" && HIDDEN_IN_MUSIC.has(name);
 fs.mkdirSync(USER_DATA, { recursive: true });
@@ -75,43 +76,10 @@ const MODELS = ["claude-opus-5", "claude-fable-5", "claude-sonnet-5",
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const PERMISSION_MODES = ["Ask before edits", "Always ask", "Never ask"];
 
-// Slash commands the "/" menu in app.js lists. Macros expand before the
-// model sees them; local:true ones the page answers itself. Claude Code
-// reads a leading slash as one of ITS commands ("Unknown command: /train"),
-// so nothing starting with "/" reaches the CLI unrouted.
-const SLASH_COMMANDS = [
-  { name: "help", args: "", local: true, description: "What Claude can do here, and these commands" },
-  { name: "tools", args: "", description: "List the tools this panel gives Claude, one line each" },
-  { name: "mcp", args: "", description: "Which other MCP servers are attached and usable right now" },
-  { name: "new", args: "", local: true, description: "Start a new chat (Claude's memory of this session is cleared)" },
-  { name: "history", args: "", local: true, description: "Open past chats" },
-  { name: "copy", args: "", local: true, description: "Copy the whole conversation as text" },
-];
-function expandSlash(text) {
-  const t = String(text || "").trim();
-  if (/^\/tools?\b/i.test(t))
-    return "List the tools you have in this panel, grouped by what they do, one short line each, "
-      + "named the way the user would say them rather than by tool id. No preamble.";
-  if (/^\/mcp\b/i.test(t))
-    return "Call mcp_status and say plainly which extra MCP servers are attached, which are usable "
-      + "right now, and what to do about any that are not.";
-  return null;
-}
-function slashRoute(text) {
-  const t = String(text || "").trim();
-  const expanded = expandSlash(t);
-  if (expanded) return { kind: "expand", prompt: expanded };
-  const m = /^\/([a-z][a-z-]*)$/i.exec(t.split(/\s+/)[0] || "");
-  if (m) {
-    const name = m[1].toLowerCase();
-    const local = SLASH_COMMANDS.find((c) => c.name === name && c.local);
-    return { kind: "unknown", name,
-      note: local ? "/" + name + " works on its own — type it without anything after it."
-        : /^(study|train)$/.test(name) ? "/" + name + " is a DaVinci Resolve panel command (it studies finished edits into a style profile). Here, type / to see what this panel has."
-        : "No command called /" + name + " — type / to see the list. Anything that doesn't start with / goes to Claude as written." };
-  }
-  return { kind: "text", prompt: t.startsWith("/") ? "Message from the panel (a path, not a command): " + t : t };
-}
+// Slash commands (the "/" menu, /train, routing) live in slash.js; the
+// style study (yt-dlp, ffmpeg, the profile file, Gemini) in stylelib.js.
+const slashlib = require(path.join(EXT_ROOT, "slash.js"));
+const style = require(path.join(EXT_ROOT, "stylelib.js"));
 const APPROVAL_TIMEOUT_MS = 120000;
 
 const SYSTEM_PROMPT = [
@@ -140,6 +108,14 @@ const SYSTEM_PROMPT = [
   "grid; beat_effects wires punch / shake / flash / zoom expressions to",
   "those sliders; speed_ramp can land on drop_s. Pick a song whose length",
   "and energy suit the edit, tell the user which and why.",
+  "STYLE: study_url (download a reel with yt-dlp) → study_edit (cut",
+  "rhythm, shot lengths, exposure, cast into ~/ClaudeAssistantStyle/",
+  "<profile>.json, shared with the Resolve panel) → watch_video (Gemini",
+  "watches it for the content read) learn an editor's style from finished",
+  "edits; the /train macro drives all three. style_profile reads the",
+  "profile: whenever the user asks for THEIR style, read it first and use",
+  "its cuts per minute and shot lengths with cut_to_beats, and its content",
+  "notes for shot choices, structure and look.",
   "Output codecs are template-only (no",
   "field-by-field codec settings); Lumetri parameter names are not",
   "documented — apply_effect returns each effect's real property list, use",
@@ -163,6 +139,10 @@ const MUSIC_SYSTEM_PROMPT = [
   "zoom, opacity expressions driven by those sliders) and speed_ramp to",
   "land on drop_s. Pick a song whose length and energy suit the edit and",
   "say which and why; when the library is empty, say where to drop files.",
+  "style_profile reads the editor's style profile (cuts per minute, shot",
+  "lengths, content notes from studied edits): when the user asks for",
+  "their style, read it first and cut to it. Studying new edits (/train)",
+  "lives in the Claude Assistant panel.",
   "Tracking, mattes and Mocha live in the Claude Assistant panel, not here.",
   "Chats do not share memory but the PROJECT persists, and the Claude",
   "Assistant panel may be open beside you: keyframes, masks, Corner Pins",
@@ -1322,6 +1302,146 @@ tool("set_music_dir",
     return { music_dirs: musicDirs(), library_dir: libraryDir() };
   });
 
+// ------------------------------------------------------------ style study
+// "Training" done honestly: a finished edit is measured (cuts, shot
+// lengths, exposure, cast) and, with a Gemini key, watched; the result is
+// a profile file future turns read. Same file as the Resolve panel's.
+tool("study_url",
+  "Paste-a-link studying: download a video from a URL (TikTok, Instagram, "
+  + "YouTube — anything yt-dlp handles; needs 'brew install yt-dlp ffmpeg' "
+  + "once) into ~/ClaudeAssistantStudy, ready for study_edit. Only study "
+  + "content you are entitled to view; the download is for local analysis. "
+  + "Nothing is added to the project.",
+  { url: { type: "string" } }, ["url"], { readonly: true }, async (s, a) => {
+    const url = String(a.url || "").trim();
+    if (!/^https?:\/\//i.test(url)) throw new Error("study_url needs an http(s) link.");
+    const file = s._testDownload ? await s._testDownload(url, style.STUDY_DIR)
+                                 : await style.downloadVideo(url, style.STUDY_DIR);
+    let probe = null;
+    try { probe = await style.probeVideo(file); } catch (e) { probe = { note: e.message }; }
+    return { downloaded: file, url, probe,
+      next: "study_edit with this file (source = the link), then watch_video with profile car-edits and the same source." };
+  });
+
+tool("study_edit",
+  "Study a finished edit from a video FILE (the one study_url downloaded, or "
+  + "any local video) and distil its style into a persistent profile "
+  + "(~/ClaudeAssistantStyle/<name>.json, the same file the DaVinci Resolve "
+  + "panel writes): a thumbnail every interval_s (default 0.5 s) via ffmpeg, "
+  + "cuts as big neighbour-sample pixel diffs (cut_threshold, default 8% mean "
+  + "— calibrate against diff_series on the first run), each shot's exposure "
+  + "and cast, merged as one entry (a re-study of the same source replaces "
+  + "it). A 60 s reel takes a few seconds.",
+  { file: { type: "string" },
+    name: { type: "string", description: "Profile name (default car-edits)." },
+    source: { type: "string", description: "Label for what is studied (default the file name) — use the link." },
+    interval_s: { type: "number" }, cut_threshold: { type: "number" } },
+  ["file"], { readonly: true }, async (s, a) => {
+    const file = String(a.file || "");
+    if (!fs.existsSync(file)) throw new Error("No such file: " + file);
+    let probe = null;
+    try { probe = await style.probeVideo(file); } catch (e) {}
+    const loaded = style.loadProfile(a.name || "car-edits");
+    const r = await style.studyFile(file, { interval_s: a.interval_s, cut_threshold: a.cut_threshold,
+                                            source: a.source, fps: probe && probe.fps });
+    if (probe && probe.duration_s) r.entry.duration_s = probe.duration_s;   // the container's exact length
+    style.mergeEntry(loaded.profile, r.entry);
+    const aggregate = style.saveProfile(loaded.profile, loaded.file);
+    const e = r.entry;
+    const out = { studied: e.source, file, samples: e.samples_counted, interval_s: e.interval_s,
+      cut_threshold: e.cut_threshold, duration_s: e.duration_s, cuts: e.cuts,
+      cuts_per_minute: e.duration_s ? +(60 * e.cuts / e.duration_s).toFixed(1) : null,
+      shots: e.shots.length, shot_lengths_s: e.shot_lengths_s.slice(0, 60), diff_series: r.diffs.slice(0, 150),
+      profile_file: loaded.file, aggregate };
+    if (r.warnings.length) out.stride_warning = r.warnings.join(" ");
+    if (loaded.recoveredFrom)
+      out.profile_recovered = "Previous profile was unreadable; preserved at " + loaded.recoveredFrom + " (nothing was overwritten silently).";
+    return out;
+  });
+
+tool("watch_video",
+  "Gemini video eyes: upload a LOCAL video file (e.g. the file study_url "
+  + "downloaded) to Google's Gemini API and have it actually WATCH the "
+  + "footage — shot types, subjects, structure, look, text and transitions — "
+  + "the content half pixel statistics cannot see. Needs a Gemini API key "
+  + "stored via set_gemini_key (free at aistudio.google.com). With profile + "
+  + "source the answer is merged into that style-profile entry as "
+  + "content_notes. The file goes to Google for analysis and is deleted "
+  + "there right after (48h auto-expiry is the backstop).",
+  { file: { type: "string" }, question: { type: "string" }, model: { type: "string" },
+    low_res: { type: "boolean" }, profile: { type: "string" }, source: { type: "string" } },
+  ["file"], { readonly: true }, async (s, a) => {
+    const key = style.geminiKey();
+    if (!key) throw new Error("No Gemini API key stored. Get a free one at aistudio.google.com (Get API key), then run set_gemini_key.");
+    const file = String(a.file || "");
+    if (!fs.existsSync(file)) throw new Error("No such file: " + file);
+    const doReq = s._testHttp || style.httpsRequest;
+    const w = await style.watchVideo(doReq, key, file, { question: a.question, model: a.model, low_res: a.low_res });
+    const out = { model: w.model, answer: w.answer, tokens: w.tokens };
+    if (a.profile && w.answer) {
+      try {
+        const loaded = style.loadProfile(a.profile);
+        const src = String(a.source || "");
+        const entry = loaded.profile.edits.find((e) => e.source === src) || loaded.profile.edits[loaded.profile.edits.length - 1];
+        if (entry) { entry.content_notes = w.answer; style.saveProfile(loaded.profile, loaded.file);
+                     out.merged_into = { profile: path.basename(loaded.file), source: entry.source }; }
+        else out.merge_note = "profile has no entries yet";
+      } catch (e) { out.merge_note = "could not merge: " + e.message; }
+    }
+    return out;
+  });
+
+tool("gemini_status",
+  "Whether a Gemini API key is configured (env GEMINI_API_KEY or "
+  + "~/.claude-assistant.json) — shows only its last 4 characters; validate: "
+  + "true also checks it against Google's models endpoint (one free call).",
+  { validate: { type: "boolean" } }, [], { readonly: true }, async (s, a) => {
+    const key = style.geminiKey();
+    if (!key) return { key_stored: false, config_file: style.CONFIG_FILE,
+      how_to: "set_gemini_key with a key from aistudio.google.com (Get API key)" };
+    const out = { key_stored: true, key_ending: "..." + key.slice(-4),
+      source: process.env.GEMINI_API_KEY ? "environment" : style.CONFIG_FILE };
+    if (a.validate) {
+      const doReq = s._testHttp || style.httpsRequest;
+      const check = await style.geminiCall(doReq, "https://" + style.GEMINI_HOST + "/v1beta/models",
+        { timeoutMs: 20000, headers: { "x-goog-api-key": key } });
+      out.valid = check.status === 200;
+      if (!out.valid) out.problem = style.geminiErrorText(check.status, check.json);
+    }
+    return out;
+  });
+
+tool("set_gemini_key",
+  "Store the Gemini API key (from aistudio.google.com) in ~/.claude-assistant.json "
+  + "(mode 0600) after checking it against Google. Never echoed back.",
+  { key: { type: "string" } }, ["key"], { readonly: true }, async (s, a) => {
+    const key = String(a.key || "").trim();
+    if (key.length < 20 || /\s/.test(key)) throw new Error("That does not look like an API key.");
+    const doReq = s._testHttp || style.httpsRequest;
+    const check = await style.geminiCall(doReq, "https://" + style.GEMINI_HOST + "/v1beta/models",
+      { timeoutMs: 20000, headers: { "x-goog-api-key": key } });
+    if (check.status !== 200) throw new Error("Key stored NOWHERE — validation failed: " + style.geminiErrorText(check.status, check.json));
+    track.writeConfig({ gemini_api_key: key });
+    return { stored: true, file: track.CONFIG_FILE, key_ending: "..." + key.slice(-4), validated: "models list call succeeded" };
+  });
+
+tool("style_profile",
+  "Read a style profile (~/ClaudeAssistantStyle/<name>.json, default "
+  + "car-edits — the same file the Resolve panel writes): the aggregate (cuts "
+  + "per minute, shot lengths, exposure, cast tendency) plus one line per "
+  + "studied edit and its content notes. Read it FIRST whenever the user "
+  + "asks for an edit in their style.",
+  { name: { type: "string" }, notes_chars: { type: "number", description: "content notes per edit (default 700)" } },
+  [], { readonly: true }, async (s, a) => {
+    const names = style.listProfiles();
+    const want = String(a.name || "car-edits");
+    if (!fs.existsSync(style.profileFile(want)))
+      return { profile: want, exists: false, profiles: names,
+        hint: names.length ? "Pick one of profiles." : "Nothing studied yet — /train <links> (study_url → study_edit → watch_video) builds one." };
+    const loaded = style.loadProfile(want);
+    return Object.assign({ file: loaded.file, exists: true, profiles: names }, style.summariseProfile(loaded.profile, a.notes_chars));
+  });
+
 tool("download_file",
   "Fetch a URL (e.g. a clip another MCP server generated) into "
   + "~/Library/Application Support/ClaudeAssistantAE/downloads and return "
@@ -1811,7 +1931,7 @@ window.assistant = {
     if (PERMISSION_MODES.includes(permissionMode))
       state.permissionMode = permissionMode;
     currentModel = model;
-    const route = slashRoute(text);
+    const route = slashlib.slashRoute(text, PANEL);
     sendUI("you", String(text).trim());
     if (route.kind === "unknown") { sendUI("notice", route.note); sendUI("done", {}); return true; }
     busy = true;
@@ -1830,7 +1950,7 @@ window.assistant = {
   },
   config() {
     return Promise.resolve({ models: MODELS, efforts: EFFORTS,
-                             modes: PERMISSION_MODES, commands: SLASH_COMMANDS });
+                             modes: PERMISSION_MODES, commands: slashlib.commandsFor(PANEL) });
   },
   history(action, id) {
     if (action === "list") return Promise.resolve(history.list());

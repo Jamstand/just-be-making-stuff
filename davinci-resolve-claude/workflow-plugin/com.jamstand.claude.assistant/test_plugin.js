@@ -973,6 +973,25 @@ async function main() {
   check("transient 503s are retried away with backoff",
         rSt.ok && rSt.text.includes('"valid":true') && flaky === 2,
         rSt.text + " flaky=" + flaky);
+  check("/trainhttps://… without a space and /style route as commands",
+        tools.slashRoute("/trainhttps://tiktok.com/x").kind === "expand"
+        && /style_profile/.test(tools.expandSlash("/style") || "")
+        && tools.SLASH_COMMANDS.some((c) => c.name === "style"));
+  const styleDir = path.join(require("os").homedir(), "ClaudeAssistantStyle");
+  fsmod.mkdirSync(styleDir, { recursive: true });
+  fsmod.writeFileSync(path.join(styleDir, "test_profile2.json"), JSON.stringify({ name: "test_profile2",
+    edits: [{ source: "unit-edit", complete: true, duration_s: 30, cuts: 10, shot_lengths_s: [3, 3, 2, 4],
+              shots: [{ mean_level_pct: 30, cast_rg: 2, cast_bg: 0 }, { mean_level_pct: 50, cast_rg: 0, cast_bg: 3 }],
+              content_notes: "Opens on a static wide; night rolling shots follow." }] }));
+  const rSp = await tools.executeTool(state, "style_profile",
+    { name: "test profile2" });
+  check("style_profile summarises the profile (aggregate, per-edit lines, notes) and lists the profiles",
+        rSp.ok && /"exists":true/.test(rSp.text) && /"cuts_per_minute":20/.test(rSp.text)
+        && /static wide/.test(rSp.text) && /"profiles":\["test_profile2"/.test(rSp.text), rSp.text);
+  const rSp0 = await tools.executeTool(state, "style_profile",
+    { name: "never-studied" });
+  check("style_profile on an unknown name says so without inventing",
+        rSp0.ok && /"exists":false/.test(rSp0.text), rSp0.text);
   state._testHttp = realHttp;
   rSt = await tools.executeTool(state, "gemini_status",
     { validate: true });

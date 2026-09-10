@@ -328,7 +328,7 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   await (await mids[1].$("select:nth-of-type(1)")).selectOption({ label: "fake-bg.mp4" });
   await (await mids[1].$("select:nth-of-type(2)")).selectOption({ value: "punch" });
   await page3.click('[data-act="write"]');
-  await page3.waitForFunction(() => music.state.applied && music.state.applied.written.length > 1, null, { timeout: 30000 });
+  await page3.waitForFunction(() => music.state.applied && music.state.applied.written.length > 1 && !music.state.busy, null, { timeout: 30000 });   // busy clears after the post-write refresh
   const st4 = await page3.evaluate(() => ({ written: music.state.applied.written, expressions: music.state.applied.expressions, extra: music.state.applied.extraLayers,
     layers: music.state.layers.map((l) => l.name), shown: [...document.querySelectorAll("#wiring .mid select:nth-of-type(1)")].map((s) => s.selectedOptions[0].textContent),
     feel_on: [...document.querySelectorAll("#wiring .seg-opt.on")].map((l) => l.textContent.trim()), last_note: [...document.querySelectorAll("#chat .card")].pop().textContent.slice(0, 80) }));
@@ -428,7 +428,7 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   expect(uiErrors.length === 0, "no page errors or console errors in the music UI", uiErrors);
   await app3.close();
 
-  console.log("### 6b. 🔍 slash menu: / lists the commands; /train is answered here (a Resolve command), never sent to the CLI; /help is local");
+  console.log("### 6b. 🔍 slash menu: / lists the commands; an unknown /foo is answered by the panel, never sent to the CLI; /help is local");
   const smExpect = (cond, what, detail) => { if (!cond) throw new Error("step 6b expectation failed: " + what + " " + JSON.stringify(detail === undefined ? null : detail)); };
   await page.setViewportSize({ width: 760, height: 560 });
   await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 15000 });
@@ -437,23 +437,40 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   const sm1 = await page.evaluate(() => ({ hidden: document.getElementById("slashmenu").hidden, rows: [...document.querySelectorAll("#slashmenu .sm-name")].map((n) => n.textContent),
     on: [...document.querySelectorAll("#slashmenu .sm-row.on .sm-name")].map((n) => n.textContent) }));
   console.log(JSON.stringify(sm1));
-  smExpect(!sm1.hidden && sm1.rows.join() === "/help,/tools,/mcp,/new,/history,/copy" && sm1.on.join() === "/help", "typing / opens the menu with the first row selected", sm1);
+  smExpect(!sm1.hidden && sm1.rows.join() === "/study,/train,/style,/help,/tools,/mcp,/new,/history,/copy" && sm1.on.join() === "/study", "typing / opens the menu with the first row selected", sm1);
   await shot(page, "6b-slash-menu");
   await page.keyboard.press("ArrowDown"); await page.keyboard.press("ArrowDown");
-  smExpect((await page.evaluate(() => document.querySelector("#slashmenu .sm-row.on .sm-name").textContent)) === "/mcp", "arrows move the selection");
+  smExpect((await page.evaluate(() => document.querySelector("#slashmenu .sm-row.on .sm-name").textContent)) === "/style", "arrows move the selection");
   await page.keyboard.press("Escape");
   smExpect(await page.evaluate(() => document.getElementById("slashmenu").hidden && document.getElementById("input").value === "/"), "Esc closes the menu and keeps the text");
   const lastTurnBefore = fs.statSync(path.join(HOME, "last-turn.json")).mtimeMs;
-  await page.keyboard.type("train"); await page.keyboard.press("Enter");     // no such command here → answered by the panel, no CLI turn
-  await page.waitForFunction(() => /Resolve panel command/.test([...document.querySelectorAll("#chat .card")].pop().textContent), null, { timeout: 10000 });
+  await page.keyboard.type("foo"); await page.keyboard.press("Enter");       // no such command → answered by the panel, no CLI turn
+  await page.waitForFunction(() => /No command called \/foo/.test([...document.querySelectorAll("#chat .card")].pop().textContent), null, { timeout: 10000 });
   const sm2 = await page.evaluate(() => ({ status: document.getElementById("status").textContent, cards: [...document.querySelectorAll("#chat .card")].slice(-2).map((c) => c.textContent.replace(/\s+/g, " ").slice(0, 110)) }));
   sm2.cli_ran = fs.statSync(path.join(HOME, "last-turn.json")).mtimeMs !== lastTurnBefore;
   console.log(JSON.stringify(sm2));
-  smExpect(/^Ready/.test(sm2.status) && /YOU.*\/train/.test(sm2.cards[0]) && !sm2.cli_ran, "/train is echoed and answered locally; no CLI turn ran", sm2);
+  smExpect(/^Ready/.test(sm2.status) && /YOU.*\/foo/.test(sm2.cards[0]) && !sm2.cli_ran, "/foo is echoed and answered locally; no CLI turn ran", sm2);
   await page.keyboard.type("/he"); await page.keyboard.press("Tab");           // /help takes no arguments: runs at once, locally
   const sm3 = await page.evaluate(() => ({ last: [...document.querySelectorAll("#chat .card")].pop().textContent.replace(/\s+/g, " ").slice(0, 80), value: document.getElementById("input").value, hidden: document.getElementById("slashmenu").hidden }));
   console.log(JSON.stringify(sm3));
   smExpect(/Type \/ to pick a command/.test(sm3.last) && sm3.value === "" && sm3.hidden, "/help via Tab is answered by the page", sm3);
+
+  console.log("### 6c. 🔍 /train <two links>: fake yt-dlp downloads, fake ffmpeg samples, the profile gets two edits, Gemini reported missing once");
+  await page.fill("#input", "/train https://www.tiktok.com/t/ZP8vojUtd/ https://www.instagram.com/reel/Dbyg0smPvPH/");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready") && /Studied —/.test([...document.querySelectorAll("#chat .card")].pop().textContent), null, { timeout: 90000 });
+  const profFile = path.join(HOME, "ClaudeAssistantStyle", "car-edits.json");
+  const prof = JSON.parse(fs.readFileSync(profFile, "utf8"));
+  const studyFiles = fs.readdirSync(path.join(HOME, "ClaudeAssistantStudy"));
+  const tr = await page.evaluate(() => ({ you: [...document.querySelectorAll("#chat .card.you")].pop().textContent.replace(/\s+/g, " ").slice(0, 60),
+    gemini_notes: [...document.querySelectorAll("#chat .card")].filter((c) => /Gemini pass skipped/.test(c.textContent)).length,
+    tools: [...document.querySelectorAll("#chat .toolline")].map((t) => t.textContent.replace(/\s+/g, " ").split(" ")[0]).join(",").slice(0, 200),
+    last: [...document.querySelectorAll("#chat .card")].pop().textContent.replace(/\s+/g, " ").slice(0, 200),
+    last_has_two_edits: /"edits":2/.test([...document.querySelectorAll("#chat .card")].pop().textContent) }));
+  console.log(JSON.stringify({ edits: prof.edits.map((e) => ({ source: e.source, cuts: e.cuts, shots: e.shots.length, duration_s: e.duration_s, studied_with: e.studied_with })), aggregate: prof.aggregate, study_files: studyFiles.length, tr }));
+  smExpect(prof.edits.length === 2 && prof.edits.every((e) => e.cuts === 2 && e.shots.length === 3 && e.duration_s === 12 && e.complete) && prof.aggregate.cuts_per_minute === 10 && prof.aggregate.shot_length_s.median === 4,
+    "two edits measured through the real tool chain into ~/ClaudeAssistantStyle/car-edits.json", prof.aggregate);
+  smExpect(studyFiles.length === 2 && tr.gemini_notes === 1 && /Studied —/.test(tr.last) && tr.last_has_two_edits, "downloads kept, Gemini's missing key reported once, the final card carries the aggregate", tr);
 
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {

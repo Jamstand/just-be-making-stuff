@@ -171,15 +171,27 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   extra_mcp_mode "inherit": argv without --strict-mcp-config, mcp.json
   holding only ae, allowedTools still mcp__higgsfield__* (and ghost).
 - Slash menu (drive step 6b, on the main panel at 760×560): typing "/"
-  opens #slashmenu with /help,/tools,/mcp,/new,/history,/copy and the
-  first row .on; ArrowDown ×2 → /mcp; Esc closes and keeps the text;
-  "/train" + Enter is echoed as YOU, answered with a NOTE saying it is a
-  Resolve panel command, and the fake claude's ~/last-turn.json mtime
-  must NOT change (no CLI turn — Claude Code would answer "Unknown
+  opens #slashmenu with /study,/train,/style,/help,/tools,/mcp,/new,
+  /history,/copy and the first row .on; ArrowDown ×2 → /style; Esc
+  closes and keeps the text; "/foo" + Enter is echoed as YOU, answered
+  with "No command called /foo", and the fake claude's ~/last-turn.json
+  mtime must NOT change (no CLI turn — Claude Code would answer "Unknown
   command"); "/he" + Tab runs /help locally ("Type / to pick a
   command"). Screenshot shot-6b-slash-menu. The list comes from
-  panel.js SLASH_COMMANDS via config(); slashRoute() in panel.js is the
-  chokepoint (expand / unknown / text-with-path-prefix).
+  slash.js (commandsFor(PANEL) via config(); the music panel hides
+  study/train); slashRoute() there is the chokepoint (expand / unknown /
+  text-with-path-prefix).
+- /train (drive step 6c): "/train <tiktok link> <instagram link>" runs
+  the fake claude's study branch through the REAL tool chain: study_url
+  (fakebin/yt-dlp writes a JSON "video" with a 3-shot plan) →
+  study_edit (fakebin/ffmpeg answers the -i probe on stderr and emits
+  rgb24 frames for -f rawvideo) → watch_video (no Gemini key → isError,
+  told once) → style_profile. Expect ~/ClaudeAssistantStyle/
+  car-edits.json with 2 complete edits of 2 cuts / 3 shots / 12 s,
+  aggregate cuts_per_minute 10 and median shot 4 s, two files in
+  ~/ClaudeAssistantStudy, one "Gemini pass skipped" card and a final
+  "Studied —" card with "edits":2. Unit tests: test_ae_style.js
+  (measurement, profile, fakes, Gemini wire, macro/routing).
 - Claude Music (second extension in the same bundle, html/music.html sets
   window.CLAUDE_PANEL = "music"): drive step 11 launches a SECOND Electron
   instance with AE_PAGE=music.html (verify-electron/main.js honours it),

@@ -38,6 +38,23 @@ process.stdin.on("end", async () => {
     out({ type: "assistant", message: { content: [{ type: "text", text: "Connected. Overview: " + ov.content[0].text }] } });
     const cc = await call("create_comp", { name: "Hello Comp", width: 1080, height: 1920, fps: 59.94, duration_s: 10 });
     out({ type: "assistant", message: { content: [{ type: "text", text: cc.isError ? "create_comp was declined: " + cc.content[0].text : "Made **Hello Comp** — `" + cc.content[0].text + "`" }] } });
+  } else if (/Study these \d+ edit/i.test(prompt)) {
+    // the /train macro: per link study_url → study_edit → watch_video, then style_profile
+    const j = (r) => { try { return JSON.parse(r.content[0].text); } catch (e) { return { error: r.content[0].text }; } };
+    const urls = prompt.match(/https?:\/\/\S+/g) || [];
+    const report = [];
+    let geminiTold = false;
+    for (const u of urls) {
+      const dl = await call("study_url", { url: u });
+      if (dl.isError) { report.push({ url: u, failed: dl.content[0].text }); continue; }
+      const file = j(dl).downloaded;
+      const st = j(await call("study_edit", { file, source: u }));
+      const wv = await call("watch_video", { file, profile: "car-edits", source: u });
+      if (wv.isError && !geminiTold) { geminiTold = true; out({ type: "assistant", message: { content: [{ type: "text", text: "Gemini pass skipped: " + wv.content[0].text }] } }); }
+      report.push({ url: u, cuts: st.cuts, shots: st.shots, cuts_per_minute: st.cuts_per_minute, watched: !wv.isError });
+    }
+    const prof = j(await call("style_profile", {}));
+    out({ type: "assistant", message: { content: [{ type: "text", text: "Studied — " + JSON.stringify({ report, aggregate: prof.aggregate, edits: prof.edits && prof.edits.length }) }] } });
   } else if (/higgsfield/i.test(prompt)) {
     const st = await call("mcp_status", {});
     out({ type: "assistant", message: { content: [{ type: "text", text: "MCP — " + st.content[0].text }] } });
