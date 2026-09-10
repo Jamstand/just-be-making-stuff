@@ -1,0 +1,270 @@
+﻿<!--
+  No Hesi — a theme for Content Manager.
+
+  Night on the highway: cold asphalt, lane paint, sodium lights overhead and a
+  wall of taillights ahead. Red is the selection colour, amber carries warnings,
+  and the GO button stays green because that muscle memory is worth keeping.
+
+  Install: drop No Hesi.zip onto Content Manager's window and it files this
+  where it belongs, or copy the .xaml in by hand:
+      %LOCALAPPDATA%\AcTools Content Manager\Themes\        (normal install)
+      <folder with the exe>\Data\Themes\                    (portable build,
+                                    the one whose exe name contains "local")
+  It has to sit directly in Themes; Content Manager ignores subfolders. Then
+  pick "No Hesi" in Settings → Appearance → Theme. Content Manager watches that
+  folder, so it appears without a restart, and it re-applies the file every time
+  you save an edit to it.
+
+  One more step: set the accent colour to #E01B24 in the same settings page.
+  Content Manager keeps the accent as a per-user setting that overrides whatever
+  a theme asks for, and roughly a hundred places in its UI paint straight from
+  it. Everything below uses its own literal colours so the main surfaces are
+  right either way, but the odd icon or highlight follows the accent setting.
+
+  Palette
+    #0E1013  asphalt, the window itself        #E01B24  taillight, selection
+    #14171C  panels and cards                  #B4141B  taillight, pressed
+    #1A1E25  inputs and buttons                #FFB020  sodium, warnings
+    #232830  hover                             #7FC7FF  headlight, links
+    #2A303A  edges                             #3DDC6E  green, GO
+    #E4E8EE  lane paint, body text             #949CA8  dimmed text
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:system="clr-namespace:System;assembly=mscorlib">
+
+  <!-- Content Manager shows these three under the theme picker. -->
+  <system:String x:Key="Version">1.0</system:String>
+  <system:String x:Key="Author">Josh</system:String>
+  <system:String x:Key="Description">Night on the highway: taillight red on cold asphalt. Set the accent colour to #E01B24 to match.</system:String>
+
+  <!-- The palette. Everything below refers back to these, so a change here
+       carries through the whole theme. -->
+  <Color x:Key="NoHesiAsphalt">#0E1013</Color>
+  <Color x:Key="NoHesiAsphaltDeep">#08090B</Color>
+  <Color x:Key="NoHesiPopup">#171B21</Color>
+  <Color x:Key="NoHesiInput">#1A1E25</Color>
+  <Color x:Key="NoHesiHover">#232830</Color>
+  <Color x:Key="NoHesiEdge">#2A303A</Color>
+  <Color x:Key="NoHesiSeam">#23282F</Color>
+  <Color x:Key="NoHesiGrid">#1E232A</Color>
+  <Color x:Key="NoHesiTaillight">#E01B24</Color>
+  <Color x:Key="NoHesiTaillightDim">#B4141B</Color>
+  <Color x:Key="NoHesiSodium">#FFB020</Color>
+  <Color x:Key="NoHesiHeadlight">#7FC7FF</Color>
+  <Color x:Key="NoHesiGo">#3DDC6E</Color>
+  <Color x:Key="NoHesiPaint">#E4E8EE</Color>
+  <Color x:Key="NoHesiPaintDim">#949CA8</Color>
+  <Color x:Key="NoHesiPaintFaint">#6E7683</Color>
+  <Color x:Key="NoHesiWhite">#FFFFFF</Color>
+
+  <!-- Content Manager's own colour slots. AccentColor is here as a record of
+       what the accent should be set to: at runtime the per-user setting is
+       written straight onto the application's resources, which outranks any
+       theme, so this value never actually paints anything. That is why nothing
+       below is derived from it, and why AccentOverlayColor is not set at all —
+       Content Manager recomputes that one as black or white from the accent's
+       brightness whichever way. -->
+  <Color x:Key="AccentColor">#E01B24</Color>
+  <!-- Errors go amber, not red: red is the selection colour here, and a warning
+       that looks like a highlighted row is a warning nobody reads. Amber is what
+       Content Manager ships by default anyway. -->
+  <Color x:Key="ErrorColor">#FFB020</Color>
+  <Color x:Key="GoColor">#3DDC6E</Color>
+  <Color x:Key="ThumbnailBackgroundColor">#08090B</Color>
+  <Color x:Key="WindowBackgroundColor">#0E1013</Color>
+
+  <!-- The window -->
+  <SolidColorBrush x:Key="WindowBackground" Color="{StaticResource NoHesiAsphalt}" />
+  <SolidColorBrush x:Key="WindowBorder" Color="#01000000" /><!-- fully transparent would hide WindowBorderActive -->
+  <SolidColorBrush x:Key="WindowBorderActive" Color="{StaticResource NoHesiTaillight}" Opacity=".55" />
+  <SolidColorBrush x:Key="WindowHeaderGradient" Color="Transparent" />
+  <SolidColorBrush x:Key="WindowText" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="WindowTextReadOnly" Color="{StaticResource NoHesiPaintDim}" />
+  <SolidColorBrush x:Key="FocusBorder" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="PopupBackground" Color="{StaticResource NoHesiPopup}" />
+  <SolidColorBrush x:Key="SeparatorBackground" Color="{StaticResource NoHesiSeam}" />
+  <SolidColorBrush x:Key="ProgressBackground" Color="{StaticResource NoHesiInput}" />
+  <x:Null x:Key="WindowBackgroundContentBrush" />
+  <x:Null x:Key="DialogBackgroundContentBrush" />
+
+  <!-- Menu down the left, and the sub-menu under it -->
+  <SolidColorBrush x:Key="MenuText" Color="{StaticResource NoHesiPaintFaint}" />
+  <SolidColorBrush x:Key="MenuTextHover" Color="#B9C0CA" />
+  <SolidColorBrush x:Key="MenuTextSelected" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="MenuTextDisabled" Color="#3A404A" />
+  <SolidColorBrush x:Key="SubMenuText" Color="{StaticResource NoHesiPaintDim}" />
+  <SolidColorBrush x:Key="SubMenuTextHover" Color="#B9C0CA" />
+  <SolidColorBrush x:Key="SubMenuTextSelected" Color="{StaticResource NoHesiWhite}" />
+
+  <!-- Lists: the server list, the car and track lists -->
+  <SolidColorBrush x:Key="ItemBackgroundHover" Color="{StaticResource NoHesiHover}" />
+  <SolidColorBrush x:Key="ItemBackgroundSelected" Color="{StaticResource NoHesiTaillight}" />
+  <!-- The half-highlight behind a picked-out row. Content Manager ships a
+       commented-out diagonal-stripe version of this brush; here it is, in red,
+       because road hazard tape is exactly the right idea. -->
+  <LinearGradientBrush x:Key="ItemBackgroundSelectedSubtle" StartPoint="8,8" EndPoint="0,0"
+      MappingMode="Absolute" SpreadMethod="Repeat" Opacity="0.14">
+    <GradientStop Color="{StaticResource NoHesiTaillight}" Offset="0" />
+    <GradientStop Color="{StaticResource NoHesiTaillight}" Offset="0.2" />
+    <GradientStop Color="Transparent" Offset="0.2" />
+    <GradientStop Color="Transparent" Offset="1" />
+  </LinearGradientBrush>
+  <SolidColorBrush x:Key="ItemBorder" Color="{StaticResource NoHesiEdge}" />
+  <SolidColorBrush x:Key="ItemText" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="ItemTextHover" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="ItemTextSelected" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="ItemTextDisabled" Color="{StaticResource NoHesiPaintFaint}" />
+
+  <!-- Buttons -->
+  <SolidColorBrush x:Key="ButtonBackground" Color="{StaticResource NoHesiInput}" />
+  <SolidColorBrush x:Key="ButtonBackgroundHover" Color="{StaticResource NoHesiHover}" />
+  <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="ButtonBorder" Color="{StaticResource NoHesiEdge}" />
+  <SolidColorBrush x:Key="ButtonBorderHover" Color="#39414E" />
+  <SolidColorBrush x:Key="ButtonBorderPressed" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="ButtonText" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="ButtonTextHover" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="ButtonTextPressed" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="ButtonTextDisabled" Color="#525A66" />
+
+  <!-- The GO button. Green survives: it is the one control found by muscle memory. -->
+  <SolidColorBrush x:Key="GoButtonBackground" Color="{StaticResource NoHesiInput}" />
+  <SolidColorBrush x:Key="GoButtonBackgroundHover" Color="{StaticResource NoHesiHover}" />
+  <SolidColorBrush x:Key="GoButtonBackgroundPressed" Color="{StaticResource NoHesiGo}" />
+  <SolidColorBrush x:Key="GoButtonBorder" Color="#245C39" />
+  <SolidColorBrush x:Key="GoButtonBorderHover" Color="{StaticResource NoHesiGo}" />
+  <SolidColorBrush x:Key="GoButtonBorderPressed" Color="{StaticResource NoHesiGo}" />
+  <SolidColorBrush x:Key="GoButtonText" Color="{StaticResource NoHesiGo}" />
+  <SolidColorBrush x:Key="GoButtonTextHover" Color="{StaticResource NoHesiGo}" />
+  <SolidColorBrush x:Key="GoButtonTextPressed" Color="#06210F" />
+  <SolidColorBrush x:Key="GoButtonTextDisabled" Color="#525A66" />
+
+  <!-- Modern (outlined) buttons -->
+  <SolidColorBrush x:Key="ModernButtonBorder" Color="#59616D" />
+  <SolidColorBrush x:Key="ModernButtonBorderHover" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="ModernButtonBorderPressed" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="ModernButtonBorderDisabled" Color="#343B45" />
+  <SolidColorBrush x:Key="ModernButtonIconBackgroundPressed" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="ModernButtonIconForegroundPressed" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="ModernButtonText" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="ModernButtonTextHover" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="ModernButtonTextPressed" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="ModernButtonTextDisabled" Color="#525A66" />
+
+  <!-- Link buttons and hyperlinks: headlight blue, so links never read as selection -->
+  <SolidColorBrush x:Key="LinkButtonText" Color="{StaticResource NoHesiPaintDim}" />
+  <SolidColorBrush x:Key="LinkButtonTextHover" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="LinkButtonTextPressed" Color="{StaticResource NoHesiPaintFaint}" />
+  <SolidColorBrush x:Key="LinkButtonTextDisabled" Color="#343B45" />
+  <SolidColorBrush x:Key="Hyperlink" Color="{StaticResource NoHesiHeadlight}" />
+  <SolidColorBrush x:Key="HyperlinkHover" Color="#A8DBFF" />
+  <SolidColorBrush x:Key="HyperlinkDisabled" Color="#4A5563" />
+
+  <!-- Text boxes, combo boxes, everything you type into -->
+  <SolidColorBrush x:Key="InputBackground" Color="{StaticResource NoHesiInput}" />
+  <SolidColorBrush x:Key="InputBackgroundHover" Color="{StaticResource NoHesiHover}" />
+  <SolidColorBrush x:Key="InputBorder" Color="{StaticResource NoHesiEdge}" />
+  <SolidColorBrush x:Key="InputBorderHover" Color="#39414E" />
+  <SolidColorBrush x:Key="InputText" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="InputTextHover" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="InputTextDisabled" Color="#525A66" />
+  <SolidColorBrush x:Key="InputTextPlaceholder" Color="{StaticResource NoHesiPaintFaint}" />
+
+  <!-- The server list and every other data grid -->
+  <SolidColorBrush x:Key="DataGridBackground" Color="Transparent" />
+  <SolidColorBrush x:Key="DataGridForeground" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="DataGridCellBackground" Color="Transparent" />
+  <SolidColorBrush x:Key="DataGridCellBackgroundHover" Color="{StaticResource NoHesiHover}" />
+  <SolidColorBrush x:Key="DataGridCellBackgroundSelected" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="DataGridCellForeground" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="DataGridCellForegroundHover" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="DataGridCellForegroundSelected" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="DataGridHeaderBackground" Color="Transparent" />
+  <SolidColorBrush x:Key="DataGridHeaderBackgroundHover" Color="{StaticResource NoHesiHover}" />
+  <SolidColorBrush x:Key="DataGridHeaderBackgroundPressed" Color="{StaticResource NoHesiTaillightDim}" />
+  <SolidColorBrush x:Key="DataGridHeaderBackgroundSelected" Color="{StaticResource NoHesiTaillightDim}" />
+  <SolidColorBrush x:Key="DataGridHeaderForeground" Color="{StaticResource NoHesiPaintDim}" />
+  <SolidColorBrush x:Key="DataGridHeaderForegroundHover" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="DataGridHeaderForegroundPressed" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="DataGridHeaderForegroundSelected" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="DataGridGridLines" Color="{StaticResource NoHesiGrid}" />
+  <SolidColorBrush x:Key="DataGridDropSeparator" Color="{StaticResource NoHesiTaillight}" />
+
+  <!-- Scrollbars -->
+  <SolidColorBrush x:Key="ScrollBarBackground" Color="#101318" />
+  <SolidColorBrush x:Key="ScrollBarThumb" Color="#2E353F" />
+  <SolidColorBrush x:Key="ScrollBarThumbHover" Color="#3D4653" />
+  <SolidColorBrush x:Key="ScrollBarThumbDragging" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="Transparent" />
+  <SolidColorBrush x:Key="ScrollBarThumbBackgroundDragging" Color="Transparent" />
+  <SolidColorBrush x:Key="ScrollBarThumbBackgroundHover" Color="Transparent" />
+  <SolidColorBrush x:Key="ScrollBarThumbBorder" Color="#101318" />
+  <SolidColorBrush x:Key="ScrollBarThumbForeground" Color="{StaticResource NoHesiPaintDim}" />
+  <SolidColorBrush x:Key="ScrollBarThumbForegroundHover" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="ScrollBarThumbForegroundDragging" Color="{StaticResource NoHesiWhite}" />
+
+  <!-- Sliders -->
+  <SolidColorBrush x:Key="SliderSelectionBackground" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="SliderSelectionBorder" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="SliderThumbBackground" Color="{StaticResource NoHesiPaintDim}" />
+  <SolidColorBrush x:Key="SliderThumbBackgroundHover" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="SliderThumbBackgroundDragging" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="SliderThumbBackgroundDisabled" Color="{StaticResource NoHesiInput}" />
+  <SolidColorBrush x:Key="SliderThumbBorder" Color="{StaticResource NoHesiPaintDim}" />
+  <SolidColorBrush x:Key="SliderThumbBorderHover" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="SliderThumbBorderDragging" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="SliderThumbBorderDisabled" Color="{StaticResource NoHesiInput}" />
+  <SolidColorBrush x:Key="SliderTrackBackground" Color="{StaticResource NoHesiEdge}" />
+  <SolidColorBrush x:Key="SliderTrackBorder" Color="{StaticResource NoHesiEdge}" />
+  <SolidColorBrush x:Key="SliderTick" Color="{StaticResource NoHesiPaintFaint}" />
+  <SolidColorBrush x:Key="SliderTickDisabled" Color="{StaticResource NoHesiInput}" />
+
+  <!-- Cards and stripes: the detail panes over a preview image -->
+  <SolidColorBrush x:Key="CardBackground" Color="#D40E1013" />
+  <SolidColorBrush x:Key="CardBorder" Color="#D42A303A" />
+  <SolidColorBrush x:Key="CardHeaderBackground" Color="#E614171C" />
+  <SolidColorBrush x:Key="CardHeaderText" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="CardHeaderTextDisabled" Color="#525A66" />
+  <SolidColorBrush x:Key="DarkStripeBackground" Color="#C40E1013" />
+  <SolidColorBrush x:Key="DarkStripeText" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="SlightBackgroundHint" Color="#14FFB020" />
+  <SolidColorBrush x:Key="OverlayBackground" Color="#B308090B" />
+  <SolidColorBrush x:Key="OverlayForeground" Color="{StaticResource NoHesiPaint}" />
+
+  <!-- AC-specific odds and ends -->
+  <SolidColorBrush x:Key="FavouriteBrush" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="RatingBrush" Color="{StaticResource NoHesiSodium}" />
+  <SolidColorBrush x:Key="RatingCompactBackground" Color="{StaticResource NoHesiEdge}" />
+  <SolidColorBrush x:Key="TimePositiveDelta" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="GoldBrush" Color="#FFC53D" />
+  <SolidColorBrush x:Key="SilverBrush" Color="#C9D1DB" />
+  <SolidColorBrush x:Key="BronzeBrush" Color="#C77B4A" />
+  <SolidColorBrush x:Key="CarIconBackground" Color="Transparent" />
+  <SolidColorBrush x:Key="TrackOutlineAloneBackground" Color="Transparent" />
+  <Color x:Key="CarPowerColor">#FFB020</Color>
+  <Color x:Key="CarTorqueColor">#7FC7FF</Color>
+
+  <!-- Built-in text editor (config files, Lua, presets) -->
+  <SolidColorBrush x:Key="TextEditorBackground" Color="{StaticResource NoHesiAsphaltDeep}" />
+  <SolidColorBrush x:Key="TextEditorForeground" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="TextEditorLineNumbersForeground" Color="{StaticResource NoHesiPaintFaint}" />
+
+  <!-- Hints -->
+  <SolidColorBrush x:Key="FancyHintBackground" Color="#E60E1013" />
+  <SolidColorBrush x:Key="FancyHintText" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="FancyHintButtonBackground" Color="{StaticResource NoHesiInput}" />
+  <SolidColorBrush x:Key="FancyHintButtonBackgroundHover" Color="{StaticResource NoHesiHover}" />
+  <SolidColorBrush x:Key="FancyHintButtonBackgroundPressed" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="FancyHintButtonBorder" Color="{StaticResource NoHesiEdge}" />
+  <SolidColorBrush x:Key="FancyHintButtonBorderHover" Color="#39414E" />
+  <SolidColorBrush x:Key="FancyHintButtonBorderPressed" Color="{StaticResource NoHesiTaillight}" />
+  <SolidColorBrush x:Key="FancyHintButtonText" Color="{StaticResource NoHesiPaint}" />
+  <SolidColorBrush x:Key="FancyHintButtonTextHover" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="FancyHintButtonTextPressed" Color="{StaticResource NoHesiWhite}" />
+  <SolidColorBrush x:Key="FancyHintButtonTextDisabled" Color="#525A66" />
+
+  <!-- The glow while a race loads: taillights in the mirror -->
+  <DropShadowEffect x:Key="GameLoadingAnimationEffect" Color="{StaticResource NoHesiTaillight}" BlurRadius="40"
+      Direction="0" ShadowDepth="0" RenderingBias="Performance" Opacity="0.85" />
+</ResourceDictionary>

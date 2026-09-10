@@ -1,0 +1,847 @@
+{
+ "AccentColor": {
+  "default": "#1BA1E2",
+  "from": "cm",
+  "type": "Color"
+ },
+ "AccentOverlayColor": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "Color"
+ },
+ "BronzeBrush": {
+  "default": "#A52A2A",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ButtonBackground": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ButtonBackgroundHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ButtonBackgroundPressed": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ButtonBorder": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ButtonBorderHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ButtonBorderPressed": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ButtonText": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ButtonTextDisabled": {
+  "default": "#515151",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ButtonTextHover": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ButtonTextPressed": {
+  "default": "{DynamicResource AccentOverlayColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "CarIconBackground": {
+  "default": "Transparent",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "CarIconEffect": {
+  "default": null,
+  "from": "cm",
+  "type": "Null"
+ },
+ "CarPowerColor": {
+  "default": "#FF0000",
+  "from": "cm",
+  "type": "Color"
+ },
+ "CarTorqueColor": {
+  "default": "#FFFF00",
+  "from": "cm",
+  "type": "Color"
+ },
+ "CardBackground": {
+  "default": "#AA000000",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "CardBorder": {
+  "default": "#AA000000",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "CardHeaderBackground": {
+  "default": "#99000000",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "CardHeaderText": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "CardHeaderTextDisabled": {
+  "default": "#444444",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DarkStripeBackground": {
+  "default": "#AA222222",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DarkStripeText": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridBackground": {
+  "default": "Transparent",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridCellBackground": {
+  "default": "Transparent",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridCellBackgroundHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridCellBackgroundSelected": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridCellForeground": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridCellForegroundHover": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridCellForegroundSelected": {
+  "default": "{DynamicResource AccentOverlayColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridDropSeparator": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridForeground": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridGridLines": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridHeaderBackground": {
+  "default": "Transparent",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridHeaderBackgroundHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridHeaderBackgroundPressed": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridHeaderBackgroundSelected": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridHeaderForeground": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridHeaderForegroundHover": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridHeaderForegroundPressed": {
+  "default": "{DynamicResource AccentOverlayColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "DataGridHeaderForegroundSelected": {
+  "default": "{DynamicResource AccentOverlayColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "Description": {
+  "default": null,
+  "from": "theme",
+  "type": "String"
+ },
+ "DialogBackgroundContentBrush": {
+  "default": null,
+  "from": "cm",
+  "type": "Null"
+ },
+ "ErrorColor": {
+  "default": "#FF4400",
+  "from": "cm",
+  "type": "Color"
+ },
+ "FancyHintBackground": {
+  "default": "#C4000000",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonBackground": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonBackgroundHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonBackgroundPressed": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonBorder": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonBorderHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonBorderPressed": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonText": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonTextDisabled": {
+  "default": "#515151",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonTextHover": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonTextPressed": {
+  "default": "{DynamicResource AccentOverlayColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintButtonsEffect": {
+  "default": "Black",
+  "from": "cm",
+  "type": "DropShadowEffect"
+ },
+ "FancyHintText": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FancyHintTextEffect": {
+  "default": "Black",
+  "from": "cm",
+  "type": "DropShadowEffect"
+ },
+ "FavouriteBrush": {
+  "default": "#FF4500",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "FocusBorder": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GameLoadingAnimationEffect": {
+  "default": null,
+  "from": "cm",
+  "type": "Null"
+ },
+ "GoButtonBackground": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GoButtonBackgroundHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GoButtonBackgroundPressed": {
+  "default": "{DynamicResource GoColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GoButtonBorder": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GoButtonBorderHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GoButtonBorderPressed": {
+  "default": "{DynamicResource GoColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GoButtonText": {
+  "default": "{DynamicResource GoColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GoButtonTextDisabled": {
+  "default": "#515151",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GoButtonTextHover": {
+  "default": "{DynamicResource GoColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GoButtonTextPressed": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "GoColor": {
+  "default": "#00FF00",
+  "from": "cm",
+  "type": "Color"
+ },
+ "GoldBrush": {
+  "default": "#FFFF00",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "HighlightedBackground": {
+  "default": null,
+  "from": "referenced",
+  "type": "SolidColorBrush"
+ },
+ "Hyperlink": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "HyperlinkDisabled": {
+  "default": "#717171",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "HyperlinkHover": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "InputBackground": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "InputBackgroundHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "InputBorder": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "InputBorderHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "InputText": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "InputTextDisabled": {
+  "default": "#717171",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "InputTextHover": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "InputTextPlaceholder": {
+  "default": "Gray",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ItemBackgroundHover": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ItemBackgroundSelected": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ItemBackgroundSelectedSubtle": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ItemBorder": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ItemText": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ItemTextDisabled": {
+  "default": "#717171",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ItemTextHover": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ItemTextSelected": {
+  "default": "{DynamicResource AccentOverlayColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "LinkButtonText": {
+  "default": "#717171",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "LinkButtonTextDisabled": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "LinkButtonTextHover": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "LinkButtonTextPressed": {
+  "default": "#515151",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "MenuText": {
+  "default": "#515151",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "MenuTextDisabled": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "MenuTextHover": {
+  "default": "#919191",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "MenuTextSelected": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ModernButtonBorder": {
+  "default": "#919191",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ModernButtonBorderDisabled": {
+  "default": "#515151",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ModernButtonBorderHover": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ModernButtonBorderPressed": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ModernButtonIconBackgroundPressed": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ModernButtonIconForegroundPressed": {
+  "default": "{DynamicResource AccentOverlayColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ModernButtonText": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ModernButtonTextDisabled": {
+  "default": "#515151",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ModernButtonTextHover": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ModernButtonTextPressed": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "OverlayBackground": {
+  "default": "#66000000",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "OverlayEffect": {
+  "default": null,
+  "from": "cm",
+  "type": "DropShadowEffect"
+ },
+ "OverlayForeground": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "PopupBackground": {
+  "default": "#252526",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ProgressBackground": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "RatingBrush": {
+  "default": "#FFFF00",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "RatingCompactBackground": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarBackground": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarThumb": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarThumbBackground": {
+  "default": "Transparent",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarThumbBackgroundDragging": {
+  "default": "Transparent",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarThumbBackgroundHover": {
+  "default": "Transparent",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarThumbBorder": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarThumbDragging": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarThumbForeground": {
+  "default": "#717171",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarThumbForegroundDragging": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarThumbForegroundHover": {
+  "default": "#919191",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "ScrollBarThumbHover": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SeparatorBackground": {
+  "default": "#3E3E42",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SilverBrush": {
+  "default": "#C0C0C0",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderSelectionBackground": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderSelectionBorder": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderThumbBackground": {
+  "default": "#717171",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderThumbBackgroundDisabled": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderThumbBackgroundDragging": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderThumbBackgroundHover": {
+  "default": "#919191",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderThumbBorder": {
+  "default": "#717171",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderThumbBorderDisabled": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderThumbBorderDragging": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderThumbBorderHover": {
+  "default": "#919191",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderTick": {
+  "default": "#717171",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderTickDisabled": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderTrackBackground": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SliderTrackBorder": {
+  "default": "#333333",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SlightBackgroundHint": {
+  "default": "#11888888",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SubMenuText": {
+  "default": "#717171",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SubMenuTextHover": {
+  "default": "#515151",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "SubMenuTextSelected": {
+  "default": "#FFFFFF",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "TextEditorBackground": {
+  "default": null,
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "TextEditorForeground": {
+  "default": null,
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "TextEditorLineNumbersForeground": {
+  "default": null,
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "TextEditorSyntaxIni": {
+  "default": null,
+  "from": "cm",
+  "type": "String"
+ },
+ "TextEditorSyntaxLog": {
+  "default": null,
+  "from": "cm",
+  "type": "String"
+ },
+ "ThumbnailBackground": {
+  "default": null,
+  "from": "referenced",
+  "type": "SolidColorBrush"
+ },
+ "ThumbnailBackgroundColor": {
+  "default": "#EEEEEE",
+  "from": "theme",
+  "type": "Color"
+ },
+ "TimePositiveDelta": {
+  "default": "#A52A2A",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "TrackOutlineAloneBackground": {
+  "default": "Transparent",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "TrackOutlineAloneEffect": {
+  "default": null,
+  "from": "cm",
+  "type": "Null"
+ },
+ "UltimateBrush": {
+  "default": null,
+  "from": "referenced",
+  "type": "SolidColorBrush"
+ },
+ "WindowBackground": {
+  "default": "{DynamicResource WindowBackgroundColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "WindowBackgroundColor": {
+  "default": "#252526",
+  "from": "cm",
+  "type": "Color"
+ },
+ "WindowBackgroundContentBrush": {
+  "default": null,
+  "from": "cm",
+  "type": "Null"
+ },
+ "WindowBorder": {
+  "default": "#01000000",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "WindowBorderActive": {
+  "default": "{DynamicResource AccentColor}",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "WindowHeaderGradient": {
+  "default": "Transparent",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "WindowText": {
+  "default": "#C1C1C1",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ },
+ "WindowTextReadOnly": {
+  "default": "#717171",
+  "from": "cm",
+  "type": "SolidColorBrush"
+ }
+}

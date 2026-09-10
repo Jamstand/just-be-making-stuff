@@ -13,6 +13,10 @@ and an 18-segment RPM bar with shift lights.
 They look and behave the same. If you have CSP, use the Lua one — it's fewer
 moving parts and there is nothing to switch on.
 
+Also in here, unrelated to the app: **[a No Hesi theme for Content
+Manager](content-manager/)** — taillight red on cold asphalt, with a checker
+and a preview generator alongside it.
+
 ## Lua version (CSP)
 
 Copy `apps/lua/GearSpeedo/` into `<AC root>/apps/lua/`, so you end up with:
