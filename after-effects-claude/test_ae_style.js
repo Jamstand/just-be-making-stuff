@@ -74,6 +74,59 @@ function frame(level, rg, bg, seed) {
   const real = await style.studyFile(dl, { interval_s: 0.5, ffmpeg: path.join(fakebin, "ffmpeg"), source: "https://www.tiktok.com/t/ZP8vojUtd/", fps: probe.fps });
   check("studyFile over ffmpeg: the fake reel's two cuts and three shots", real.entry.cuts === 2 && real.entry.shots.length === 3 && real.entry.source.startsWith("https://"), JSON.stringify(real.entry.shot_lengths_s));
 
+  // ---- a truncated download: frames stop part-way, ffmpeg still exits 0 → refused, never written
+  const truncVid = path.join(HOME, "ClaudeAssistantStudy", "trunc.mp4");
+  fs.writeFileSync(truncVid, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(dl, "utf8")), { truncate_at: 5 })));
+  const tprobe = await style.probeVideo(truncVid, { ffmpeg: path.join(fakebin, "ffmpeg") });
+  let covErr = null;
+  try { await style.studyFile(truncVid, { interval_s: 0.5, ffmpeg: path.join(fakebin, "ffmpeg"), expect_duration_s: tprobe.duration_s }); } catch (err) { covErr = err.message; }
+  check("studyFile: a decode that covers 5 s of a 12 s file is refused with ffmpeg's complaint, not written as complete",
+    /decoded only 5\.0 s of a 12\.0 s file/.test(covErr || "") && /partial file/.test(covErr || ""), covErr);
+  const shortOk = await style.studyFile(truncVid, { interval_s: 0.5, ffmpeg: path.join(fakebin, "ffmpeg") });
+  check("studyFile: without an expected length the decode warnings still ride along", shortOk.entry.samples_counted === 10 && shortOk.warnings.some((w) => /ffmpeg reported/.test(w)), JSON.stringify(shortOk.warnings));
+
+  // ---- reads never move a damaged file; a re-study keeps the Gemini notes
+  const p3 = style.loadProfile("keep notes");
+  style.mergeEntry(p3.profile, Object.assign({}, e, { source: "reel-1", content_notes: "night rolling shots" }));
+  style.mergeEntry(p3.profile, Object.assign({}, e, { source: "reel-1", studied: "again" }));
+  check("mergeEntry: re-studying a source keeps its content notes and says so", p3.profile.edits.length === 1 && p3.profile.edits[0].content_notes === "night rolling shots" && p3.profile.edits[0].notes_kept === true);
+  style.saveProfile(p3.profile, p3.file);
+  check("readProfile: reads back the saved profile; listSources names the entries", style.readProfile("keep notes").profile.edits.length === 1 && style.listSources(style.readProfile("keep notes").profile).join() === "reel-1");
+  fs.writeFileSync(p3.file, "{ broken");
+  let readErr = null; try { style.readProfile("keep notes"); } catch (err) { readErr = err.message; }
+  check("readProfile: a damaged file throws and stays exactly where it is", readErr && fs.existsSync(p3.file) && fs.readFileSync(p3.file, "utf8") === "{ broken", readErr);
+  check("saveProfile: no stray temp files left beside the profile", !fs.readdirSync(style.STYLE_DIR).some((n) => /\.tmp/.test(n)), fs.readdirSync(style.STYLE_DIR).join());
+
+  // ---- links as users paste them
+  check("extractLinks: trailing punctuation off, scheme-less kept, repeats dropped, short links kept",
+    slash.extractLinks("/train: https://www.instagram.com/reel/X/?igsh=abc==, https://www.tiktok.com/t/ZP8vojUtd/. (https://a/1) www.tiktok.com/t/Q/ https://a/1 youtu.be/abc").join("|")
+      === "https://www.instagram.com/reel/X/?igsh=abc==|https://www.tiktok.com/t/ZP8vojUtd/|https://a/1|https://www.tiktok.com/t/Q/|https://youtu.be/abc",
+    JSON.stringify(slash.extractLinks("/train: https://www.instagram.com/reel/X/?igsh=abc==, https://www.tiktok.com/t/ZP8vojUtd/. (https://a/1) www.tiktok.com/t/Q/ https://a/1 youtu.be/abc")));
+  check("/train: and /train, before the links still expand; /trainn with links in Claude Music is redirected, not told it needs links",
+    slash.slashRoute("/train: https://a/1", "assistant").kind === "expand" && slash.slashRoute("/train,https://a/1", "assistant").kind === "expand"
+    && /Claude Assistant panel/.test(slash.slashRoute("/trainn https://a/1", "music").note) && /Claude Assistant panel/.test(slash.expandSlash("/style", "music")));
+
+  // ---- the real ffmpeg, when this machine has one: a synthetic three-shot mp4, then its truncated twin
+  const realFfmpeg = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"].find((p) => fs.existsSync(p));
+  if (realFfmpeg) {
+    const { execFileSync } = require("child_process");
+    const vid = path.join(HOME, "real.mp4");
+    execFileSync(realFfmpeg, ["-y", "-v", "error", "-f", "lavfi", "-i", "color=c=0x282828:s=320x180:r=30:d=4", "-f", "lavfi", "-i", "color=c=0xE6C8C8:s=320x180:r=30:d=4",
+      "-f", "lavfi", "-i", "color=c=0x5A5A78:s=320x180:r=30:d=4", "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]", "-map", "[v]", "-c:v", "mpeg4", "-q:v", "3", "-movflags", "+faststart", vid]);
+    const rp = await style.probeVideo(vid, { ffmpeg: realFfmpeg });
+    const rr = await style.studyFile(vid, { interval_s: 0.5, ffmpeg: realFfmpeg, expect_duration_s: rp.duration_s, fps: rp.fps, source: "real" });
+    check("REAL ffmpeg (" + realFfmpeg + "): probe 12 s / 30 fps / 320x180; study finds 2 cuts, 3 shots, warm middle, cool end",
+      rp.duration_s === 12 && rp.fps === 30 && rp.width === 320 && rp.height === 180 && rr.entry.cuts === 2 && rr.entry.shots.length === 3 && rr.entry.shots[1].cast_rg > 5 && rr.entry.shots[2].cast_bg > 5 && rr.warnings.length === 0,
+      JSON.stringify({ rp, entry: rr.entry, warnings: rr.warnings }));
+    const bytes = fs.readFileSync(vid), trunc = path.join(HOME, "real-trunc.mp4");
+    fs.writeFileSync(trunc, bytes.subarray(0, Math.floor(bytes.length * 0.55)));
+    const tp = await style.probeVideo(trunc, { ffmpeg: realFfmpeg });
+    let realErr = null;
+    try { await style.studyFile(trunc, { interval_s: 0.5, ffmpeg: realFfmpeg, expect_duration_s: tp.duration_s }); } catch (err) { realErr = err.message; }
+    check("REAL ffmpeg: the file cut at 55% still probes as 12 s but the study is refused (" + (realErr || "").slice(0, 60) + "…)",
+      tp.duration_s === 12 && /decoded only|is it a video|ffmpeg failed/.test(realErr || ""), realErr);
+  } else console.log("  --  no real ffmpeg on this machine; the fake covers the wire");
+
   // ---- Gemini over a fake wire (upload wrapped, poll bare, thoughts dropped)
   const gCalls = [];
   const fakeHttp = async (url, opts) => {

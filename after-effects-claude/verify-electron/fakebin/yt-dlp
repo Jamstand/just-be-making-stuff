@@ -11,4 +11,6 @@ const out = template.replace("%(ext)s", "mp4");
 fs.writeFileSync(out, JSON.stringify({ fake: "video", url, duration: 12, fps: 30, width: 1080, height: 1920,
   // three shots: dark neutral 0-4 s, bright warm 4-8 s, mid cool 8-12 s
   shots: [{ until: 4, level: 40, rg: 0, bg: 0 }, { until: 8, level: 200, rg: 30, bg: 0 }, { until: 99, level: 90, rg: 0, bg: 25 }] }));
-process.stdout.write("[download] 100% of 1.00MiB\n");
+// as chatty as a real fragmented download: hundreds of progress lines (a
+// reader that never drains stdout would stall on this)
+for (let i = 0; i <= 2000; i++) process.stdout.write("[download] " + (i / 20).toFixed(1) + "% of 12.34MiB at 3.21MiB/s ETA 00:03 (frag " + i + "/2000)\n");

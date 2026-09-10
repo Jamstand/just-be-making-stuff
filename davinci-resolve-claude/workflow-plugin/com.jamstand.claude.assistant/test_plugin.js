@@ -973,6 +973,12 @@ async function main() {
   check("transient 503s are retried away with backoff",
         rSt.ok && rSt.text.includes('"valid":true') && flaky === 2,
         rSt.text + " flaky=" + flaky);
+  check("links: trailing punctuation stripped, scheme-less www/tiktok links kept, repeats dropped, /train: accepted",
+        tools.extractLinks("/train: https://www.instagram.com/reel/X/?igsh=abc==, https://www.tiktok.com/t/ZP8vojUtd/. (https://a/1) www.tiktok.com/t/Q/ https://a/1").join("|")
+          === "https://www.instagram.com/reel/X/?igsh=abc==|https://www.tiktok.com/t/ZP8vojUtd/|https://a/1|https://www.tiktok.com/t/Q/"
+        && (tools.expandSlash("/train: https://a/1") || "").includes("1 edit(s)")
+        && tools.slashRoute("/train, https://a/1").kind === "expand",
+        JSON.stringify(tools.extractLinks("/train: https://www.instagram.com/reel/X/?igsh=abc==, https://www.tiktok.com/t/ZP8vojUtd/. (https://a/1) www.tiktok.com/t/Q/ https://a/1")));
   check("/trainhttps://… without a space and /style route as commands",
         tools.slashRoute("/trainhttps://tiktok.com/x").kind === "expand"
         && /style_profile/.test(tools.expandSlash("/style") || "")

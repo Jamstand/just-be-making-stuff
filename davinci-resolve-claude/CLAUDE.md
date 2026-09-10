@@ -664,3 +664,24 @@ fakebin/yt-dlp (JSON "video" with a shot plan), fakebin/ffmpeg (probe
 + rawvideo). Not live: real yt-dlp against Instagram/TikTok share links
 (needs cookies for some; the error text surfaces yt-dlp's stderr), real
 ffmpeg output parsing, Gemini with a real key.
+Review (3 lenses, 17 confirmed, all fixed): ffmpeg exits 0 on a
+truncated mp4 and just stops emitting frames — sampleFrames now carries
+ffmpeg's stderr lines on the frames array (decode_errors) and studyFile
+takes expect_duration_s (the probe's container length) and THROWS when
+coverage falls short ("decoded only X s of Y s… delete it and study_url
+again"), so a partial download is never written as a complete edit;
+verified against the real /usr/bin/ffmpeg here with a lavfi three-shot
+mp4 cut at 55 %. readProfile() is the side-effect-free reader
+(style_profile, watch_video); only loadProfile (study_edit's write path)
+sets a damaged file aside. watch_video merges only into the entry with
+exactly that source (or the same file when no source is given) and
+otherwise says which sources exist — never "the last entry". mergeEntry
+keeps content_notes across a re-study (notes_kept). Temp files are
+<file>.tmp-<pid>-<rand> in both panels. yt-dlp runs with --no-progress
+and a drained stdout (a chatty fragmented download used to stall to the
+180 s timeout). extractLinks (both panels) strips trailing punctuation,
+adds https:// to www./tiktok/instagram/youtube links, dedupes; STUDY_RE
+also accepts /train: and /train,. The "/" menu never reopens over a line
+that already has arguments and acceptSlash keeps the tail. probeVideo
+swaps width/height for a ±90° display matrix. /style and style_profile
+in Claude Music point at the Claude Assistant panel.

@@ -75,8 +75,20 @@ function profileFile(name) {
   return path.join(STYLE_DIR, String(name || "car-edits").replace(/[^\w.-]+/g, "_").slice(0, 60) + ".json");
 }
 
-// Load with corruption survival: damaged bytes are kept beside the file,
-// never overwritten silently — hours of study may be recoverable by hand.
+// Read without side effects: throws with the parse error when the file is
+// damaged (style_profile and watch_video use this; only a study may set a
+// damaged file aside).
+function readProfile(name) {
+  const file = profileFile(name);
+  if (!fs.existsSync(file)) return { profile: null, file };
+  const profile = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (!profile || !Array.isArray(profile.edits)) throw new Error("profile has no edits array");
+  return { profile, file };
+}
+
+// Load for WRITING, with corruption survival: damaged bytes are kept beside
+// the file, never overwritten silently — hours of study may be recoverable
+// by hand.
 function loadProfile(name) {
   fs.mkdirSync(STYLE_DIR, { recursive: true });
   const file = profileFile(name);
@@ -98,14 +110,19 @@ function loadProfile(name) {
 function saveProfile(profile, file) {
   profile.aggregate = styleAggregate(profile.edits);
   profile.updated = new Date().toISOString();
-  const tmp = file + ".tmp";
+  // a per-write temp name: both panels may save the same profile at once
+  const tmp = file + ".tmp-" + process.pid + "-" + Math.random().toString(36).slice(2, 8);
   fs.writeFileSync(tmp, JSON.stringify(profile, null, 2));
   fs.renameSync(tmp, file);                                   // atomic: no half-written profiles
   return profile.aggregate;
 }
 
-// A re-study of the same source replaces its entry; nothing is blended.
+// A re-study of the same source replaces its measurements; nothing is
+// blended — but the Gemini content read (the slow, quota-costing half) is
+// carried over when the new entry has none.
 function mergeEntry(profile, entry) {
+  const old = profile.edits.find((e) => e.source === entry.source);
+  if (old && old.content_notes && !entry.content_notes) { entry.content_notes = old.content_notes; entry.notes_kept = true; }
   profile.edits = profile.edits.filter((e) => e.source !== entry.source);
   profile.edits.push(entry);
   return profile;
@@ -117,6 +134,7 @@ function listProfiles() {
       .map((n) => n.replace(/\.json$/, ""));
   } catch (e) { return []; }
 }
+function listSources(profile) { return (profile && profile.edits ? profile.edits : []).map((e) => e.source); }
 
 // Compact for the model: the aggregate plus one line per edit and the
 // content notes trimmed.
@@ -162,8 +180,9 @@ function downloadVideo(url, dir, opts) {
     const stamp = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     const template = path.join(dir, "study_" + stamp + ".%(ext)s");
     const child = spawn(bin, ["-f", "mp4/bv*+ba/b", "--merge-output-format", "mp4", "--no-playlist", "--no-warnings",
-                              "-o", template, url], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+                              "--no-progress", "-o", template, url], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let err = "";
+    child.stdout.resume();                                     // never let a chatty download fill the pipe and stall
     child.stderr.on("data", (d) => { err += d; });
     const timer = setTimeout(() => { try { child.kill(); } catch (e) {} rejectP(new Error("Download timed out after 180s.")); }, opts.timeoutMs || 180000);
     child.on("error", (e) => { clearTimeout(timer); rejectP(new Error("Could not run yt-dlp: " + e.message)); });
@@ -192,9 +211,13 @@ function probeVideo(file, opts) {
       const d = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(err);
       const f = /(\d+(?:\.\d+)?)\s*fps/.exec(err);
       const s = /,\s*(\d{2,5})x(\d{2,5})/.exec(err);
+      const rot = /displaymatrix:\s*rotation of\s*(-?\d+(?:\.\d+)?)\s*degrees/i.exec(err);
       if (!d) return rejectP(new Error("ffmpeg could not read " + path.basename(file) + ": " + err.trim().slice(-300)));
+      let w = s ? Number(s[1]) : null, h = s ? Number(s[2]) : null;
+      const rotation = rot ? ((Math.round(Number(rot[1])) % 360) + 360) % 360 : 0;
+      if ((rotation === 90 || rotation === 270) && w && h) { const t = w; w = h; h = t; }   // phone video: display size, not coded size
       resolveP({ duration_s: +(Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3])).toFixed(2),
-                 fps: f ? Number(f[1]) : null, width: s ? Number(s[1]) : null, height: s ? Number(s[2]) : null });
+                 fps: f ? Number(f[1]) : null, width: w, height: h, rotation });
     });
   });
 }
@@ -222,6 +245,10 @@ function sampleFrames(file, opts) {
       if (code !== 0 && !n) return rejectP(new Error("ffmpeg failed (exit " + code + "): " + err.trim().slice(-300)));
       const frames = [];
       for (let i = 0; i < n; i++) frames.push({ t: +(i * interval).toFixed(3), rgb: raw.subarray(i * size, (i + 1) * size) });
+      // ffmpeg exits 0 on a truncated file and just stops emitting: what it
+      // complained about rides along so the caller can judge coverage.
+      frames.decode_errors = err.trim() ? err.trim().split(/\r?\n/).slice(-5) : [];
+      frames.exit_code = code;
       resolveP(frames);
     });
   });
@@ -256,6 +283,14 @@ async function studyFile(file, opts) {
   const threshold = Number(opts.cut_threshold) || 8;
   const frames = opts.frames || await sampleFrames(file, { interval_s: interval, ffmpeg: opts.ffmpeg });
   if (frames.length < 2) throw new Error("Only " + frames.length + " frame(s) came out of " + path.basename(file) + " — is it a video?");
+  // A truncated or damaged file decodes part-way and ffmpeg still exits 0:
+  // a study of the readable prefix must never be written as the whole edit.
+  const expect = Number(opts.expect_duration_s) || 0;
+  const covered = frames.length * interval;
+  if (expect && covered < expect - Math.max(1.5, interval * 2))
+    throw new Error("ffmpeg decoded only " + covered.toFixed(1) + " s of a " + expect.toFixed(1) + " s file — the download is "
+      + "truncated or damaged; delete it and study_url the link again"
+      + (frames.decode_errors && frames.decode_errors.length ? " (ffmpeg: " + frames.decode_errors.join(" | ").slice(0, 300) + ")" : "") + ".");
   const fps = Number(opts.fps) || 30;
   const entry = { source: String(opts.source || path.basename(file)), file, studied: new Date().toISOString(),
     studied_with: "after-effects", samples_counted: frames.length, interval_s: interval, cut_threshold: threshold,
@@ -286,6 +321,8 @@ async function studyFile(file, opts) {
   if (diffs.length && hot > diffs.length * 0.3)
     warnings.push("Over 30% of neighbour diffs exceed the cut threshold — the edit may cut faster than this stride "
       + "resolves; re-study with a smaller interval_s.");
+  if (frames.decode_errors && frames.decode_errors.length)
+    warnings.push("ffmpeg reported while decoding: " + frames.decode_errors.join(" | ").slice(0, 300));
   return { entry, diffs, warnings };
 }
 
@@ -405,6 +442,6 @@ async function watchVideo(doReq, key, file, opts) {
 
 module.exports = { STYLE_DIR, STUDY_DIR, CONFIG_FILE, SAMPLE_W, SAMPLE_H, GEMINI_HOST, GEMINI_MODEL_DEFAULT,
   WATCH_PROMPT_DEFAULT, SETUP_HINT, readConfig, geminiKey, percentile, detectCuts, styleAggregate, profileFile,
-  loadProfile, saveProfile, mergeEntry, listProfiles, summariseProfile, findBin, findYtDlp, findFfmpeg,
+  readProfile, loadProfile, saveProfile, mergeEntry, listProfiles, listSources, summariseProfile, findBin, findYtDlp, findFfmpeg,
   downloadVideo, probeVideo, sampleFrames, frameStats, frameDiff, timecode, studyFile, httpsRequest, geminiCall,
   geminiErrorText, geminiUploadVideo, watchVideo };

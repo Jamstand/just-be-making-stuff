@@ -1341,10 +1341,12 @@ tool("study_edit",
     if (!fs.existsSync(file)) throw new Error("No such file: " + file);
     let probe = null;
     try { probe = await style.probeVideo(file); } catch (e) {}
-    const loaded = style.loadProfile(a.name || "car-edits");
+    // the study first (seconds), then load → merge → save in one go
     const r = await style.studyFile(file, { interval_s: a.interval_s, cut_threshold: a.cut_threshold,
-                                            source: a.source, fps: probe && probe.fps });
-    if (probe && probe.duration_s) r.entry.duration_s = probe.duration_s;   // the container's exact length
+                                            source: a.source, fps: probe && probe.fps,
+                                            expect_duration_s: probe && probe.duration_s });   // throws on a truncated decode
+    if (probe && probe.duration_s) r.entry.duration_s = probe.duration_s;   // the container's exact length (coverage checked above)
+    const loaded = style.loadProfile(a.name || "car-edits");
     style.mergeEntry(loaded.profile, r.entry);
     const aggregate = style.saveProfile(loaded.profile, loaded.file);
     const e = r.entry;
@@ -1354,6 +1356,7 @@ tool("study_edit",
       shots: e.shots.length, shot_lengths_s: e.shot_lengths_s.slice(0, 60), diff_series: r.diffs.slice(0, 150),
       profile_file: loaded.file, aggregate };
     if (r.warnings.length) out.stride_warning = r.warnings.join(" ");
+    if (e.notes_kept) out.notes_kept = "the Gemini content notes from the earlier study of this source were kept";
     if (loaded.recoveredFrom)
       out.profile_recovered = "Previous profile was unreadable; preserved at " + loaded.recoveredFrom + " (nothing was overwritten silently).";
     return out;
@@ -1379,13 +1382,19 @@ tool("watch_video",
     const w = await style.watchVideo(doReq, key, file, { question: a.question, model: a.model, low_res: a.low_res });
     const out = { model: w.model, answer: w.answer, tokens: w.tokens };
     if (a.profile && w.answer) {
+      // merge only into the entry for THIS source (or this file) — never
+      // into "the last one", which in a /train run is the previous link
       try {
-        const loaded = style.loadProfile(a.profile);
+        const read = style.readProfile(a.profile);
         const src = String(a.source || "");
-        const entry = loaded.profile.edits.find((e) => e.source === src) || loaded.profile.edits[loaded.profile.edits.length - 1];
-        if (entry) { entry.content_notes = w.answer; style.saveProfile(loaded.profile, loaded.file);
-                     out.merged_into = { profile: path.basename(loaded.file), source: entry.source }; }
-        else out.merge_note = "profile has no entries yet";
+        const entry = read.profile && (read.profile.edits.find((e) => e.source === src)
+          || (!src && read.profile.edits.find((e) => e.file === file)));
+        if (entry) { entry.content_notes = w.answer; style.saveProfile(read.profile, read.file);
+                     out.merged_into = { profile: path.basename(read.file), source: entry.source }; }
+        else out.merge_note = read.profile
+          ? "no entry with source " + JSON.stringify(src || "(none given)") + " in " + path.basename(read.file)
+            + " — run study_edit with that source first; entries: " + JSON.stringify(style.listSources(read.profile))
+          : "no profile " + JSON.stringify(a.profile) + " yet — run study_edit first";
       } catch (e) { out.merge_note = "could not merge: " + e.message; }
     }
     return out;
@@ -1435,11 +1444,16 @@ tool("style_profile",
   [], { readonly: true }, async (s, a) => {
     const names = style.listProfiles();
     const want = String(a.name || "car-edits");
+    const noProfile = PANEL === "music"
+      ? "Nothing studied yet — /train <links> in the Claude Assistant panel (Window › Extensions › Claude Assistant) builds one."
+      : "Nothing studied yet — /train <links> (study_url → study_edit → watch_video) builds one.";
     if (!fs.existsSync(style.profileFile(want)))
-      return { profile: want, exists: false, profiles: names,
-        hint: names.length ? "Pick one of profiles." : "Nothing studied yet — /train <links> (study_url → study_edit → watch_video) builds one." };
-    const loaded = style.loadProfile(want);
-    return Object.assign({ file: loaded.file, exists: true, profiles: names }, style.summariseProfile(loaded.profile, a.notes_chars));
+      return { profile: want, exists: false, profiles: names, hint: names.length ? "Pick one of profiles." : noProfile };
+    let read;
+    try { read = style.readProfile(want); }                   // a READ never moves the file
+    catch (e) { return { profile: want, file: style.profileFile(want), exists: true, unreadable: true, error: e.message,
+      hint: "The profile file is damaged; the next study_edit sets it aside (kept as .corrupt-*) and starts fresh." }; }
+    return Object.assign({ file: read.file, exists: true, profiles: names }, style.summariseProfile(read.profile, a.notes_chars));
   });
 
 tool("download_file",

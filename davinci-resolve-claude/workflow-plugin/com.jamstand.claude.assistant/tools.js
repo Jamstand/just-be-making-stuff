@@ -3043,7 +3043,10 @@ tool("study_edit",
     }
     profile.aggregate = styleAggregate(profile.edits);
     profile.updated = new Date().toISOString();
-    const tmpFile = profFile + ".tmp";
+    // a per-write temp name: the After Effects panel may save the same
+    // profile at the same moment
+    const tmpFile = profFile + ".tmp-" + process.pid + "-"
+      + Math.random().toString(36).slice(2, 8);
     fs.writeFileSync(tmpFile, JSON.stringify(profile, null, 2));
     fs.renameSync(tmpFile, profFile);    // atomic: no half-written profiles
 
@@ -3303,7 +3306,8 @@ tool("watch_video",
           || prof.edits[prof.edits.length - 1];
         if (entry) {
           entry.content_notes = answer;
-          const tmp = pf + ".tmp";
+          const tmp = pf + ".tmp-" + process.pid + "-"
+            + Math.random().toString(36).slice(2, 8);
           fs.writeFileSync(tmp, JSON.stringify(prof, null, 2));
           fs.renameSync(tmp, pf);
           out.merged_into = { profile: path.basename(pf),
@@ -3382,6 +3386,23 @@ const SLASH_COMMANDS = [
   { name: "copy", args: "", local: true, description: "Copy the whole conversation as text" },
 ];
 
+// The links in a line: http(s) plus scheme-less www./tiktok/instagram/
+// youtube ones (https:// added), trailing punctuation stripped, no repeats
+// — the same source label the After Effects panel would write.
+function extractLinks(text) {
+  const t = String(text || "");
+  const raw = t.match(/(?:https?:\/\/|www\.|(?:^|\s)(?:[a-z0-9-]+\.)?(?:tiktok\.com|instagram\.com|youtube\.com|youtu\.be)\/)\S*/gi) || [];
+  const out = [];
+  for (let u of raw) {
+    u = u.trim();
+    if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+    u = u.replace(/[),.;:!?'"\]]+$/, (mm) => (mm.startsWith(")") && (u.match(/\(/g) || []).length >= (u.match(/\)/g) || []).length ? mm.slice(1) : ""));
+    u = u.replace(/[),.;:!?'"\]]+$/, "");
+    if (/^https?:\/\/[^\/\s]+\/?/.test(u) && !out.includes(u)) out.push(u);
+  }
+  return out;
+}
+
 function expandSlash(text) {
   const t = String(text || "").trim();
   if (/^\/style\b/i.test(t))
@@ -3390,12 +3411,12 @@ function expandSlash(text) {
       + "content notes — then how you would apply it to the current "
       + "timeline. If there is no profile yet, say so and point at "
       + "/study <links>.";
-  // typo-tolerant (/stuudy, /trainn) and forgiving of a missing space
-  // before the first link (/trainhttps://…)
-  const m = /^\/(stu+d+y|trai+n+)(?=\s|$|https?:)/i.exec(t);
+  // typo-tolerant (/stuudy, /trainn) and forgiving of a missing space or a
+  // colon/comma before the first link (/trainhttps://…, /train: …)
+  const m = /^\/(stu+d+y|trai+n+)(?=[\s:,;]|$|https?:)/i.exec(t);
   if (!m) return null;
   const typed = /^t/i.test(m[1]) ? "/train" : "/study";
-  const urls = t.match(/https?:\/\/\S+/g) || [];
+  const urls = extractLinks(t);
   if (!urls.length)
     return "The user typed " + typed + " without links. Explain briefly: "
       + typed + " <link> [<link> ...] downloads each video (TikTok, "
@@ -3429,7 +3450,7 @@ function slashRoute(text) {
   const t = String(text || "").trim();
   const expanded = expandSlash(t);
   if (expanded) return { kind: "expand", prompt: expanded };
-  const m = /^\/([a-z][a-z-]*)(?=$|https?:)/i.exec(t.split(/\s+/)[0] || "");
+  const m = /^\/([a-z][a-z-]*)(?=$|https?:)/i.exec((t.split(/\s+/)[0] || "").replace(/[:,;]+$/, ""));
   if (m) {
     const name = m[1].toLowerCase();
     const local = SLASH_COMMANDS.find((c) => c.name === name && c.local);
@@ -3539,9 +3560,11 @@ function downloadVideo(url, dir) {
     const template = path.join(dir, "study_" + stamp + ".%(ext)s");
     const child = spawn(bin, ["-f", "mp4/bv*+ba/b",
                               "--merge-output-format", "mp4",
-                              "--no-playlist", "-o", template, url],
+                              "--no-playlist", "--no-progress",
+                              "-o", template, url],
                         { stdio: ["ignore", "pipe", "pipe"] });
     let err = "";
+    child.stdout.resume();     // a chatty download must never fill the pipe and stall
     child.stderr.on("data", (d) => { err += d; });
     const timer = setTimeout(() => { try { child.kill(); } catch (e) {}
       rejectP(new ResolveError("Download timed out after 180s.")); },
@@ -3972,6 +3995,6 @@ module.exports = {
   sampleDi, simStats, refineCdl, measureBuffer, measureItem, simHueStats, hueCost, refineHueRecipe, TOLERANCE_PCT,
   labOf, deltaE2000, tiffDeltaE, statsDistance,
   rgbToHsv, hsvToRgb, P_LEVELS, HUE_SECTORS, HUE_BINS, SKIN_LINE_DEG, DI,
-  percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash, SLASH_COMMANDS, slashRoute,
+  percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash, SLASH_COMMANDS, slashRoute, extractLinks,
   readConfig, writeConfig, geminiKey, CONFIG_FILE, geminiErrorText,
 };

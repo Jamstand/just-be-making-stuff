@@ -23,16 +23,36 @@ function commandsFor(panel) {
   return SLASH_COMMANDS.filter((c) => panel !== "music" || !c.assistantOnly);
 }
 
-// Typo-tolerant (/stuudy, /trainn) and forgiving of a missing space before
-// the first link (/trainhttps://…).
-const STUDY_RE = /^\/(stu+d+y|trai+n+)(?=\s|$|https?:)/i;
+// Typo-tolerant (/stuudy, /trainn) and forgiving of a missing space or a
+// colon/comma before the first link (/trainhttps://…, /train: …).
+const STUDY_RE = /^\/(stu+d+y|trai+n+)(?=[\s:,;]|$|https?:)/i;
+
+// The links in a line: http(s) links plus scheme-less www./tiktok/instagram/
+// youtube ones (https:// added), trailing punctuation stripped, no repeats.
+function extractLinks(text) {
+  const t = String(text || "");
+  const raw = t.match(/(?:https?:\/\/|www\.|(?:^|\s)(?:[a-z0-9-]+\.)?(?:tiktok\.com|instagram\.com|youtube\.com|youtu\.be)\/)\S*/gi) || [];
+  const out = [];
+  for (let u of raw) {
+    u = u.trim();
+    if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+    u = u.replace(/[),.;:!?'"\]]+$/, (m) => (m.startsWith(")") && (u.match(/\(/g) || []).length >= (u.match(/\)/g) || []).length ? m.slice(1) : ""));
+    u = u.replace(/[),.;:!?'"\]]+$/, "");
+    if (/^https?:\/\/[^\/\s]+\/?/.test(u) && !out.includes(u)) out.push(u);
+  }
+  return out;
+}
+
+const NO_PROFILE_HINT = (panel) => panel === "music"
+  ? "point at /train <links> in the Claude Assistant panel (Window › Extensions › Claude Assistant)"
+  : "point at /train <links>";
 
 function expandSlash(text, panel) {
   const t = String(text || "").trim();
   const m = STUDY_RE.exec(t);
   if (m && panel !== "music") {
     const typed = /^t/i.test(m[1]) ? "/train" : "/study";
-    const urls = t.match(/https?:\/\/\S+/g) || [];
+    const urls = extractLinks(t);
     if (!urls.length)
       return "The user typed " + typed + " without links. Explain briefly: " + typed + " <link> [<link> ...] downloads "
         + "each video (TikTok, Instagram, YouTube — needs yt-dlp and ffmpeg: brew install yt-dlp ffmpeg), measures "
@@ -55,7 +75,7 @@ function expandSlash(text, panel) {
   if (/^\/style\b/i.test(t))
     return "Call style_profile and give a plain-English read of the style it has learned — cut rhythm, shot lengths, "
       + "exposure, cast, and the content notes — then how you would apply it to the current comp. If there is no "
-      + "profile yet, say so and point at /train <links>.";
+      + "profile yet, say so and " + NO_PROFILE_HINT(panel) + ".";
   if (/^\/tools?\b/i.test(t))
     return "List the tools you have in this panel, grouped by what they do, one short line each, named the way the "
       + "user would say them rather than by tool id. No preamble.";
@@ -72,20 +92,19 @@ function slashRoute(text, panel) {
   const t = String(text || "").trim();
   const expanded = expandSlash(t, panel);
   if (expanded) return { kind: "expand", prompt: expanded };
-  const first = t.split(/\s+/)[0] || "";
+  const first = (t.split(/\s+/)[0] || "").replace(/[:,;]+$/, "");
   const m = /^\/([a-z][a-z-]*)(?=$|https?:)/i.exec(first);
   if (m) {
     const name = m[1].toLowerCase();
     const cmd = SLASH_COMMANDS.find((c) => c.name === name);
     let note;
-    if (cmd && cmd.assistantOnly && panel === "music")
+    if (STUDY_RE.test("/" + name) && panel === "music")     // /train, /trainn, /stuudy … in Claude Music
       note = "/" + name + " lives in the Claude Assistant panel (Window › Extensions › Claude Assistant) — it studies finished edits into a style profile. Here, type / to see what Claude Music has.";
     else if (cmd && cmd.local) note = "/" + name + " works on its own — type it without anything after it.";
-    else if (STUDY_RE.test("/" + name)) note = "/" + name + " needs links after it: /train <link> [<link> …].";
     else note = "No command called /" + name + " — type / to see the list. Anything that doesn't start with / goes to Claude as written.";
     return { kind: "unknown", name, note };
   }
   return { kind: "text", prompt: t.startsWith("/") ? "Message from the panel (a path, not a command): " + t : t };
 }
 
-module.exports = { SLASH_COMMANDS, commandsFor, expandSlash, slashRoute };
+module.exports = { SLASH_COMMANDS, commandsFor, expandSlash, slashRoute, extractLinks, NO_PROFILE_HINT };

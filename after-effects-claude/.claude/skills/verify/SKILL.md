@@ -191,7 +191,13 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   aggregate cuts_per_minute 10 and median shot 4 s, two files in
   ~/ClaudeAssistantStudy, one "Gemini pass skipped" card and a final
   "Studied —" card with "edits":2. Unit tests: test_ae_style.js
-  (measurement, profile, fakes, Gemini wire, macro/routing).
+  (measurement, profile, fakes, Gemini wire, macro/routing; when a real
+  ffmpeg exists — /usr/bin/ffmpeg here — it also encodes a three-shot
+  mp4 with lavfi and checks probe + study, then truncates it at 55% and
+  expects the coverage refusal). The fake ffmpeg honours a
+  truncate_at field in the fake video's JSON (frames stop early, a
+  "partial file" line on stderr, exit 0 — the real behaviour); the fake
+  yt-dlp prints 2,000 progress lines so an undrained stdout would stall.
 - Claude Music (second extension in the same bundle, html/music.html sets
   window.CLAUDE_PANEL = "music"): drive step 11 launches a SECOND Electron
   instance with AE_PAGE=music.html (verify-electron/main.js honours it),

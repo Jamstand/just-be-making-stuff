@@ -18,7 +18,9 @@ const fpsm = /fps=1\/([\d.]+)/.exec(vf);
 const interval = fpsm ? Number(fpsm[1]) : 0.5;
 const scale = /scale=(\d+):(\d+)/.exec(vf);
 const w = scale ? Number(scale[1]) : 64, h = scale ? Number(scale[2]) : 36;
-const n = Math.round(meta.duration / interval);
+let n = Math.round(meta.duration / interval);
+// a "truncated" download: frames stop part-way, ffmpeg complains on stderr and still exits 0
+if (meta.truncate_at) { n = Math.round(meta.truncate_at / interval); process.stderr.write("[mov,mp4,m4a,3gp,3g2,mj2 @ 0x1] stream 0, offset 0x1453: partial file\n[h264 @ 0x2] Invalid NAL unit size (5 > 3).\n"); }
 const chunks = [];
 for (let i = 0; i < n; i++) {
   const t = i * interval;

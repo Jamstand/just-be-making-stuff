@@ -301,9 +301,8 @@ let slashItems = [], slashIndex = 0;
 function slashQuery() {
   const v = input.value;
   if (!v.startsWith("/") || approvalPending) return null;
-  const sp = v.indexOf(" ");
-  if (sp !== -1 && input.selectionStart > sp) return null;   // past the command: typing arguments now
-  return v.slice(1, sp === -1 ? v.length : sp).toLowerCase();
+  if (/\s/.test(v)) return null;                               // arguments typed: the menu is done, never over a pasted line
+  return v.slice(1).toLowerCase();
 }
 function hideSlash() { slashMenu.hidden = true; slashMenu.replaceChildren(); slashItems = []; }
 function renderSlash() {
@@ -332,8 +331,10 @@ function renderSlash() {
 function acceptSlash() {
   const c = slashItems[slashIndex]; if (!c) return;
   hideSlash();
-  if (c.args) {                       // takes arguments: fill the command in and wait for them
-    input.value = "/" + c.name + " ";
+  const sp = input.value.search(/\s/);
+  const rest = sp === -1 ? "" : input.value.slice(sp + 1);   // whatever was already typed after the command stays
+  if (c.args || rest) {               // takes arguments: fill the command in and wait for them
+    input.value = "/" + c.name + " " + rest;
     input.focus(); input.selectionStart = input.selectionEnd = input.value.length;
   } else { input.value = "/" + c.name; submit(); }
 }
