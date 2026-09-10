@@ -3365,16 +3365,33 @@ tool("set_gemini_key",
 
 // Slash commands: prompt macros the panel expands before the model sees
 // them. The transcript shows what the user typed; the model receives the
-// expanded marching orders.
+// expanded marching orders. SLASH_COMMANDS is what the renderer's "/"
+// menu lists (config IPC); local:true ones the renderer handles itself.
+const SLASH_COMMANDS = [
+  { name: "study", args: "<link> [<link> …]",
+    description: "Study finished edits into your style profile (TikTok, Instagram, YouTube links)" },
+  { name: "train", args: "<link> [<link> …]",
+    description: "Same as /study — train the style profile on finished edits" },
+  { name: "help", args: "", local: true,
+    description: "What Claude can do here, and these commands" },
+  { name: "new", args: "", local: true,
+    description: "Start a new chat (Claude's memory of this session is cleared)" },
+  { name: "history", args: "", local: true, description: "Open past chats" },
+  { name: "copy", args: "", local: true, description: "Copy the whole conversation as text" },
+];
+
 function expandSlash(text) {
   const t = String(text || "").trim();
-  if (!/^\/stu+d+y\b/i.test(t)) return null;   // typo-tolerant: /stuudy too
+  const m = /^\/(stu+d+y|trai+n+)\b/i.exec(t);   // typo-tolerant: /stuudy, /trainn too
+  if (!m) return null;
+  const typed = /^t/i.test(m[1]) ? "/train" : "/study";
   const urls = t.match(/https?:\/\/\S+/g) || [];
   if (!urls.length)
-    return "The user typed /study without links. Explain briefly: "
-      + "/study <link> [<link> ...] downloads each video (TikTok, "
+    return "The user typed " + typed + " without links. Explain briefly: "
+      + typed + " <link> [<link> ...] downloads each video (TikTok, "
       + "Instagram, YouTube), builds a study timeline, and analyses it "
-      + "into the car-edits style profile.";
+      + "into the car-edits style profile"
+      + (typed === "/train" ? " (/train and /study are the same command)" : "") + ".";
   return "Study these " + urls.length + " edit(s) into the car-edits "
     + "style profile, STRICTLY one at a time. For EACH link, all three "
     + "steps in order:\n"
@@ -3876,6 +3893,6 @@ module.exports = {
   sampleDi, simStats, refineCdl, measureBuffer, measureItem, simHueStats, hueCost, refineHueRecipe, TOLERANCE_PCT,
   labOf, deltaE2000, tiffDeltaE, statsDistance,
   rgbToHsv, hsvToRgb, P_LEVELS, HUE_SECTORS, HUE_BINS, SKIN_LINE_DEG, DI,
-  percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash,
+  percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash, SLASH_COMMANDS,
   readConfig, writeConfig, geminiKey, CONFIG_FILE, geminiErrorText,
 };

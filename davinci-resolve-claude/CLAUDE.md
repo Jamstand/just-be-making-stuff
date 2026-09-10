@@ -616,3 +616,17 @@ says so). writeExpressions has no index fallback; renderWiring selects
 by name and re-syncs w.layer and the .on class. S.listening keeps
 Back/≡ on the listening view mid-analysis. markers/kind are read once
 per apply and body.busy fades the controls that feed an action.
+
+## Resolve panel slash menu (2026-09-10)
+
+Typing "/" in the Resolve panel's input opens #slashmenu (renderer/app.js:
+renderSlash/acceptSlash/localCommand): the list is tools.SLASH_COMMANDS,
+sent with the config IPC so the two never drift. /study and /train are the
+same macro (expandSlash is typo-tolerant for both: /stuudy, /trainn);
+help/new/history/copy are local:true and never reach the model. Rows fill
+the command in with a trailing space when it takes arguments, or submit at
+once when it does not; mousedown (not click) on a row so the input keeps
+focus; the menu hides once the caret is past the first space. There is no
+Electron harness for the Resolve renderer — the slash menu was checked
+with a Playwright page over renderer/index.html with a stubbed
+window.assistant (scratchpad), plus test_plugin.js for expandSlash.

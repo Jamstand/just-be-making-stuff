@@ -870,6 +870,13 @@ async function main() {
           .includes("STEP C")
         && (tools.expandSlash("/study https://tiktok.com/x") || "")
           .includes("NOT optional"));
+  check("/train is /study by another name, and the menu table lists both with local ones flagged",
+        (tools.expandSlash("/train https://tiktok.com/x") || "").includes("study_url")
+        && /\/train/.test(tools.expandSlash("/train") || "")
+        && (tools.expandSlash("/trainn https://youtu.be/c") || "").includes("STEP C")
+        && tools.SLASH_COMMANDS.some((c) => c.name === "train" && /link/.test(c.args))
+        && tools.SLASH_COMMANDS.some((c) => c.name === "study" && !c.local)
+        && tools.SLASH_COMMANDS.filter((c) => c.local).map((c) => c.name).join() === "help,new,history,copy");
   check("/study bare asks for an explanation, plain text stays null",
         /explain/i.test(tools.expandSlash("/study") || "")
         && tools.expandSlash("study this for me") === null

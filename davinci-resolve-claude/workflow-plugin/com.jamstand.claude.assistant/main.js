@@ -438,7 +438,8 @@ ipcMain.handle("history", (evt, { action, id }) => {
 });
 
 ipcMain.handle("config", () => ({ models: MODELS, efforts: EFFORTS,
-                                  modes: tools.PERMISSION_MODES }));
+                                  modes: tools.PERMISSION_MODES,
+                                  commands: tools.SLASH_COMMANDS }));
 
 // The renderer is sandboxed, so the system clipboard lives here.
 ipcMain.handle("clipboard", (evt, { op, text }) => {

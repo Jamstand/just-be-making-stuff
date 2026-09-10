@@ -89,3 +89,12 @@ invisible). It is the tool's pipeline model, not a live Resolve grab.
 - `ANTHROPIC_API_KEY` is stripped from the CLI environment (it silently
   overrides subscription auth), and the CLI's working directory is pinned so
   sessions survive Resolve restarts.
+
+## Slash commands
+
+Type `/` in the chat box and a menu opens, like Claude's: arrow keys to
+choose, Enter or Tab to fill the command in, Esc to close. `/study <link>
+<link>` (or `/train`, the same thing) downloads finished edits (TikTok,
+Instagram, YouTube), builds a study timeline and analyses each one into
+your style profile. `/help`, `/new`, `/history` and `/copy` are handled by
+the panel itself. Anything else you type goes to Claude as it is.

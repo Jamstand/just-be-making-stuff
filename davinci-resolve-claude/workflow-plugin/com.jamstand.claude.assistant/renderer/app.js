@@ -279,6 +279,8 @@ function submit() {
     else answerApproval("decline", text);
     return;
   }
+  const local = localCommand(text);
+  if (local) { input.value = ""; hideSlash(); local(); return; }
   if (busy || !text) return;
   input.value = "";
   toolCount = 0; turnStart = Date.now();
@@ -290,7 +292,74 @@ function submit() {
 }
 
 sendBtn.onclick = submit;
+
+// ---- slash commands: type "/" for the menu (↑↓ pick, Enter/Tab fill, Esc) ----
+let COMMANDS = [];
+const slashMenu = document.getElementById("slashmenu");
+let slashItems = [], slashIndex = 0;
+function slashQuery() {
+  const v = input.value;
+  if (!v.startsWith("/") || approvalPending) return null;
+  const sp = v.indexOf(" ");
+  if (sp !== -1 && input.selectionStart > sp) return null;   // past the command: typing arguments now
+  return v.slice(1, sp === -1 ? v.length : sp).toLowerCase();
+}
+function hideSlash() { slashMenu.hidden = true; slashMenu.replaceChildren(); slashItems = []; }
+function renderSlash() {
+  const q = slashQuery();
+  if (q === null) { hideSlash(); return; }
+  slashItems = COMMANDS.filter((c) => c.name.startsWith(q))
+    .concat(COMMANDS.filter((c) => !c.name.startsWith(q) && c.name.includes(q)));
+  if (!slashItems.length) { hideSlash(); return; }
+  slashIndex = Math.min(slashIndex, slashItems.length - 1);
+  slashMenu.replaceChildren();
+  slashItems.forEach((c, i) => {
+    const row = document.createElement("div"); row.className = "sm-row" + (i === slashIndex ? " on" : "");
+    const name = document.createElement("span"); name.className = "sm-name"; name.textContent = "/" + c.name;
+    const args = document.createElement("span"); args.className = "sm-args"; args.textContent = c.args || "";
+    const desc = document.createElement("span"); desc.className = "sm-desc"; desc.textContent = c.description || "";
+    row.append(name, args, desc);
+    row.addEventListener("mousedown", (e) => { e.preventDefault(); slashIndex = i; acceptSlash(); });   // the input keeps focus
+    row.addEventListener("mousemove", () => { if (slashIndex !== i) { slashIndex = i; renderSlash(); } });
+    slashMenu.appendChild(row);
+  });
+  const hint = document.createElement("div"); hint.className = "sm-hint";
+  hint.textContent = "↑↓ to choose · Enter or Tab to fill it in · Esc to close";
+  slashMenu.appendChild(hint);
+  slashMenu.hidden = false;
+}
+function acceptSlash() {
+  const c = slashItems[slashIndex]; if (!c) return;
+  hideSlash();
+  if (c.args) {                       // takes arguments: fill the command in and wait for them
+    input.value = "/" + c.name + " ";
+    input.focus(); input.selectionStart = input.selectionEnd = input.value.length;
+  } else { input.value = "/" + c.name; submit(); }
+}
+// Commands the panel answers itself, never sent to the model.
+function localCommand(text) {
+  const m = /^\/([a-z]+)\s*$/i.exec(text); if (!m) return null;
+  const c = COMMANDS.find((x) => x.name === m[1].toLowerCase() && x.local); if (!c) return null;
+  if (c.name === "new") return () => document.getElementById("newchat").click();
+  if (c.name === "history") return () => document.getElementById("historybtn").click();
+  if (c.name === "copy") return () => copyChatBtn.click();
+  if (c.name === "help") return () => card("notice", "NOTE",
+    "Type / to pick a command:\n"
+    + COMMANDS.map((x) => "/" + x.name + (x.args ? " " + x.args : "") + " — " + x.description).join("\n")
+    + "\n\nOr just ask in plain words — what's on the timeline, a marker at every cut on V1, "
+    + "match clip 2 to clip 1, study a finished edit into your style profile.");
+  return null;
+}
+input.addEventListener("input", () => { slashIndex = 0; renderSlash(); });
+input.addEventListener("click", renderSlash);
+input.addEventListener("blur", hideSlash);
 input.addEventListener("keydown", (evt) => {
+  if (!slashMenu.hidden && slashItems.length) {
+    if (evt.key === "ArrowDown") { evt.preventDefault(); slashIndex = (slashIndex + 1) % slashItems.length; renderSlash(); return; }
+    if (evt.key === "ArrowUp") { evt.preventDefault(); slashIndex = (slashIndex - 1 + slashItems.length) % slashItems.length; renderSlash(); return; }
+    if (evt.key === "Enter" || evt.key === "Tab") { evt.preventDefault(); acceptSlash(); return; }
+    if (evt.key === "Escape") { evt.preventDefault(); hideSlash(); return; }
+  }
   if (evt.key === "Enter") submit();
 });
 
@@ -376,7 +445,8 @@ document.getElementById("historybtn").onclick = () => {
 };
 document.getElementById("histclose").onclick = () => { histPanel.hidden = true; };
 
-assistant.config().then(({ models, efforts, modes }) => {
+assistant.config().then(({ models, efforts, modes, commands }) => {
+  COMMANDS = commands || [];
   const fill = (id, values, chosen) => {
     const select = document.getElementById(id);
     for (const value of values) {
