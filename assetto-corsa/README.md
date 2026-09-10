@@ -32,31 +32,41 @@ with the window). The title bar stays hidden while you drive: point the mouse
 at the window and it floats in over the top edge, with the gear icon that opens
 settings and the close button. Settings: speed on/off, the RPM bar on/off, KM/H
 or MPH, where the shift light kicks in, the background opacity (0% is fully
-see-through, 100% solid black), and **Lock position and size** — tick it once
+see-through, 100% solid black), **Hide title bar**, **Hide resize handle** (a
+Size slider takes its place), and **Lock position and size** — tick it once
 the widget is where you want it and it stays put; if anything nudges it, the
 app moves it straight back. Untick to move it again. The lock needs CSP
 0.2.3-preview62 or newer to actually hold the window; on an older build it
 simply does nothing.
 
-### Title bar
+### Title bar and resize handle
 
-Hidden-until-hovered is CSP's `FLOATING_TITLE_BAR` window flag, the same one
-its own Radar and Rally Copilot HUDs use. CSP has no way to switch a window's
-title bar at runtime, so the other two options are a one-line edit to the
-`FLAGS` line in `<AC root>/apps/lua/GearSpeedo/manifest.ini` — the installed
-copy, not the one in the zip (CSP reads it once at load, so restart the
-session afterwards):
+Both are window decorations that CSP fixes per window in the manifest, with no
+call to change them while running. So the manifest declares four windows —
+every combination of title bar on/off and resize handle on/off — all drawing
+the same HUD, and the two settings pick which one is open (CSP's own apps
+switch between their windows the same way). Ticking either box hands the
+widget's spot and size over to the next window; that hand-over needs the same
+CSP 0.2.3-preview62 as the lock, and on an older build the new window opens
+where it last was and you drag it once.
 
-| You want | `FLAGS =` |
-|---|---|
-| hidden until you point at it (default) | `SETTINGS, FLOATING_TITLE_BAR, NO_BACKGROUND, NO_SCROLLBAR, NO_SCROLL_WITH_MOUSE` |
-| always shown | `SETTINGS, NO_BACKGROUND, NO_SCROLLBAR, NO_SCROLL_WITH_MOUSE` |
-| never shown | `SETTINGS, NO_TITLE_BAR, NO_BACKGROUND, NO_SCROLLBAR, NO_SCROLL_WITH_MOUSE` |
+With the title bar hidden there is no gear icon, so the widget grows its own:
+point at it and a gear and a close button appear at its top right, and a
+right-click anywhere on it opens the same settings. With the resize handle
+hidden the corner grip is gone and the window can't be dragged to a new size;
+the **Size** slider in settings (50–300%) does that instead, starting from
+whatever size it had when you ticked the box.
 
-With no title bar there is no gear icon either, so the settings are out of
-reach: set things up first, and open or close the app from the CSP app list.
-`FLOATING_TITLE_BAR` needs CSP build 2514 or newer, which is what the manifest
-asks for anyway.
+One quirk of doing it this way: CSP's app list only knows the first window,
+so with either box ticked it may show Gear Speedo as closed. Clicking it
+there closes the app; clicking again brings it back with your settings.
+
+If you'd rather the title bar never hid at all, remove `FLOATING_TITLE_BAR`
+from the two `FLAGS` lines that have it in
+`<AC root>/apps/lua/GearSpeedo/manifest.ini` — the installed copy, not the one
+in the zip. CSP reads the manifest once at load, so restart the session
+afterwards. `FLOATING_TITLE_BAR` needs CSP build 2514 or newer, which is what
+the manifest asks for anyway.
 
 ![Gear Speedo through a simulated lap](preview.gif)
 

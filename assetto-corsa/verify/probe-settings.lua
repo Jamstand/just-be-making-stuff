@@ -23,7 +23,7 @@ check('capture pending (-1)', STORAGE.lockX == -1)
 frame(1)
 check('first locked frame captures current spot 400,300', STORAGE.lockX == 400 and STORAGE.lockY == 300, STORAGE.lockX..','..STORAGE.lockY)
 check('and current size 280x120', STORAGE.lockW == 280 and STORAGE.lockH == 120, STORAGE.lockW..'x'..STORAGE.lockH)
-check('found window under its display name first', ACCESS_CALLS[1] == 'Gear Speedo', ACCESS_CALLS[1])
+check("looked the window up the way CSP keys it: IMGUI_LUA_<app>_<id>", ACCESS_CALLS[1] == 'IMGUI_LUA_Gear Speedo_main', ACCESS_CALLS[1])
 
 print('== someone drags it while locked ==')
 WIN_ACCESS.pos = {x = 650, y = 80}; frame(1)
@@ -54,21 +54,28 @@ script.windowSettings(1/60); ui.checkbox = function() return false end
 frame(1)
 check('captured 10,10', STORAGE.lockX == 10 and STORAGE.lockY == 10, STORAGE.lockX..','..STORAGE.lockY)
 
-print('== CSP registers the window under a name we did not guess ==')
-WIN_ACCESS.name = 'something-else'; ownWindowCacheReset = nil
--- fresh app instance to clear the cached accessor
+print('== CSP lists the window under an unexpected key but the right title ==')
+WIN_ACCESS.name = 'something-else'; WIN_ACCESS.title = 'Gear Speedo'
+dofile(APP)                                  -- fresh instance: clears the cached accessor
+STORAGE.lockPos = true; STORAGE.lockX = -1
+ACCESS_CALLS = {}; WIN_ACCESS.moves = {}; WIN_ACCESS.pos = { x = 40, y = 50 }
+frame(1)
+check('found it through ac.getAppWindows() by title', ACCESS_CALLS[1] == 'something-else' and STORAGE.lockX == 40, ACCESS_CALLS[1])
+
+print('== CSP has the window under neither the built key nor our title ==')
+WIN_ACCESS.name = 'something-else'; WIN_ACCESS.title = 'Other'
 dofile(APP)
 STORAGE.lockPos = true; STORAGE.lockX = -1
 ACCESS_CALLS = {}; WIN_ACCESS.moves = {}
 local ok, err = pcall(frame, 3)
 check('no crash', ok, err)
-check('tried all four candidate names', #ACCESS_CALLS == 4, #ACCESS_CALLS)
+check('tried the built key once (no title match to add)', #ACCESS_CALLS == 1 and ACCESS_CALLS[1] == 'IMGUI_LUA_Gear Speedo_main', #ACCESS_CALLS)
 check('no moves (nothing to move)', #WIN_ACCESS.moves == 0)
 frame(200)
-check('retries later rather than giving up forever', #ACCESS_CALLS >= 8, #ACCESS_CALLS)
+check('retries later rather than giving up forever', #ACCESS_CALLS >= 2, #ACCESS_CALLS)
 
 print('== older CSP: accessor exists but has no move() ==')
-WIN_ACCESS.name = 'Gear Speedo'
+WIN_ACCESS.name = 'IMGUI_LUA_Gear Speedo_main'; WIN_ACCESS.title = 'Gear Speedo'
 dofile(APP)
 STORAGE.lockPos = true; STORAGE.lockX = -1
 local realAccess = ac.accessAppWindow

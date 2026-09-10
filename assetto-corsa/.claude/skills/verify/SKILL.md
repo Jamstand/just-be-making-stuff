@@ -39,7 +39,12 @@ probes), `luajit probe-settings.lua` (opacity, position lock with a stubbed
 parsed the way CSP reads it: window functions exist in the script, SIZE matches
 BASE_W/H, flags are documented ones, FLOATING_TITLE_BAR gated on
 REQUIRED_VERSION >= 2514, no `;` inside NAME/DESCRIPTION/AUTHOR/URL — trailing
-comments on other keys are only reported). `cspstub.lua`
+comments on other keys are only reported; all four windows checked against what
+the script defines) and `luajit probe-windows.lua` (the title bar / resize handle
+settings switching between the four manifest windows via a stubbed
+`ac.setWindowOpen`, position hand-over through the accessor, the hover gear/close
+buttons and `ui.popup` settings of the title-bar-less windows, app-list re-open =
+close, and the fallbacks when CSP ignores the switch or lacks the APIs). `cspstub.lua`
 fakes `ac`/`ui`/`vec2`/`rgbm` and records `RECT`/`TEXT` (as `p1`/`p2` vec2s, not
 scalars). Every ui call is asserted for arity/type. Gear convention here is CSP's:
 `<0`=R, `0`=N, `n`=nth — not the Python one.

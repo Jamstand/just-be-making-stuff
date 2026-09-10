@@ -189,17 +189,28 @@ if ($luaInstalled) {
             Bad "CSP build $build is older than the $needBuild the app asks for - not expected to load until CSP is updated"
             Info "Update Custom Shaders Patch: Content Manager -> Settings -> Custom Shaders Patch."
         }
-        # Title bar behaviour is a manifest flag, so say which one is in place.
+        # Title bar and resize handle are per-window flags, so the app ships
+        # one window per combination and its settings switch between them.
+        $wins = @(Select-String -Path $luaManifest -Pattern "^\s*\[WINDOW_" -ErrorAction SilentlyContinue).Count
+        if ($wins -ge 4) {
+            Info "  $wins windows declared: title bar and resize handle are switched in the app's settings"
+        } elseif ($wins -ge 1) {
+            Bad "only $wins window section(s) in manifest.ini - an older copy; the title bar / resize handle switches need the current one"
+            Info "Copy apps\lua\GearSpeedo from the zip again (both GearSpeedo.lua and manifest.ini)."
+        } else {
+            Bad "manifest.ini has no [WINDOW_...] section - CSP has nothing to show"
+        }
         $fl = Select-String -Path $luaManifest -Pattern "^\s*FLAGS\s*=\s*(.+)$" -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($fl) {
             $flags = ($fl.Matches[0].Groups[1].Value -split ";")[0].Trim()
-            Info "  window flags: $flags"
+            Info "  main window flags: $flags"
             if ($flags -match "NO_TITLE_BAR") {
-                Info "  NO_TITLE_BAR: no title bar, so no settings gear - open and close it from the app list"
+                Info "  main window has no title bar at all (edited manifest)"
             } elseif ($flags -match "FLOATING_TITLE_BAR") {
-                Info "  title bar is hidden until you point the mouse at the window"
+                if ($wins -ge 4) { Info "  title bar hidden until you point the mouse at the window; settings can hide it for good" }
+                else             { Info "  title bar hidden until you point the mouse at the window" }
             } else {
-                Info "  title bar is always shown (add FLOATING_TITLE_BAR to hide it until hovered)"
+                Info "  title bar always shown (FLOATING_TITLE_BAR removed from the manifest)"
             }
         }
         if ($null -eq $build -or $build -ge $needBuild) {

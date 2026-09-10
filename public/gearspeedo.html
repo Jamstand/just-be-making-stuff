@@ -140,8 +140,33 @@
   }
   .widget .titlebar .t { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .widget .titlebar .b { opacity: .85; margin-left: 4px; }
-  .widget:hover .titlebar, .widget.dragging .titlebar, .widget.tb-always .titlebar { opacity: 1; }
-  .widget.tb-never .titlebar { display: none; }
+  .widget:hover .titlebar, .widget.dragging .titlebar { opacity: 1; }
+  .widget.tb-hidden .titlebar { display: none; }
+  /* With the title bar hidden the widget grows its own gear and close
+     buttons, top right, while the pointer is on it - as the app does. */
+  .widget .hoverctl {
+    position: absolute; top: 1px; right: 2px;
+    display: none; gap: 2px; padding: 2px;
+    background: rgba(0,0,0,.55); border-radius: 4px;   /* keeps the glyphs legible over a lit rev bar */
+  }
+  .widget.tb-hidden:hover .hoverctl, .widget.tb-hidden.dragging .hoverctl { display: flex; }
+  .widget .hoverctl .ic {
+    width: 22px; height: 22px; padding: 0; border: 0; border-radius: 3px;
+    background: transparent; color: #d9dce2; cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .widget .hoverctl .ic:hover { background: rgba(255,255,255,.12); }
+  .widget .hoverctl .ic:active { background: rgba(255,255,255,.22); }
+  .widget .hoverctl svg {
+    width: 14px; height: 14px;
+    fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  }
+  /* No resize handle: the corner grip goes and the corner no longer resizes. */
+  .widget.grip-hidden { resize: none; }
+  .widget.grip-hidden .grip { display: none; }
+  .rail.flash { animation: railflash .9s ease-out; }
+  @keyframes railflash { 0% { box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+  @media (prefers-reduced-motion: reduce) { .rail.flash { animation: none; box-shadow: 0 0 0 2px var(--accent); } }
   .widget .grip {
     position: absolute; right: 3px; bottom: 3px; width: 10px; height: 10px;
     border-right: 2px solid rgba(255,255,255,.28);
@@ -256,6 +281,10 @@
         <svg class="b" viewBox="0 0 16 16"><path d="M4.2 6.3l3.8 3.8 3.8-3.8"/></svg>
         <svg class="b" viewBox="0 0 16 16"><path d="M4.3 4.3l7.4 7.4M11.7 4.3l-7.4 7.4"/></svg>
       </div>
+      <div class="hoverctl">
+        <button type="button" class="ic" id="hcGear" tabindex="-1" title="Settings. In the game this opens the app's settings; here it points you at the controls below." aria-label="Settings"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.3"/><circle cx="8" cy="8" r="1.7"/><path d="M8 1.5v2.2M8 12.3v2.2M1.5 8h2.2M12.3 8h2.2"/></svg></button>
+        <button type="button" class="ic" id="hcClose" tabindex="-1" title="Close. In the game this closes the app." aria-label="Close"><svg viewBox="0 0 16 16"><path d="M4.3 4.3l7.4 7.4M11.7 4.3l-7.4 7.4"/></svg></button>
+      </div>
       <div class="grip" aria-hidden="true"></div>
     </div>
     <div class="hint" id="hint">drag to move &middot; corner to resize &middot; point at it for the title bar</div>
@@ -293,15 +322,12 @@
     <div class="group">
       <button id="showSpeed" aria-pressed="true">Speed readout</button>
       <button id="showBar" aria-pressed="true">RPM bar</button>
-      <button id="lock" aria-pressed="false">Lock position</button>
     </div>
     <div class="group">
-      <span class="k">Title bar</span>
-      <span class="seg" id="tbSeg">
-        <button data-tb="hover" aria-pressed="true">On hover</button>
-        <button data-tb="always">Always</button>
-        <button data-tb="never">Never</button>
-      </span>
+      <span class="k">Window</span>
+      <button id="hideTitle" aria-pressed="false">Hide title bar</button>
+      <button id="hideGrip" aria-pressed="false">Hide resize handle</button>
+      <button id="lock" aria-pressed="false">Lock position</button>
     </div>
     <div class="group">
       <span class="k">Shift light</span>
@@ -327,7 +353,7 @@
   <div class="notes">
     <div>
       <h2>What you're looking at</h2>
-      <p>The widget is drawn here by the same layout logic as the in-game Lua app: an 18-segment rev bar that runs green, amber, then red, and flashes white once revs pass the shift point. The gear number goes red at the same moment. Everything scales with the window, so dragging the corner is exactly what resizing does in the game. The background, RPM-bar and lock controls are the same settings the app has behind its gear icon: lock it and it stays exactly where you put it. The title bar does what CSP's <code>FLOATING_TITLE_BAR</code> flag makes it do in the game: it stays out of sight until you point at the widget, then floats in over the top edge with the settings gear and the close button. <em>Always</em> and <em>Never</em> show the two alternatives, which are one-line manifest edits rather than in-game settings.</p>
+      <p>The widget is drawn here by the same layout logic as the in-game Lua app: an 18-segment rev bar that runs green, amber, then red, and flashes white once revs pass the shift point. The gear number goes red at the same moment. Everything scales with the window, so dragging the corner is exactly what resizing does in the game. The background, RPM-bar and lock controls are the same settings the app has behind its gear icon: lock it and it stays exactly where you put it. The title bar does what CSP's <code>FLOATING_TITLE_BAR</code> flag makes it do in the game: it stays out of sight until you point at the widget, then floats in over the top edge with the settings gear and the close button. <em>Hide title bar</em> and <em>Hide resize handle</em> are the app's own settings too: with the bar hidden, a gear and a close button appear at the widget's top right when you point at it, and the gear opens the app's settings (in the game a right-click anywhere on the widget does the same); with the handle hidden the corner grip goes, and the Size presets stand in for the app's Size slider.</p>
       <p>The car is a simulated MX-5 ND: full throttle up through the gears, a bounce off the limiter in fifth, a hard braking zone with downshifts, then a reverse out of the pit box. The replay loops.</p>
       <h2>Install</h2>
       <p>Copy <code>apps/lua/GearSpeedo</code> into <code>&lt;AC root&gt;/apps/lua/</code>. It appears under <em>Your apps</em> in the Custom Shaders Patch app list; nothing to switch on. Needs CSP build 2514 or newer.</p>
@@ -579,25 +605,33 @@
     settings.showBar = !settings.showBar;
     showBar.setAttribute('aria-pressed', String(settings.showBar)); draw();
   });
-  // Title bar. The in-game default is CSP's FLOATING_TITLE_BAR flag: hidden
-  // until hovered. "Always" and "Never" stand for the two manifest edits the
-  // README describes; they are not in-game settings.
-  let tbMode = 'hover';
-  const TB_HINT = { hover: ' \u00b7 point at it for the title bar', always: '', never: '' };
-  const TB_ARIA = { hover: 'Its title bar appears while the pointer is over it.',
-                    always: 'Its title bar is always shown.', never: 'It has no title bar.' };
+  // Window settings, the same three the app has. The title bar's default is
+  // CSP's FLOATING_TITLE_BAR flag: hidden until hovered. Hiding it swaps in
+  // the widget's own gear and close buttons; hiding the resize handle drops
+  // the corner grip, and the Size presets stand in for the app's Size slider.
+  let tbHidden = false, gripHidden = false;
   const lockBtn = $('lock'), hint = $('hint');
+  let hintOverride = null;
   function updateHint() {
+    if (hintOverride) { hint.textContent = hintOverride; return; }
     hint.textContent = locked ? 'locked in place \u00b7 unlock to move or resize'
-                              : 'drag to move \u00b7 corner to resize' + TB_HINT[tbMode];
+      : 'drag to move' + (gripHidden ? '' : ' \u00b7 corner to resize')
+        + (tbHidden ? ' \u00b7 point at it for its buttons' : ' \u00b7 point at it for the title bar');
     widget.setAttribute('aria-label', 'Gear Speedo widget. '
-      + (locked ? 'Locked in place.' : 'Drag to move, drag the corner to resize.') + ' ' + TB_ARIA[tbMode]);
+      + (locked ? 'Locked in place.' : 'Drag to move' + (gripHidden ? '.' : ', drag the corner to resize.'))
+      + ' ' + (tbHidden ? 'Its title bar is hidden; a gear and a close button appear while the pointer is over it.'
+                        : 'Its title bar appears while the pointer is over it.'));
   }
-  pressGroup($('tbSeg'), b => {
-    tbMode = b.dataset.tb;
-    widget.classList.remove('tb-always', 'tb-never');
-    if (tbMode !== 'hover') widget.classList.add('tb-' + tbMode);
-    updateHint();
+  const toggle = (btn, on) => btn.setAttribute('aria-pressed', String(on));
+  const hideTitle = $('hideTitle');
+  hideTitle.addEventListener('click', () => {
+    tbHidden = !tbHidden; toggle(hideTitle, tbHidden);
+    widget.classList.toggle('tb-hidden', tbHidden); updateHint();
+  });
+  const hideGrip = $('hideGrip');
+  hideGrip.addEventListener('click', () => {
+    gripHidden = !gripHidden; toggle(hideGrip, gripHidden);
+    widget.classList.toggle('grip-hidden', gripHidden); updateHint();
   });
   lockBtn.addEventListener('click', () => {
     locked = !locked;
@@ -605,6 +639,17 @@
     lockBtn.textContent = locked ? 'Locked' : 'Lock position';
     widget.classList.toggle('locked', locked);
     updateHint();
+  });
+  // The widget's own buttons (title bar hidden). They must not start a drag.
+  const hoverctl = widget.querySelector('.hoverctl'), rail = document.querySelector('.rail');
+  hoverctl.addEventListener('pointerdown', e => e.stopPropagation());
+  $('hcGear').addEventListener('click', () => {
+    rail.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+    rail.classList.remove('flash'); void rail.offsetWidth; rail.classList.add('flash');
+  });
+  $('hcClose').addEventListener('click', () => {
+    hintOverride = 'in the game, that closes the app';
+    updateHint(); setTimeout(() => { hintOverride = null; updateHint(); }, 1800);
   });
   const shiftAt = $('shiftAt'), shiftVal = $('shiftVal');
   shiftAt.addEventListener('input', () => { settings.shiftAt = Number(shiftAt.value); shiftVal.textContent = shiftAt.value + '%'; draw(); });
@@ -616,7 +661,7 @@
   widget.addEventListener('pointerdown', e => {
     if (locked) return;
     const r = widget.getBoundingClientRect();
-    if (e.clientX > r.right - 18 && e.clientY > r.bottom - 18) return;
+    if (!gripHidden && e.clientX > r.right - 18 && e.clientY > r.bottom - 18) return;
     drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
     widget.classList.add('dragging'); widget.setPointerCapture(e.pointerId);
   });

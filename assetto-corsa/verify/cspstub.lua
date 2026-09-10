@@ -24,9 +24,14 @@ end
 -- Window accessor: what CSP hands back for ac.accessAppWindow. Records every
 -- move/resize so a probe can see the lock working, and lets a probe "drag"
 -- the window by editing WIN_ACCESS.pos directly.
-WIN_ACCESS = { pos = {x = 100, y = 200}, size = {x = 280, y = 120}, moves = {}, resizes = {}, valid = true, name = 'Gear Speedo' }
+-- CSP keys a Lua app's windows IMGUI_LUA_<[ABOUT] NAME>_<window ID>, and
+-- ac.getAppWindows() lists them as { name = <that key>, title = <NAME> }.
+WIN_ACCESS = { pos = {x = 100, y = 200}, size = {x = 280, y = 120}, moves = {}, resizes = {}, valid = true,
+               name = 'IMGUI_LUA_Gear Speedo_main', title = 'Gear Speedo' }
 ACCESS_CALLS = {}
+function ac.getAppWindows() return { { name = WIN_ACCESS.name, title = WIN_ACCESS.title } } end
 function ac.accessAppWindow(name)
+  assert(type(name) == 'string', 'accessAppWindow needs a name')
   ACCESS_CALLS[#ACCESS_CALLS + 1] = name
   if name ~= WIN_ACCESS.name then return nil end
   local a = {}
@@ -64,7 +69,7 @@ function ui.itemEdited() return false end
 function ui.text(t) end
 
 function setWindow(w, h) WIN = {x = w, y = h} end
-function reset() RECT, TEXT = {}, {} end
+function reset() RECT, TEXT, ICONBTN, DUMMY = {}, {}, {}, {} end
 script = {}
 
 -- Own-folder + manifest reading, the way CSP's WebBrowser app does it
@@ -100,3 +105,48 @@ function ac.INIConfig.load(filename, format)
     return type(default) == 'table' and s[key] or s[key][1]
   end }
 end
+
+-- Windows, as CSP keeps them: which are open (ac.setWindowOpen / isWindowOpen),
+-- where the one being drawn sits (ui.windowPos), whether the mouse is over it.
+OPEN = { main = true }
+OPEN_LOG = {}
+function ac.setWindowOpen(id, v)
+  assert(type(id) == 'string', 'setWindowOpen: id must be a string')
+  OPEN[id] = v and true or false
+  OPEN_LOG[#OPEN_LOG + 1] = { id = id, open = OPEN[id] }
+end
+function ac.isWindowOpen(id) return OPEN[id] == true end
+WINPOS = { x = 100, y = 200 }
+function ui.windowPos() return vec2(WINPOS.x, WINPOS.y) end
+HOVER = false
+function ui.windowHovered() return HOVER end
+RCLICK = false
+ui.MouseButton = { Left = 0, Right = 1 }
+function ui.mouseClicked(b) return b == 1 and RCLICK end
+
+-- Items the title-bar-less windows draw for themselves.
+ui.Icons = { Settings = 'icon:settings', Cancel = 'icon:cancel' }
+ui.StyleColor = { Button = 21, ButtonHovered = 22, ButtonActive = 23 }
+STYLE_DEPTH = 0
+function ui.pushStyleColor(c, col) assert(c and col, 'pushStyleColor needs a colour id and a colour'); STYLE_DEPTH = STYLE_DEPTH + 1 end
+function ui.popStyleColor(n) STYLE_DEPTH = STYLE_DEPTH - (n or 1); assert(STYLE_DEPTH >= 0, 'popStyleColor without a push') end
+CURSOR = nil
+function ui.setCursor(v) assert(v and v.x, 'setCursor needs a vec2'); CURSOR = { x = v.x, y = v.y } end
+function ui.sameLine(a, b) end
+ICONBTN, CLICK = {}, {}          -- buttons drawn this frame; CLICK[icon] = true presses one
+function ui.iconButton(icon, size, padding)
+  assert(type(icon) == 'string' and size and size.x, 'iconButton(icon, vec2 size, padding)')
+  ICONBTN[#ICONBTN + 1] = { icon = icon, size = size, at = CURSOR }
+  return CLICK[icon] == true
+end
+function ui.itemHovered() return false end
+function ui.setTooltip(t) assert(type(t) == 'string') end
+DUMMY = {}
+function ui.dummy(v) assert(v and v.x and v.y, 'dummy needs a vec2'); DUMMY[#DUMMY + 1] = { x = v.x, y = v.y } end
+function ui.separator() end
+POPUPS = {}                      -- ui.popup registrations: { fn, params }
+function ui.popup(fn, params)
+  assert(type(fn) == 'function', 'popup needs a callback')
+  POPUPS[#POPUPS + 1] = { fn = fn, params = params or {} }
+end
+function ui.closePopup() end
