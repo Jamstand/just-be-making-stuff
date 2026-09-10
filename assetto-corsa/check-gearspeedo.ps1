@@ -60,10 +60,16 @@ $appDir      = Join-Path $AcRoot "apps\python\GearSpeedo"
 $appPy       = Join-Path $appDir "GearSpeedo.py"
 
 $luaInstalled = (Test-Path $luaMain) -and (Test-Path $luaManifest)
+$luaNested    = $false
 $installed    = Test-Path $appPy
 
 if ($luaInstalled) {
     Good "Lua build: apps\lua\GearSpeedo is installed (recommended build)"
+} elseif (Test-Path (Join-Path $luaDir "GearSpeedo\GearSpeedo.lua")) {
+    $luaNested = $true
+    Bad "Lua build: the files are one folder too deep (apps\lua\GearSpeedo\GearSpeedo\...)"
+    Info "CSP wants apps\lua\GearSpeedo\GearSpeedo.lua and manifest.ini side by side."
+    Info "FIX: move everything from the inner GearSpeedo folder up one level, then delete the empty inner folder."
 } elseif (Test-Path $luaDir) {
     Bad "Lua build: apps\lua\GearSpeedo exists but is incomplete"
     Info "It needs both GearSpeedo.lua and manifest.ini. It contains:"
@@ -72,7 +78,7 @@ if ($luaInstalled) {
 
 if ($installed) {
     Good "Python build: apps\python\GearSpeedo\GearSpeedo.py is there"
-} elseif (-not $luaInstalled) {
+} elseif (-not $luaInstalled -and -not $luaNested) {
     Bad "Neither build is installed."
     Info "The Lua build (recommended, needs Custom Shaders Patch) goes here:"
     Info ("  " + $luaDir)
@@ -162,14 +168,46 @@ if ($luaInstalled) {
     $cspExt = Join-Path $AcRoot "extension"
     if ((Test-Path $cspDll) -and (Test-Path $cspExt)) {
         Good "Custom Shaders Patch is installed"
+        # The manifest names the CSP build it needs. On an older build the app
+        # is not expected to load, which would look exactly like "it isn't listed".
+        $needBuild = 2514
+        $rv = Select-String -Path $luaManifest -Pattern "^\s*REQUIRED_VERSION\s*=\s*(\d+)" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($rv) { $needBuild = [int]$rv.Matches[0].Groups[1].Value }
         $dm = Join-Path $AcRoot "extension\config\data_manifest.ini"
+        $build = $null
         if (Test-Path $dm) {
             Select-String -Path $dm -Pattern "SHADERS_PATCH" -ErrorAction SilentlyContinue |
                 ForEach-Object { Info ("  " + $_.Line.Trim()) }
-            Info "  (the app asks for CSP build 2512 or newer)"
+            $bl = Select-String -Path $dm -Pattern "SHADERS_PATCH_BUILD\s*=\s*(\d+)" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($bl) { $build = [int]$bl.Matches[0].Groups[1].Value }
         }
-        Info "Nothing to activate: CSP loads Lua apps straight from the folder."
-        Info "Start a session and look under 'Your apps' for 'Gear Speedo'."
+        if ($null -eq $build) {
+            Info "  (could not read the CSP build; the app asks for $needBuild or newer)"
+        } elseif ($build -ge $needBuild) {
+            Good "CSP build $build meets the app's minimum of $needBuild"
+        } else {
+            Bad "CSP build $build is older than the $needBuild the app asks for - not expected to load until CSP is updated"
+            Info "Update Custom Shaders Patch: Content Manager -> Settings -> Custom Shaders Patch."
+        }
+        # Title bar behaviour is a manifest flag, so say which one is in place.
+        $fl = Select-String -Path $luaManifest -Pattern "^\s*FLAGS\s*=\s*(.+)$" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($fl) {
+            $flags = ($fl.Matches[0].Groups[1].Value -split ";")[0].Trim()
+            Info "  window flags: $flags"
+            if ($flags -match "NO_TITLE_BAR") {
+                Info "  NO_TITLE_BAR: no title bar, so no settings gear - open and close it from the app list"
+            } elseif ($flags -match "FLOATING_TITLE_BAR") {
+                Info "  title bar is hidden until you point the mouse at the window"
+            } else {
+                Info "  title bar is always shown (add FLOATING_TITLE_BAR to hide it until hovered)"
+            }
+        }
+        if ($null -eq $build -or $build -ge $needBuild) {
+            Info "Nothing to activate: CSP loads Lua apps straight from the folder."
+            Info "Start a session and look under 'Your apps' for 'Gear Speedo'."
+        } else {
+            Info "Once CSP is updated, start a session and look under 'Your apps' for 'Gear Speedo'."
+        }
     } else {
         Bad "Custom Shaders Patch does not look installed (no dwrite.dll / extension folder)"
         Info "Lua apps only run under CSP. Install it from Content Manager"

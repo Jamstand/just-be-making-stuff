@@ -26,15 +26,20 @@ Two Linux gotchas, both handled by `verify/checker-scenario.sh`:
   (`fakeac/apps/lua/GearSpeedo/...`) is what the script's Windows paths resolve to.
 
 Run: `HOME=$FAKEHOME $S/pwsh -NoLogo -File check-gearspeedo.ps1 -AcRoot $FAKEAC`.
-Drive the matrix: lua-only (+/- CSP marker `dwrite.dll` + `extension/`),
-python-only healthy, both, incomplete lua, not ticked, unlisted, nested one too
+Drive the matrix: lua-only (+/- CSP marker `dwrite.dll` + `extension/`; `CSP_BUILD=2500`
+for the too-old-CSP path, default 2650),
+python-only healthy, both, incomplete lua, lua nested one too deep (`nestedlua`), not ticked, unlisted, nested one too
 deep, in Documents, in Downloads, zip unextracted, nothing, crashed acMain.
 
 ## apps/lua — LuaJIT (CSP's runtime family)
 
 `apt-get install luajit`, then `cd verify && luajit drive-lua.lua` (a scripted lap plus
-probes) and `luajit probe-settings.lua` (opacity, position lock with a stubbed
-`ac.accessAppWindow`, rev-bar toggle). `cspstub.lua`
+probes), `luajit probe-settings.lua` (opacity, position lock with a stubbed
+`ac.accessAppWindow`, rev-bar toggle) and `luajit probe-manifest.lua` (manifest.ini
+parsed the way CSP reads it: window functions exist in the script, SIZE matches
+BASE_W/H, flags are documented ones, FLOATING_TITLE_BAR gated on
+REQUIRED_VERSION >= 2514, no `;` inside NAME/DESCRIPTION/AUTHOR/URL — trailing
+comments on other keys are only reported). `cspstub.lua`
 fakes `ac`/`ui`/`vec2`/`rgbm` and records `RECT`/`TEXT` (as `p1`/`p2` vec2s, not
 scalars). Every ui call is asserted for arity/type. Gear convention here is CSP's:
 `<0`=R, `0`=N, `n`=nth — not the Python one.

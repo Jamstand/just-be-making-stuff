@@ -66,3 +66,37 @@ function ui.text(t) end
 function setWindow(w, h) WIN = {x = w, y = h} end
 function reset() RECT, TEXT = {}, {} end
 script = {}
+
+-- Own-folder + manifest reading, the way CSP's WebBrowser app does it
+-- (ac.INIConfig.load(__dirname..'/manifest.ini', ac.INIFormat.Extended)).
+-- Values are comma-split into tables like CSP's reader, and with the Extended
+-- format the [WINDOW_...] section is numbered WINDOW_0 to mimic CSP's
+-- auto-numbering, so the app's prefix match is what gets exercised.
+__dirname = ((arg and arg[0] or 'x'):match('^(.*)[/\\]') or '.') .. '/../apps/lua/GearSpeedo'
+ac.INIFormat = { Default = 0, Extended = 1 }
+ac.INIConfig = {}
+INI_LOADS = {}
+function ac.INIConfig.load(filename, format)
+  INI_LOADS[#INI_LOADS + 1] = filename
+  local f = assert(io.open(filename, 'rb'), 'INIConfig.load: cannot open ' .. tostring(filename))
+  local text = f:read('*a'); f:close()
+  local sections, cur, counter = {}, nil, {}
+  for line in (text .. '\n'):gmatch('(.-)\r?\n') do
+    line = line:gsub('%s*;.*$', '')
+    local sec = line:match('^%s*%[(.-)%]%s*$')
+    if sec then
+      if format == ac.INIFormat.Extended and sec:sub(-3) == '...' then
+        local base = sec:sub(1, -4); counter[base] = (counter[base] or -1) + 1
+        sec = base .. counter[base]
+      end
+      cur = {}; sections[sec] = cur
+    elseif cur then
+      local k, v = line:match('^%s*([%w_%.]+)%s*=%s*(.-)%s*$')
+      if k then local t = {}; for item in v:gmatch('[^,]+') do t[#t + 1] = item:match('^%s*(.-)%s*$') end; cur[k] = t end
+    end
+  end
+  return { sections = sections, get = function(self, section, key, default)
+    local s = self.sections[section]; if not s or not s[key] then return default end
+    return type(default) == 'table' and s[key] or s[key][1]
+  end }
+end

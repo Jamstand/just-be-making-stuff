@@ -5,6 +5,11 @@
 
   The whole layout is derived from the current window size, so dragging the
   window edge scales everything together - no scale setting needed.
+
+  The title bar is CSP's business: manifest.ini asks for FLOATING_TITLE_BAR,
+  which keeps it hidden until the mouse is over the window. CSP has no call
+  to change that at runtime; the script only reads the manifest back so the
+  settings window can say which title bar the player actually has.
 ]]
 
 local BASE_W, BASE_H = 280, 120   -- design size; all coordinates are in these units
@@ -80,6 +85,34 @@ local function enforceLock()
     end
   end)
 end
+
+-- Which title bar the installed manifest asks for, so the settings window
+-- describes what the player is looking at rather than assuming the default.
+-- Read once, fully guarded (CSP's own WebBrowser app reads its manifest the
+-- same way); on a build without ac.INIConfig the text just stays generic.
+local titleBarMode = nil   -- 'hover' | 'always' | 'none' | nil when unknown
+pcall(function()
+  local ini = ac.INIConfig.load(__dirname .. '/manifest.ini', ac.INIFormat.Extended)
+  for name, section in pairs(ini.sections) do
+    -- CSP may keep the section as WINDOW_... or number it WINDOW_0; either way
+    -- the first window section is the one with our FLAGS line.
+    if tostring(name):sub(1, 6) == 'WINDOW' then
+      local flags = section.FLAGS
+      if type(flags) == 'table' then flags = table.concat(flags, ',') end
+      flags = tostring(flags or '')
+      if flags:find('NO_TITLE_BAR', 1, true) then titleBarMode = 'none'
+      elseif flags:find('FLOATING_TITLE_BAR', 1, true) then titleBarMode = 'hover'
+      else titleBarMode = 'always' end
+      break
+    end
+  end
+end)
+
+local TITLE_BAR_TEXT = {
+  hover  = 'Title bar: hidden until the mouse is over the window (FLAGS in manifest.ini).',
+  always = 'Title bar: always shown. Add FLOATING_TITLE_BAR to FLAGS in manifest.ini to hide it until hovered.',
+  none   = 'Title bar: none (NO_TITLE_BAR in manifest.ini).',
+}
 
 local blink = 0
 
@@ -208,4 +241,5 @@ function script.windowSettings(dt)
   end
 
   ui.text('Drag the window edge to resize.')
+  ui.text(TITLE_BAR_TEXT[titleBarMode] or 'Title bar: set by the FLAGS line in manifest.ini.')
 end

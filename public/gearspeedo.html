@@ -121,6 +121,27 @@
   .widget.locked { resize: none; cursor: default; }
   .widget.locked .grip { display: none; }
   .widget canvas { display: block; width: 100%; height: 100%; }
+  /* CSP's title bar the way the FLOATING_TITLE_BAR flag draws it: over the
+     top edge, and only while the pointer is on the window. */
+  .widget .titlebar {
+    position: absolute; left: 0; top: 0; right: 0; height: 26px;
+    display: flex; align-items: center; gap: 8px; padding: 0 9px 0 8px;
+    background: rgba(24,26,31,.96);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    font-family: var(--display); font-size: 13px; font-weight: 500; letter-spacing: .01em;
+    color: #d9dce2;
+    opacity: 0; transition: opacity .12s ease-out;
+    pointer-events: none;
+    user-select: none;
+  }
+  .widget .titlebar svg {
+    width: 14px; height: 14px; flex: none;
+    fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  }
+  .widget .titlebar .t { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .widget .titlebar .b { opacity: .85; margin-left: 4px; }
+  .widget:hover .titlebar, .widget.dragging .titlebar, .widget.tb-always .titlebar { opacity: 1; }
+  .widget.tb-never .titlebar { display: none; }
   .widget .grip {
     position: absolute; right: 3px; bottom: 3px; width: 10px; height: 10px;
     border-right: 2px solid rgba(255,255,255,.28);
@@ -226,11 +247,18 @@
   </header>
 
   <div class="stage" id="stage">
-    <div class="widget" id="widget" aria-label="Gear Speedo widget. Drag to move, drag the corner to resize.">
+    <div class="widget" id="widget" aria-label="Gear Speedo widget. Drag to move, drag the corner to resize. Its title bar appears while the pointer is over it.">
       <canvas id="hud"></canvas>
+      <div class="titlebar" aria-hidden="true">
+        <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M8 8l2.7-2.7"/><circle cx="8" cy="8" r=".7"/></svg>
+        <span class="t">Gear Speedo</span>
+        <svg class="b" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.3"/><circle cx="8" cy="8" r="1.7"/><path d="M8 1.5v2.2M8 12.3v2.2M1.5 8h2.2M12.3 8h2.2"/></svg>
+        <svg class="b" viewBox="0 0 16 16"><path d="M4.2 6.3l3.8 3.8 3.8-3.8"/></svg>
+        <svg class="b" viewBox="0 0 16 16"><path d="M4.3 4.3l7.4 7.4M11.7 4.3l-7.4 7.4"/></svg>
+      </div>
       <div class="grip" aria-hidden="true"></div>
     </div>
-    <div class="hint" id="hint">drag to move &middot; corner to resize</div>
+    <div class="hint" id="hint">drag to move &middot; corner to resize &middot; point at it for the title bar</div>
   </div>
 
   <div class="telemetry" aria-live="off">
@@ -268,6 +296,14 @@
       <button id="lock" aria-pressed="false">Lock position</button>
     </div>
     <div class="group">
+      <span class="k">Title bar</span>
+      <span class="seg" id="tbSeg">
+        <button data-tb="hover" aria-pressed="true">On hover</button>
+        <button data-tb="always">Always</button>
+        <button data-tb="never">Never</button>
+      </span>
+    </div>
+    <div class="group">
       <span class="k">Shift light</span>
       <input type="range" id="shiftAt" min="80" max="100" step="1" value="95" aria-label="Shift light threshold, percent of rev limit">
       <span class="val" id="shiftVal">95%</span>
@@ -291,10 +327,10 @@
   <div class="notes">
     <div>
       <h2>What you're looking at</h2>
-      <p>The widget is drawn here by the same layout logic as the in-game Lua app: an 18-segment rev bar that runs green, amber, then red, and flashes white once revs pass the shift point. The gear number goes red at the same moment. Everything scales with the window, so dragging the corner is exactly what resizing does in the game. The background, RPM-bar and lock controls are the same settings the app has behind its gear icon: lock it and it stays exactly where you put it.</p>
+      <p>The widget is drawn here by the same layout logic as the in-game Lua app: an 18-segment rev bar that runs green, amber, then red, and flashes white once revs pass the shift point. The gear number goes red at the same moment. Everything scales with the window, so dragging the corner is exactly what resizing does in the game. The background, RPM-bar and lock controls are the same settings the app has behind its gear icon: lock it and it stays exactly where you put it. The title bar does what CSP's <code>FLOATING_TITLE_BAR</code> flag makes it do in the game: it stays out of sight until you point at the widget, then floats in over the top edge with the settings gear and the close button. <em>Always</em> and <em>Never</em> show the two alternatives, which are one-line manifest edits rather than in-game settings.</p>
       <p>The car is a simulated MX-5 ND: full throttle up through the gears, a bounce off the limiter in fifth, a hard braking zone with downshifts, then a reverse out of the pit box. The replay loops.</p>
       <h2>Install</h2>
-      <p>Copy <code>apps/lua/GearSpeedo</code> into <code>&lt;AC root&gt;/apps/lua/</code>. It appears under <em>Your apps</em> in the Custom Shaders Patch app list; nothing to switch on. Needs CSP build 2512 or newer.</p>
+      <p>Copy <code>apps/lua/GearSpeedo</code> into <code>&lt;AC root&gt;/apps/lua/</code>. It appears under <em>Your apps</em> in the Custom Shaders Patch app list; nothing to switch on. Needs CSP build 2514 or newer.</p>
     </div>
     <div>
       <h2>Simulated gearing</h2>
@@ -543,13 +579,32 @@
     settings.showBar = !settings.showBar;
     showBar.setAttribute('aria-pressed', String(settings.showBar)); draw();
   });
+  // Title bar. The in-game default is CSP's FLOATING_TITLE_BAR flag: hidden
+  // until hovered. "Always" and "Never" stand for the two manifest edits the
+  // README describes; they are not in-game settings.
+  let tbMode = 'hover';
+  const TB_HINT = { hover: ' \u00b7 point at it for the title bar', always: '', never: '' };
+  const TB_ARIA = { hover: 'Its title bar appears while the pointer is over it.',
+                    always: 'Its title bar is always shown.', never: 'It has no title bar.' };
   const lockBtn = $('lock'), hint = $('hint');
+  function updateHint() {
+    hint.textContent = locked ? 'locked in place \u00b7 unlock to move or resize'
+                              : 'drag to move \u00b7 corner to resize' + TB_HINT[tbMode];
+    widget.setAttribute('aria-label', 'Gear Speedo widget. '
+      + (locked ? 'Locked in place.' : 'Drag to move, drag the corner to resize.') + ' ' + TB_ARIA[tbMode]);
+  }
+  pressGroup($('tbSeg'), b => {
+    tbMode = b.dataset.tb;
+    widget.classList.remove('tb-always', 'tb-never');
+    if (tbMode !== 'hover') widget.classList.add('tb-' + tbMode);
+    updateHint();
+  });
   lockBtn.addEventListener('click', () => {
     locked = !locked;
     lockBtn.setAttribute('aria-pressed', String(locked));
     lockBtn.textContent = locked ? 'Locked' : 'Lock position';
     widget.classList.toggle('locked', locked);
-    hint.textContent = locked ? 'locked in place \u00b7 unlock to move or resize' : 'drag to move \u00b7 corner to resize';
+    updateHint();
   });
   const shiftAt = $('shiftAt'), shiftVal = $('shiftVal');
   shiftAt.addEventListener('input', () => { settings.shiftAt = Number(shiftAt.value); shiftVal.textContent = shiftAt.value + '%'; draw(); });

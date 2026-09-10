@@ -28,13 +28,35 @@ Speedo** is under *Your apps* — no ini editing and no activation checkbox,
 because CSP picks up Lua apps from the folder directly.
 
 Drag the window to move it, drag its edge to resize it (everything scales
-with the window). The gear icon in its title bar opens settings: speed on/off,
-the RPM bar on/off, KM/H or MPH, where the shift light kicks in, the background
-opacity (0% is fully see-through, 100% solid black), and **Lock position and
-size** — tick it once the widget is where you want it and it stays put; if
-anything nudges it, the app moves it straight back. Untick to move it again.
-The lock needs CSP 0.2.3-preview62 or newer to actually hold the window; on an
-older build it simply does nothing.
+with the window). The title bar stays hidden while you drive: point the mouse
+at the window and it floats in over the top edge, with the gear icon that opens
+settings and the close button. Settings: speed on/off, the RPM bar on/off, KM/H
+or MPH, where the shift light kicks in, the background opacity (0% is fully
+see-through, 100% solid black), and **Lock position and size** — tick it once
+the widget is where you want it and it stays put; if anything nudges it, the
+app moves it straight back. Untick to move it again. The lock needs CSP
+0.2.3-preview62 or newer to actually hold the window; on an older build it
+simply does nothing.
+
+### Title bar
+
+Hidden-until-hovered is CSP's `FLOATING_TITLE_BAR` window flag, the same one
+its own Radar and Rally Copilot HUDs use. CSP has no way to switch a window's
+title bar at runtime, so the other two options are a one-line edit to the
+`FLAGS` line in `<AC root>/apps/lua/GearSpeedo/manifest.ini` — the installed
+copy, not the one in the zip (CSP reads it once at load, so restart the
+session afterwards):
+
+| You want | `FLAGS =` |
+|---|---|
+| hidden until you point at it (default) | `SETTINGS, FLOATING_TITLE_BAR, NO_BACKGROUND, NO_SCROLLBAR, NO_SCROLL_WITH_MOUSE` |
+| always shown | `SETTINGS, NO_BACKGROUND, NO_SCROLLBAR, NO_SCROLL_WITH_MOUSE` |
+| never shown | `SETTINGS, NO_TITLE_BAR, NO_BACKGROUND, NO_SCROLLBAR, NO_SCROLL_WITH_MOUSE` |
+
+With no title bar there is no gear icon either, so the settings are out of
+reach: set things up first, and open or close the app from the CSP app list.
+`FLOATING_TITLE_BAR` needs CSP build 2514 or newer, which is what the manifest
+asks for anyway.
 
 ![Gear Speedo through a simulated lap](preview.gif)
 
@@ -42,7 +64,7 @@ older build it simply does nothing.
 browser (or run the repo's server and visit `/gearspeedo.html`). It's the same
 layout logic as the in-game app, driven by a simulated MX-5 lap, and you can
 drag it, resize it, and change its settings. The clip above is the real Lua
-app's frame output, rendered outside the game; `preview.webm` is the same
+app's frame output, rendered outside the game; `preview.mp4` is the same
 clip at 30 fps.
 
 The gear is the hero — big, centre-left, and it turns red when you should be
@@ -160,7 +182,20 @@ it can't find your AC folder, pass it in:
 .\check-gearspeedo.ps1 -AcRoot "D:\Steam\steamapps\common\assettocorsa"
 ```
 
-To do it by hand instead, the app writes two markers to
+**Lua build (CSP):** there is nothing to activate, so if it is missing from
+the app list it is one of three things, and the checker shows which:
+
+1. **CSP too old.** The manifest asks for build 2514 or newer (that's where
+   `FLOATING_TITLE_BAR` arrived), and the app isn't expected to load on
+   anything older. The checker prints your build next to the minimum. Update
+   CSP from Content Manager → Settings → Custom Shaders Patch.
+2. **Wrong folder.** Both files must be at
+   `<AC root>/apps/lua/GearSpeedo/` — `GearSpeedo.lua` and `manifest.ini` side
+   by side, not one folder deeper.
+3. **No CSP at all.** The Lua build only exists under Custom Shaders Patch;
+   without it use the Python build below.
+
+**Python build:** to do it by hand instead, the app writes two markers to
 `Documents\Assetto Corsa\logs\py_log.txt`, and which ones are present tells
 you exactly where it broke:
 
