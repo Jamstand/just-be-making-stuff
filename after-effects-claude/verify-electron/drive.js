@@ -428,6 +428,33 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   expect(uiErrors.length === 0, "no page errors or console errors in the music UI", uiErrors);
   await app3.close();
 
+  console.log("### 6b. 🔍 slash menu: / lists the commands; /train is answered here (a Resolve command), never sent to the CLI; /help is local");
+  const smExpect = (cond, what, detail) => { if (!cond) throw new Error("step 6b expectation failed: " + what + " " + JSON.stringify(detail === undefined ? null : detail)); };
+  await page.setViewportSize({ width: 760, height: 560 });
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 15000 });
+  await page.click("#input"); await page.fill("#input", "");
+  await page.keyboard.type("/");
+  const sm1 = await page.evaluate(() => ({ hidden: document.getElementById("slashmenu").hidden, rows: [...document.querySelectorAll("#slashmenu .sm-name")].map((n) => n.textContent),
+    on: [...document.querySelectorAll("#slashmenu .sm-row.on .sm-name")].map((n) => n.textContent) }));
+  console.log(JSON.stringify(sm1));
+  smExpect(!sm1.hidden && sm1.rows.join() === "/help,/tools,/mcp,/new,/history,/copy" && sm1.on.join() === "/help", "typing / opens the menu with the first row selected", sm1);
+  await shot(page, "6b-slash-menu");
+  await page.keyboard.press("ArrowDown"); await page.keyboard.press("ArrowDown");
+  smExpect((await page.evaluate(() => document.querySelector("#slashmenu .sm-row.on .sm-name").textContent)) === "/mcp", "arrows move the selection");
+  await page.keyboard.press("Escape");
+  smExpect(await page.evaluate(() => document.getElementById("slashmenu").hidden && document.getElementById("input").value === "/"), "Esc closes the menu and keeps the text");
+  const lastTurnBefore = fs.statSync(path.join(HOME, "last-turn.json")).mtimeMs;
+  await page.keyboard.type("train"); await page.keyboard.press("Enter");     // no such command here → answered by the panel, no CLI turn
+  await page.waitForFunction(() => /Resolve panel command/.test([...document.querySelectorAll("#chat .card")].pop().textContent), null, { timeout: 10000 });
+  const sm2 = await page.evaluate(() => ({ status: document.getElementById("status").textContent, cards: [...document.querySelectorAll("#chat .card")].slice(-2).map((c) => c.textContent.replace(/\s+/g, " ").slice(0, 110)) }));
+  sm2.cli_ran = fs.statSync(path.join(HOME, "last-turn.json")).mtimeMs !== lastTurnBefore;
+  console.log(JSON.stringify(sm2));
+  smExpect(/^Ready/.test(sm2.status) && /YOU.*\/train/.test(sm2.cards[0]) && !sm2.cli_ran, "/train is echoed and answered locally; no CLI turn ran", sm2);
+  await page.keyboard.type("/he"); await page.keyboard.press("Tab");           // /help takes no arguments: runs at once, locally
+  const sm3 = await page.evaluate(() => ({ last: [...document.querySelectorAll("#chat .card")].pop().textContent.replace(/\s+/g, " ").slice(0, 80), value: document.getElementById("input").value, hidden: document.getElementById("slashmenu").hidden }));
+  console.log(JSON.stringify(sm3));
+  smExpect(/Type \/ to pick a command/.test(sm3.last) && sm3.value === "" && sm3.hidden, "/help via Tab is answered by the page", sm3);
+
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {
     await page.setViewportSize({ width: w, height: 560 });

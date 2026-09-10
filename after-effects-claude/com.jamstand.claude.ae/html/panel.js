@@ -74,6 +74,44 @@ const MODELS = ["claude-opus-5", "claude-fable-5", "claude-sonnet-5",
                 "claude-haiku-4-5"];
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const PERMISSION_MODES = ["Ask before edits", "Always ask", "Never ask"];
+
+// Slash commands the "/" menu in app.js lists. Macros expand before the
+// model sees them; local:true ones the page answers itself. Claude Code
+// reads a leading slash as one of ITS commands ("Unknown command: /train"),
+// so nothing starting with "/" reaches the CLI unrouted.
+const SLASH_COMMANDS = [
+  { name: "help", args: "", local: true, description: "What Claude can do here, and these commands" },
+  { name: "tools", args: "", description: "List the tools this panel gives Claude, one line each" },
+  { name: "mcp", args: "", description: "Which other MCP servers are attached and usable right now" },
+  { name: "new", args: "", local: true, description: "Start a new chat (Claude's memory of this session is cleared)" },
+  { name: "history", args: "", local: true, description: "Open past chats" },
+  { name: "copy", args: "", local: true, description: "Copy the whole conversation as text" },
+];
+function expandSlash(text) {
+  const t = String(text || "").trim();
+  if (/^\/tools?\b/i.test(t))
+    return "List the tools you have in this panel, grouped by what they do, one short line each, "
+      + "named the way the user would say them rather than by tool id. No preamble.";
+  if (/^\/mcp\b/i.test(t))
+    return "Call mcp_status and say plainly which extra MCP servers are attached, which are usable "
+      + "right now, and what to do about any that are not.";
+  return null;
+}
+function slashRoute(text) {
+  const t = String(text || "").trim();
+  const expanded = expandSlash(t);
+  if (expanded) return { kind: "expand", prompt: expanded };
+  const m = /^\/([a-z][a-z-]*)$/i.exec(t.split(/\s+/)[0] || "");
+  if (m) {
+    const name = m[1].toLowerCase();
+    const local = SLASH_COMMANDS.find((c) => c.name === name && c.local);
+    return { kind: "unknown", name,
+      note: local ? "/" + name + " works on its own — type it without anything after it."
+        : /^(study|train)$/.test(name) ? "/" + name + " is a DaVinci Resolve panel command (it studies finished edits into a style profile). Here, type / to see what this panel has."
+        : "No command called /" + name + " — type / to see the list. Anything that doesn't start with / goes to Claude as written." };
+  }
+  return { kind: "text", prompt: t.startsWith("/") ? "Message from the panel (a path, not a command): " + t : t };
+}
 const APPROVAL_TIMEOUT_MS = 120000;
 
 const SYSTEM_PROMPT = [
@@ -1773,11 +1811,13 @@ window.assistant = {
     if (PERMISSION_MODES.includes(permissionMode))
       state.permissionMode = permissionMode;
     currentModel = model;
-    busy = true;
+    const route = slashRoute(text);
     sendUI("you", String(text).trim());
+    if (route.kind === "unknown") { sendUI("notice", route.note); sendUI("done", {}); return true; }
+    busy = true;
     runTurn(MODELS.includes(model) ? model : MODELS[0],
             EFFORTS.includes(effort) ? effort : "medium",
-            String(text).trim());
+            route.prompt);
     return true;
   },
   approval(decision, guidance) {
@@ -1790,7 +1830,7 @@ window.assistant = {
   },
   config() {
     return Promise.resolve({ models: MODELS, efforts: EFFORTS,
-                             modes: PERMISSION_MODES });
+                             modes: PERMISSION_MODES, commands: SLASH_COMMANDS });
   },
   history(action, id) {
     if (action === "list") return Promise.resolve(history.list());

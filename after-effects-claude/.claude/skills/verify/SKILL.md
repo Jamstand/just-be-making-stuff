@@ -170,6 +170,16 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   while not usable, and no probe once connected. Step 10c sets
   extra_mcp_mode "inherit": argv without --strict-mcp-config, mcp.json
   holding only ae, allowedTools still mcp__higgsfield__* (and ghost).
+- Slash menu (drive step 6b, on the main panel at 760×560): typing "/"
+  opens #slashmenu with /help,/tools,/mcp,/new,/history,/copy and the
+  first row .on; ArrowDown ×2 → /mcp; Esc closes and keeps the text;
+  "/train" + Enter is echoed as YOU, answered with a NOTE saying it is a
+  Resolve panel command, and the fake claude's ~/last-turn.json mtime
+  must NOT change (no CLI turn — Claude Code would answer "Unknown
+  command"); "/he" + Tab runs /help locally ("Type / to pick a
+  command"). Screenshot shot-6b-slash-menu. The list comes from
+  panel.js SLASH_COMMANDS via config(); slashRoute() in panel.js is the
+  chokepoint (expand / unknown / text-with-path-prefix).
 - Claude Music (second extension in the same bundle, html/music.html sets
   window.CLAUDE_PANEL = "music"): drive step 11 launches a SECOND Electron
   instance with AE_PAGE=music.html (verify-electron/main.js honours it),

@@ -97,4 +97,7 @@ choose, Enter or Tab to fill the command in, Esc to close. `/study <link>
 <link>` (or `/train`, the same thing) downloads finished edits (TikTok,
 Instagram, YouTube), builds a study timeline and analyses each one into
 your style profile. `/help`, `/new`, `/history` and `/copy` are handled by
-the panel itself. Anything else you type goes to Claude as it is.
+the panel itself. An unknown `/word` is answered by the panel ("No command
+called /word") rather than reaching Claude Code, which would reply
+"Unknown command"; a line starting with a file path is passed to Claude as
+a message. Anything else you type goes to Claude as it is.

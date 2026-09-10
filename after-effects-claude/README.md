@@ -180,6 +180,17 @@ mix), no key detection, no API-key field (the panel runs your Claude Code
 subscription), and "Bake keyframes instead" and "Markers on the audio
 layer" are shown disabled until they exist.
 
+## Slash commands
+
+Type `/` in either panel's chat box and a menu opens, like Claude's:
+arrow keys to choose, Enter or Tab to fill the command in, Esc to close.
+`/tools` and `/mcp` ask Claude a set question; `/help`, `/new`, `/history`
+and `/copy` are handled by the panel itself. An unknown command such as
+`/train` is answered by the panel too (that one belongs to the DaVinci
+Resolve panel) and never reaches Claude Code, which would otherwise reply
+"Unknown command". A line that starts with a file path is passed to
+Claude as a message.
+
 ## Other MCP servers (Higgsfield and friends)
 
 The panel runs Claude Code with only its own tools attached. To let the

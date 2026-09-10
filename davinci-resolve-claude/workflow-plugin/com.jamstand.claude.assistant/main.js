@@ -385,13 +385,15 @@ ipcMain.handle("send", (evt, { text, model, effort, permissionMode }) => {
   if (state && tools.PERMISSION_MODES.includes(permissionMode))
     state.permissionMode = permissionMode;
   currentModel = model;
-  busy = true;
-  sendUI("you", String(text).trim());
   // Slash commands expand into full instructions; the transcript keeps
-  // what the user typed.
-  const prompt = tools.expandSlash(text) || String(text).trim();
+  // what the user typed. An unknown /word never reaches the CLI (it would
+  // answer "Unknown command") — the panel says so itself.
+  const route = tools.slashRoute(text);
+  sendUI("you", String(text).trim());
+  if (route.kind === "unknown") { sendUI("notice", route.note); sendUI("done", {}); return true; }
+  busy = true;
   runTurn(MODELS.includes(model) ? model : MODELS[0],
-          EFFORTS.includes(effort) ? effort : "medium", prompt);
+          EFFORTS.includes(effort) ? effort : "medium", route.prompt);
   return true;
 });
 

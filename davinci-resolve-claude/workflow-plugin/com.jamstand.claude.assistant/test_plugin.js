@@ -877,6 +877,13 @@ async function main() {
         && tools.SLASH_COMMANDS.some((c) => c.name === "train" && /link/.test(c.args))
         && tools.SLASH_COMMANDS.some((c) => c.name === "study" && !c.local)
         && tools.SLASH_COMMANDS.filter((c) => c.local).map((c) => c.name).join() === "help,new,history,copy");
+  check("slashRoute: macros expand, unknown /words are answered by the panel, paths are prefixed, text passes",
+        tools.slashRoute("/train https://tiktok.com/x").kind === "expand"
+        && tools.slashRoute("/foo").kind === "unknown" && /No command called \/foo/.test(tools.slashRoute("/foo").note)
+        && /on its own/.test(tools.slashRoute("/help me").note)
+        && tools.slashRoute("/Users/josh/a.mov grade this").kind === "text"
+        && /^Message from the panel/.test(tools.slashRoute("/Users/josh/a.mov grade this").prompt)
+        && tools.slashRoute("hello there").prompt === "hello there");
   check("/study bare asks for an explanation, plain text stays null",
         /explain/i.test(tools.expandSlash("/study") || "")
         && tools.expandSlash("study this for me") === null

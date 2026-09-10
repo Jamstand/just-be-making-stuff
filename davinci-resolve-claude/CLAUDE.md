@@ -630,3 +630,13 @@ focus; the menu hides once the caret is past the first space. There is no
 Electron harness for the Resolve renderer — the slash menu was checked
 with a Playwright page over renderer/index.html with a stubbed
 window.assistant (scratchpad), plus test_plugin.js for expandSlash.
+Round 2 (the user saw "Unknown command: /train"): that string is Claude
+Code's — the CLI reads a leading "/" as one of its own commands. Both
+panels now route every line before the CLI sees it: tools.slashRoute
+(Resolve) / slashRoute in panel.js (AE) → expand a macro, answer an
+unknown /word with a NOTE (no turn, "done" sent so the UI un-busies), or
+pass text through with "Message from the panel (a path, not a command): "
+prefixed when it starts with "/". The AE panels (both pages, shared
+app.js) got the same "/" menu with /help /tools /mcp /new /history /copy;
+/train and /study there answer "that's a Resolve panel command". AE
+harness step 6b covers it; manifest 1.0.21.

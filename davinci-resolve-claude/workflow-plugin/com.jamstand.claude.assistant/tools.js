@@ -3411,6 +3411,25 @@ function expandSlash(text) {
     + "the style — the numbers AND the content notes together.";
 }
 
+// What the panel does with a typed line: expand a known macro; answer an
+// unknown "/word" itself (Claude Code reads a leading slash as one of ITS
+// commands and answers "Unknown command: /train"); or pass text through,
+// prefixed when it starts with "/" (a file path) for the same reason.
+function slashRoute(text) {
+  const t = String(text || "").trim();
+  const expanded = expandSlash(t);
+  if (expanded) return { kind: "expand", prompt: expanded };
+  const m = /^\/([a-z][a-z-]*)$/i.exec(t.split(/\s+/)[0] || "");
+  if (m) {
+    const name = m[1].toLowerCase();
+    const local = SLASH_COMMANDS.find((c) => c.name === name && c.local);
+    return { kind: "unknown", name,
+      note: local ? "/" + name + " works on its own — type it without anything after it."
+        : "No command called /" + name + " — type / to see the list. Anything that doesn't start with / goes to Claude as written." };
+  }
+  return { kind: "text", prompt: t.startsWith("/") ? "Message from the panel (a path, not a command): " + t : t };
+}
+
 // ------------------------------------------------------------ plugin config
 // Small JSON store for secrets/settings (the Gemini key today). Kept in the
 // user's home, 0600, and never echoed back in tool results.
@@ -3893,6 +3912,6 @@ module.exports = {
   sampleDi, simStats, refineCdl, measureBuffer, measureItem, simHueStats, hueCost, refineHueRecipe, TOLERANCE_PCT,
   labOf, deltaE2000, tiffDeltaE, statsDistance,
   rgbToHsv, hsvToRgb, P_LEVELS, HUE_SECTORS, HUE_BINS, SKIN_LINE_DEG, DI,
-  percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash, SLASH_COMMANDS,
+  percentile, dropFrameTimecode, timelineLabel, findYtDlp, expandSlash, SLASH_COMMANDS, slashRoute,
   readConfig, writeConfig, geminiKey, CONFIG_FILE, geminiErrorText,
 };
