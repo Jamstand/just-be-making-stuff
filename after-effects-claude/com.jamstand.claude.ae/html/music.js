@@ -21,11 +21,23 @@
     view: "empty", prev: "empty", comp: null, layers: [], library: [], dirs: [],
     song: null, analysis: null, fits: [], fit: 0,
     opt: { markers: "bars", range: "fit", tempo: null, offset: 0 },
-    applied: null, wiring: [], listenToken: 0, progress: 0, progressEvents: 0,
+    applied: null, wiring: [], listenToken: 0, listening: 0, progress: 0, progressEvents: 0,
     waves: {}, libdir: "", busy: null, placeholder: "",
   };
   const libDir = () => S.libdir || S.dirs[0] || "~/Music/Claude Assistant";
-  const homeView = () => (S.applied ? "applied" : S.analysis ? "results" : S.song ? "track" : "empty");
+  const homeView = () => (S.listening ? "listening" : S.applied ? "applied" : S.analysis ? "results" : S.song ? "track" : "empty");
+  const placedSong = () => !!(S.song && S.song.from === "comp");
+  // The layer a comp-picked song lives on, found by name and file (an index
+  // shifts whenever a layer is added above); the remembered index only
+  // breaks a tie. Null when the layer is gone.
+  function placedLayer() {
+    const s = S.song; if (!s || s.from !== "comp") return null;
+    const same = S.layers.filter((l) => l.name === s.name && (!s.file || !l.file || l.file === s.file));
+    if (!same.length) return null;
+    const hit = same.find((l) => l.index === s.layer) || same[same.length - 1];
+    s.layer = hit.index;
+    return hit;
+  }
   // One thing at a time on the timeline: apply, write and undo refuse to
   // overlap (a double click, or a click while a previous one is still in
   // After Effects); listening is cancellable and stays outside this.
@@ -250,7 +262,10 @@
     else t.textContent = "found when I listen";
     $("offset").value = String(S.opt.offset || 0);
     for (const seg of ["markers"]) { const r = $$('[data-opt="' + seg + '"] input'); r.forEach((i) => { i.checked = i.value === S.opt[seg]; }); }
-    $$('[data-opt="range"] input').forEach((i) => { i.checked = i.value === S.opt.range; });
+    $$('[data-opt="range"] input').forEach((i) => { i.checked = i.value === S.opt.range; i.disabled = placedSong(); });
+    $$('[data-opt="range"]').forEach((s) => s.classList.toggle("disabled", placedSong()));
+    $("offset").disabled = placedSong();
+    $$("[data-placed-note]").forEach((e) => { e.hidden = !placedSong(); });
   }
   function renderChecklist() {
     const el = $("checklist"); el.replaceChildren();
@@ -293,12 +308,20 @@
     const barLen = a.beat_s * 4, L = a.duration_s;
     const drop = dropOf(a);
     // A song already on the timeline stays where the user put it: the fit is
-    // its placement, and apply adds no second copy of the audio.
-    const placed = S.song && S.song.from === "comp" ? S.layers.find((l) => l.index === S.song.layer && l.name === S.song.name) : null;
-    if (placed) {
+    // its placement, and apply adds no second copy of the audio. Song time →
+    // comp time is + startTime (offset_s); the audible span runs from the
+    // layer's in point to its out point or the comp's end.
+    if (placedSong()) {
+      const placed = placedLayer();
+      if (!placed) {
+        fits.push({ in_s: 0, gone: true, pick: true, label: "That layer is no longer in " + (S.comp ? S.comp.name : "the comp"), detail: "pick the track again from the library or the comp" });
+        return fits;
+      }
       const inS = Math.max(0, placed.in_s - placed.start_s);
-      fits.push({ in_s: inS, offset_s: placed.start_s, until_s: Math.min(D || placed.out_s, placed.out_s), placed: true, pick: true,
-        label: "As it sits on your timeline", detail: (inS > 0 ? "from " + fmt(inS) + " of the song" : "from the top") + (drop !== null && drop >= inS && drop - inS + placed.start_s <= (D || Infinity) ? ", the drop lands at " + fmt(drop - inS + placed.start_s) : "") });
+      const untilComp = Math.min(D || placed.out_s, placed.out_s);
+      const dropComp = drop !== null ? drop + placed.start_s : null;
+      fits.push({ in_s: inS, offset_s: placed.start_s, from_s: placed.in_s, until_s: untilComp, placed: true, pick: true,
+        label: "As it sits on your timeline", detail: (inS > 0 ? "from " + fmt(inS) + " of the song" : "from the top") + (dropComp !== null && dropComp >= placed.in_s && dropComp <= untilComp ? ", the drop lands at " + fmt(dropComp) : "") });
       return fits;
     }
     if (drop !== null && D && drop > D * 0.375) {
@@ -357,17 +380,18 @@
   }
   function renderApplied() {
     const ap = S.applied, a = S.analysis; if (!ap || !a) return;
-    const D = ap.until_s;
-    const inS = ap.in_s, dropC = dropOf(a) !== null ? a.drop_s - inS : null;
-    $("applied-sub").textContent = S.song.name + (inS > 0 ? " · trimmed to " + fmt(D) : "") + (dropC !== null && dropC >= 0 && dropC <= D ? " · drop at " + fmt(dropC) : "") + " · " + ap.markers_written + " " + ap.markerKind + " markers";
+    const D = ap.until_s;                                  // seconds of song on the timeline, from in_s
+    const inS = ap.in_s;
+    const dropComp = ap.drop_marker ? a.drop_s + ap.offset_s : null;   // the comp time beat_control wrote the ♪ DROP at
+    $("applied-sub").textContent = S.song.name + (inS > 0 ? " · from " + fmt(inS) + " of the song" : "") + (dropComp !== null ? " · drop at " + fmt(dropComp) : "") + " · " + ap.markers_written + " " + ap.markerKind + " markers";
     const labels = [];
     const sectionAt = a.sections.find((s) => s.start_s <= inS && s.end_s > inS);
     if (sectionAt) labels.push({ t: inS, text: cap(sectionAt.kind) });
-    if (dropC !== null && dropC >= 0 && dropC <= D) labels.push({ t: a.drop_s, text: "Drop · " + fmt(dropC), hi: true });
-    renderWave($("wave-applied"), { range: [inS, inS + D], labels, drop: dropOf(a), dropAsLine: true, bars: a.downbeats || [], axis: true, axisFrom: inS });
+    if (dropComp !== null) labels.push({ t: a.drop_s, text: "Drop · " + fmt(dropComp), hi: true });
+    renderWave($("wave-applied"), { range: [inS, inS + D], labels, drop: dropOf(a), dropAsLine: true, bars: a.downbeats || [], axis: true, axisFrom: -ap.offset_s });   // axis in comp time
     const dl = $("donelist"); dl.replaceChildren();
     const lines = [ap.markers_written + " " + ap.markerKind + " markers on the comp"];
-    if (dropC !== null && dropC >= 0 && dropC <= D) lines.push("“♪ DROP” marker at " + fmt(dropC));
+    if (dropComp !== null) lines.push("“♪ DROP” marker at " + fmt(dropComp));
     lines.push("BEAT null with Beat, Bar, Bass, Energy and BPM sliders");
     for (const w of ap.written || []) lines.push(w);
     for (const t of lines) { const d = document.createElement("div"); d.innerHTML = TICK.ok; const s = document.createElement("span"); s.textContent = t; d.appendChild(s); dl.appendChild(d); }
@@ -397,6 +421,8 @@
       const sel = document.createElement("select"); sel.className = "input";
       const none = document.createElement("option"); none.value = "0"; none.textContent = "Choose a layer…"; sel.appendChild(none);
       for (const l of layers) { const o = document.createElement("option"); o.value = String(l.index); o.textContent = l.name; sel.appendChild(o); }
+      const cur = layers.find((x) => x.name === w.layerName);     // by name: indices shift when a layer is added above
+      w.layer = cur ? cur.index : 0; if (!cur) w.layerName = "";
       sel.value = String(w.layer || 0);
       sel.onchange = () => { w.layer = Number(sel.value); const l = layers.find((x) => x.index === w.layer); w.layerName = l ? l.name : ""; };
       const drv = document.createElement("select"); drv.className = "input";
@@ -411,6 +437,7 @@
       const mid = document.createElement("div"); mid.className = "mid"; mid.append(sel, drv);
       el.append(st, mid, seg);
     });
+    syncSegs(el);
   }
   function renderSettings() {
     $("libdir").value = libDir();
@@ -431,7 +458,7 @@
     if (S.song) parts.push("track=" + S.song.name + " (" + S.song.file + ")");
     if (S.analysis) parts.push("analysis: " + S.analysis.bpm + " BPM, " + S.analysis.bars + " bars, " + fmt1(S.analysis.duration_s) + " s, drop_s=" + S.analysis.drop_s + ", sections=" + S.analysis.sections.map((s) => s.kind + "@" + s.start_s).join(","));
     if (S.fits.length) parts.push("fit options=" + S.fits.map((f, i) => (i === S.fit ? "*" : "") + f.label + " in_s=" + f.in_s.toFixed(1)).join("; "));
-    parts.push("options: markers=" + S.opt.markers + " range=" + S.opt.range + (S.opt.tempo ? " tempo override=" + S.opt.tempo : "") + " offset_frames=" + S.opt.offset);
+    parts.push("options: markers=" + S.opt.markers + (S.opt.tempo ? " tempo override=" + S.opt.tempo : "") + (placedSong() ? " (the track is the user's own layer: it keeps its place and trim, range/offset do not apply)" : " range=" + S.opt.range + " offset_frames=" + S.opt.offset));
     if (S.applied) parts.push("applied: music layer '" + (S.applied.layerName || (S.song ? S.song.name + " (the user's own layer, left as placed)" : "?")) + "' in_s=" + S.applied.in_s + " offset_s=" + S.applied.offset_s + " markers=" + S.applied.markers_written + " " + S.applied.markerKind + (S.applied.drop_marker ? " + DROP" : "") + " written=" + (S.applied.written || []).join("|"));
     const feel = $("feel") && $("feel").value.trim(); if (feel) parts.push("feel asked for: " + feel);
     return parts.join("; ") + ". The user's clicks in the panel already ran the tools named here; do not redo them, build on them.";
@@ -453,6 +480,7 @@
   async function listen(quick) {
     if (!S.song) return;
     const token = ++S.listenToken;
+    S.listening = token;
     S.progress = 0; S.progressEvents = 0;
     show("listening");
     try {
@@ -460,6 +488,7 @@
       if (token !== S.listenToken) return;
       const a = await analyze(S.song.file);
       if (token !== S.listenToken) return;                 // stopped or another track picked
+      S.listening = 0;
       S.analysis = a; S.progress = 100;
       S.fits = computeFits(); S.fit = Math.max(0, S.fits.findIndex((f) => f.pick));
       S.song.bpm = a.bpm; S.song.duration_s = a.duration_s;
@@ -469,9 +498,10 @@
       note("claude", heardText() + (S.fits.length > 1 ? " Pick a fit and I'll lay the markers." : ""));
     } catch (e) {
       if (token !== S.listenToken) return;
+      S.listening = 0;
       show("track");
       note("error", "I couldn't listen to " + S.song.name + ": " + (e.message || e));
-    }
+    } finally { if (S.listening === token) S.listening = 0; }
   }
   function apply() { return withBusy("putting it on the timeline", applyNow); }
   async function applyNow() {
@@ -481,28 +511,32 @@
     if (!S.comp) { note("error", "Open a comp in After Effects first."); return; }
     if (S.song !== song) return;                           // another track was picked meanwhile
     const fit = S.fits[S.fit] || { in_s: 0 };
+    if (fit.gone) { note("error", fit.label + " — " + fit.detail + "."); return; }
     const D = compDur();
-    const whole = S.opt.range === "whole";
-    const offsetS = (Number(S.opt.offset) || 0) / compFps();
-    const kind = S.opt.markers === "beats" ? "beat" : S.opt.markers === "sections" ? "section" : "bar";
+    const markers = S.opt.markers;                         // read once: the seg stays on screen during the awaits
+    const whole = S.opt.range === "whole" && !fit.placed;  // a placed layer keeps its trim
+    const offsetS = fit.placed ? 0 : (Number(S.opt.offset) || 0) / compFps();
+    const kind = markers === "beats" ? "beat" : markers === "sections" ? "section" : "bar";
     const btn = $$('[data-act="apply"]')[0]; if (btn) { btn.disabled = true; btn.textContent = "Putting it on…"; }
     try {
-      let am, until, layerName = null, layerIndex = null, untilS;
+      let am, from, until, layerName = null, layerIndex = null, untilS;
       if (fit.placed) {
-        // the song is already on the timeline where the user put it: no second copy
-        am = { offset_s: fit.offset_s }; until = whole ? undefined : fit.until_s; untilS = whole ? a.duration_s - fit.in_s : fit.until_s;
+        // the song is already on the timeline where the user put it: no second copy;
+        // keys and markers run from its in point to its out point (or the comp's end)
+        am = { offset_s: fit.offset_s }; from = fit.from_s; until = fit.until_s; untilS = fit.until_s - fit.offset_s - fit.in_s;
       } else {
         am = await A.callTool("add_music", { song: song.file, comp: S.comp.name, start_s: offsetS, in_s: fit.in_s, extend_comp: whole });
-        layerName = am.item; layerIndex = am.layer; until = whole ? undefined : D; untilS = whole ? a.duration_s - fit.in_s : D;
+        layerName = am.item; layerIndex = am.layer; from = offsetS; until = whole ? undefined : D;
+        untilS = whole ? a.duration_s - fit.in_s : Math.min(D - offsetS, a.duration_s - fit.in_s);
       }
-      const bc = await A.callTool("beat_control", { song: song.file, comp: S.comp.name, offset_s: am.offset_s, markers: S.opt.markers, until_s: until });
-      S.applied = { comp: S.comp.name, layerName, layerIndex, placed: !!fit.placed, in_s: fit.in_s, offset_s: am.offset_s, until_s: untilS,
+      const bc = await A.callTool("beat_control", { song: song.file, comp: S.comp.name, offset_s: am.offset_s, markers, from_s: from, until_s: until });
+      S.applied = { comp: S.comp.name, layerName, layerIndex, placed: !!fit.placed, in_s: fit.in_s, offset_s: am.offset_s, from_s: from, until_s: untilS,
         markers_written: bc.markers_written || 0, drop_marker: !!bc.drop_marker, markerKind: kind, written: [], expressions: [], extraLayers: [] };
       S.wiring = [];
       await refreshComp(false);
       show("applied");
-      const dropC = dropOf(a) !== null ? a.drop_s - fit.in_s : null;
-      note("claude", "Done — " + song.name + (fit.placed ? " stays where it is on the timeline" : fit.in_s > 0 ? " opens at " + fmt(fit.in_s) + " of the song" : " starts from the top") + (dropC !== null && dropC >= 0 && dropC <= untilS ? ", so the drop lands at " + fmt(dropC + (fit.placed ? fit.offset_s : 0)) : "") + ". " + S.applied.markers_written + " " + kind + " markers are on the comp and the BEAT null is ready. Pick what each part of the music should drive, then write the expressions.");
+      const dropComp = bc.drop_marker ? a.drop_s + am.offset_s : null;   // comp time, as written
+      note("claude", "Done — " + song.name + (fit.placed ? " stays where it is on the timeline" : fit.in_s > 0 ? " opens at " + fmt(fit.in_s) + " of the song" : " starts from the top") + (dropComp !== null ? ", so the drop lands at " + fmt(dropComp) : "") + ". " + S.applied.markers_written + " " + kind + " markers are on the comp and the BEAT null is ready. Pick what each part of the music should drive, then write the expressions.");
     } catch (e) {
       note("error", "That didn't land: " + (e.message || e));
     } finally { if (btn) { btn.disabled = false; btn.textContent = "Put it on the timeline"; } }
@@ -523,7 +557,7 @@
         const amount = w.drive === "punch" ? (w.feel === "punch" ? 8 : 4) : w.drive === "zoom" ? (w.feel === "punch" ? 6 : 3)
           : w.drive === "shake" ? (w.feel === "punch" ? 12 : 6) : (w.feel === "punch" ? 60 : 30);
         const ll = await A.callTool("list_layers", { comp: ap.comp });
-        const cur = (ll.layers || []).find((l) => l.name === w.layerName) || (ll.layers || []).find((l) => l.index === w.layer);
+        const cur = (ll.layers || []).find((l) => l.name === w.layerName);   // never by a stale index: that is the wrong layer
         if (!cur) throw new Error("'" + w.layerName + "' is no longer in " + ap.comp + ".");
         const r = await A.callTool("beat_effects", { layer: cur.index, comp: ap.comp, style: w.drive, on: stem.on, amount });
         const prop = w.drive === "shake" ? "ADBE Position" : w.drive === "opacity" ? "ADBE Opacity" : "ADBE Scale";
@@ -542,8 +576,17 @@
   async function undoAllNow() {
     const ap = S.applied; if (!ap) return;
     try {
-      // only what the panel added: its music layer (never one the user placed), BEAT, its FLASH solids
-      const layers = (ap.layerName ? [ap.layerName] : []).concat(["BEAT"], ap.extraLayers);
+      // only what the panel added: its music layer (never one the user placed), BEAT, its FLASH solids.
+      // add_clip appends the music layer at the BOTTOM, so it is named by identity — name + the
+      // startTime the panel gave it (offset_s), bottom-most on a tie — not by "first of that name".
+      let music = null;
+      if (ap.layerName) {
+        const ll = await A.callTool("list_layers", { comp: ap.comp });
+        const same = (ll.layers || []).filter((l) => l.name === ap.layerName && Math.abs(Number(l.start_s) - ap.offset_s) < 0.01);
+        const pick = same[same.length - 1] || null;
+        music = { name: ap.layerName, index: pick ? pick.index : ap.layerIndex, start_s: ap.offset_s };
+      }
+      const layers = (music ? [music] : []).concat(["BEAT"], ap.extraLayers);
       const r = await A.callTool("music_undo", { comp: ap.comp, layers, expressions: ap.expressions, clear_markers: true });
       S.applied = null; S.wiring = [];
       await refreshComp(false, ap.comp);                   // stay on the comp we were working in
@@ -584,7 +627,7 @@
     else if (act === "comp-audio") useCompAudio();
     else if (act === "listen") listen(false);
     else if (act === "quick") listen(true);
-    else if (act === "stop") { S.listenToken += 1; show("track"); }
+    else if (act === "stop") { S.listenToken += 1; S.listening = 0; show("track"); }
     else if (act === "apply") apply();
     else if (act === "write") writeExpressions();
     else if (act === "undo") undoAll();

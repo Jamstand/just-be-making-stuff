@@ -164,10 +164,11 @@ the engine is still the shared `panel.js`. Top to bottom:
   sliders.
 - **Wiring** — choose which layer the Kick, Bass and Energy drive (punch,
   zoom, shake, opacity or a flash solid), then "Write expressions".
-- **Undo all** — removes the music layer it added (never one you placed),
-  BEAT, its flash solids, the expressions it wrote and the ♪ markers, one
-  layer per name from the top of the stack. Nothing else is touched, and
-  the panel stays on the comp the music is on even if you switch comps.
+- **Undo all** — removes the music layer it added (never one you placed,
+  even one with the same name: its own copy is found by name and start
+  time), BEAT, its flash solids, the expressions it wrote and the ♪
+  markers. Nothing else is touched, and the panel stays on the comp the
+  music is on even if you switch comps.
 
 The notes column is the chat. The panel tells Claude what is on screen
 (track, analysis, chosen fit, options, what was applied), so "land the

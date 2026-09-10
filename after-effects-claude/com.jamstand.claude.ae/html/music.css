@@ -113,6 +113,9 @@ p.lede { font-size: 13px; line-height: 1.55; margin: 0; max-width: 44ch; }
 .grid2 { display: grid; grid-template-columns: auto 1fr; column-gap: 16px; row-gap: 12px; align-items: center; font-size: 12px; }
 .grid2 > span:first-child, .grid2 .k { color: var(--color-neutral-700); }
 .seg-opt.sm { padding: 5px 10px; font-size: 12px; }
+.seg.disabled { opacity: .45; pointer-events: none; }
+/* while apply / write / undo are in After Effects, the controls that feed them wait */
+body.busy [data-act="apply"], body.busy [data-act="write"], body.busy [data-act="undo"], body.busy [data-opt], body.busy #fits { pointer-events: none; opacity: .6; }
 .sections { font-size: 13px; font-variant-numeric: tabular-nums; }
 .sections .r { display: grid; grid-template-columns: 44px 1fr auto; padding: 6px 0; border-top: 1px solid rgba(32,30,29,.08); }
 .sections .h { border-top: 0; padding: 0 0 5px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-neutral-700); }

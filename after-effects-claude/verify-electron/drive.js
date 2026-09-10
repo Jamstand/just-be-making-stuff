@@ -258,7 +258,7 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   console.log("  [shot] 11-music");
   await app2.close();
 
-  console.log("### 12. 🔍 Claude Music UI: library → listen → results → applied → expressions → undo, narrow and wide");
+  console.log("### 12. 🔍 Claude Music UI: library → listen → results → applied → expressions (flash + punch) → undo, narrow and wide");
   const app3 = await _electron.launch({
     executablePath: require("electron"),
     args: ["--no-sandbox", "--no-zygote", path.join(__dirname, "main.js")],
@@ -270,19 +270,22 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   page3.on("console", (m) => { if (m.type() === "error") { console.log("  [console.error music-ui] " + m.text()); if (!/ERR_CONNECTION_RESET|Failed to load resource/.test(m.text())) uiErrors.push(m.text()); } });
   await page3.setViewportSize({ width: 420, height: 680 });
   await page3.waitForFunction(() => document.querySelector("#chat .card.claude") && document.querySelectorAll("#tracklist2 .track, #tracklist .track, .empty-lib").length, null, { timeout: 15000 });
-  // a comp with a clip to drive, made through the panel's own tools
+  // a comp with two clips to drive, made through the panel's own tools (add_clip appends: logo above bg)
   await page3.evaluate(async () => {
     await assistant.callTool("create_comp", { name: "Ident", width: 1920, height: 1080, fps: 24, duration_s: 12 });
-    const f = require("path").join(require("os").tmpdir(), "fake-logo.mp4"); require("fs").writeFileSync(f, "x");
-    await assistant.callTool("import_media", { paths: [f] });
-    await assistant.callTool("add_clip", { item_name: "fake-logo.mp4", comp: "Ident", start_s: 0, in_s: 0, out_s: 5 });
+    const os = require("os"), fs = require("fs"), path = require("path");
+    for (const n of ["fake-logo.mp4", "fake-bg.mp4"]) {
+      const f = path.join(os.tmpdir(), n); fs.writeFileSync(f, "x");
+      await assistant.callTool("import_media", { paths: [f] });
+      await assistant.callTool("add_clip", { item_name: n, comp: "Ident", start_s: 0, in_s: 0, out_s: 5 });
+    }
     await window.music.refresh();
   });
+  const expect = (cond, what, detail) => { if (!cond) throw new Error("step 12 expectation failed: " + what + " " + JSON.stringify(detail === undefined ? null : detail)); };
   const st0 = await page3.evaluate(() => ({ view: music.state.view, comp: music.state.comp && music.state.comp.name,
     greeting: (document.querySelector("#chat .card.claude .body") || {}).textContent.slice(0, 40), eyebrow: document.querySelector("#view-empty [data-comp-eyebrow]").textContent,
     library: music.state.library.map((t) => t.name), title: document.title }));
   console.log(JSON.stringify(st0));
-  const expect = (cond, what, detail) => { if (!cond) throw new Error("step 12 expectation failed: " + what + " " + JSON.stringify(detail === undefined ? null : detail)); };
   expect(st0.view === "empty" && st0.comp === "Ident" && st0.library.join() === "beat-test" && st0.title === "Claude Music", "empty view on Ident with the library", st0);
   // the fake turn in step 9 analysed beat-test already; drop that cache so Listen runs the real decoding → listening → done path
   const audioCache = path.join(HOME, "Library", "Application Support", "ClaudeAssistantAE", "audio");
@@ -290,38 +293,50 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   await page3.click('[data-act="library"]');
   await page3.click("#tracklist2 .track");
   const st1 = await page3.evaluate(() => ({ view: music.state.view, song: music.state.song && music.state.song.name, tempo: document.querySelector("[data-tempo]").textContent,
-    sub: document.querySelector("#view-track [data-song-sub]").textContent, placeholder: document.querySelector("#wave-track").classList.contains("placeholder") }));
+    sub: document.querySelector("#view-track [data-song-sub]").textContent, placeholder: document.querySelector("#wave-track").classList.contains("placeholder"),
+    range_enabled: !document.querySelector('[data-opt="range"] input').disabled }));
   console.log(JSON.stringify(st1));
-  expect(st1.view === "track" && st1.song === "beat-test", "track view for beat-test", st1);
+  expect(st1.view === "track" && st1.song === "beat-test" && st1.range_enabled, "track view for beat-test with range enabled", st1);
   const segs = await page3.evaluate(() => [...document.querySelectorAll('#view-track .seg-opt.on')].map((l) => l.textContent.trim()));
   expect(segs.join("|") === "Bars|Fit to comp · 0:12", "segmented controls show their selected option through the .on class (no :has() in CEP)", segs);
   await page3.screenshot({ path: path.join(__dirname, "shot-12a-track.png") });
   await page3.click('[data-act="listen"]');
   // the analysis yields a frame per stage, so the listening view is briefly observable; the hard check is the event count after results
   const listening = await page3.evaluate(() => new Promise((res) => { const t0 = Date.now(); (function poll() {
-    if (music.state.view === "listening" && music.state.progressEvents > 0) return res({ word: document.getElementById("listen-word").textContent, rows: document.querySelectorAll("#checklist span").length, fog: !!document.querySelector("#wave-listen .fog") });
+    if (music.state.view === "listening" && music.state.progressEvents > 0) return res({ word: document.getElementById("listen-word").textContent, rows: document.querySelectorAll("#checklist span").length, fog: !!document.querySelector("#wave-listen .fog"), home: music.state.listening ? "listening" : "?" });
     if (music.state.view !== "listening" || Date.now() - t0 > 30000) return res({ missed: music.state.view }); setTimeout(poll, 5); })(); }));
   console.log(JSON.stringify(listening));
   await page3.waitForFunction(() => music.state.view === "results", null, { timeout: 60000 });
-  const st2 = await page3.evaluate(() => ({ view: music.state.view, progress_events: music.state.progressEvents, bpm: music.state.analysis.bpm, bars: music.state.analysis.bars,
+  const st2 = await page3.evaluate(() => ({ view: music.state.view, progress_events: music.state.progressEvents, listening_flag: music.state.listening, bpm: music.state.analysis.bpm, bars: music.state.analysis.bars,
     stats: [...document.querySelectorAll("#stats .n")].map((n) => n.textContent), sections: document.querySelectorAll("#sections .r").length - 1,
     fits: [...document.querySelectorAll("#fits .radio")].map((r) => r.textContent.trim().slice(0, 60)), heard: document.getElementById("heard").textContent.slice(0, 90),
     wave_bars: document.querySelectorAll("#wave-results .bars span").length, veil: !!document.querySelector("#wave-results .veil"), notes: document.querySelectorAll("#chat .card.claude").length }));
   console.log(JSON.stringify(st2));
-  expect(st2.progress_events >= 3 && st2.bpm > 118 && st2.bpm < 122 && st2.wave_bars === 110 && st2.veil, "results after the live progress path: ~120 BPM, 110 wave bars, comp veil", st2);
+  expect(st2.progress_events >= 3 && st2.listening_flag === 0 && st2.bpm > 118 && st2.bpm < 122 && st2.wave_bars === 110 && st2.veil, "results after the live progress path: ~120 BPM, 110 wave bars, comp veil", st2);
   await page3.screenshot({ path: path.join(__dirname, "shot-12b-results-narrow.png") });
   await page3.click('[data-act="apply"]');
   await page3.waitForFunction(() => music.state.view === "applied", null, { timeout: 30000 });
   const st3 = await page3.evaluate(() => ({ view: music.state.view, sub: document.getElementById("applied-sub").textContent, done: [...document.querySelectorAll("#donelist div")].map((d) => d.textContent),
-    wiring_rows: document.querySelectorAll("#wiring select").length / 2, layers: music.state.layers.map((l) => l.name + ":" + l.kind), barmarks: document.querySelectorAll("#wave-applied .barmarks span").length }));
+    wiring_rows: document.querySelectorAll("#wiring select").length / 2, layers: music.state.layers.map((l) => l.name + ":" + l.kind), barmarks: document.querySelectorAll("#wave-applied .barmarks span").length,
+    axis: [...document.querySelectorAll("#wave-applied .timeaxis span")].map((s) => s.textContent) }));
   console.log(JSON.stringify(st3));
-  expect(st3.view === "applied" && st3.wiring_rows === 3 && st3.layers.join() === "BEAT:null,beat-test.wav:audio,fake-logo.mp4:footage", "applied: BEAT + music layer + clip, 3 wiring rows", st3);
-  await page3.selectOption("#wiring select", { label: "fake-logo.mp4" });
+  expect(st3.view === "applied" && st3.wiring_rows === 3 && st3.layers.join() === "BEAT:null,fake-logo.mp4:footage,fake-bg.mp4:footage,beat-test.wav:audio", "applied: BEAT on top, clips, the music layer at the BOTTOM (add_clip appends), 3 wiring rows", st3);
+  // Kick → fake-logo with a FLASH solid above it (shifts every index below), Bass → fake-bg with a scale punch
+  const mids = await page3.$$("#wiring .mid");
+  await (await mids[0].$("select:nth-of-type(1)")).selectOption({ label: "fake-logo.mp4" });
+  await (await mids[0].$("select:nth-of-type(2)")).selectOption({ value: "flash" });
+  await (await mids[1].$("select:nth-of-type(1)")).selectOption({ label: "fake-bg.mp4" });
+  await (await mids[1].$("select:nth-of-type(2)")).selectOption({ value: "punch" });
   await page3.click('[data-act="write"]');
-  await page3.waitForFunction(() => music.state.applied && music.state.applied.written.length > 0, null, { timeout: 30000 });
-  const st4 = await page3.evaluate(() => ({ written: music.state.applied.written, expressions: music.state.applied.expressions, last_note: [...document.querySelectorAll("#chat .card")].pop().textContent.slice(0, 80) }));
+  await page3.waitForFunction(() => music.state.applied && music.state.applied.written.length > 1, null, { timeout: 30000 });
+  const st4 = await page3.evaluate(() => ({ written: music.state.applied.written, expressions: music.state.applied.expressions, extra: music.state.applied.extraLayers,
+    layers: music.state.layers.map((l) => l.name), shown: [...document.querySelectorAll("#wiring .mid select:nth-of-type(1)")].map((s) => s.selectedOptions[0].textContent),
+    feel_on: [...document.querySelectorAll("#wiring .seg-opt.on")].map((l) => l.textContent.trim()), last_note: [...document.querySelectorAll("#chat .card")].pop().textContent.slice(0, 80) }));
   console.log(JSON.stringify(st4));
-  expect(st4.written.length === 1 && st4.expressions.length === 1 && st4.expressions[0].layer === "fake-logo.mp4", "expressions recorded by layer NAME", st4);
+  expect(st4.expressions.length === 1 && st4.expressions[0].layer === "fake-bg.mp4" && st4.extra.join() === "FLASH (Beat)", "the punch went to fake-bg by NAME although the flash solid shifted its index; the solid is remembered", st4);
+  expect(st4.layers.join() === "BEAT,FLASH (Beat),fake-logo.mp4,fake-bg.mp4,beat-test.wav", "flash solid sits above fake-logo", st4.layers);
+  expect(st4.shown.join("|") === "fake-logo.mp4|fake-bg.mp4|Choose a layer…", "wiring selects still show the layers by name after the shift", st4.shown);
+  expect(st4.feel_on.join("|") === "Punch|Smooth|Smooth", "Punch/Smooth keep their selected state after a write (renderWiring syncs .on)", st4.feel_on);
   await page3.setViewportSize({ width: 940, height: 720 });
   await page3.waitForTimeout(300);
   await page3.screenshot({ path: path.join(__dirname, "shot-12c-applied-wide.png") });
@@ -341,43 +356,75 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   const anchored = await page3.evaluate(() => ({ comp: music.state.comp && music.state.comp.name, eyebrow: document.querySelector("#view-applied [data-comp-eyebrow]").textContent }));
   console.log(JSON.stringify({ prompt_has_panel_state: /Panel state right now/.test(ctx), mentions_track: /track=beat-test/.test(ctx), mentions_applied: /applied: music layer/.test(ctx),
     stays_on_applied_comp_after_turn: anchored.comp === "Ident", eyebrow_after_turn: anchored.eyebrow }));
+  expect(/Panel state right now/.test(ctx) && /track=beat-test/.test(ctx) && /applied: music layer/.test(ctx) && anchored.comp === "Ident", "panel state in the system prompt; still anchored to Ident after the turn", anchored);
   await page3.click('[data-act="undo"]');
   await page3.waitForFunction(() => music.state.view === "results" && !music.state.applied, null, { timeout: 30000 });
-  const st5 = await page3.evaluate(() => ({ view: music.state.view, comp: music.state.comp && music.state.comp.name, layers: music.state.layers.map((l) => l.name), last_note: [...document.querySelectorAll("#chat .card")].pop().textContent.slice(0, 120) }));
+  const st5 = await page3.evaluate(() => ({ view: music.state.view, comp: music.state.comp && music.state.comp.name, layers: music.state.layers.map((l) => l.name), last_note: [...document.querySelectorAll("#chat .card")].pop().textContent.slice(0, 140) }));
   console.log(JSON.stringify(st5));
-  expect(st5.view === "results" && st5.comp === "Ident" && st5.layers.join() === "fake-logo.mp4", "after undo: still on Ident, only the clip left", st5);
+  expect(st5.view === "results" && st5.comp === "Ident" && st5.layers.join() === "fake-logo.mp4,fake-bg.mp4" && /1 expression cleared/.test(st5.last_note), "after undo: still on Ident, music + BEAT + FLASH gone, the clips left, one expression cleared", st5);
   await page3.click("#menubtn");
   const st6 = await page3.evaluate(() => ({ view: music.state.view, models: document.getElementById("model").options.length, libdir: document.getElementById("libdir").value }));
   console.log(JSON.stringify(st6));
   expect(st6.view === "settings" && st6.libdir === path.join(HOME, "Music", "Claude Assistant"), "settings shows the library folder", st6);
   await page3.click('#view-settings [data-act="back"]');
-  expect(await page3.evaluate(() => music.state.view), "back from settings returns to the results (not a dead applied view)");
+  expect((await page3.evaluate(() => music.state.view)) === "results", "back from settings returns to the results (not a dead applied view)");
+  await page3.click("#menubtn"); await page3.click("#menubtn");
+  expect((await page3.evaluate(() => music.state.view)) === "results", "≡ twice toggles settings and back to results");
 
-  console.log("### 12b. 🔍 Claude Music UI: a song the USER placed — apply adds no second copy, undo leaves it alone");
+  console.log("### 12b. 🔍 Claude Music UI: a song the USER placed and trimmed — apply adds no second copy, keys start at its in point, undo leaves it alone");
   await page3.setViewportSize({ width: 420, height: 680 });
   await page3.evaluate(async () => {
-    await assistant.callTool("add_music", { song: "beat-test", comp: "Ident", start_s: 1.5 });   // the user's own placement (via the tool, as the notes column would)
+    // the user's own placement (via the tool, as the notes column would): starts at 1.5 s, trimmed to open at song 3 s
+    await assistant.callTool("add_music", { song: "beat-test", comp: "Ident", start_s: 1.5, in_s: 3 });
     // the fake "hello" turn left Hello Comp active; the user goes back to Ident (the sim's openInViewer is a no-op, so set activeItem too)
     await assistant.callTool("run_extendscript", { code: "var i,it;for(i=1;i<=app.project.numItems;i++){it=app.project.item(i);if(it.name===\"Ident\"){it.openInViewer();app.project.activeItem=it;}}" });
     await window.music.refresh();
   });
   await page3.click('#view-results .linkish[data-act="library"]');   // the narrow dock's "Change track"
   await page3.click('#complayers2 .track:has-text("beat-test.wav")');
+  const trackPlaced = await page3.evaluate(() => ({ range_disabled: document.querySelector('[data-opt="range"] input').disabled, offset_disabled: document.getElementById("offset").disabled, note_shown: !document.querySelector("[data-placed-note]").hidden }));
+  console.log(JSON.stringify(trackPlaced));
+  expect(trackPlaced.range_disabled && trackPlaced.offset_disabled && trackPlaced.note_shown, "a placed song: range and offset are off, the note says why", trackPlaced);
   await page3.click('[data-act="listen"]');
   await page3.waitForFunction(() => music.state.view === "results", null, { timeout: 60000 });
-  const placed = await page3.evaluate(() => ({ from: music.state.song.from, fits: music.state.fits.map((f) => f.label + " in_s=" + f.in_s + " offset_s=" + f.offset_s), fitText: document.querySelector("#fits .radio").textContent.trim() }));
+  const placed = await page3.evaluate(() => ({ from: music.state.song.from, fits: music.state.fits.map((f) => f.label + " in_s=" + f.in_s + " offset_s=" + f.offset_s + " from_s=" + f.from_s + " until_s=" + f.until_s), fitText: document.querySelector("#fits .radio").textContent.trim() }));
   console.log(JSON.stringify(placed));
-  expect(placed.from === "comp" && placed.fits.length === 1 && /As it sits/.test(placed.fits[0]) && /offset_s=1.5/.test(placed.fits[0]), "comp-sourced song gets the single 'as placed' fit", placed);
+  expect(placed.from === "comp" && placed.fits.length === 1 && /As it sits/.test(placed.fits[0]) && /in_s=3 offset_s=-1.5 from_s=1.5 until_s=10.5/.test(placed.fits[0]) && /from 0:03 of the song/.test(placed.fitText), "comp-sourced trimmed song gets the single 'as placed' fit with its in point and span", placed);
   await page3.click('[data-act="apply"]');
   await page3.waitForFunction(() => music.state.view === "applied", null, { timeout: 30000 });
-  const placedApplied = await page3.evaluate(() => ({ layerName: music.state.applied.layerName, placed: music.state.applied.placed, offset_s: music.state.applied.offset_s, layers: music.state.layers.map((l) => l.name), lit: [...document.querySelectorAll("#complayers .track.on .name")].map((n) => n.textContent) }));
-  console.log(JSON.stringify(placedApplied));
-  expect(placedApplied.placed && placedApplied.layerName === null && placedApplied.offset_s === 1.5 && placedApplied.layers.filter((n) => n === "beat-test.wav").length === 1, "apply on a placed song: no second audio layer, offset from the layer's start", placedApplied);
+  const markerTimes = await page3.evaluate(async () => {
+    const r = await assistant.callTool("run_extendscript", { code: "var c,i;for(i=1;i<=app.project.numItems;i++){if(app.project.item(i).name===\"Ident\")c=app.project.item(i);}var m=c.markerProperty,o=[],k;for(k=1;k<=m.numKeys;k++)o.push(m.keyTime(k));o.join(\",\")" });
+    return String(r.result).split(",").filter(Boolean).map(Number);
+  });
+  const placedApplied = await page3.evaluate(() => ({ layerName: music.state.applied.layerName, placed: music.state.applied.placed, offset_s: music.state.applied.offset_s, from_s: music.state.applied.from_s, until_s: music.state.applied.until_s,
+    layers: music.state.layers.map((l) => l.name), lit: [...document.querySelectorAll("#complayers .track.on .name")].map((n) => n.textContent), sub: document.getElementById("applied-sub").textContent,
+    axis: [...document.querySelectorAll("#wave-applied .timeaxis span")].map((s) => s.textContent) }));
+  console.log(JSON.stringify(Object.assign({ markers: markerTimes.length, first_marker: Math.min(...markerTimes), last_marker: Math.max(...markerTimes) }, placedApplied)));
+  expect(placedApplied.placed && placedApplied.layerName === null && placedApplied.offset_s === -1.5 && placedApplied.from_s === 1.5 && Math.abs(placedApplied.until_s - 9) < 1e-9
+    && placedApplied.layers.filter((n) => n === "beat-test.wav").length === 1 && placedApplied.lit.join() === "beat-test.wav", "apply on a placed song: no second audio layer, span = 9 s of song from its in point", placedApplied);
+  expect(markerTimes.length >= 2 && Math.min(...markerTimes) >= 1.5 - 1e-6 && Math.max(...markerTimes) <= 10.5 + 1e-6, "♪ markers only inside the layer's audible span (from its in point)", markerTimes);
+  expect(placedApplied.axis[0] === "0:02" && placedApplied.axis[placedApplied.axis.length - 1] === "0:11", "applied strip axis reads COMP time, rounded (in point 1.5 → \"0:02\", out 10.5 → \"0:11\")", placedApplied.axis);
   await page3.click('[data-act="undo"]');
   await page3.waitForFunction(() => music.state.view === "results" && !music.state.applied, null, { timeout: 30000 });
   const placedUndone = await page3.evaluate(() => ({ layers: music.state.layers.map((l) => l.name), last_note: [...document.querySelectorAll("#chat .card")].pop().textContent.slice(0, 140) }));
   console.log(JSON.stringify(placedUndone));
-  expect(placedUndone.layers.join() === "beat-test.wav,fake-logo.mp4", "undo removed BEAT and markers but left the user's audio layer", placedUndone);
+  expect(placedUndone.layers.join() === "fake-logo.mp4,fake-bg.mp4,beat-test.wav", "undo removed BEAT and markers but left the user's audio layer", placedUndone);
+
+  console.log("### 12c. 🔍 Claude Music UI: the user already has beat-test.wav on the timeline and applies the same song from the LIBRARY — undo takes the panel's copy, not theirs");
+  await page3.click('#view-results .linkish[data-act="library"]');
+  await page3.click("#tracklist2 .track");
+  await page3.click('[data-act="listen"]');
+  await page3.waitForFunction(() => music.state.view === "results", null, { timeout: 60000 });
+  await page3.click('[data-act="apply"]');
+  await page3.waitForFunction(() => music.state.view === "applied", null, { timeout: 30000 });
+  const twin = await page3.evaluate(() => ({ layerName: music.state.applied.layerName, offset_s: music.state.applied.offset_s, layers: music.state.layers.map((l) => l.name + "@" + l.start_s) }));
+  console.log(JSON.stringify(twin));
+  expect(twin.layerName === "beat-test.wav" && twin.layers.join() === "BEAT@0,fake-logo.mp4@0,fake-bg.mp4@0,beat-test.wav@-1.5,beat-test.wav@0", "the panel's copy went in at the bottom, under the user's", twin);
+  await page3.click('[data-act="undo"]');
+  await page3.waitForFunction(() => music.state.view === "results" && !music.state.applied, null, { timeout: 30000 });
+  const twinUndone = await page3.evaluate(() => ({ layers: music.state.layers.map((l) => l.name + "@" + l.start_s), last_note: [...document.querySelectorAll("#chat .card")].pop().textContent.slice(0, 140) }));
+  console.log(JSON.stringify(twinUndone));
+  expect(twinUndone.layers.join() === "fake-logo.mp4@0,fake-bg.mp4@0,beat-test.wav@-1.5", "undo removed the panel's copy (bottom, start 0) and kept the user's (start -1.5)", twinUndone);
   expect(uiErrors.length === 0, "no page errors or console errors in the music UI", uiErrors);
   await app3.close();
 

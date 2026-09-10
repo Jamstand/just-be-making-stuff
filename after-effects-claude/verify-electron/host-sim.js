@@ -30,7 +30,7 @@ function makeLayer(name, comp) { const tg = new Group("Transform", "ADBE Transfo
   const groups = { "ADBE Time Remapping": new Prop("Time Remap", "ADBE Time Remapping", 0),
   "ADBE Effect Parade": new Group("Effects", "ADBE Effect Parade"), "ADBE Mask Parade": new Group("Masks", "ADBE Mask Parade"), "ADBE Transform Group": tg, "ADBE Marker": new Prop("Marker", "ADBE Marker", null) };
   const l = { name, startTime: 0, inPoint: 0, outPoint: 10, stretch: 100, hasVideo: true, hasAudio: false, nullLayer: false, guideLayer: false, selected: false, source: null, timeRemapEnabled: false, canSetTimeRemapEnabled: true,
-    moveToEnd() {}, moveBefore(o) { const a = comp._layers; a.splice(a.indexOf(l), 1); a.splice(a.indexOf(o), 0, l); },
+    moveToEnd() { const a = comp._layers; a.splice(a.indexOf(l), 1); a.push(l); }, moveBefore(o) { const a = comp._layers; a.splice(a.indexOf(l), 1); a.splice(a.indexOf(o), 0, l); },
     remove() { const a = comp._layers; a.splice(a.indexOf(l), 1); comp.numLayers = a.length; },
     setTrackMatte(m, t) { l._trackMatte = { matte: m.name, type: t }; }, property(k) { return groups[k] || null; } };
   Object.defineProperty(l, "index", { get() { return comp._layers.indexOf(l) + 1; } }); return l; }

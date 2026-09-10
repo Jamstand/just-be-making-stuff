@@ -561,23 +561,48 @@ CA_TOOLS.list_layers = function (a) {
   return out;
 };
 
-// Remove, for each name in a.names, the TOPMOST layer of that name (the
-// panel's own layers are added at the top of the stack); all_matches:true
-// removes every layer of that name. Nothing else is touched.
+// Remove layers by name. Each entry of a.names is either a plain name —
+// the TOPMOST layer of that name goes (BEAT and FLASH solids are added at
+// the top; all_matches:true removes every one) — or {name, index, start_s}
+// for a layer known by identity: the layer at index goes if its name (and
+// startTime, when given) match, else the BOTTOM-most layer with that name
+// and startTime (add_clip appends clips at the bottom). A name that matches
+// nothing is reported in missed, and nothing else is touched.
 CA_TOOLS.remove_layers = function (a) {
   var comp = CA_comp(a.comp);
-  var i, j, l, removed = [], names = a.names || [], all = !!a.all_matches;
+  var i, j, l, e, name, idx, hit, removed = [], missed = [], names = a.names || [], all = !!a.all_matches;
   for (j = 0; j < names.length; j++) {
+    e = names[j];
+    if (e && typeof e === "object") {
+      name = String(e.name);
+      idx = Number(e.index);
+      hit = null;
+      if (idx >= 1 && idx <= comp.numLayers) {
+        l = comp.layer(idx);
+        if (l.name === name && (e.start_s === undefined || e.start_s === null || Math.abs(l.startTime - Number(e.start_s)) < 0.01)) hit = l;
+      }
+      if (!hit) {
+        for (i = comp.numLayers; i >= 1; i--) {
+          l = comp.layer(i);
+          if (l.name === name && (e.start_s === undefined || e.start_s === null || Math.abs(l.startTime - Number(e.start_s)) < 0.01)) { hit = l; break; }
+        }
+      }
+      if (hit) { removed.push(hit.name); hit.remove(); } else missed.push(name);
+      continue;
+    }
+    name = String(e);
+    hit = null;
     for (i = 1; i <= comp.numLayers; i++) {
       l = comp.layer(i);
-      if (l.name === String(names[j])) {
-        removed.push(l.name); l.remove();
+      if (l.name === name) {
+        hit = l; removed.push(l.name); l.remove();
         if (!all) break;
         i--;
       }
     }
+    if (!hit) missed.push(name);
   }
-  return { comp: comp.name, removed: removed };
+  return { comp: comp.name, removed: removed, missed: missed };
 };
 
 CA_TOOLS.set_markers = function (a) {

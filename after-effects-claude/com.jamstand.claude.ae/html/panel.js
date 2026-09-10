@@ -1047,6 +1047,7 @@ tool("beat_control",
   { song: { type: "string" }, comp: { type: "string" }, offset_s: { type: "number" },
     layer_name: { type: "string" },
     markers: { type: "string", description: "bars (default), beats, sections, or none" },
+    from_s: { type: "number", description: "comp time to start at (default 0): the music layer's in point, so nothing lands on an inaudible head" },
     until_s: { type: "number", description: "comp time to stop at (default: the whole song)" } },
   ["song"], {},
   async (s, a) => {
@@ -1066,7 +1067,8 @@ tool("beat_control",
     // A trimmed song (add_music in_s) starts before comp time 0: keys and
     // markers before 0 (or past until_s) are dropped, not written negative.
     const until = a.until_s !== undefined ? Number(a.until_s) : Infinity;
-    const inRange = (k) => k[0] >= -1e-6 && k[0] <= until;
+    const from = a.from_s !== undefined ? Math.max(0, Number(a.from_s) || 0) : 0;
+    const inRange = (k) => k[0] >= from - 1e-6 && k[0] <= until;
     const dedupe = (keys) => { const m = new Map(); for (const k of keys.filter(inRange)) m.set(Math.round(k[0] * 1000), k); return [...m.values()].sort((x, y) => x[0] - y[0]); };
     const out = { layer, name, offset_s: off, sliders: {} };
     out.sliders.Beat = (await sliderKeys(a.comp, layer, "Beat", dedupe(beatKeys))).keys;
@@ -1082,7 +1084,7 @@ tool("beat_control",
       // drop_s = 0 means the song opens at full energy — nothing to mark
       if (an.drop_s !== null && an.drop_s > 0.5) marks.push({ t: off + an.drop_s, comment: "♪ DROP" });
       for (const sec of an.sections) if (sec.kind !== "drop") marks.push({ t: off + sec.start_s, comment: "♪ " + sec.kind });
-      const kept = marks.filter((m) => m.t >= -1e-6 && m.t <= until);
+      const kept = marks.filter((m) => m.t >= from - 1e-6 && m.t <= until);
       let r = null;
       if (!kept.length) r = await evalHost("set_markers", { comp: a.comp, markers: [], clear_prefix: "♪" });
       for (let i = 0; i < kept.length; i += 300)
@@ -1096,6 +1098,7 @@ tool("beat_control",
       out.markers_total = kept.length;
       out.drop_marker = kept.some((m) => m.comment === "♪ DROP");
     }
+    out.from_s = from; out.until_s = until === Infinity ? null : until;
     out.expression_example = "thisComp.layer(\"" + name + "\").effect(\"Bass\")(\"Slider\")";
     out.drop_comp_s = an.drop_s === null ? null : off + an.drop_s;
     return out;
@@ -1245,7 +1248,9 @@ tool("music_undo",
   "Take back what Claude Music put in a comp: remove layers by name (the "
   + "music layer, BEAT, FLASH solids), clear expressions on the listed "
   + "properties, and remove the ♪ markers. Only what is named is touched.",
-  { comp: { type: "string" }, layers: { type: "array", items: { type: "string" } },
+  { comp: { type: "string" },
+    layers: { type: "array", items: {},
+      description: "names (topmost layer of each name goes) or {name, index, start_s} to remove one layer by identity" },
     expressions: { type: "array", items: { type: "object" },
       description: "[{layer: index or name, path: [match names]}]" },
     clear_markers: { type: "boolean" } }, [], {},
@@ -1260,7 +1265,7 @@ tool("music_undo",
     }
     if (a.layers && a.layers.length) {
       const r = await evalHost("remove_layers", { comp: a.comp, names: a.layers });
-      out.removed = r.removed || [];
+      out.removed = r.removed || []; out.missed = r.missed || [];
     }
     if (a.clear_markers !== false) {
       await evalHost("set_markers", { comp: a.comp, markers: [], clear_prefix: "♪" });

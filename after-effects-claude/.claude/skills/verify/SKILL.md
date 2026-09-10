@@ -187,11 +187,18 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   step 11 prints is informational. The MCP POST helper is
   verify-electron/mcp-rpc.js, shared by fakebin/claude and drive.js.
 - Claude Music UI (drive step 12, a THIRD Electron instance with
-  AE_PAGE=music.html at 420×680): makes comp "Ident" plus a fake clip
-  through assistant.callTool, then clicks library → #tracklist2 .track →
-  Listen → Apply → picks fake-logo.mp4 in the first wiring select → Write
-  expressions → widens to 940 (dateline flex, #stage 3 columns) → a
-  "hello" turn (#ap-run) → Undo all → ≡ settings. Expect 119.7
+  AE_PAGE=music.html at 420×680): makes comp "Ident" plus two fake clips
+  (fake-logo.mp4 above fake-bg.mp4 — add_clip appends, and host-sim's
+  moveToEnd now really moves to the end, so the sim orders layers like
+  AE: BEAT on top, the music layer at the BOTTOM) through
+  assistant.callTool, then clicks library → #tracklist2 .track → Listen →
+  Apply → wires Kick → fake-logo with a FLASH solid and Bass → fake-bg
+  with a punch → Write expressions (expect the punch recorded on
+  fake-bg.mp4 by NAME although the solid shifted its index, layers
+  BEAT, FLASH (Beat), fake-logo, fake-bg, beat-test.wav, the selects
+  still naming their layers, Punch|Smooth|Smooth carrying .on) → widens
+  to 940 (dateline flex, #stage 3 columns) → a "hello" turn (#ap-run) →
+  Undo all → ≡ settings. Expect 119.7
   BPM, 6 bars, 110 wave bars, a comp veil, 6 bar markers (markers_written
   counts the grid only; the fake track opens at full energy so there is no
   ♪ DROP marker), 3 wiring rows,
@@ -199,18 +206,30 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   prompt carrying "Panel state right now" with track=beat-test and
   "applied: music layer", stays_on_applied_comp_after_turn true (the fake
   hello turn makes and activates "Hello Comp"; the panel must stay on
-  Ident until undo), then view "results" with layers ["fake-logo.mp4"].
+  Ident until undo), then view "results" with layers fake-logo.mp4,
+  fake-bg.mp4 and "1 expression cleared" in the note.
   Step 12 THROWS (expect()) on the key facts rather than only printing
   them: .seg-opt.on carries the selected segment (CEP 12 has no :has()),
   progressEvents ≥ 3 after Listen (the step deletes the audio cache first
   so decoding → listening → done really runs), expressions recorded by
   layer NAME, wiring selects unclipped at 940 px, after undo still on
-  Ident with only the clip, settings → back lands on results. Step 12b
-  places beat-test through add_music at 1.5 s as if the user had, picks
-  it from "In this comp", and expects one "As it sits on your timeline"
-  fit with offset_s 1.5, apply adding no second audio layer
-  (applied.layerName null, placed true), and undo leaving
-  beat-test.wav + fake-logo.mp4. Screenshots shot-12a-track,
+  Ident with only the clips, settings → back lands on results (a real
+  comparison, not a truthy check). Step 12b places beat-test through
+  add_music at start 1.5 with in_s 3 (trimmed) as if the user had,
+  re-activates Ident through run_extendscript (the fake hello turn left
+  Hello Comp active), picks it from "In this comp" (range + offset
+  disabled, the placed note shown), and expects one "As it sits on your
+  timeline" fit with in_s=3 offset_s=-1.5 from_s=1.5 until_s=10.5, apply
+  adding no second audio layer (applied.layerName null, placed true,
+  until_s 9 = song seconds on the timeline), every ♪ marker inside
+  [1.5, 10.5] comp time (read back through run_extendscript on
+  comp.markerProperty), the applied axis in comp time ("0:02" … "0:11",
+  fmt rounds), and undo leaving fake-logo, fake-bg, beat-test.wav. Step
+  12c then applies the SAME song from the library while the user's copy
+  is still there: the panel's copy lands at the bottom
+  (beat-test.wav@-1.5 then beat-test.wav@0) and undo removes only the
+  @0 one — remove_layers takes {name, index, start_s} for the music
+  layer and a bare name (topmost) for BEAT/FLASH. Screenshots shot-12a-track,
   shot-12b-results-narrow, shot-12c-applied-wide. Gotchas: sendUI is
   synchronous, so a throw inside a UI handler rejects the tool call in
   flight (that is how a checklist TypeError once surfaced as "I couldn't

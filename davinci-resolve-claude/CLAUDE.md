@@ -592,3 +592,27 @@ drop_s ≤ 0.5. Unverified findings still open (verifiers hit the usage
 limit): the "renamed comp counts as deleted" note (comps are matched by
 name; get_project_overview has no id), and host-sim footage reporting
 has_audio=false where AE would say true for clips with soundtracks.
+
+Review round 2 (4 lenses, 21 confirmed, all fixed): the "topmost layer
+per name" undo was WRONG for the music layer — add_clip ends with
+layer.moveToEnd(), so the panel's song sits at the BOTTOM and a user's
+same-named layer above it would have been deleted; host-sim's
+moveToEnd() was a no-op, which is why the harness never saw it (now it
+really moves the layer, and the step-12 order is BEAT, clips, music).
+remove_layers takes {name, index, start_s} (the layer at index if the
+name/startTime match, else the bottom-most match; misses reported) and
+undoAllNow finds its copy by name + offset_s from a fresh list_layers;
+bare names keep the topmost rule for BEAT/FLASH. The placed-song fit is
+matched by name + file (placedLayer(), index only as a tiebreaker) and
+says "That layer is no longer in <comp>" instead of falling through to
+add_music; its maths: in_s = inPoint − startTime, offset_s = startTime,
+from_s = inPoint, until_s = min(comp, outPoint) in COMP time, and
+applied.until_s = until − offset − in_s (song seconds on the timeline);
+drop comp time = drop_s + offset_s, gated on beat_control's drop_marker;
+the applied axis is comp time (axisFrom = −offset_s). beat_control
+gained from_s so nothing lands on a trimmed, inaudible head. Range and
+Offset are disabled for a placed song (whole/offset ignored, context
+says so). writeExpressions has no index fallback; renderWiring selects
+by name and re-syncs w.layer and the .on class. S.listening keeps
+Back/≡ on the listening view mid-analysis. markers/kind are read once
+per apply and body.busy fades the controls that feed an action.

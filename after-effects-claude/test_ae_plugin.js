@@ -542,6 +542,13 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
   check("remove_layers: one layer per name, the topmost", twinA.ok && twinB.ok && rl1.ok && rl1.data.removed.join() === "Twin" && trackComp.numLayers === nTwins - 1, JSON.stringify(rl1));
   const rl2 = invoke("remove_layers", { comp: c, names: ["Twin"], all_matches: true });
   check("remove_layers: all_matches removes every layer of that name", rl2.ok && rl2.data.removed.join() === "Twin" && trackComp.numLayers === nTwins - 2, JSON.stringify(rl2));
+  // identity entries: {name, index, start_s} takes the layer at index when the name matches, else the bottom-most with that name and start
+  invoke("add_null", { comp: c, name: "Dup" }); invoke("add_null", { comp: c, name: "Dup" });
+  const nDup = trackComp.numLayers;
+  const rl3 = invoke("remove_layers", { comp: c, names: [{ name: "Dup", index: 2, start_s: 0 }] });
+  check("remove_layers: {name,index,start_s} removes exactly that layer", rl3.ok && rl3.data.removed.join() === "Dup" && rl3.data.missed.length === 0 && trackComp.numLayers === nDup - 1, JSON.stringify(rl3));
+  const rl4 = invoke("remove_layers", { comp: c, names: [{ name: "Dup", index: 99, start_s: 0 }, { name: "Ghost", index: 1 }] });
+  check("remove_layers: a wrong index falls back to the bottom-most match; unknown names are missed, not guessed", rl4.ok && rl4.data.removed.join() === "Dup" && rl4.data.missed.join() === "Ghost" && trackComp.numLayers === nDup - 2, JSON.stringify(rl4));
   const lm = invoke("set_markers", { comp: c, layer: trackLayer.index, markers: [{ t: 0.5, comment: "hit" }] });
   check("set_markers: layer markers land on the layer", lm.ok && trackLayer._groups["ADBE Marker"]._keys.length === 1, JSON.stringify(lm));
   let sk = invoke("set_slider_keys", { comp: c, layer: trackLayer.index, effect_name: "Bass", keys: [[1, 0], [1.02, 0.8], [1.17, 0]] });
