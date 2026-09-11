@@ -3450,12 +3450,19 @@ function slashRoute(text) {
   const t = String(text || "").trim();
   const expanded = expandSlash(t);
   if (expanded) return { kind: "expand", prompt: expanded };
-  const m = /^\/([a-z][a-z-]*)(?=$|https?:)/i.exec((t.split(/\s+/)[0] || "").replace(/[:,;]+$/, ""));
+  // A name with no second slash is someone reaching for a command; a real
+  // path has another slash in it. Tool names get their own answer, since
+  // the panel's advice names tools and typing one with a slash is the
+  // obvious next move.
+  const m = /^\/([a-z][a-z0-9_-]*)(?=$|https?:)/i.exec((t.split(/\s+/)[0] || "").replace(/[:,;]+$/, ""));
   if (m) {
     const name = m[1].toLowerCase();
     const local = SLASH_COMMANDS.find((c) => c.name === name && c.local);
     return { kind: "unknown", name,
       note: local ? "/" + name + " works on its own — type it without anything after it."
+        : name.indexOf("_") !== -1
+          ? "/" + name + " isn't a slash command — underscores usually mean you are reaching for one of "
+            + "Claude's tools. Just ask in words (\"" + name.replace(/_/g, " ") + "\"). Type / to see the commands."
         : "No command called /" + name + " — type / to see the list. Anything that doesn't start with / goes to Claude as written." };
   }
   return { kind: "text", prompt: t.startsWith("/") ? "Message from the panel (a path, not a command): " + t : t };

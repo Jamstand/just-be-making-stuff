@@ -83,6 +83,13 @@ vm.runInContext(fs.readFileSync(path.join(EXT, "host", "ae-tools.jsx"), "utf8"),
 // -------------------------------------------------------------- CEP shim
 const evalLog = [];
 global.window = global;
+// panel.js registers a beforeunload handler to kill stray Mocha children;
+// Node's global has no listener API, and without this the whole file dies
+// at require time (it did, silently, for several commits).
+const shimListeners = {};
+global.addEventListener = (name, fn) => { (shimListeners[name] = shimListeners[name] || []).push(fn); };
+global.removeEventListener = (name, fn) => { shimListeners[name] = (shimListeners[name] || []).filter((f) => f !== fn); };
+global.dispatchEvent = (ev) => { (shimListeners[(ev && ev.type) || ev] || []).forEach((f) => { try { f(ev); } catch (e) {} }); return true; };
 global.CSInterface = class { evalScript(script, cb) {
   evalLog.push(script.slice(0, 80));
   let out; try { out = String(vm.runInContext(script, aeCtx)); }

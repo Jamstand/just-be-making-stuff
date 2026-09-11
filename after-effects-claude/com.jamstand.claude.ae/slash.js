@@ -95,8 +95,12 @@ function slashRoute(text, panel) {
   const t = String(text || "").trim();
   const expanded = expandSlash(t, panel);
   if (expanded) return { kind: "expand", prompt: expanded };
+  // A name with no second slash is someone reaching for a command; a real
+  // path has another slash in it. Tool names get their own answer, because
+  // the panel's own advice names tools ("run install_yt_dlp") and typing
+  // that with a slash in front is the obvious next move.
   const first = (t.split(/\s+/)[0] || "").replace(/[:,;]+$/, "");
-  const m = /^\/([a-z][a-z-]*)(?=$|https?:)/i.exec(first);
+  const m = /^\/([a-z][a-z0-9_-]*)(?=$|https?:)/i.exec(first);
   if (m) {
     const name = m[1].toLowerCase();
     const cmd = SLASH_COMMANDS.find((c) => c.name === name);
@@ -104,6 +108,9 @@ function slashRoute(text, panel) {
     if (STUDY_RE.test("/" + name) && panel === "music")     // /train, /trainn, /stuudy … in Claude Music
       note = "/" + name + " lives in the Claude Assistant panel (Window › Extensions › Claude Assistant) — it studies finished edits into a style profile. Here, type / to see what Claude Music has.";
     else if (cmd && cmd.local) note = "/" + name + " works on its own — type it without anything after it.";
+    else if (name.indexOf("_") !== -1)
+      note = "/" + name + " isn't a slash command — underscores usually mean you are reaching for one of "
+        + "Claude's tools. Just ask in words (\"" + name.replace(/_/g, " ") + "\"). Type / to see the commands.";
     else note = "No command called /" + name + " — type / to see the list. Anything that doesn't start with / goes to Claude as written.";
     return { kind: "unknown", name, note };
   }
