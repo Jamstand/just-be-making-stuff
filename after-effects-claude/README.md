@@ -202,11 +202,36 @@ diffs; each shot's length, exposure and colour cast are measured) and
 look, text and transitions). The result is `~/ClaudeAssistantStyle/
 car-edits.json`, the same file the Resolve panel writes, so both panels
 learn from the same edits; `/style` or `style_profile` reads it back, and
-"cut this in my style" reads it first. One-time setup: `brew install
-yt-dlp ffmpeg`; a free Gemini key from aistudio.google.com stored with
-`set_gemini_key` (ask Claude to store it, never paste it in chat
-elsewhere). Nothing is added to the After Effects project by studying.
-Only study content you are entitled to view.
+"cut this in my style" reads it first. Only study content you are
+entitled to view.
+
+**What it needs.** One thing: **yt-dlp**, which fetches the videos. You
+do not need Homebrew — ask the panel to run `install_yt_dlp` and it
+downloads the project's own standalone build into its bin folder, checks
+it against the SHA-256 the release publishes, and makes it executable.
+Run it again whenever a link stops downloading: Instagram and TikTok
+change how they serve video every few weeks and yt-dlp's fixes follow
+within days, so a stale copy is the usual culprit. `media_tools` says
+what is installed and flags a build over 90 days old.
+
+**ffmpeg is optional.** Without it, After Effects decodes the video
+itself: `study_edit` imports the file into a temporary folder, renders a
+small comp frame by frame, measures the PNGs and removes everything
+again. Because that touches the project, the panel asks once before
+doing it. With ffmpeg installed the study is several times faster and
+nothing in the project is touched, so the panel does not ask. Two
+caveats about the After Effects route, both recorded in the profile
+entry (`sampled_with`, `project_bpc`, `working_space`): exposure and
+colour-cast numbers pass through the project's colour management, so
+they are not exactly comparable with ffmpeg-sampled entries (cuts and
+shot lengths are), and it relies on `saveFrameToPng`, which Adobe does
+not document. If you want ffmpeg for the speed, signed Apple Silicon
+builds are at ffmpeg.martin-riedl.de; the panel neither needs nor
+installs it.
+
+**Gemini is optional too** — without a key the study still measures
+everything, it just has no content notes. Get a free key at
+aistudio.google.com and ask Claude to store it with `set_gemini_key`.
 
 ## Other MCP servers (Higgsfield and friends)
 

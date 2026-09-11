@@ -685,3 +685,61 @@ also accepts /train: and /train,. The "/" menu never reopens over a line
 that already has arguments and acceptSlash keeps the tail. probeVideo
 swaps width/height for a ±90° display matrix. /style and style_profile
 in Claude Music point at the Claude Assistant panel.
+
+## /train without Homebrew (2026-09-11, harness-verified, not yet live)
+
+josh got stuck: no ffmpeg, and `brew` would not install on macOS 27.0
+(pre-release — Homebrew warns bottles may be missing, so ffmpeg would
+build from source). yt-dlp already worked for him. So ffmpeg is now
+OPTIONAL: After Effects decodes the video itself.
+
+host/ae-tools.jsx study_open / study_sample / study_close: import into a
+__ClaudeStudy__ FolderItem (only what is inside it is ever removed, so a
+file the user already had is never touched), a __ClaudeStudyFrame__ comp
+sized to the source shrunk by a whole factor (long_edge ~240, so
+1080x1920 -> 135x240 — NOT squashed to 64x36; AE does a clean uniform
+downscale and Node does the rest), layer scaled uniformly and rounded UP
+so rounding never leaves a transparent edge, saveFrameToPng per time.
+Checks first: the scripting-write pref, canImportAs(FOOTAGE) where the
+host exposes it, footageMissing, duration > 0, saveFrameToPng existing.
+saveFrameToPng returns a file-like object carrying _hasException /
+.exception — the only error surface it has, now read. budget_ms bounds
+each call (an explicit 0 means one frame per call: `Number(0) || 8000`
+was a real fall-through bug the unit test caught).
+
+pnglib.js is a dependency-free PNG reader (zlib + the five row filters),
+verified byte-for-byte against real ffmpeg PNGs of colour types 0/2/3/6
+at 8 and 16 bit, plus a box resampler that matches ffmpeg's scale=area
+exactly. stylelib sampleFramesViaAe batches 30 frames per host call,
+polls for pngComplete (saveFrameToPng returns before the bytes land),
+deletes each PNG as it reads it, and always study_closes in a finally.
+
+Approval: tool() gained readonlyWhen(input). study_edit is read-only when
+ffmpeg is installed (it touches nothing) and asks when it will use After
+Effects. newChat() now clears approveAllEdits — "yes for this session"
+used to outlive the chat it was given in, which reads wrong next to "New
+chat clears this session".
+
+install_yt_dlp fetches the official yt-dlp_macos (universal, no Python —
+NOT the wiki's `yt-dlp` zipimport asset, which needs Python 3.10+ and
+this Mac has 3.9.6), follows GitHub's latest redirect, checks the bytes
+against the release's SHA2-256SUMS BEFORE chmod, and never scripts
+`xattr -d` on the happy path (a Node download carries no quarantine —
+the xattr line is only in the failure message). media_tools reports what
+is installed and flags a yt-dlp over 90 days old, which is the usual
+cause of an Instagram/TikTok failure.
+
+Deliberately NOT done: auto-downloading ffmpeg. ffmpeg.org links only
+evermeet (Intel-only); osxexperts has provenance smells; the npm
+@ffmpeg-installer arm64 build is --enable-nonfree and unredistributable.
+ffmpeg.martin-riedl.de is Developer-ID signed with per-file SHA-256 and
+is what the README points at for anyone who wants the speed.
+
+Unknown until live: what saveFrameToPng actually writes (bit depth,
+colour type, gamma — undocumented by Adobe, and it could be removed in
+any release), whether it honours resolutionFactor, how slow a render per
+frame really is on a long reel, and how far AE's conformed frameRate
+drifts on variable-frame-rate phone video. AE-sampled exposure and cast
+carry the project's colour management, so they are not exactly
+comparable with ffmpeg-sampled entries; sampled_with / project_bpc /
+working_space are recorded in every entry and study_edit says so.

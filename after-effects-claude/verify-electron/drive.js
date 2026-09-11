@@ -471,6 +471,41 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   smExpect(prof.edits.length === 2 && prof.edits.every((e) => e.cuts === 2 && e.shots.length === 3 && e.duration_s === 12 && e.complete) && prof.aggregate.cuts_per_minute === 10 && prof.aggregate.shot_length_s.median === 4,
     "two edits measured through the real tool chain into ~/ClaudeAssistantStyle/car-edits.json", prof.aggregate);
   smExpect(studyFiles.length === 2 && tr.gemini_notes === 1 && /Studied —/.test(tr.last) && tr.last_has_two_edits, "downloads kept, Gemini's missing key reported once, the final card carries the aggregate", tr);
+  smExpect(prof.edits.every((e) => e.sampled_with === "ffmpeg"), "with ffmpeg on PATH the frames came from ffmpeg", prof.edits.map((e) => e.sampled_with));
+  smExpect(await page.evaluate(() => document.getElementById("approval").hidden), "the ffmpeg route never asked for approval (it touches nothing)");
+
+  console.log("### 6d. 🔍 no ffmpeg: After Effects reads the frames itself — approval asked once, same measurements");
+  await page.click("#newchat");        // "yes for this session" ended with that chat
+  const resetNote = await page.evaluate(() => [...document.querySelectorAll("#chat .card")].pop().textContent);
+  smExpect(/approved one at a time again/.test(resetNote), "a new chat takes back 'yes for this session'", resetNote);
+  const studyFile = path.join(HOME, "ClaudeAssistantStudy", fs.readdirSync(path.join(HOME, "ClaudeAssistantStudy"))[0]);
+  await page.fill("#input", "study the downloaded file with after effects: " + studyFile);
+  await page.keyboard.press("Enter");
+  await page.waitForSelector("#approval:not([hidden])", { timeout: 20000 });
+  const apText = await page.evaluate(() => document.getElementById("ap-title").textContent + " " + document.getElementById("ap-detail").textContent);
+  smExpect(/study_edit/.test(apText) && /after-effects/.test(apText), "the AE route asks before it imports anything", apText);
+  await page.click("#ap-run");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 90000 });
+  const aeProf = JSON.parse(fs.readFileSync(path.join(HOME, "ClaudeAssistantStyle", "ae-route.json"), "utf8"));
+  const aeEntry = aeProf.edits[0];
+  const ffEntry = prof.edits[0];
+  const aeCard = await page.evaluate(() => [...document.querySelectorAll("#chat .card")].pop().textContent.replace(/\s+/g, " ").slice(0, 160));
+  console.log(JSON.stringify({ sampled_with: aeEntry.sampled_with, cuts: aeEntry.cuts, shots: aeEntry.shots.length,
+    shot_lengths_s: aeEntry.shot_lengths_s, duration_s: aeEntry.duration_s, vs_ffmpeg: ffEntry.shot_lengths_s, card: aeCard }));
+  smExpect(aeEntry.sampled_with === "after-effects" && aeEntry.cuts === ffEntry.cuts
+    && aeEntry.shot_lengths_s.join() === ffEntry.shot_lengths_s.join()
+    && Math.abs(aeEntry.shots[1].cast_rg - ffEntry.shots[1].cast_rg) < 1.5,
+    "After Effects decoded the same edit as ffmpeg did: same cuts, same shot lengths, same cast", { ae: aeEntry, ff: ffEntry });
+  const leftovers = await page.evaluate(async () => {
+    const ov = await assistant.callTool("get_project_overview", {});
+    return { items: ov.items.map((i) => i.name), comps: ov.comps.map((c) => c.name) };
+  });
+  smExpect(!leftovers.items.some((n) => /__ClaudeStudy__/.test(n)) && !leftovers.comps.some((n) => /__ClaudeStudyFrame__/.test(n)),
+    "the temporary folder and comp are gone from the project afterwards", leftovers);
+  const tools6d = await page.evaluate(async () => ({ media: await assistant.callTool("media_tools", {}) }));
+  console.log(JSON.stringify(tools6d.media));
+  smExpect(tools6d.media.can_download && tools6d.media.can_read_frames && /ffmpeg/.test(tools6d.media.frames_come_from),
+    "media_tools reports what is installed and where frames come from", tools6d.media);
 
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {

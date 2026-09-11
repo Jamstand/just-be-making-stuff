@@ -66,6 +66,7 @@ const USER_DATA = path.join(os.homedir(), "Library", "Application Support",
 const PANEL = (typeof window !== "undefined" && window.CLAUDE_PANEL === "music")
   ? "music" : "assistant";
 const HIDDEN_IN_MUSIC = new Set(["study_url", "study_edit", "watch_video", "gemini_status", "set_gemini_key",
+  "media_tools", "install_yt_dlp",
   "mocha_status", "mocha_track", "mocha_cancel",
   "apply_track_file", "track_history", "set_fal_key", "fal_status", "ai_segment"]);
 const isHidden = (name) => PANEL === "music" && HIDDEN_IN_MUSIC.has(name);
@@ -80,6 +81,8 @@ const PERMISSION_MODES = ["Ask before edits", "Always ask", "Never ask"];
 // style study (yt-dlp, ffmpeg, the profile file, Gemini) in stylelib.js.
 const slashlib = require(path.join(EXT_ROOT, "slash.js"));
 const style = require(path.join(EXT_ROOT, "stylelib.js"));
+const BIN_DIR = path.join(USER_DATA, "bin");      // yt-dlp the panel installed itself
+style.addBinDir(BIN_DIR);
 const APPROVAL_TIMEOUT_MS = 120000;
 
 const SYSTEM_PROMPT = [
@@ -115,7 +118,12 @@ const SYSTEM_PROMPT = [
   "edits; the /train macro drives all three. style_profile reads the",
   "profile: whenever the user asks for THEIR style, read it first and use",
   "its cuts per minute and shot lengths with cut_to_beats, and its content",
-  "notes for shot choices, structure and look.",
+  "notes for shot choices, structure and look. ffmpeg is OPTIONAL — without",
+  "it study_edit has After Effects decode the video itself (slower, and it",
+  "asks once before importing into a temporary folder it removes again).",
+  "yt-dlp is the one thing the study needs, and install_yt_dlp fetches it",
+  "without Homebrew. When a study fails, call media_tools and pass its",
+  "advice on rather than sending the user to a package manager.",
   "Output codecs are template-only (no",
   "field-by-field codec settings); Lumetri parameter names are not",
   "documented — apply_effect returns each effect's real property list, use",
@@ -246,6 +254,10 @@ const TOOLS = [];
 function tool(name, description, params, required, opts, fn) {
   TOOLS.push({ name, description, params: params || {},
                required: required || [], readonly: !!(opts && opts.readonly),
+               // readonlyWhen(input): for a tool that touches the project
+               // only for some arguments (study_edit needs After Effects
+               // itself when ffmpeg is missing, and nothing otherwise).
+               readonlyWhen: (opts && opts.readonlyWhen) || null,
                fn: fn || ((state, a) => evalHost(name, a)) });
 }
 
@@ -1315,12 +1327,17 @@ tool("study_url",
   { url: { type: "string" } }, ["url"], { readonly: true }, async (s, a) => {
     const url = String(a.url || "").trim();
     if (!/^https?:\/\//i.test(url)) throw new Error("study_url needs an http(s) link.");
+    if (!s._testDownload && !style.findYtDlp())
+      throw new Error("yt-dlp is not installed — it is what fetches the video. The panel can install it "
+        + "itself: run install_yt_dlp (no Homebrew needed). ffmpeg is NOT required; without it After "
+        + "Effects reads the frames.");
     const file = s._testDownload ? await s._testDownload(url, style.STUDY_DIR)
                                  : await style.downloadVideo(url, style.STUDY_DIR);
-    let probe = null;
-    try { probe = await style.probeVideo(file); } catch (e) { probe = { note: e.message }; }
-    return { downloaded: file, url, probe,
-      next: "study_edit with this file (source = the link), then watch_video with profile car-edits and the same source." };
+    const out = { downloaded: file, url, size_mb: Math.round(fs.statSync(file).size / 1048576 * 10) / 10 };
+    if (style.findFfmpeg()) { try { out.probe = await style.probeVideo(file); } catch (e) { out.probe = { note: e.message }; } }
+    else out.frames_from = "After Effects (no ffmpeg here) — study_edit will ask once before importing the video into a temporary folder";
+    out.next = "study_edit with this file (source = the link), then watch_video with profile car-edits and the same source.";
+    return out;
   });
 
 tool("study_edit",
@@ -1331,31 +1348,52 @@ tool("study_edit",
   + "cuts as big neighbour-sample pixel diffs (cut_threshold, default 8% mean "
   + "— calibrate against diff_series on the first run), each shot's exposure "
   + "and cast, merged as one entry (a re-study of the same source replaces "
-  + "it). A 60 s reel takes a few seconds.",
+  + "it). With ffmpeg installed a 60 s reel takes a few seconds and nothing "
+  + "in the project is touched. WITHOUT ffmpeg After Effects decodes the "
+  + "video itself — slower, and it imports the file into a temporary folder "
+  + "it removes again, so the panel asks the user once.",
   { file: { type: "string" },
     name: { type: "string", description: "Profile name (default car-edits)." },
     source: { type: "string", description: "Label for what is studied (default the file name) — use the link." },
-    interval_s: { type: "number" }, cut_threshold: { type: "number" } },
-  ["file"], { readonly: true }, async (s, a) => {
+    interval_s: { type: "number" }, cut_threshold: { type: "number" },
+    via: { type: "string", description: "'ffmpeg' (default when installed) or 'after-effects' to force AE to read the frames." } },
+  ["file"], { readonlyWhen: (a) => !!style.findFfmpeg() && a.via !== "after-effects" }, async (s, a) => {
     const file = String(a.file || "");
     if (!fs.existsSync(file)) throw new Error("No such file: " + file);
-    let probe = null;
-    try { probe = await style.probeVideo(file); } catch (e) {}
+    const interval = Math.max(0.1, Number(a.interval_s) || 0.5);
+    const viaAe = a.via === "after-effects" || !style.findFfmpeg();
+    let probe = null, frames = null;
+    if (viaAe) {
+      frames = await style.sampleFramesViaAe(file, { interval_s: interval, host: evalHost,
+        onProgress: (pr) => sendUI("study_progress", { done: pr.done, total: pr.total,
+          text: "Reading frame " + pr.done + " of " + pr.total + " in After Effects…" }, false) });
+      probe = frames.source || null;
+      sendUI("study_progress", { done: 0, total: 0, text: "" }, false);
+    } else {
+      try { probe = await style.probeVideo(file); } catch (e) {}
+      frames = await style.sampleFrames(file, { interval_s: interval });
+    }
     // the study first (seconds), then load → merge → save in one go
-    const r = await style.studyFile(file, { interval_s: a.interval_s, cut_threshold: a.cut_threshold,
+    const r = await style.studyFile(file, { frames, interval_s: interval, cut_threshold: a.cut_threshold,
                                             source: a.source, fps: probe && probe.fps,
                                             expect_duration_s: probe && probe.duration_s });   // throws on a truncated decode
     if (probe && probe.duration_s) r.entry.duration_s = probe.duration_s;   // the container's exact length (coverage checked above)
+    r.entry.sampled_with = viaAe ? "after-effects" : "ffmpeg";
+    if (viaAe && probe) { r.entry.project_bpc = probe.project_bpc || null; r.entry.working_space = probe.working_space || null; }
     const loaded = style.loadProfile(a.name || "car-edits");
     style.mergeEntry(loaded.profile, r.entry);
     const aggregate = style.saveProfile(loaded.profile, loaded.file);
     const e = r.entry;
-    const out = { studied: e.source, file, samples: e.samples_counted, interval_s: e.interval_s,
+    const out = { studied: e.source, file, sampled_with: e.sampled_with, samples: e.samples_counted, interval_s: e.interval_s,
       cut_threshold: e.cut_threshold, duration_s: e.duration_s, cuts: e.cuts,
       cuts_per_minute: e.duration_s ? +(60 * e.cuts / e.duration_s).toFixed(1) : null,
       shots: e.shots.length, shot_lengths_s: e.shot_lengths_s.slice(0, 60), diff_series: r.diffs.slice(0, 150),
       profile_file: loaded.file, aggregate };
     if (r.warnings.length) out.stride_warning = r.warnings.join(" ");
+    if (viaAe) out.colour_note = "Frames came through After Effects, so exposure and cast carry the project's "
+      + "colour management (" + (probe && probe.project_bpc ? probe.project_bpc + " bpc" : "unknown depth")
+      + (probe && probe.working_space ? ", " + probe.working_space : "") + "). Entries sampled with ffmpeg are "
+      + "not exactly comparable on those two numbers; cuts and shot lengths are.";
     if (e.notes_kept) out.notes_kept = "the Gemini content notes from the earlier study of this source were kept";
     if (loaded.recoveredFrom)
       out.profile_recovered = "Previous profile was unreadable; preserved at " + loaded.recoveredFrom + " (nothing was overwritten silently).";
@@ -1432,6 +1470,81 @@ tool("set_gemini_key",
     if (check.status !== 200) throw new Error("Key stored NOWHERE — validation failed: " + style.geminiErrorText(check.status, check.json));
     track.writeConfig({ gemini_api_key: key });
     return { stored: true, file: track.CONFIG_FILE, key_ending: "..." + key.slice(-4), validated: "models list call succeeded" };
+  });
+
+tool("media_tools",
+  "What the style study needs and what is actually installed here: yt-dlp "
+  + "(fetches the videos), ffmpeg (OPTIONAL — After Effects reads the frames "
+  + "when it is missing), and whether After Effects is allowed to write "
+  + "files. Call this first whenever a study fails, and read the advice back "
+  + "to the user verbatim. Read-only.",
+  {}, [], { readonly: true }, async () => {
+    const yt = style.findYtDlp(), ff = style.findFfmpeg();
+    const out = { bin_dir: BIN_DIR, yt_dlp: null, ffmpeg: null, advice: [] };
+    if (yt) {
+      out.yt_dlp = { path: yt, version: await style.binVersion(yt), installed_by_panel: yt.indexOf(BIN_DIR) === 0 };
+      out.yt_dlp.age_days = style.ytDlpAgeDays(out.yt_dlp.version);
+    }
+    if (ff) out.ffmpeg = { path: ff, version: await style.binVersion(ff) };
+    try {
+      const ov = await evalHost("get_project_overview", {});
+      out.after_effects = { reachable: true, scripting_write_enabled: !!ov.scripting_write_enabled };
+    } catch (e) { out.after_effects = { reachable: false, error: e.message }; }
+    const aeOk = out.after_effects.reachable && out.after_effects.scripting_write_enabled;
+    out.can_download = !!yt;
+    out.can_read_frames = !!ff || aeOk;
+    out.frames_come_from = ff ? "ffmpeg (fast)" : aeOk ? "After Effects itself — slower, and it asks before importing" : "nowhere yet";
+    if (!yt) out.advice.push("yt-dlp is missing, so no link can be downloaded. Run install_yt_dlp — the panel fetches the official standalone build into its own bin folder. No Homebrew needed.");
+    if (!ff) out.advice.push("ffmpeg is missing. That is fine: After Effects decodes the video instead. Installing ffmpeg would only make studying faster, and Homebrew is not required for anything here.");
+    if (!aeOk && !ff) out.advice.push(out.after_effects.reachable
+      ? "After Effects will not let scripts write files, so it cannot hand over frames either. Turn on Preferences > Scripting & Expressions > Allow Scripts to Write Files and Access Network."
+      : "After Effects is not answering the panel, so it cannot read frames: " + out.after_effects.error);
+    if (yt && out.yt_dlp.age_days !== null && out.yt_dlp.age_days > 90)
+      out.advice.push("This yt-dlp is " + out.yt_dlp.age_days + " days old. Instagram and TikTok change how they serve video every few weeks, so an old build is the usual reason a link stops downloading — run install_yt_dlp to replace it.");
+    if (yt && out.can_read_frames) out.advice.push("Everything the study needs is here. If a link still fails to download, yt-dlp is probably out of date — install_yt_dlp fetches the newest build.");
+    return out;
+  });
+
+tool("install_yt_dlp",
+  "Install (or update) yt-dlp — the downloader behind /train — by fetching "
+  + "the project's own standalone build from its GitHub releases into the "
+  + "panel's bin folder and making it executable. No Homebrew, no Python. "
+  + "Instagram and TikTok change often and yt-dlp's fixes follow within "
+  + "days, so running this again is the usual cure for a link that suddenly "
+  + "will not download. Downloads an executable, so the panel asks first.",
+  { url: { type: "string", description: "Override the download URL (rarely needed)." },
+    nightly: { type: "boolean", description: "After installing, switch to the nightly channel — extractor fixes land there days before the stable build." } },
+  [], {}, async (s, a) => {
+    const url = String(a.url || style.YT_DLP_URL());
+    const before = style.findYtDlp();
+    const dest = path.join(BIN_DIR, process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+    const got = await (s._testFetch ? s._testFetch(url, dest) : style.downloadTo(url, dest));
+    // Check the bytes against the checksums the release publishes before
+    // anything is made executable.
+    const asset = url.split("/").pop();
+    const sum = s._testVerify ? await s._testVerify(dest, asset) : await style.verifyChecksum(dest, asset);
+    if (sum.checked && !sum.match) {
+      try { fs.unlinkSync(dest); } catch (e) {}
+      throw new Error("The download did not match the checksum yt-dlp publishes (" + sum.got.slice(0, 12)
+        + "… vs " + sum.want.slice(0, 12) + "…), so it was deleted. Try again; if it keeps happening, "
+        + "something between here and GitHub is altering the file.");
+    }
+    try { fs.chmodSync(dest, 0o755); } catch (e) {}
+    const version = await style.binVersion(dest);
+    if (!version)
+      throw new Error("Downloaded " + dest + " (" + (got && got.bytes) + " bytes) but it would not run. "
+        + "If macOS blocked it, allow it in System Settings > Privacy & Security, or in Terminal run: "
+        + "xattr -d com.apple.quarantine " + JSON.stringify(dest));
+    let channel = "stable";
+    if (a.nightly) {
+      const sw = await new Promise((done) => execFile(dest, ["--update-to", "nightly"], { timeout: 120000 },
+        (err, so, se) => done(err ? String(se || err.message).slice(-200) : null)));
+      channel = sw ? "stable (switching to nightly failed: " + sw + ")" : "nightly";
+    }
+    return { installed: dest, version, channel, bytes: got && got.bytes, from: url,
+             checksum: sum.checked ? "matched the published SHA-256" : "not verified — " + sum.why,
+             replaced: before && before !== dest ? before + " is still on your PATH; the panel uses its own copy" : undefined,
+             note: "Run this again any time a link stops downloading — it fetches the newest build." };
   });
 
 tool("style_profile",
@@ -1574,13 +1687,17 @@ tool("mcp_connect",
 const state = { permissionMode: "Ask before edits", approveAllEdits: false,
                 pendingApproval: null, onApprovalNeeded: null };
 
-function needsApproval(name) {
+function needsApproval(name, input) {
   const entry = TOOLS.find((t) => t.name === name);
   const mode = state.permissionMode;
   if (mode === "Always ask") return true;
   if (mode !== "Ask before edits") return false;
   if (state.approveAllEdits) return false;
-  return !(entry && entry.readonly);
+  if (entry && entry.readonly) return false;
+  if (entry && entry.readonlyWhen) {
+    try { if (entry.readonlyWhen(input || {})) return false; } catch (e) {}
+  }
+  return true;
 }
 
 function requestApproval(name, input) {
@@ -1612,7 +1729,7 @@ async function executeTool(name, input) {
   const entry = TOOLS.find((t) => t.name === name);
   if (!entry) return { ok: false, text: "Unknown tool: " + name };
   const quoteOnly = name === "ai_segment" && input && input.dry_run;
-  if (needsApproval(name) && !quoteOnly) {
+  if (needsApproval(name, input) && !quoteOnly) {
     const declined = await requestApproval(name, input || {});
     if (declined) return { ok: false, text: declined };
   }
@@ -1959,8 +2076,13 @@ window.assistant = {
   },
   newChat() {
     autosave();
+    // "Yes for this session" ends with the chat it was given in: a new chat
+    // reads as a fresh start, so edits are asked about again.
+    const approvalsReset = state.approveAllEdits;
+    state.approveAllEdits = false;
     sessionId = null; pendingRecap = "";
     chatId = historyLib.newChatId(); msgLog = [];
+    return { approvals_reset: approvalsReset };
   },
   config() {
     return Promise.resolve({ models: MODELS, efforts: EFFORTS,

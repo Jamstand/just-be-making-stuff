@@ -3,7 +3,12 @@
 // crashes Blink inside a renderer: "ToExecutionContext(context)").
 const fs = require("fs"), path = require("path"), vm = require("vm"), os = require("os");
 const EXT = process.env.AE_EXT;
-function CompItem() {} function FootageItem() {}
+function CompItem() {} function FootageItem() {} function FolderItem() {}
+
+// saveFrameToPng writes a real PNG (shared with the style unit test) so the
+// panel's own decoder is exercised rather than stubbed.
+const { encodePng, planFrame } = require(path.join(__dirname, "pngwrite.js"));
+
 function Prop(name, mn, v) { this.name = name; this.matchName = mn; this._v = v; this._keys = []; this.numKeys = 0; this._eases = {}; }
 Object.defineProperty(Prop.prototype, "value", { get() { return this._v; } });
 Prop.prototype.setValue = function (v) { this._v = v; };
@@ -41,12 +46,32 @@ function makeComp(name, w, h, fps, dur) { const c = Object.create(CompItem.proto
     addSolid(color, nm) { const l = makeLayer(nm, c); l._solid = color; c._layers.unshift(l); c.numLayers = c._layers.length; return l; },
     add(item) { const l = makeLayer(item.name, c); l.source = item; l.hasAudio = /\.(wav|mp3|m4a|aif|aiff)$/i.test(item.name); l.hasVideo = !l.hasAudio; c._layers.unshift(l); c.numLayers = c._layers.length; return l; } };
   c.layer = (i) => c._layers[i - 1]; c.openInViewer = () => {};
+  c.parentFolder = null; c.resolutionFactor = [1, 1];
   c.remove = () => { project._items.splice(project._items.indexOf(c), 1); project.numItems = project._items.length; };
-  c.saveFrameToPng = (t, f) => fs.writeFileSync(f.fsName, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"));
+  // A real PNG at comp size: the frame of whichever footage layer is on it
+  // (the fake video's shot plan), or flat grey when there is none.
+  c.saveFrameToPng = (t, f) => {
+    const src = (c._layers.find((l) => l.source && l.source._plan) || {}).source;
+    const rgb = src ? planFrame(src._plan, t, c.width, c.height) : Buffer.alloc(c.width * c.height * 3, 128);
+    fs.mkdirSync(path.dirname(f.fsName), { recursive: true });
+    fs.writeFileSync(f.fsName, encodePng(c.width, c.height, rgb));
+  };
   return c; }
-const project = { file: null, numItems: 0, _items: [], activeItem: null, item(i) { return project._items[i - 1]; },
-  items: { addComp(n, w, h, pa, d, fps) { const c = makeComp(n, w, h, fps, d); project._items.push(c); project.numItems = project._items.length; project.activeItem = c; return c; } },
-  importFile(io) { const f = Object.create(FootageItem.prototype); f.name = path.basename(io._path); f.duration = 5; f.width = 1920; f.height = 1080; f.frameRate = 24; f.hasVideo = true; f.mainSource = { file: { fsName: io._path }, isStill: false }; project._items.push(f); project.numItems = project._items.length; return f; },
+const project = { file: null, numItems: 0, _items: [], activeItem: null, bitsPerChannel: 8, workingSpace: "sRGB IEC61966-2.1", item(i) { return project._items[i - 1]; },
+  items: { addComp(n, w, h, pa, d, fps) { const c = makeComp(n, w, h, fps, d); project._items.push(c); project.numItems = project._items.length; project.activeItem = c; return c; },
+    addFolder(n) { const f = Object.create(FolderItem.prototype); f.name = n; f.parentFolder = null;
+      Object.defineProperty(f, "numItems", { get() { return project._items.filter((x) => x.parentFolder === f).length; } });
+      f.item = (i) => project._items.filter((x) => x.parentFolder === f)[i - 1];
+      f.remove = () => { project._items.splice(project._items.indexOf(f), 1); project.numItems = project._items.length; };
+      project._items.push(f); project.numItems = project._items.length; return f; } },
+  importFile(io) { const f = Object.create(FootageItem.prototype); f.name = path.basename(io._path);
+    let plan = null; try { plan = JSON.parse(fs.readFileSync(io._path, "utf8")); } catch (e) {}
+    if (plan && plan.fake === "video") { f._plan = plan; f.duration = plan.duration; f.frameRate = plan.fps; f.width = plan.width; f.height = plan.height; }
+    else { f.duration = 5; f.width = 1920; f.height = 1080; f.frameRate = 24; }
+    f.hasVideo = true; f.parentFolder = null; f.footageMissing = false;
+    f.mainSource = { file: { fsName: io._path }, isStill: false };
+    f.remove = () => { project._items.splice(project._items.indexOf(f), 1); project.numItems = project._items.length; };
+    project._items.push(f); project.numItems = project._items.length; return f; },
   renderQueue: { items: { add() { return { outputModule() { return { templates: ["H.264 - Match Render Settings - 15 Mbps"], applyTemplate() {}, file: null }; }, applyTemplate() {}, remove() {}, templates: ["Best Settings"], status: "DONE" }; } }, render() {}, queueInAME() {} } };
 function FileC(p) { this.fsName = p; this._path = p; this._pos = 0; }
 Object.defineProperty(FileC.prototype, "exists", { get() { return fs.existsSync(this.fsName); } });
@@ -62,7 +87,8 @@ const ctx = vm.createContext({ app: { project, beginUndoGroup() {}, endUndoGroup
       for (let k = 0; k < 3; k++) mp.setValueAtTime(it.time + k / 24, { vertices: [[k, k]] }); } } },
   TrackMatteType: { LUMA: "LUMA", LUMA_INVERTED: "LUMA_INVERTED", ALPHA: "ALPHA", ALPHA_INVERTED: "ALPHA_INVERTED" },
   MarkerValue: function (c) { this.comment = c; this.duration = 0; }, BlendingMode: { NORMAL: 5212, ADD: 5220, SCREEN: 5228 },
-  CompItem, FootageItem, TextLayer: function TextLayer() {}, SolidSource: function SolidSource() {}, File: FileC, Folder: Object.assign(function (p) { this.fsName = p; this.exists = fs.existsSync(p); this.create = () => fs.mkdirSync(p, { recursive: true }); }, { userData: { fsName: os.homedir() } }),
+  CompItem, FootageItem, FolderItem, LayerQuality: { BEST: 4302, DRAFT: 4303, WIREFRAME: 4304 },
+  TextLayer: function TextLayer() {}, SolidSource: function SolidSource() {}, File: FileC, Folder: Object.assign(function (p) { this.fsName = p; this.exists = fs.existsSync(p); this.create = () => fs.mkdirSync(p, { recursive: true }); }, { userData: { fsName: os.homedir() } }),
   ImportOptions: function (f) { this._path = f._path; }, Shape: function () { this.vertices = []; this.closed = false; },
   KeyframeEase: function (s, i) { this.speed = s; this.influence = i; }, KeyframeInterpolationType: { HOLD: 3 }, MaskMode: { SUBTRACT: 6914 }, RQItemStatus: { DONE: "DONE" },
   Date, isFinite, parseInt, $: { sleep() {} } });

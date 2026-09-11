@@ -55,16 +55,19 @@ function expandSlash(text, panel) {
     const urls = extractLinks(t);
     if (!urls.length)
       return "The user typed " + typed + " without links. Explain briefly: " + typed + " <link> [<link> ...] downloads "
-        + "each video (TikTok, Instagram, YouTube — needs yt-dlp and ffmpeg: brew install yt-dlp ffmpeg), measures "
+        + "each video (TikTok, Instagram, YouTube — needs yt-dlp, which install_yt_dlp fetches without Homebrew; "
+        + "ffmpeg is optional because After Effects can read the frames), measures "
         + "its cut rhythm, shot lengths, exposure and colour cast into the car-edits style profile "
         + "(~/ClaudeAssistantStyle, shared with the Resolve panel), and with a Gemini key has Gemini watch it for "
         + "the content read" + (typed === "/train" ? " (/train and /study are the same command)" : "") + ".";
     return "Study these " + urls.length + " edit(s) into the car-edits style profile, STRICTLY one at a time. For EACH "
       + "link, all three steps in order:\n" + urls.map((u, i) => (i + 1) + ". " + u).join("\n")
-      + "\nSTEP A: study_url with the link (downloads the video into ~/ClaudeAssistantStudy; if it fails because "
-      + "yt-dlp or ffmpeg is missing, tell the user the brew line once and stop).\n"
+      + "\nSTEP A: study_url with the link (downloads the video into ~/ClaudeAssistantStudy). If it fails because "
+      + "yt-dlp is missing or out of date, call media_tools, offer install_yt_dlp — the panel installs it itself, no "
+      + "Homebrew — and stop until that is done.\n"
       + "STEP B: study_edit with the downloaded file and the link as the source label (the measurements: cuts, shot "
-      + "lengths, exposure, cast).\n"
+      + "lengths, exposure, cast). ffmpeg is NOT needed: without it After Effects reads the frames itself and the "
+      + "panel asks once for permission — never tell the user to install ffmpeg or Homebrew to get past this.\n"
       + "STEP C: watch_video on that file with profile car-edits and the same source label — Gemini watches the "
       + "footage and its content read merges into the profile. This step is NOT optional; if it fails over a missing "
       + "or invalid Gemini key, report that plainly once (set_gemini_key stores one from aistudio.google.com), skip "

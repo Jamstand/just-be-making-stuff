@@ -211,7 +211,9 @@ function toolResult(name, ok, ms) {
   status.className = "status " + (ok ? "ok" : "bad");
 }
 
+let statusNote = "";                 // a tool's own progress line (the style study)
 function setStatus() {
+  if (statusNote) { statusEl.textContent = statusNote; dot.className = "busy"; return; }
   if (busy) {
     const secs = Math.floor((Date.now() - turnStart) / 1000);
     statusEl.textContent = "Claude is working… " + secs + "s · " +
@@ -365,10 +367,11 @@ input.addEventListener("keydown", (evt) => {
 });
 
 document.getElementById("newchat").onclick = () => {
-  assistant.newChat();
+  const r = assistant.newChat();
   chat.replaceChildren(); transcript.length = 0;
   toolCount = 0; turnStart = 0;
-  card("notice", "NOTE", "New chat — Claude's memory of this session is cleared.");
+  const reset = r && r.approvals_reset ? " Edits will be approved one at a time again." : "";
+  card("notice", "NOTE", "New chat — Claude's memory of this session is cleared." + reset);
   setStatus();
 };
 
@@ -380,7 +383,8 @@ function dispatch(kind, payload) {
   else if (kind === "toolcall") toolLine(payload.name, payload.input);
   else if (kind === "toolresult") toolResult(payload.name, payload.ok, payload.ms);
   else if (kind === "approval") showApproval(payload);
-  else if (kind === "done") setBusy(false);
+  else if (kind === "study_progress") { statusNote = (payload && payload.text) || ""; setStatus(); }
+  else if (kind === "done") { statusNote = ""; setBusy(false); }
 }
 if (typeof assistant === "undefined") {
   card("error", "ERROR", "The panel's Node layer never started (window."

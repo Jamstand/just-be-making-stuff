@@ -181,6 +181,18 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   slash.js (commandsFor(PANEL) via config(); the music panel hides
   study/train); slashRoute() there is the chokepoint (expand / unknown /
   text-with-path-prefix).
+- /train frames come from ffmpeg OR from After Effects itself. The AE
+  route (host study_open / study_sample / study_close, stylelib
+  sampleFramesViaAe, pnglib) imports the video into a __ClaudeStudy__
+  folder, renders a comp sized to the source shrunk by a whole factor
+  (long edge ~240: 1920x1080 -> 240x135) with saveFrameToPng, decodes the
+  PNGs in Node and box-averages them to 64x36 — the same picture ffmpeg's
+  scale=64:36 produces, verified byte-for-byte against real ffmpeg in
+  scratchpad. pnglib is checked against ffmpeg-written PNGs of every
+  colour type (rgb8/rgba8/rgb16/gray8/palette) in the unit test when a
+  real ffmpeg is present. host-sim now writes REAL PNGs (verify-electron/
+  pngwrite.js, shared with the unit test) from the fake video's shot plan,
+  so the decode path is exercised rather than stubbed.
 - /train (drive step 6c): "/train <tiktok link> <instagram link>" runs
   the fake claude's study branch through the REAL tool chain: study_url
   (fakebin/yt-dlp writes a JSON "video" with a 3-shot plan) →
@@ -190,8 +202,24 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   car-edits.json with 2 complete edits of 2 cuts / 3 shots / 12 s,
   aggregate cuts_per_minute 10 and median shot 4 s, two files in
   ~/ClaudeAssistantStudy, one "Gemini pass skipped" card and a final
-  "Studied —" card with "edits":2. Unit tests: test_ae_style.js
-  (measurement, profile, fakes, Gemini wire, macro/routing; when a real
+  "Studied —" card with "edits":2, and every entry sampled_with "ffmpeg"
+  with NO approval card (study_edit declares readonlyWhen: ffmpeg present
+  and via !== "after-effects", so it asks only when it has to touch the
+  project).
+- The ffmpeg-free route (drive step 6d): clicks #newchat first, because
+  step 2 clicked "yes for this session" and newChat() now takes that
+  back (assert the note says "approved one at a time again"). Then a
+  plain message "study the downloaded file with after effects: <path>"
+  makes the fake claude call study_edit with via "after-effects"; expect
+  an approval card naming study_edit and after-effects, then after
+  #ap-run an ae-route.json whose cuts, shot lengths and cast match the
+  ffmpeg entry, no __ClaudeStudy__ folder or __ClaudeStudyFrame__ comp
+  left in the project, and media_tools reporting can_download /
+  can_read_frames. Unit tests: test_ae_style.js
+  (measurement, profile, fakes, Gemini wire, macro/routing, the AE
+  sampler over a stub host including a frame AE finishes writing late,
+  downloadTo's redirect following, checksum verification, the panel's own
+  bin folder winning over PATH, yt-dlp staleness; when a real
   ffmpeg exists — /usr/bin/ffmpeg here — it also encodes a three-shot
   mp4 with lavfi and checks probe + study, then truncates it at 55% and
   expects the coverage refusal). The fake ffmpeg honours a

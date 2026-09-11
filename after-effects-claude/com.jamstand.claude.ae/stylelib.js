@@ -14,12 +14,16 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const https = require("https");
+const crypto = require("crypto");
 const { spawn } = require("child_process");
+const png = require(path.join(__dirname, "pnglib.js"));
 
 const STYLE_DIR = path.join(os.homedir(), "ClaudeAssistantStyle");
 const STUDY_DIR = path.join(os.homedir(), "ClaudeAssistantStudy");
 const CONFIG_FILE = path.join(os.homedir(), ".claude-assistant.json");
 const SAMPLE_W = 64, SAMPLE_H = 36;              // thumbnails: plenty for level / cast / cut diffs
+const AE_LONG_EDGE = 240;                        // AE renders the source shape this big, then we box-average down
+const AE_BATCH = 30;                             // frames per host call (each one blocks After Effects)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function readConfig() {
@@ -157,19 +161,39 @@ function summariseProfile(profile, maxNotes) {
 }
 
 // ------------------------------------------------------------ binaries
-// GUI apps get a bare PATH on macOS, so probe the usual homes as well.
+// GUI apps get a bare PATH on macOS, so probe the usual homes as well. The
+// panel's own bin folder comes first: a tool it installed itself is the one
+// it can keep up to date.
+const extraBinDirs = [];
+function addBinDir(dir) { if (dir && !extraBinDirs.includes(dir)) extraBinDirs.unshift(dir); }
 function findBin(name) {
   const homes = ["/opt/homebrew/bin", "/usr/local/bin", path.join(os.homedir(), ".local", "bin")];
-  const dirs = (process.env.PATH || "").split(path.delimiter).filter(Boolean).concat(homes);
+  const exe = process.platform === "win32" && !/\.exe$/i.test(name) ? name + ".exe" : name;
+  const dirs = extraBinDirs.concat((process.env.PATH || "").split(path.delimiter).filter(Boolean), homes);
   for (const d of dirs) {
-    const p = path.join(d, name);
+    const p = path.join(d, exe);
     try { fs.accessSync(p, fs.constants.X_OK); return p; } catch (e) {}
   }
   return null;
 }
 const findYtDlp = () => findBin("yt-dlp");
 const findFfmpeg = () => findBin("ffmpeg");
-const SETUP_HINT = "One-time setup in Terminal: brew install yt-dlp ffmpeg   (then retry).";
+const SETUP_HINT = "The panel can install yt-dlp itself (install_yt_dlp) — no Homebrew needed.";
+
+// `<bin> --version`, for reporting what is installed. Never throws.
+function binVersion(bin, opts) {
+  return new Promise((resolveP) => {
+    let child;
+    try { child = spawn(bin, ["--version"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
+    catch (e) { return resolveP(null); }
+    let out = "";
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { out += d; });
+    const timer = setTimeout(() => { try { child.kill(); } catch (e) {} resolveP(null); }, (opts && opts.timeoutMs) || 8000);
+    child.on("error", () => { clearTimeout(timer); resolveP(null); });
+    child.on("close", () => { clearTimeout(timer); resolveP((out.trim().split(/\r?\n/)[0] || "").slice(0, 120) || null); });
+  });
+}
 
 function downloadVideo(url, dir, opts) {
   opts = opts || {};
@@ -179,8 +203,13 @@ function downloadVideo(url, dir, opts) {
     fs.mkdirSync(dir, { recursive: true });
     const stamp = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     const template = path.join(dir, "study_" + stamp + ".%(ext)s");
-    const child = spawn(bin, ["-f", "mp4/bv*+ba/b", "--merge-output-format", "mp4", "--no-playlist", "--no-warnings",
-                              "--no-progress", "-o", template, url], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    // Without ffmpeg, yt-dlp cannot merge separate video and audio streams:
+    // ask only for formats that arrive as one file (reels normally do).
+    const merge = opts.ffmpeg !== undefined ? opts.ffmpeg : findFfmpeg();
+    const fmt = merge ? "mp4/bv*+ba/b" : "b[ext=mp4]/b[ext=mov]/b";
+    const args = ["-f", fmt, "--no-playlist", "--no-progress", "-o", template, url];
+    if (merge) args.splice(2, 0, "--merge-output-format", "mp4");
+    const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let err = "";
     child.stdout.resume();                                     // never let a chatty download fill the pipe and stall
     child.stderr.on("data", (d) => { err += d; });
@@ -252,6 +281,150 @@ function sampleFrames(file, opts) {
       resolveP(frames);
     });
   });
+}
+
+// yt-dlp versions are dates. Its extractors for Instagram and TikTok break
+// and get fixed constantly, and yt-dlp itself warns once a build is 90 days
+// old — so an old one is the first thing to suspect when a link fails.
+function ytDlpAgeDays(version, now) {
+  const m = /(\d{4})\.(\d{2})\.(\d{2})/.exec(String(version || ""));
+  if (!m) return null;
+  const built = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  const days = Math.floor(((now === undefined ? Date.now() : now) - built) / 86400000);
+  return days >= 0 ? days : null;
+}
+
+// ------------------------------------------------------- fetching yt-dlp
+// yt-dlp ships a standalone executable, which is the whole point here: a
+// user without Homebrew (or on a macOS too new for it) can still download
+// the reels. Redirects are followed because GitHub's "latest" URL is one.
+const YT_DLP_ASSET = { darwin: "yt-dlp_macos", win32: "yt-dlp.exe", linux: "yt-dlp_linux" };
+const YT_DLP_BASE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/";
+const YT_DLP_URL = (platform) => YT_DLP_BASE + (YT_DLP_ASSET[platform || process.platform] || "yt-dlp");
+const YT_DLP_SUMS = YT_DLP_BASE + "SHA2-256SUMS";
+
+// The release publishes "<sha256>  <asset>" lines; check the bytes we got
+// against the one for our asset. A download that cannot be checked is
+// reported as unchecked, but one that does not MATCH is thrown away.
+async function verifyChecksum(file, assetName, opts) {
+  opts = opts || {};
+  let sums;
+  try { sums = (await downloadTo(opts.sumsUrl || YT_DLP_SUMS, null, Object.assign({ text: true }, opts))).text; }
+  catch (e) { return { checked: false, why: "could not fetch the published checksums (" + e.message + ")" }; }
+  const line = String(sums).split(/\r?\n/).find((l) => l.trim().split(/\s+/)[1] === assetName);
+  if (!line) return { checked: false, why: "the published checksums do not list " + assetName };
+  const want = line.trim().split(/\s+/)[0].toLowerCase();
+  const got = crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+  return { checked: true, match: got === want, want, got };
+}
+
+// dest null + opts.text -> resolve the body as a string instead of a file.
+function downloadTo(url, dest, opts) {
+  opts = opts || {};
+  const get = opts.get || https.get;
+  const hops = Number(opts.maxRedirects) || 6;
+  return new Promise((resolveP, rejectP) => {
+    let done = false;
+    const finish = (err, value) => { if (done) return; done = true; err ? rejectP(err) : resolveP(value); };
+    const step = (u, left) => {
+      let req;
+      try {
+        req = get(u, (res) => {
+          const code = res.statusCode;
+          if (code >= 300 && code < 400 && res.headers.location) {
+            res.resume();
+            if (!left) return finish(new Error("too many redirects fetching " + url));
+            return step(new URL(res.headers.location, u).toString(), left - 1);
+          }
+          if (code !== 200) { res.resume(); return finish(new Error("HTTP " + code + " fetching " + u)); }
+          if (opts.text) {
+            let body = "";
+            res.setEncoding("utf8");
+            res.on("data", (d) => { body += d; });
+            res.on("error", (e) => finish(e));
+            res.on("end", () => finish(null, { text: body, bytes: body.length }));
+            return;
+          }
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          const tmp = dest + ".part-" + process.pid;
+          const out = fs.createWriteStream(tmp);
+          let bytes = 0;
+          res.on("data", (d) => { bytes += d.length; });
+          res.on("error", (e) => { try { out.destroy(); fs.unlinkSync(tmp); } catch (e2) {} finish(e); });
+          out.on("error", (e) => finish(e));
+          out.on("close", () => {
+            if (bytes < 1024) { try { fs.unlinkSync(tmp); } catch (e) {} return finish(new Error("only " + bytes + " bytes came back from " + u)); }
+            try { fs.renameSync(tmp, dest); } catch (e) { return finish(e); }
+            finish(null, { file: dest, bytes });
+          });
+          res.pipe(out);
+        });
+      } catch (e) { return finish(e); }
+      req.on("error", (e) => finish(e));
+      req.setTimeout(opts.timeoutMs || 180000, () => { req.destroy(new Error("timed out fetching " + u)); });
+    };
+    step(url, hops);
+  });
+}
+
+// ---------------------------------------------- frames from After Effects
+// The ffmpeg-free route: After Effects decodes the video itself. It imports
+// the file into a temporary folder, renders a tiny comp with saveFrameToPng
+// at each sample time, and removes everything afterwards — see study_open /
+// study_sample / study_close in host/ae-tools.jsx. Slower than ffmpeg (a
+// render per frame) but it needs nothing installed.
+//
+// host(name, args) is the panel's evalHost bridge.
+async function sampleFramesViaAe(file, opts) {
+  opts = opts || {};
+  const host = opts.host;
+  if (typeof host !== "function") throw new Error("no After Effects bridge to read frames with");
+  const interval = Math.max(0.1, Number(opts.interval_s) || 0.5);
+  const nap = opts.sleep || sleep;
+  const open = await host("study_open", { file, long_edge: Number(opts.long_edge) || AE_LONG_EDGE });
+  try {
+    const duration = Number(open.duration_s) || 0;
+    if (!(duration > 0)) throw new Error("After Effects reports no duration for " + path.basename(file));
+    const count = Math.max(1, Math.floor(duration / interval + 1e-6));
+    const times = [];
+    for (let k = 0; k < count; k++) times.push(+(k * interval).toFixed(3));
+    const frames = [];
+    let i = 0, stalls = 0;
+    while (i < times.length) {
+      const batch = times.slice(i, i + (Number(opts.batch) || AE_BATCH));
+      const r = await host("study_sample", { times: batch, index: i, budget_ms: opts.budget_ms || 8000 });
+      const got = (r && r.files) || [];
+      if (!got.length) {
+        if (++stalls > 2) throw new Error("After Effects stopped returning frames at " + times[i].toFixed(1) + " s of " + path.basename(file));
+        continue;
+      }
+      stalls = 0;
+      for (const g of got) {
+        // saveFrameToPng can return before the bytes are all on disk
+        let buf = null;
+        for (let tries = 0; tries < 250 && !buf; tries++) {
+          try { const b = fs.readFileSync(g.file); if (png.pngComplete(b)) buf = b; } catch (e) {}
+          if (!buf) await nap(40);
+        }
+        if (!buf) throw new Error("After Effects never finished writing " + g.file
+          + " — is Preferences > Scripting & Expressions > Allow Scripts to Write Files and Access Network on?");
+        try { fs.unlinkSync(g.file); } catch (e) {}
+        const img = png.decodePng(buf);
+        frames.push({ t: g.t, rgb: png.resampleRgb(img.rgb, img.width, img.height, SAMPLE_W, SAMPLE_H) });
+      }
+      i += got.length;
+      if (opts.onProgress) { try { opts.onProgress({ done: i, total: times.length }); } catch (e) {} }
+    }
+    frames.decode_errors = [];
+    frames.exit_code = 0;
+    frames.source = { duration_s: duration, fps: Number(open.fps) || null,
+                      width: Number(open.width) || null, height: Number(open.height) || null,
+                      sample_width: open.sample_width, sample_height: open.sample_height,
+                      project_bpc: open.project_bpc || null, working_space: open.working_space || null };
+    return frames;
+  } finally {
+    try { await host("study_close", {}); } catch (e) {}
+  }
 }
 
 // ------------------------------------------------------------ measurement
@@ -442,6 +615,8 @@ async function watchVideo(doReq, key, file, opts) {
 
 module.exports = { STYLE_DIR, STUDY_DIR, CONFIG_FILE, SAMPLE_W, SAMPLE_H, GEMINI_HOST, GEMINI_MODEL_DEFAULT,
   WATCH_PROMPT_DEFAULT, SETUP_HINT, readConfig, geminiKey, percentile, detectCuts, styleAggregate, profileFile,
-  readProfile, loadProfile, saveProfile, mergeEntry, listProfiles, listSources, summariseProfile, findBin, findYtDlp, findFfmpeg,
+  readProfile, loadProfile, saveProfile, mergeEntry, listProfiles, listSources, summariseProfile,
+  addBinDir, findBin, findYtDlp, findFfmpeg, binVersion, AE_LONG_EDGE, AE_BATCH, sampleFramesViaAe,
+  YT_DLP_ASSET, YT_DLP_URL, YT_DLP_SUMS, downloadTo, verifyChecksum, ytDlpAgeDays,
   downloadVideo, probeVideo, sampleFrames, frameStats, frameDiff, timecode, studyFile, httpsRequest, geminiCall,
   geminiErrorText, geminiUploadVideo, watchVideo };

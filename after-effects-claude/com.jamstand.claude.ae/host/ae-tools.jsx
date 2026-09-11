@@ -290,6 +290,146 @@ CA_TOOLS.remove_temp_comp = function (a) {
   return { removed: removed };
 };
 
+// --------------------------------------------------- style study frames
+// Sampling a finished edit for the style study WITHOUT ffmpeg: After
+// Effects decodes the video itself. The file is imported into a folder
+// named __ClaudeStudy__ and a tiny comp (the sample size, with the source
+// squashed to fill it exactly as ffmpeg's scale filter would) is rendered
+// with saveFrameToPng at each requested time. Only what is inside that
+// folder is ever removed, so footage the user already had is never touched.
+var CA_STUDY_FOLDER = "__ClaudeStudy__";
+var CA_STUDY_COMP = "__ClaudeStudyFrame__";
+
+function CA_studyFolder(make) {
+  var i, it;
+  for (i = 1; i <= app.project.numItems; i++) {
+    it = app.project.item(i);
+    if (it instanceof FolderItem && it.name === CA_STUDY_FOLDER) return it;
+  }
+  return make ? app.project.items.addFolder(CA_STUDY_FOLDER) : null;
+}
+
+function CA_studyComp() {
+  var i, it;
+  for (i = 1; i <= app.project.numItems; i++) {
+    it = app.project.item(i);
+    if (it instanceof CompItem && it.name === CA_STUDY_COMP) return it;
+  }
+  return null;
+}
+
+function CA_studyFrameDir() {
+  var dir = new Folder(CA_grabDir().fsName + "/study-frames");
+  if (!dir.exists) dir.create();
+  return dir;
+}
+
+CA_TOOLS.study_open = function (a) {
+  var f = new File(String(a.file)), item = null, comp, l, w, h, fps, io;
+  var longEdge, k, sc, bpc = null, space = null;
+  if (!f.exists) CA_err("No such file: " + a.file);
+  if (app.preferences.getPrefAsLong("Main Pref Section",
+      "Pref_SCRIPTING_FILE_NETWORK_SECURITY") !== 1)
+    CA_err("After Effects will not let scripts write files, so frames cannot "
+           + "be saved. Turn on Preferences > Scripting & Expressions > Allow "
+           + "Scripts to Write Files and Access Network, then try again.");
+  CA_TOOLS.study_close({});                  // never two studies at once
+  var folder = CA_studyFolder(true);
+  io = new ImportOptions(f);
+  try { if (typeof io.canImportAs === "function" && typeof ImportAsType !== "undefined"
+            && !io.canImportAs(ImportAsType.FOOTAGE))
+          CA_err("After Effects cannot import " + f.name + " as footage — an "
+                 + "unsupported codec (VP9/AV1/WebM are not read natively)."); }
+  catch (e0) { if (e0 && /cannot import/.test(String(e0.message || e0))) { CA_TOOLS.study_close({}); throw e0; } }
+  try { item = app.project.importFile(io); }
+  catch (e) {
+    CA_TOOLS.study_close({});
+    CA_err("After Effects could not import " + f.name + " (" + (e.message || e)
+           + ") — a codec it does not read (VP9/AV1/WebM are not native)?");
+  }
+  item.parentFolder = folder;
+  if (item.footageMissing) {
+    CA_TOOLS.study_close({});
+    CA_err(f.name + " imported but After Effects reports the footage as missing.");
+  }
+  if (!(item.duration > 0)) {
+    CA_TOOLS.study_close({});
+    CA_err(f.name + " imported with no duration — a still image rather than a video?");
+  }
+  // The temp comp keeps the source's SHAPE, shrunk by a whole-ish factor:
+  // After Effects does a clean uniform downscale and the panel does the rest
+  // in integer arithmetic, so both routes end up measuring the same picture.
+  fps = item.frameRate > 0 ? item.frameRate : 30;
+  longEdge = parseInt(a.long_edge, 10) || 240;
+  k = Math.max(1, Math.round(Math.max(item.width, item.height) / longEdge));
+  w = Math.max(4, Math.round(item.width / k));
+  h = Math.max(4, Math.round(item.height / k));
+  comp = app.project.items.addComp(CA_STUDY_COMP, w, h, 1, item.duration, fps);
+  if (typeof comp.saveFrameToPng !== "function") {
+    CA_TOOLS.study_close({});
+    CA_err("saveFrameToPng is missing in this After Effects version, so the "
+           + "panel cannot read frames without ffmpeg.");
+  }
+  comp.parentFolder = folder;
+  try { comp.resolutionFactor = [1, 1]; } catch (e2) {}
+  l = comp.layers.add(item);
+  try { l.quality = LayerQuality.BEST; } catch (e3) {}
+  // uniform, and rounded UP so rounding never leaves a transparent edge
+  sc = 100 * Math.max(w / item.width, h / item.height);
+  l.property("ADBE Transform Group").property("ADBE Scale").setValue([sc, sc]);
+  try { bpc = app.project.bitsPerChannel; } catch (e4) {}
+  try { space = app.project.workingSpace; } catch (e5) {}
+  return { item: item.name, comp: comp.name, duration_s: item.duration,
+           fps: fps, width: item.width, height: item.height,
+           sample_width: w, sample_height: h, scale_pct: sc,
+           project_bpc: bpc, working_space: space,
+           frame_dir: CA_studyFrameDir().fsName };
+};
+
+// One batch of frames: stops early when budget_ms is spent so a long edit
+// never blocks After Effects in a single call.
+CA_TOOLS.study_sample = function (a) {
+  var comp = CA_studyComp(), i, t, f, files = [], t0 = new Date().getTime();
+  if (!comp) CA_err("No study comp is open — call study_open first.");
+  var dir = CA_studyFrameDir();
+  var times = a.times || [];
+  // an explicit 0 means "one frame per call", so it must not fall through
+  // to the default the way `Number(0) || 8000` would
+  var budget = (a.budget_ms === undefined || a.budget_ms === null) ? 8000 : Number(a.budget_ms);
+  if (!(budget >= 0)) budget = 8000;
+  var base = parseInt(a.index, 10) || 0;
+  var last = Math.max(0, comp.duration - 1 / comp.frameRate);
+  for (i = 0; i < times.length; i++) {
+    if (i > 0 && new Date().getTime() - t0 >= budget) break;
+    t = Number(times[i]);
+    if (!(t >= 0)) t = 0;
+    if (t > last) t = last;
+    f = new File(dir.fsName + "/s" + (base + i) + ".png");
+    // saveFrameToPng hands back a file-like object that carries its own
+    // exception when the render failed — the only error surface it has.
+    var res = comp.saveFrameToPng(t, f);
+    if (res && res._hasException)
+      CA_err("After Effects could not render the frame at " + t + "s: "
+             + (res.exception || "no detail"));
+    files.push({ t: t, file: f.fsName });
+  }
+  return { files: files, wrote: files.length, next_index: base + files.length,
+           elapsed_ms: new Date().getTime() - t0 };
+};
+
+CA_TOOLS.study_close = function (a) {
+  var folder = CA_studyFolder(false), removed = 0, i, it;
+  if (!folder) return { removed: 0 };
+  // comps first: dropping footage a comp still uses would empty it noisily
+  for (i = folder.numItems; i >= 1; i--) {
+    it = folder.item(i);
+    if (it instanceof CompItem) { it.remove(); removed += 1; }
+  }
+  for (i = folder.numItems; i >= 1; i--) { folder.item(i).remove(); removed += 1; }
+  folder.remove();
+  return { removed: removed };
+};
+
 CA_TOOLS.render = function (a) {
   var comp = CA_comp(a.comp);
   var rqi = app.project.renderQueue.items.add(comp);

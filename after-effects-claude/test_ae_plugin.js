@@ -96,6 +96,7 @@ function makeMask() {
 }
 
 function CompItem() {} function FootageItem() {}
+function FolderItem() {}
 function makeLayer(name, comp) {
   const layer = {
     name: name, startTime: 0, inPoint: 0, outPoint: 10, stretch: 100,
@@ -198,12 +199,26 @@ function buildSandbox() {
       project._items.push(c); project.numItems = project._items.length;
       project.activeItem = c;
       return c;
+    }, addFolder: function (n) {
+      const f = Object.create(FolderItem.prototype);
+      f.name = n; f.parentFolder = null;
+      Object.defineProperty(f, "numItems", { get: function () {
+        return project._items.filter(function (x) { return x.parentFolder === f; }).length; } });
+      f.item = function (i) { return project._items.filter(function (x) { return x.parentFolder === f; })[i - 1]; };
+      f.remove = function () { project._items.splice(project._items.indexOf(f), 1); project.numItems = project._items.length; };
+      project._items.push(f); project.numItems = project._items.length;
+      return f;
     } },
+    bitsPerChannel: 8, workingSpace: "sRGB IEC61966-2.1",
     importFile: function (io) {
+      if (project._importThrows) throw new Error("Unsupported filetype or extension");
       const f = Object.create(FootageItem.prototype);
-      f.name = path.basename(io._path); f.duration = 5;
+      f.name = path.basename(io._path);
+      f.duration = project._importDuration === undefined ? 5 : project._importDuration;
       f.width = 1920; f.height = 1080; f.frameRate = 24; f.hasVideo = true;
+      f.footageMissing = false; f.parentFolder = null;
       f.mainSource = { file: { fsName: io._path }, isStill: false };
+      f.remove = function () { project._items.splice(project._items.indexOf(f), 1); project.numItems = project._items.length; };
       project._items.push(f); project.numItems = project._items.length;
       return f;
     },
@@ -262,6 +277,9 @@ function buildSandbox() {
     Shape: function () { this.vertices = []; this.closed = false; },
     KeyframeEase: function (speed, influence) {
       this.speed = speed; this.influence = influence; },
+    FolderItem: FolderItem,
+    LayerQuality: { BEST: 4302, DRAFT: 4303 },
+    ImportAsType: { FOOTAGE: "FOOTAGE", COMP: "COMP" },
     KeyframeInterpolationType: { LINEAR: 1, BEZIER: 2, HOLD: 3 },
     MaskMode: { ADD: 6913, SUBTRACT: 6914 },
     RQItemStatus: { DONE: "DONE" },
@@ -549,6 +567,58 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
   check("remove_layers: {name,index,start_s} removes exactly that layer", rl3.ok && rl3.data.removed.join() === "Dup" && rl3.data.missed.length === 0 && trackComp.numLayers === nDup - 1, JSON.stringify(rl3));
   const rl4 = invoke("remove_layers", { comp: c, names: [{ name: "Dup", index: 99, start_s: 0 }, { name: "Ghost", index: 1 }] });
   check("remove_layers: a wrong index falls back to the bottom-most match; unknown names are missed, not guessed", rl4.ok && rl4.data.removed.join() === "Dup" && rl4.data.missed.join() === "Ghost" && trackComp.numLayers === nDup - 2, JSON.stringify(rl4));
+
+  // ---- study frames without ffmpeg: After Effects reads the video itself
+  const os2 = require("os"), FS = require("fs");
+  const studyVid = path.join(os2.tmpdir(), "ae-study-" + process.pid + ".mp4");
+  FS.writeFileSync(studyVid, "not really a video, the fake DOM does not care");
+  const itemsBeforeStudy = sandbox.app.project.numItems;
+  const sOpen = invoke("study_open", { file: studyVid });
+  const studyFolder = sandbox.app.project._items.find((x) => x.name === "__ClaudeStudy__");
+  const studyComp = sandbox.app.project._items.find((x) => x.name === "__ClaudeStudyFrame__");
+  check("study_open: imports into its own folder and builds a comp that keeps the source's shape",
+    sOpen.ok && sOpen.data.width === 1920 && sOpen.data.height === 1080
+    && sOpen.data.sample_width === 240 && sOpen.data.sample_height === 135   // 1920x1080 / 8
+    && Math.abs(sOpen.data.scale_pct - 12.5) < 0.01 && sOpen.data.project_bpc === 8
+    && !!studyFolder && !!studyComp && studyComp.parentFolder === studyFolder
+    && studyComp.numLayers === 1 && studyFolder.numItems === 2, JSON.stringify(sOpen));
+  const scaleProp = studyComp.layer(1).property("ADBE Transform Group").property("ADBE Scale");
+  check("study_open: the layer is scaled uniformly to fill, never squashed",
+    scaleProp.value[0] === scaleProp.value[1] && Math.abs(scaleProp.value[0] - 12.5) < 0.01, JSON.stringify(scaleProp.value));
+  const ss = invoke("study_sample", { times: [0, 0.5, 1], index: 0 });
+  check("study_sample: one PNG per requested time, numbered from the index",
+    ss.ok && ss.data.wrote === 3 && ss.data.next_index === 3
+    && ss.data.files.map((f) => path.basename(f.file)).join() === "s0.png,s1.png,s2.png"
+    && ss.data.files.every((f) => FS.existsSync(f.file)), JSON.stringify(ss).slice(0, 200));
+  const ssBudget = invoke("study_sample", { times: [0, 0.5, 1, 1.5], index: 10, budget_ms: 0 });
+  check("study_sample: a spent budget stops the batch early but always writes one",
+    ssBudget.ok && ssBudget.data.wrote === 1 && ssBudget.data.next_index === 11, JSON.stringify(ssBudget.data));
+  const ssClamp = invoke("study_sample", { times: [-5, 999], index: 20 });
+  check("study_sample: times outside the clip are clamped into it",
+    ssClamp.ok && ssClamp.data.files[0].t === 0 && ssClamp.data.files[1].t < 5, JSON.stringify(ssClamp.data.files));
+  const sClose = invoke("study_close", {});
+  check("study_close: the folder, the comp and the imported footage all go; the project is as it was",
+    sClose.ok && sClose.data.removed === 2 && sandbox.app.project.numItems === itemsBeforeStudy
+    && !sandbox.app.project._items.some((x) => x.name === "__ClaudeStudy__"), JSON.stringify(sClose) + " items=" + sandbox.app.project.numItems);
+  check("study_sample without study_open says so", !invoke("study_sample", { times: [0] }).ok);
+  sandbox.app.project._importDuration = 0;
+  const stillErr = invoke("study_open", { file: studyVid });
+  check("study_open: a still image is refused and nothing is left behind",
+    !stillErr.ok && /still image/.test(stillErr.error) && !sandbox.app.project._items.some((x) => x.name === "__ClaudeStudy__"), JSON.stringify(stillErr));
+  delete sandbox.app.project._importDuration;
+  sandbox.app.project._importThrows = true;
+  const badCodec = invoke("study_open", { file: studyVid });
+  check("study_open: a codec After Effects cannot read is a plain error, not a crash",
+    !badCodec.ok && /could not import/.test(badCodec.error) && /VP9/.test(badCodec.error), JSON.stringify(badCodec));
+  delete sandbox.app.project._importThrows;
+  const prefWas = sandbox.app.preferences.getPrefAsLong;
+  sandbox.app.preferences.getPrefAsLong = () => 0;
+  const noWrite = invoke("study_open", { file: studyVid });
+  check("study_open: the scripting-write preference is checked before anything is imported",
+    !noWrite.ok && /Allow Scripts to Write Files/.test(noWrite.error), JSON.stringify(noWrite));
+  sandbox.app.preferences.getPrefAsLong = prefWas;
+  check("study_open: a missing file is refused", !invoke("study_open", { file: "/no/such/file.mp4" }).ok);
+  try { FS.unlinkSync(studyVid); } catch (e) {}
   const lm = invoke("set_markers", { comp: c, layer: trackLayer.index, markers: [{ t: 0.5, comment: "hit" }] });
   check("set_markers: layer markers land on the layer", lm.ok && trackLayer._groups["ADBE Marker"]._keys.length === 1, JSON.stringify(lm));
   let sk = invoke("set_slider_keys", { comp: c, layer: trackLayer.index, effect_name: "Bass", keys: [[1, 0], [1.02, 0.8], [1.17, 0]] });

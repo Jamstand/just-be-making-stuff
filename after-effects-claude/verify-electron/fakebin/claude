@@ -55,6 +55,14 @@ process.stdin.on("end", async () => {
     }
     const prof = j(await call("style_profile", {}));
     out({ type: "assistant", message: { content: [{ type: "text", text: "Studied — " + JSON.stringify({ report, aggregate: prof.aggregate, edits: prof.edits && prof.edits.length }) }] } });
+  } else if (/study the downloaded file with after effects/i.test(prompt)) {
+    // the ffmpeg-free route: study_edit asks for approval first (it imports into the project)
+    const j = (r) => { try { return JSON.parse(r.content[0].text); } catch (e) { return { error: r.content[0].text }; } };
+    const file = (prompt.match(/(\/\S+\.mp4)/) || [])[1];
+    const st = await call("study_edit", { file, source: "ae-route", name: "ae-route", via: "after-effects" });
+    out({ type: "assistant", message: { content: [{ type: "text", text: st.isError
+      ? "AE route failed: " + st.content[0].text
+      : "AE route — " + JSON.stringify(j(st)) }] } });
   } else if (/higgsfield/i.test(prompt)) {
     const st = await call("mcp_status", {});
     out({ type: "assistant", message: { content: [{ type: "text", text: "MCP — " + st.content[0].text }] } });

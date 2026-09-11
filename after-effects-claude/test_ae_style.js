@@ -127,6 +127,109 @@ function frame(level, rg, bg, seed) {
       tp.duration_s === 12 && /decoded only|is it a video|ffmpeg failed/.test(realErr || ""), realErr);
   } else console.log("  --  no real ffmpeg on this machine; the fake covers the wire");
 
+  // ---- frames from After Effects: the ffmpeg-free route, end to end
+  const { encodePng, planFrame } = require("./verify-electron/pngwrite.js");
+  const aePlan = JSON.parse(fs.readFileSync(dl, "utf8"));
+  const aeDir = path.join(HOME, "ae-frames");
+  fs.mkdirSync(aeDir, { recursive: true });
+  const hostCalls = [];
+  let lateOnce = true;
+  const stubHost = async (name, args) => {
+    hostCalls.push(name);
+    if (name === "study_open")
+      return { item: "reel.mp4", comp: "__ClaudeStudyFrame__", duration_s: aePlan.duration, fps: aePlan.fps,
+               width: aePlan.width, height: aePlan.height, sample_width: 135, sample_height: 240,
+               project_bpc: 8, working_space: "sRGB IEC61966-2.1" };
+    if (name === "study_sample") {
+      const batch = args.times.slice(0, 7);            // fewer than asked: the budget ran out
+      return { files: batch.map((t, i) => {
+        const file = path.join(aeDir, "s" + (args.index + i) + ".png");
+        const write = () => fs.writeFileSync(file, encodePng(135, 240, planFrame(aePlan, t, 135, 240)));
+        if (lateOnce && i === 0) { lateOnce = false; setTimeout(write, 120); }   // AE finishes writing late
+        else write();
+        return { t, file };
+      }), wrote: batch.length, next_index: args.index + batch.length };
+    }
+    if (name === "study_close") return { removed: 2 };
+    throw new Error("unexpected host call " + name);
+  };
+  const aeFrames = await style.sampleFramesViaAe("/study/reel.mp4", { interval_s: 0.5, host: stubHost });
+  check("sampleFramesViaAe: every sample time comes back, in batches, waiting for a frame AE finishes late",
+    aeFrames.length === 24 && aeFrames[0].t === 0 && aeFrames[23].t === 11.5
+    && aeFrames[0].rgb.length === W * H * 3 && hostCalls.filter((c) => c === "study_sample").length === 4
+    && hostCalls[0] === "study_open" && hostCalls[hostCalls.length - 1] === "study_close",
+    JSON.stringify({ n: aeFrames.length, calls: hostCalls.length }));
+  check("sampleFramesViaAe: reports what After Effects said about the source and the project",
+    aeFrames.source.duration_s === 12 && aeFrames.source.fps === 30 && aeFrames.source.project_bpc === 8
+    && aeFrames.source.working_space === "sRGB IEC61966-2.1", JSON.stringify(aeFrames.source));
+  check("sampleFramesViaAe: the frames it hands back are deleted from disk as they are read",
+    fs.readdirSync(aeDir).length === 0, fs.readdirSync(aeDir).join());
+  const aeStudy = await style.studyFile("/study/reel.mp4", { frames: aeFrames, interval_s: 0.5, source: "ae-route", fps: 30, expect_duration_s: 12 });
+  check("the After Effects route measures the same edit as the ffmpeg route: 2 cuts, 3 shots of 4 s",
+    aeStudy.entry.cuts === real.entry.cuts && aeStudy.entry.shots.length === real.entry.shots.length
+    && aeStudy.entry.shot_lengths_s.join() === real.entry.shot_lengths_s.join()
+    && Math.abs(aeStudy.entry.shots[1].cast_rg - real.entry.shots[1].cast_rg) < 1.5,
+    JSON.stringify({ ae: aeStudy.entry.shot_lengths_s, ff: real.entry.shot_lengths_s, aeCast: aeStudy.entry.shots[1].cast_rg, ffCast: real.entry.shots[1].cast_rg }));
+  let closedAfterThrow = false;
+  const brokenHost = async (name, args) => {
+    if (name === "study_open") return { duration_s: 4, fps: 30, width: 100, height: 100, sample_width: 50, sample_height: 50 };
+    if (name === "study_sample") return { files: [{ t: 0, file: path.join(aeDir, "not-a-png.png") }] };
+    if (name === "study_close") { closedAfterThrow = true; return { removed: 1 }; }
+  };
+  fs.writeFileSync(path.join(aeDir, "not-a-png.png"), "definitely not a PNG at all, no IEND here");
+  let aeErr = null;
+  try { await style.sampleFramesViaAe("/study/x.mp4", { interval_s: 1, host: brokenHost, sleep: async () => {} }); } catch (err) { aeErr = err.message; }
+  check("sampleFramesViaAe: a frame that never arrives is a plain error, and the study is closed anyway",
+    /never finished writing/.test(aeErr || "") && /Allow Scripts to Write Files/.test(aeErr || "") && closedAfterThrow, aeErr);
+  let stallErr = null;
+  try { await style.sampleFramesViaAe("/study/x.mp4", { interval_s: 1, host: async (n) => n === "study_open" ? { duration_s: 4, fps: 30 } : { files: [] } }); } catch (err) { stallErr = err.message; }
+  check("sampleFramesViaAe: After Effects returning nothing stops instead of looping for ever", /stopped returning frames/.test(stallErr || ""), stallErr);
+
+  // ---- fetching yt-dlp without Homebrew
+  const { Readable } = require("stream");
+  const fakeRes = (status, body, headers) => { const r = Readable.from([Buffer.from(body)]); r.statusCode = status; r.headers = headers || {}; return r; };
+  const seen = [];
+  const fakeGet = (url, cb) => {
+    seen.push(url);
+    const r = /SHA2-256SUMS$/.test(url)
+      ? fakeRes(200, "deadbeef  yt-dlp_linux\n" + require("crypto").createHash("sha256").update(Buffer.alloc(4096, 7)).digest("hex") + "  yt-dlp_macos\n")
+      : seen.length === 1 ? fakeRes(302, "", { location: "https://objects.example/real" })
+      : fakeRes(200, Buffer.alloc(4096, 7));
+    setTimeout(() => cb(r), 0);
+    return { on() {}, setTimeout() {} };
+  };
+  const binOut = path.join(HOME, "bin", "yt-dlp");
+  const dlRes = await style.downloadTo(style.YT_DLP_URL("darwin"), binOut, { get: fakeGet });
+  check("downloadTo: follows the redirect GitHub's latest URL answers with, writes the file, leaves no .part",
+    dlRes.bytes === 4096 && fs.existsSync(binOut) && seen.length === 2 && /yt-dlp_macos$/.test(seen[0])
+    && !fs.readdirSync(path.join(HOME, "bin")).some((n) => /\.part/.test(n)), JSON.stringify({ dlRes, seen }));
+  const sum = await style.verifyChecksum(binOut, "yt-dlp_macos", { get: fakeGet });
+  check("verifyChecksum: matches the SHA-256 the release publishes for our asset", sum.checked && sum.match, JSON.stringify(sum));
+  fs.appendFileSync(binOut, "tampered");
+  const bad = await style.verifyChecksum(binOut, "yt-dlp_macos", { get: fakeGet });
+  check("verifyChecksum: a changed file does not match", bad.checked && !bad.match, JSON.stringify({ checked: bad.checked, match: bad.match }));
+  const missing = await style.verifyChecksum(binOut, "yt-dlp_windows", { get: fakeGet });
+  check("verifyChecksum: an asset the sums file does not list is reported unchecked, not failed", !missing.checked && /do not list/.test(missing.why), JSON.stringify(missing));
+  const noSums = await style.verifyChecksum(binOut, "yt-dlp_macos", { get: (u, cb) => { setTimeout(() => cb(fakeRes(404, "")), 0); return { on() {}, setTimeout() {} }; } });
+  check("verifyChecksum: unreachable checksums are unchecked, never a false match", !noSums.checked && !noSums.match, JSON.stringify(noSums));
+  let tiny = null;
+  try { await style.downloadTo("https://x/y", path.join(HOME, "bin", "tiny"), { get: (u, cb) => { setTimeout(() => cb(fakeRes(200, "nope")), 0); return { on() {}, setTimeout() {} }; } }); } catch (err) { tiny = err.message; }
+  check("downloadTo: a suspiciously small body is refused and nothing is left behind",
+    /only 4 bytes/.test(tiny || "") && !fs.existsSync(path.join(HOME, "bin", "tiny")), tiny);
+
+  // ---- the panel's own bin folder is searched first
+  const myBin = path.join(HOME, "panelbin");
+  fs.mkdirSync(myBin, { recursive: true });
+  const fakeYt = path.join(myBin, "yt-dlp");
+  fs.writeFileSync(fakeYt, "#!/bin/sh\necho 2026.08.19\n"); fs.chmodSync(fakeYt, 0o755);
+  style.addBinDir(myBin);
+  check("addBinDir: a tool the panel installed itself wins over anything on PATH", style.findYtDlp() === fakeYt, style.findYtDlp());
+  check("binVersion: reports the first line a tool prints", (await style.binVersion(fakeYt)) === "2026.08.19", await style.binVersion(fakeYt));
+  check("binVersion: a binary that will not run is null, never a throw", (await style.binVersion(path.join(myBin, "nope"))) === null);
+  check("ytDlpAgeDays: a dated version tells you how stale it is; anything else is null",
+    style.ytDlpAgeDays("2026.08.19", Date.UTC(2026, 8, 11)) === 23 && style.ytDlpAgeDays("2025.12.01", Date.UTC(2026, 8, 11)) === 284
+    && style.ytDlpAgeDays("nightly build") === null && style.ytDlpAgeDays("") === null);
+
   // ---- Gemini over a fake wire (upload wrapped, poll bare, thoughts dropped)
   const gCalls = [];
   const fakeHttp = async (url, opts) => {
@@ -156,7 +259,11 @@ function frame(level, rg, bg, seed) {
   const ex = slash.expandSlash("/train https://a/1 https://b/2", "assistant");
   check("/train expands to one-at-a-time marching orders with all three steps", /2 edit\(s\)/.test(ex) && /study_url/.test(ex) && /study_edit/.test(ex) && /watch_video/.test(ex) && /style_profile/.test(ex) && /NOT optional/.test(ex), ex);
   check("/trainhttps://… (no space) and /trainn are still /train", slash.slashRoute("/trainhttps://a/1", "assistant").kind === "expand" && slash.slashRoute("/trainn https://a/1", "assistant").kind === "expand");
-  check("/train alone explains the setup; /style asks for the profile read", /brew install yt-dlp ffmpeg/.test(slash.expandSlash("/train", "assistant")) && /style_profile/.test(slash.expandSlash("/style", "music")));
+  check("/train alone points at install_yt_dlp, never at Homebrew, and says ffmpeg is optional",
+    /install_yt_dlp/.test(slash.expandSlash("/train", "assistant")) && /ffmpeg is optional/.test(slash.expandSlash("/train", "assistant"))
+    && !/brew install/i.test(slash.expandSlash("/train", "assistant")) && !/brew install/i.test(slash.expandSlash("/train https://a/1", "assistant"))
+    && /never tell the user to install ffmpeg or Homebrew/.test(slash.expandSlash("/train https://a/1", "assistant"))
+    && /style_profile/.test(slash.expandSlash("/style", "music")), slash.expandSlash("/train", "assistant"));
   const music = slash.slashRoute("/train https://a/1", "music");
   check("in Claude Music /train points at the Claude Assistant panel", music.kind === "unknown" && /Claude Assistant panel/.test(music.note), JSON.stringify(music));
   check("commandsFor hides the study commands from the music menu", slash.commandsFor("music").every((c) => !c.assistantOnly) && slash.commandsFor("assistant").some((c) => c.name === "train"));
