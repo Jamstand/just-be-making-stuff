@@ -295,6 +295,30 @@ function buildSandbox() {
   return sandbox;
 }
 
+// ECMA-262 3rd edition reserves words ES5 released. ExtendScript still
+// refuses them — and refuses the WHOLE file, so every tool dies with the
+// opaque "EvalScript error." This test exists because the rest of this
+// file runs the host through Node, which happily accepts them.
+const ES3_RESERVED = ("abstract boolean byte char class const debugger double enum export extends final float goto "
+  + "implements import int interface long native package private protected public short static super synchronized "
+  + "throws transient volatile").split(" ");
+function reservedWordUses(src) {
+  const hits = [];
+  src.split("\n").forEach((line, i) => {
+    if (/^\s*\/\//.test(line)) return;
+    const code = line.replace(/"(\\.|[^"\\])*"/g, '""').replace(/'(\\.|[^'\\])*'/g, "''");
+    for (const w of ES3_RESERVED) {
+      if (new RegExp("\\b(?:var|function)\\s+" + w + "\\b").test(code)
+          || new RegExp("[,(]\\s*" + w + "\\s*(?:[,=)]|$)").test(code)
+          || new RegExp("(?:^|[;{}]|\\bvar\\b)\\s*" + w + "\\s*=[^=]").test(code)
+          || new RegExp("\\.\\s*" + w + "\\b").test(code)
+          || new RegExp("[{,]\\s*" + w + "\\s*:").test(code))
+        hits.push((i + 1) + ": " + w + " — " + line.trim().slice(0, 70));
+    }
+  });
+  return hits;
+}
+
 // ------------------------------------------------------------------ tests
 const hostSrc = fs.readFileSync(path.join(__dirname,
   "com.jamstand.claude.ae", "host", "ae-tools.jsx"), "utf8");
@@ -629,7 +653,24 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
   check("study_open: the scripting-write preference is checked before anything is imported",
     !noWrite.ok && /Allow Scripts to Write Files/.test(noWrite.error), JSON.stringify(noWrite));
   sandbox.app.preferences.getPrefAsLong = prefWas;
+  check("the host file uses no ECMA-262 3rd edition reserved word as an identifier (ExtendScript refuses the WHOLE file, and Node cannot see it)",
+    reservedWordUses(hostSrc).length === 0, JSON.stringify(reservedWordUses(hostSrc)));
+  check("...and the guard that says so actually catches one", reservedWordUses("var a = 1, native = null;").length === 1);
   check("study_open: a missing file is refused", !invoke("study_open", { file: "/no/such/file.mp4" }).ok);
+  const studyLeft = invoke("study_open", { file: studyVid, run: "run-b" });
+  const strayFolder = sandbox.app.project._items.find((x) => x.name === "__ClaudeStudy__");
+  const adopted = Object.create(FootageItem.prototype);
+  adopted.name = "the user's own clip.mov"; adopted.parentFolder = strayFolder; adopted.duration = 3;
+  adopted.mainSource = { file: { fsName: "/Users/josh/footage/hero.mov" }, isStill: false };
+  adopted.remove = function () { throw new Error("must not be removed"); };
+  sandbox.app.project._items.push(adopted); sandbox.app.project.numItems = sandbox.app.project._items.length;
+  const closeKept = invoke("study_close", {});
+  check("study_close: something of the user's sitting in the folder is left alone, and the folder with it",
+    studyLeft.ok && closeKept.ok && closeKept.data.left === 1
+    && sandbox.app.project._items.indexOf(adopted) !== -1
+    && sandbox.app.project._items.some((x) => x.name === "__ClaudeStudy__"), JSON.stringify(closeKept));
+  adopted.remove = function () { const a2 = sandbox.app.project._items; a2.splice(a2.indexOf(adopted), 1); sandbox.app.project.numItems = a2.length; };
+  adopted.remove(); strayFolder.remove();
   try { FS.unlinkSync(studyVid); } catch (e) {}
   const lm = invoke("set_markers", { comp: c, layer: trackLayer.index, markers: [{ t: 0.5, comment: "hit" }] });
   check("set_markers: layer markers land on the layer", lm.ok && trackLayer._groups["ADBE Marker"]._keys.length === 1, JSON.stringify(lm));

@@ -1374,11 +1374,12 @@ tool("study_edit",
     const viaAe = a.via === "after-effects" || !style.findFfmpeg();
     let probe = null, frames = null;
     if (viaAe) {
-      frames = await style.sampleFramesViaAe(file, { interval_s: interval, host: evalHost,
-        onProgress: (pr) => sendUI("study_progress", { done: pr.done, total: pr.total,
-          text: "Reading frame " + pr.done + " of " + pr.total + " in After Effects…" }, false) });
+      try {
+        frames = await style.sampleFramesViaAe(file, { interval_s: interval, host: evalHost,
+          onProgress: (pr) => sendUI("study_progress", { done: pr.done, total: pr.total,
+            text: "Reading frame " + pr.done + " of " + pr.total + " in After Effects…" }, false) });
+      } finally { sendUI("study_progress", { done: 0, total: 0, text: "" }, false); }
       probe = frames.source || null;
-      sendUI("study_progress", { done: 0, total: 0, text: "" }, false);
       // AE's duration is what the sample count came from, so it can never
       // reveal a short decode; the length yt-dlp reported can.
       try {
@@ -1392,6 +1393,7 @@ tool("study_edit",
     // the study first (seconds), then load → merge → save in one go
     const r = await style.studyFile(file, { frames, interval_s: interval, cut_threshold: a.cut_threshold,
                                             source: a.source, fps: probe && probe.fps,
+                                            sampler: viaAe ? "After Effects" : "ffmpeg",
                                             expect_duration_s: probe && probe.duration_s });   // throws on a truncated decode
     if (probe && probe.duration_s) r.entry.duration_s = probe.duration_s;   // the container's exact length (coverage checked above)
     r.entry.sampled_with = viaAe ? "after-effects" : "ffmpeg";
@@ -1513,6 +1515,7 @@ tool("media_tools",
     if (yt) {
       out.yt_dlp = { path: yt, version: await style.binVersion(yt), installed_by_panel: yt.indexOf(BIN_DIR) === 0 };
       out.yt_dlp.age_days = style.ytDlpAgeDays(out.yt_dlp.version);
+      out.yt_dlp.runs = !!out.yt_dlp.version;
     }
     if (ff) out.ffmpeg = { path: ff, version: await style.binVersion(ff) };
     try {
@@ -1520,7 +1523,10 @@ tool("media_tools",
       out.after_effects = { reachable: true, scripting_write_enabled: !!ov.scripting_write_enabled };
     } catch (e) { out.after_effects = { reachable: false, error: e.message }; }
     const aeOk = out.after_effects.reachable && out.after_effects.scripting_write_enabled;
-    out.can_download = !!yt;
+    out.can_download = !!yt && !!out.yt_dlp.version;
+    if (yt && !out.yt_dlp.version)
+      out.advice.push("There is a yt-dlp at " + yt + " but it will not run, so no link can be downloaded. Delete that "
+        + "file and run install_yt_dlp, which fetches a working one into the panel's own bin folder.");
     out.can_read_frames = !!ff || aeOk;
     out.frames_come_from = ff ? "ffmpeg (fast)" : aeOk ? "After Effects itself — slower, and it asks before importing" : "nowhere yet";
     if (!yt) out.advice.push("yt-dlp is missing, so no link can be downloaded. Run install_yt_dlp — the panel fetches the official standalone build into its own bin folder. No Homebrew needed.");
@@ -1541,39 +1547,28 @@ tool("install_yt_dlp",
   + "Instagram and TikTok change often and yt-dlp's fixes follow within "
   + "days, so running this again is the usual cure for a link that suddenly "
   + "will not download. Downloads an executable, so the panel asks first.",
-  { url: { type: "string", description: "Override the download URL (rarely needed)." },
-    nightly: { type: "boolean", description: "After installing, switch to the nightly channel — extractor fixes land there days before the stable build." } },
+  { url: { type: "string", description: "Override the download URL — must still be a yt-dlp release (rarely needed)." },
+    nightly: { type: "boolean", description: "After installing, switch to the nightly channel — extractor fixes land there days before the stable build." },
+    allow_unverified: { type: "boolean", description: "Install even when yt-dlp's published checksums could not be fetched. Only with the user's say-so." } },
   [], {}, async (s, a) => {
     const url = String(a.url || style.YT_DLP_URL());
+    if (url.indexOf(style.YT_DLP_BASE) !== 0)
+      throw new Error("install_yt_dlp only fetches from yt-dlp's own releases (" + style.YT_DLP_BASE
+        + "). A file from anywhere else cannot be checked against the checksums yt-dlp publishes.");
     const before = style.findYtDlp();
     const dest = path.join(BIN_DIR, process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
-    const got = await (s._testFetch ? s._testFetch(url, dest) : style.downloadTo(url, dest));
-    // Check the bytes against the checksums the release publishes before
-    // anything is made executable.
-    const asset = url.split("/").pop();
-    const sum = s._testVerify ? await s._testVerify(dest, asset) : await style.verifyChecksum(dest, asset);
-    if (sum.checked && !sum.match) {
-      try { fs.unlinkSync(dest); } catch (e) {}
-      throw new Error("The download did not match the checksum yt-dlp publishes (" + sum.got.slice(0, 12)
-        + "… vs " + sum.want.slice(0, 12) + "…), so it was deleted. Try again; if it keeps happening, "
-        + "something between here and GitHub is altering the file.");
-    }
-    try { fs.chmodSync(dest, 0o755); } catch (e) {}
-    const version = await style.binVersion(dest);
-    if (!version)
-      throw new Error("Downloaded " + dest + " (" + (got && got.bytes) + " bytes) but it would not run. "
-        + "If macOS blocked it, allow it in System Settings > Privacy & Security, or in Terminal run: "
-        + "xattr -d com.apple.quarantine " + JSON.stringify(dest));
+    const done = await style.installTool({ url, dest, base: style.YT_DLP_BASE,
+      allowUnverified: a.allow_unverified, fetch: s._testFetch, verify: s._testVerify });
+    const version = done.version;
     let channel = "stable";
     if (a.nightly) {
       const sw = await new Promise((done) => execFile(dest, ["--update-to", "nightly"], { timeout: 120000 },
         (err, so, se) => done(err ? String(se || err.message).slice(-200) : null)));
       channel = sw ? "stable (switching to nightly failed: " + sw + ")" : "nightly";
     }
-    return { installed: dest, version, channel, bytes: got && got.bytes, from: url,
-             checksum: sum.checked ? "matched the published SHA-256" : "not verified — " + sum.why,
+    return Object.assign({}, done, { channel, from: url,
              replaced: before && before !== dest ? before + " is still on your PATH; the panel uses its own copy" : undefined,
-             note: "Run this again any time a link stops downloading — it fetches the newest build." };
+             note: "Run this again any time a link stops downloading — it fetches the newest build." });
   });
 
 tool("style_profile",

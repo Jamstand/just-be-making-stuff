@@ -215,7 +215,26 @@ grep -i -E "jamstand|claude|extension" ~/Library/Logs/CSXS/CEP12-AEFT.log | tail
   #ap-run an ae-route.json whose cuts, shot lengths and cast match the
   ffmpeg entry, no __ClaudeStudy__ folder or __ClaudeStudyFrame__ comp
   left in the project, and media_tools reporting can_download /
-  can_read_frames. Unit tests: test_ae_style.js
+  can_read_frames.
+- The route with NO ffmpeg anywhere (drive step 6e) is the one that
+  matches this user's machine: a FOURTH Electron instance whose PATH is a
+  temp dir holding only symlinks to fakebin/claude, yt-dlp, xclip and
+  process.execPath as "node" (the stand-ins are #!/usr/bin/env node, so
+  without that symlink nothing runs and the turn simply never starts).
+  findBin also probes /opt/homebrew/bin, /usr/local/bin and
+  ~/.local/bin, so those must not hold an ffmpeg either. Expect
+  media_tools with ffmpeg null and advice naming After Effects rather
+  than a package manager, then a real "/train <link>" turn where the
+  approval card appears BECAUSE ffmpeg is missing (the card must NOT
+  mention after-effects — nothing passed via), and afterwards a
+  car-edits.json entry sampled_with "after-effects", render_size
+  135x240, ae_png depth 8.
+- ES3: test_ae_plugin.js greps the host file for all 30 ECMA-262 3rd
+  edition reserved words used as identifiers. The vm-based harness
+  CANNOT catch these — Node accepts `var native` and ExtendScript
+  refuses the whole file, killing every tool with the opaque "EvalScript
+  error." That exact bug shipped once; the grep exists so it cannot
+  again. Unit tests: test_ae_style.js
   (measurement, profile, fakes, Gemini wire, macro/routing, the AE
   sampler over a stub host including a frame AE finishes writing late,
   downloadTo's redirect following, checksum verification, the panel's own

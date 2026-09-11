@@ -86,7 +86,7 @@ function frame(level, rg, bg, seed) {
   let covErr = null;
   try { await style.studyFile(truncVid, { interval_s: 0.5, ffmpeg: path.join(fakebin, "ffmpeg"), expect_duration_s: tprobe.duration_s }); } catch (err) { covErr = err.message; }
   check("studyFile: a decode that covers 5 s of a 12 s file is refused with ffmpeg's complaint, not written as complete",
-    /decoded only 5\.0 s of a 12\.0 s file/.test(covErr || "") && /partial file/.test(covErr || ""), covErr);
+    /ffmpeg read only 5\.0 s of a 12\.0 s file/.test(covErr || "") && /partial file/.test(covErr || ""), covErr);
   const shortOk = await style.studyFile(truncVid, { interval_s: 0.5, ffmpeg: path.join(fakebin, "ffmpeg") });
   check("studyFile: without an expected length the decode warnings still ride along", shortOk.entry.samples_counted === 10 && shortOk.warnings.some((w) => /ffmpeg reported/.test(w)), JSON.stringify(shortOk.warnings));
 
@@ -130,7 +130,7 @@ function frame(level, rg, bg, seed) {
     let realErr = null;
     try { await style.studyFile(trunc, { interval_s: 0.5, ffmpeg: realFfmpeg, expect_duration_s: tp.duration_s }); } catch (err) { realErr = err.message; }
     check("REAL ffmpeg: the file cut at 55% still probes as 12 s but the study is refused (" + (realErr || "").slice(0, 60) + "…)",
-      tp.duration_s === 12 && /decoded only|is it a video|ffmpeg failed/.test(realErr || ""), realErr);
+      tp.duration_s === 12 && /read only|is it a video|ffmpeg failed/.test(realErr || ""), realErr);
   } else console.log("  --  no real ffmpeg on this machine; the fake covers the wire");
 
   // ---- frames from After Effects: the ffmpeg-free route, end to end
@@ -250,6 +250,43 @@ function frame(level, rg, bg, seed) {
   try { await style.downloadTo("https://x/y", path.join(HOME, "bin", "tiny"), { get: (u, cb) => { setTimeout(() => cb(fakeRes(200, "nope")), 0); return { on() {}, setTimeout() {} }; } }); } catch (err) { tiny = err.message; }
   check("downloadTo: a suspiciously small body is refused and nothing is left behind",
     /only 4 bytes/.test(tiny || "") && !fs.existsSync(path.join(HOME, "bin", "tiny")), tiny);
+
+  // ---- installing a tool never breaks the one that was working
+  const instDir = path.join(HOME, "install");
+  fs.mkdirSync(instDir, { recursive: true });
+  const good = path.join(instDir, "yt-dlp");
+  fs.writeFileSync(good, "#!/bin/sh\necho 2026.01.01\n"); fs.chmodSync(good, 0o755);
+  const stage = (body) => async (u, d) => { fs.writeFileSync(d, body); return { file: d, bytes: body.length }; };
+  const base = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/";
+  const stillGood = () => fs.readFileSync(good, "utf8").includes("2026.01.01") && !fs.existsSync(good + ".new");
+  let iErr = null;
+  try { await style.installTool({ url: "https://evil.example/yt-dlp_macos", dest: good, base }); } catch (err) { iErr = err.message; }
+  check("installTool: a URL outside the project's own releases is refused before anything is fetched",
+    /Only fetches from/.test(iErr || "") && stillGood(), iErr);
+  iErr = null;
+  try { await style.installTool({ url: base + "yt-dlp_macos", dest: good, base, fetch: stage("#!/bin/sh\necho 2026.09.09\n"),
+    verify: async () => ({ checked: true, match: false, got: "aaaa000000000000", want: "bbbb111111111111" }) }); } catch (err) { iErr = err.message; }
+  check("installTool: bytes that do not match the published checksum are thrown away, and the working copy is untouched",
+    /did not match the published checksum/.test(iErr || "") && stillGood(), iErr);
+  iErr = null;
+  try { await style.installTool({ url: base + "yt-dlp_macos", dest: good, base, fetch: stage("x"),
+    verify: async () => ({ checked: false, why: "the network was unreachable" }) }); } catch (err) { iErr = err.message; }
+  check("installTool: a download it could not check is NOT installed unless that is asked for",
+    /Could not check the download/.test(iErr || "") && stillGood(), iErr);
+  iErr = null;
+  try { await style.installTool({ url: base + "yt-dlp_macos", dest: good, base, fetch: stage("not a program"),
+    verify: async () => ({ checked: true, match: true }), version: async () => null }); } catch (err) { iErr = err.message; }
+  check("installTool: a download that will not run leaves the working copy exactly where it was",
+    /would not run, so nothing was replaced/.test(iErr || "") && stillGood(), iErr);
+  const okInst = await style.installTool({ url: base + "yt-dlp_macos", dest: good, base,
+    fetch: stage("#!/bin/sh\necho 2026.09.09\n"), verify: async () => ({ checked: true, match: true }) });
+  check("installTool: a download that checks out and runs replaces the old one and reports the checksum",
+    okInst.version === "2026.09.09" && /matched the published/.test(okInst.checksum)
+    && fs.readFileSync(good, "utf8").includes("2026.09.09") && !fs.existsSync(good + ".new"), JSON.stringify(okInst));
+  const unver = await style.installTool({ url: base + "yt-dlp_macos", dest: good, base, allowUnverified: true,
+    fetch: stage("#!/bin/sh\necho 2026.09.10\n"), verify: async () => ({ checked: false, why: "offline" }) });
+  check("installTool: with explicit permission an unverified build installs, and says it was not verified",
+    /not verified — offline/.test(unver.checksum) && fs.readFileSync(good, "utf8").includes("2026.09.10"), JSON.stringify(unver));
 
   // ---- the panel's own bin folder is searched first
   const myBin = path.join(HOME, "panelbin");

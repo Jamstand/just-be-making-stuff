@@ -104,9 +104,11 @@ function decodePng(input) {
     } else if (type === 0 || type === 4) {
       r = g = b = lines[at2];
       if (type === 4) a = lines[at2 + step];
+      else if (trns && trns.length >= 2 && r === trns[0]) a = 0;      // the transparency key
     } else {
       r = lines[at2]; g = lines[at2 + step]; b = lines[at2 + 2 * step];
       if (type === 6) a = lines[at2 + 3 * step];
+      else if (trns && trns.length >= 6 && r === trns[0] && g === trns[2] && b === trns[4]) a = 0;
     }
     const o = i * 3;
     if (a === 255) { rgb[o] = r; rgb[o + 1] = g; rgb[o + 2] = b; }

@@ -340,8 +340,10 @@ function downloadTo(url, dest, opts) {
       let req;
       try {
         req = get(u, (res) => {
+         try {
           const code = res.statusCode;
           if (code >= 300 && code < 400 && res.headers.location) {
+            res.on("error", (e) => finish(e));
             res.resume();
             if (!left) return finish(new Error("too many redirects fetching " + url));
             return step(new URL(res.headers.location, u).toString(), left - 1);
@@ -368,6 +370,7 @@ function downloadTo(url, dest, opts) {
             finish(null, { file: dest, bytes });
           });
           res.pipe(out);
+         } catch (e) { finish(e); }
         });
       } catch (e) { return finish(e); }
       req.on("error", (e) => finish(e));
@@ -375,6 +378,40 @@ function downloadTo(url, dest, opts) {
     };
     step(url, hops);
   });
+}
+
+// Install a downloaded tool the careful way: fetch beside the real path,
+// check it against the checksums the project publishes, run it, and only
+// then move it into place — so a bad download can never replace a working
+// copy, and nothing unverified is ever made executable.
+async function installTool(opts) {
+  const dest = opts.dest, url = opts.url, staging = dest + ".new";
+  const fetchTo = opts.fetch || downloadTo;
+  const verify = opts.verify || verifyChecksum;
+  const version = opts.version || binVersion;
+  const scrap = (msg) => { try { fs.unlinkSync(staging); } catch (e) {} return new Error(msg); };
+  if (opts.base && String(url).indexOf(opts.base) !== 0)
+    throw new Error("Only fetches from " + opts.base + " — a file from anywhere else cannot be checked "
+      + "against the checksums that project publishes.");
+  const got = await fetchTo(url, staging);
+  const asset = String(url).split("/").pop();
+  const sum = await verify(staging, asset);
+  if (sum.checked && !sum.match)
+    throw scrap("The download did not match the published checksum (" + String(sum.got).slice(0, 12) + "… vs "
+      + String(sum.want).slice(0, 12) + "…), so it was thrown away and nothing was replaced. Try again; if it keeps "
+      + "happening, something between here and the server is altering the file.");
+  if (!sum.checked && !opts.allowUnverified)
+    throw scrap("Could not check the download against the published checksums (" + sum.why + "), so nothing was "
+      + "installed. Try again in a moment, or say to install it anyway.");
+  try { fs.chmodSync(staging, 0o755); } catch (e) {}
+  const ran = await version(staging);
+  if (!ran)
+    throw scrap("Downloaded " + (got && got.bytes) + " bytes but it would not run, so nothing was replaced."
+      + (process.platform === "darwin" ? " If macOS blocked it, allow it in System Settings > Privacy & Security, "
+        + "or in Terminal run: xattr -d com.apple.quarantine " + JSON.stringify(dest) : ""));
+  fs.renameSync(staging, dest);                    // only now does the working copy change
+  return { installed: dest, version: ran, bytes: got && got.bytes,
+           checksum: sum.checked ? "matched the published SHA-256" : "not verified — " + sum.why };
 }
 
 // ---------------------------------------------- frames from After Effects
@@ -500,8 +537,9 @@ async function studyFile(file, opts) {
   // a study of the readable prefix must never be written as the whole edit.
   const expect = Number(opts.expect_duration_s) || 0;
   const covered = frames.length * interval;
+  const sampler = opts.sampler || (frames.source ? "After Effects" : "ffmpeg");
   if (expect && covered < expect - Math.max(1.5, interval * 2))
-    throw new Error("ffmpeg decoded only " + covered.toFixed(1) + " s of a " + expect.toFixed(1) + " s file — the download is "
+    throw new Error(sampler + " read only " + covered.toFixed(1) + " s of a " + expect.toFixed(1) + " s file — the download is "
       + "truncated or damaged; delete it and study_url the link again"
       + (frames.decode_errors && frames.decode_errors.length ? " (ffmpeg: " + frames.decode_errors.join(" | ").slice(0, 300) + ")" : "") + ".");
   const fps = Number(opts.fps) || 30;
@@ -672,6 +710,6 @@ module.exports = { STYLE_DIR, STUDY_DIR, CONFIG_FILE, SAMPLE_W, SAMPLE_H, GEMINI
   WATCH_PROMPT_DEFAULT, SETUP_HINT, readConfig, geminiKey, percentile, detectCuts, styleAggregate, profileFile,
   readProfile, loadProfile, saveProfile, mergeEntry, listProfiles, listSources, summariseProfile,
   addBinDir, findBin, findYtDlp, findFfmpeg, binVersion, AE_LONG_EDGE, AE_BATCH, sampleFramesViaAe,
-  YT_DLP_ASSET, YT_DLP_URL, YT_DLP_SUMS, downloadTo, verifyChecksum, ytDlpAgeDays,
+  YT_DLP_ASSET, YT_DLP_URL, YT_DLP_BASE, YT_DLP_SUMS, downloadTo, verifyChecksum, ytDlpAgeDays, installTool,
   downloadVideo, probeVideo, sampleFrames, frameStats, frameDiff, timecode, studyFile, httpsRequest, geminiCall,
   geminiErrorText, geminiUploadVideo, watchVideo };

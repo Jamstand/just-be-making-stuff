@@ -771,3 +771,28 @@ linear light regardless of the setting. A pixel-identical tail is recorded
 as static_tail_s and only warned about when it is over a quarter of the
 clip — pixels cannot tell a held logo from a stalled decoder, so the
 length cross-check is what actually catches a short file.
+Review round (4 lenses, 10 confirmed + 5 disputed, all fixed). The one
+that mattered: `var native` — `native` is an ECMA-262 3rd edition
+FutureReservedWord, so ExtendScript refuses the WHOLE host file and every
+tool dies with the opaque "EvalScript error.". Node accepts it, which is
+why the vm-based harness sailed past; test_ae_plugin.js now greps the
+host for all 30 reserved words as identifiers. Also: study_open wraps
+everything from the import onward in try/catch so no path returns without
+cleaning up (the comp is parented before anything that can throw);
+study_close removes only what THIS run made (CA_STUDY_MADE, ids where AE
+gives them) and its fallback touches only our own comp name and footage
+that came out of ClaudeAssistantStudy, leaving anything the user put in
+the folder — and the folder itself — alone; CA_studyComp matches by
+comp.id first (guarding undefined, which otherwise matched the first comp
+in the project — the host test caught that); installTool moved into
+stylelib so it is testable, stages to <dest>.new, refuses a URL outside
+YT_DLP_BASE, refuses to install bytes it could not check unless
+allow_unverified, and only renames into place once the binary runs;
+media_tools treats a yt-dlp that will not run as broken rather than
+present; the truncation message names the sampler that actually ran
+instead of always blaming ffmpeg; the progress line clears in a finally;
+pnglib honours a tRNS transparency key on grey and truecolour images;
+downloadTo cannot leave its promise unsettled. Harness: 6c starts from a
+new chat so the approval assertions can fail, and proves a real write
+tool still asks in the same chat; 6e is a whole Electron instance with no
+ffmpeg on PATH at all, driving /train end to end.

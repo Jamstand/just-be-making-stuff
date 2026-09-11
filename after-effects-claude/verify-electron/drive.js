@@ -456,6 +456,9 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   smExpect(/Type \/ to pick a command/.test(sm3.last) && sm3.value === "" && sm3.hidden, "/help via Tab is answered by the page", sm3);
 
   console.log("### 6c. 🔍 /train <two links>: fake yt-dlp downloads, fake ffmpeg samples, the profile gets two edits, Gemini reported missing once");
+  await page.click("#newchat");        // step 8 clicked "yes for this session"; the approval checks below need it off
+  smExpect(/approved one at a time again/.test(await page.evaluate(() => [...document.querySelectorAll("#chat .card")].pop().textContent)),
+    "a new chat takes back 'yes for this session'");
   await page.fill("#input", "/train https://www.tiktok.com/t/ZP8vojUtd/ https://www.instagram.com/reel/Dbyg0smPvPH/");
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready") && /Studied —/.test([...document.querySelectorAll("#chat .card")].pop().textContent), null, { timeout: 90000 });
@@ -476,11 +479,17 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   smExpect(studyVids.length === 2 && tr.gemini_notes === 1 && /Studied —/.test(tr.last) && tr.last_has_two_edits, "downloads kept, Gemini's missing key reported once, the final card carries the aggregate", tr);
   smExpect(prof.edits.every((e) => e.sampled_with === "ffmpeg"), "with ffmpeg on PATH the frames came from ffmpeg", prof.edits.map((e) => e.sampled_with));
   smExpect(await page.evaluate(() => document.getElementById("approval").hidden), "the ffmpeg route never asked for approval (it touches nothing)");
+  // the same chat, a tool that really does write: the check above must be able to fail
+  await page.evaluate(() => { window.__apSeen = false; });
+  await page.fill("#input", "hello");
+  await page.keyboard.press("Enter");
+  await page.waitForSelector("#approval:not([hidden])", { timeout: 20000 });
+  smExpect(/create_comp/.test(await page.evaluate(() => document.getElementById("ap-title").textContent)),
+    "...while a tool that does write still asks, in the same chat");
+  await page.click("#ap-no");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 30000 });
 
   console.log("### 6d. 🔍 no ffmpeg: After Effects reads the frames itself — approval asked once, same measurements");
-  await page.click("#newchat");        // "yes for this session" ended with that chat
-  const resetNote = await page.evaluate(() => [...document.querySelectorAll("#chat .card")].pop().textContent);
-  smExpect(/approved one at a time again/.test(resetNote), "a new chat takes back 'yes for this session'", resetNote);
   const studyFile = path.join(HOME, "ClaudeAssistantStudy", fs.readdirSync(path.join(HOME, "ClaudeAssistantStudy")).find((n) => /\.mp4$/.test(n)));
   await page.fill("#input", "study the downloaded file with after effects: " + studyFile);
   await page.keyboard.press("Enter");
@@ -509,6 +518,41 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   console.log(JSON.stringify(tools6d.media));
   smExpect(tools6d.media.can_download && tools6d.media.can_read_frames && /ffmpeg/.test(tools6d.media.frames_come_from),
     "media_tools reports what is installed and where frames come from", tools6d.media);
+
+  console.log("### 6e. 🔍 a machine with NO ffmpeg at all: the route is chosen by itself, mid-turn, and asks");
+  // a PATH holding only the stand-ins the panel needs — no ffmpeg anywhere,
+  // which is this user's actual machine
+  const thinBin = fs.mkdtempSync(path.join(os.tmpdir(), "ae-nofffmpeg-"));
+  for (const n of ["claude", "yt-dlp", "xclip"]) fs.symlinkSync(path.join(__dirname, "fakebin", n), path.join(thinBin, n));
+  fs.symlinkSync(process.execPath, path.join(thinBin, "node"));   // the stand-ins are #!/usr/bin/env node
+  const HOME5 = fs.mkdtempSync(path.join(os.tmpdir(), "ae-nof-home-"));
+  const app5 = await _electron.launch({ executablePath: require("electron"),
+    args: ["--no-sandbox", "--no-zygote", path.join(__dirname, "main.js")],
+    env: Object.assign({}, process.env, { AE_EXT: EXT, HOME: HOME5, PATH: thinBin }) });
+  const page5 = await app5.firstWindow();
+  page5.on("pageerror", (e) => console.log("  [pageerror no-ffmpeg] " + e.message));
+  await page5.waitForFunction(() => document.getElementById("status") && document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 20000 });
+  const mt5 = await page5.evaluate(async () => await assistant.callTool("media_tools", {}));
+  console.log(JSON.stringify({ ffmpeg: mt5.ffmpeg, yt: !!mt5.yt_dlp, frames: mt5.frames_come_from, can: mt5.can_read_frames, advice: mt5.advice.length }));
+  smExpect(mt5.ffmpeg === null && mt5.can_download && mt5.can_read_frames && /After Effects itself/.test(mt5.frames_come_from)
+    && mt5.advice.some((t) => /ffmpeg is missing/.test(t) && /Homebrew is not required/.test(t)),
+    "with no ffmpeg the panel says so and points at After Effects, not at a package manager", mt5);
+  await page5.fill("#input", "/train https://www.tiktok.com/t/ZP8vojUtd/");
+  await page5.keyboard.press("Enter");
+  await page5.waitForSelector("#approval:not([hidden])", { timeout: 60000 });
+  const ap5 = await page5.evaluate(() => document.getElementById("ap-title").textContent + " " + document.getElementById("ap-detail").textContent);
+  smExpect(/study_edit/.test(ap5) && !/after-effects/.test(ap5),
+    "the panel asks for study_edit because ffmpeg is absent, not because anything told it to", ap5);
+  await page5.click("#ap-run");
+  await page5.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 120000 });
+  const prof5 = JSON.parse(fs.readFileSync(path.join(HOME5, "ClaudeAssistantStyle", "car-edits.json"), "utf8"));
+  const e5 = prof5.edits[0];
+  console.log(JSON.stringify({ sampled_with: e5.sampled_with, cuts: e5.cuts, shots: e5.shots.length, duration_s: e5.duration_s,
+    ae_png: e5.ae_png, render_size: e5.render_size, last: (await page5.evaluate(() => [...document.querySelectorAll("#chat .card")].pop().textContent)).replace(/\s+/g, " ").slice(0, 90) }));
+  smExpect(e5.sampled_with === "after-effects" && e5.cuts === 2 && e5.shots.length === 3 && e5.duration_s === 12
+    && e5.ae_png && e5.ae_png.depth === 8 && e5.render_size === "135x240",
+    "the whole /train flow ran with no ffmpeg: After Effects read 135x240 frames and the measurements came out right", e5);
+  await app5.close();
 
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {

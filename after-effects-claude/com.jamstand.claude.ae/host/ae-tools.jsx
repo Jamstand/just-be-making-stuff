@@ -299,6 +299,12 @@ CA_TOOLS.remove_temp_comp = function (a) {
 // folder is ever removed, so footage the user already had is never touched.
 var CA_STUDY_FOLDER = "__ClaudeStudy__";
 var CA_STUDY_COMP = "__ClaudeStudyFrame__";
+// What THIS run made. The host file is loaded once by the manifest's
+// ScriptPath, so these survive between calls — and study_close removes
+// only what is listed here, never whatever happens to sit in a folder
+// with our name on it (removing footage takes its layers with it).
+var CA_STUDY_MADE = null;
+var CA_STUDY_COMP_ID = null;
 
 function CA_studyFolder(make) {
   var i, it;
@@ -311,6 +317,16 @@ function CA_studyFolder(make) {
 
 function CA_studyComp() {
   var i, it;
+  // By identity where After Effects gives us one: duplicate item names are
+  // legal, so a comp of the user's wearing this name must not be rendered.
+  // Falls back to the name only when there is no id to go on.
+  if (CA_STUDY_COMP_ID !== null && CA_STUDY_COMP_ID !== undefined) {
+    for (i = 1; i <= app.project.numItems; i++) {
+      it = app.project.item(i);
+      if (!(it instanceof CompItem)) continue;
+      try { if (it.id === CA_STUDY_COMP_ID) return it; } catch (e) {}
+    }
+  }
   for (i = 1; i <= app.project.numItems; i++) {
     it = app.project.item(i);
     if (it instanceof CompItem && it.name === CA_STUDY_COMP) return it;
@@ -343,7 +359,9 @@ CA_TOOLS.study_open = function (a) {
            + "Scripts to Write Files and Access Network, then try again.");
   CA_TOOLS.study_close({});                  // never two studies at once
   CA_STUDY_RUN = String(a.run || new Date().getTime());
+  CA_STUDY_MADE = []; CA_STUDY_COMP_ID = null;
   var folder = CA_studyFolder(true);
+  CA_STUDY_MADE.push(folder);
   io = new ImportOptions(f);
   try { if (typeof io.canImportAs === "function" && typeof ImportAsType !== "undefined"
             && !io.canImportAs(ImportAsType.FOOTAGE))
@@ -357,6 +375,7 @@ CA_TOOLS.study_open = function (a) {
            + ") — a codec it does not read (VP9/AV1/WebM are not native)?");
   }
   item.parentFolder = folder;
+  CA_STUDY_MADE.push(item);
   var ms = null, bad = null;
   try { ms = item.mainSource; } catch (eS) {}
   if (item.footageMissing) bad = "After Effects reports the footage as missing";
@@ -377,33 +396,41 @@ CA_TOOLS.study_open = function (a) {
   h = Math.max(4, Math.round(item.height / k));
   // the comp takes the footage's pixel aspect: a mismatch would make After
   // Effects letterbox the layer, and those black bars would be measured
-  comp = app.project.items.addComp(CA_STUDY_COMP, w, h, item.pixelAspect || 1, item.duration, fps);
-  if (typeof comp.saveFrameToPng !== "function") {
+  // Everything from here on cleans up after itself: addComp, the layer and
+  // the scale can all raise, and a raise that escaped would leave the
+  // folder, the imported reel and the comp sitting in the user's project.
+  try {
+    comp = app.project.items.addComp(CA_STUDY_COMP, w, h, item.pixelAspect || 1, item.duration, fps);
+    comp.parentFolder = folder;              // before anything that can throw
+    CA_STUDY_MADE.push(comp);
+    try { if (comp.id !== undefined && comp.id !== null) CA_STUDY_COMP_ID = comp.id; } catch (eId) {}
+    if (typeof comp.saveFrameToPng !== "function")
+      CA_err("saveFrameToPng is missing in this After Effects version, so the "
+             + "panel cannot read frames without ffmpeg.");
+    try { comp.resolutionFactor = [1, 1]; } catch (e2) {}
+    l = comp.layers.add(item);
+    try { l.quality = LayerQuality.BEST; } catch (e3) {}
+    // an 8:1 downscale samples very few pixels without this, and the noise
+    // lands straight in the frame-to-frame differences cuts are found from
+    try { l.samplingQuality = LayerSamplingQuality.BICUBIC; } catch (e3b) {}
+    // uniform, and rounded UP so rounding never leaves a transparent edge
+    sc = 100 * Math.max(w / item.width, h / item.height);
+    l.property("ADBE Transform Group").property("ADBE Scale").setValue([sc, sc]);
+  } catch (eTail) {
     CA_TOOLS.study_close({});
-    CA_err("saveFrameToPng is missing in this After Effects version, so the "
-           + "panel cannot read frames without ffmpeg.");
+    throw eTail;
   }
-  comp.parentFolder = folder;
-  try { comp.resolutionFactor = [1, 1]; } catch (e2) {}
-  l = comp.layers.add(item);
-  try { l.quality = LayerQuality.BEST; } catch (e3) {}
-  // an 8:1 downscale samples very few pixels without this, and the noise
-  // lands straight in the frame-to-frame differences cuts are found from
-  try { l.samplingQuality = LayerSamplingQuality.BICUBIC; } catch (e3b) {}
-  // uniform, and rounded UP so rounding never leaves a transparent edge
-  sc = 100 * Math.max(w / item.width, h / item.height);
-  l.property("ADBE Transform Group").property("ADBE Scale").setValue([sc, sc]);
   try { bpc = app.project.bitsPerChannel; } catch (e4) {}
   try { space = app.project.workingSpace; } catch (e5) {}
-  var linear = null, ver = null, native = null, conform = null;
+  var linear = null, ver = null, nativeFps = null, conform = null;
   try { linear = !!app.project.linearBlending; } catch (e6) {}
   try { ver = app.version; } catch (e7) {}
-  try { native = ms && ms.nativeFrameRate; } catch (e8) {}
+  try { nativeFps = ms && ms.nativeFrameRate; } catch (e8) {}
   try { conform = ms && ms.conformFrameRate; } catch (e9) {}
   return { item: item.name, comp: comp.name, duration_s: item.duration,
            fps: fps, width: item.width, height: item.height,
            sample_width: w, sample_height: h, scale_pct: sc,
-           pixel_aspect: item.pixelAspect, native_fps: native || null,
+           pixel_aspect: item.pixelAspect, native_fps: nativeFps || null,
            conform_fps: conform || null, ae_version: ver,
            project_bpc: bpc, working_space: space, linear_blending: linear,
            run: CA_STUDY_RUN, frame_dir: CA_studyFrameDir().fsName };
@@ -446,17 +473,34 @@ CA_TOOLS.study_sample = function (a) {
 };
 
 CA_TOOLS.study_close = function (a) {
-  var folder = CA_studyFolder(false), removed = 0, i, it;
+  var folder = CA_studyFolder(false), removed = 0, left = 0, i, it, made = CA_STUDY_MADE;
   CA_STUDY_RUN = null;                       // the panel sweeps the frame folders
-  if (!folder) return { removed: 0 };
-  // comps first: dropping footage a comp still uses would empty it noisily
+  CA_STUDY_MADE = null; CA_STUDY_COMP_ID = null;
+  // What this run made, comps first: dropping footage a comp still uses
+  // would empty it noisily.
+  if (made && made.length) {
+    for (i = made.length - 1; i >= 0; i--)
+      if (made[i] instanceof CompItem) { try { made[i].remove(); removed += 1; } catch (e) {} }
+    for (i = made.length - 1; i >= 0; i--)
+      if (!(made[i] instanceof CompItem) && !(made[i] instanceof FolderItem)) { try { made[i].remove(); removed += 1; } catch (e1) {} }
+  }
+  if (!folder) return { removed: removed, left: 0 };
+  // Fallback for a run whose list was lost (the panel restarted mid-study):
+  // only our own comp, and only footage that came out of the download
+  // folder. Anything else the user put here is left exactly where it is.
   for (i = folder.numItems; i >= 1; i--) {
     it = folder.item(i);
-    if (it instanceof CompItem) { it.remove(); removed += 1; }
+    if (it instanceof CompItem && it.name === CA_STUDY_COMP) { try { it.remove(); removed += 1; } catch (e2) {} }
   }
-  for (i = folder.numItems; i >= 1; i--) { folder.item(i).remove(); removed += 1; }
-  folder.remove();
-  return { removed: removed };
+  for (i = folder.numItems; i >= 1; i--) {
+    it = folder.item(i);
+    if (it instanceof CompItem) { left += 1; continue; }
+    var fromStudy = false;
+    try { fromStudy = String(it.mainSource.file.fsName).indexOf("ClaudeAssistantStudy") !== -1; } catch (e3) {}
+    if (fromStudy) { try { it.remove(); removed += 1; } catch (e4) {} } else left += 1;
+  }
+  if (!left) folder.remove(); 
+  return { removed: removed, left: left };
 };
 
 CA_TOOLS.render = function (a) {
