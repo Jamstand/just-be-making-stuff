@@ -209,17 +209,27 @@ function downloadVideo(url, dir, opts) {
     const fmt = merge ? "mp4/bv*+ba/b" : "b[ext=mp4]/b[ext=mov]/b";
     const args = ["-f", fmt, "--no-playlist", "--no-progress", "-o", template, url];
     if (merge) args.splice(2, 0, "--merge-output-format", "mp4");
+    // after_move runs once the file is in place, so this prints WITHOUT
+    // turning the run into a simulation. It is how the panel learns the
+    // clip's real length when there is no ffmpeg to probe with.
+    if (!opts.noPrint) args.splice(0, 0, "--print", "after_move:duration=%(duration)s");
     const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-    let err = "";
-    child.stdout.resume();                                     // never let a chatty download fill the pipe and stall
+    let err = "", said = "";
+    child.stdout.on("data", (d) => { said += d; });             // never let a chatty download fill the pipe and stall
     child.stderr.on("data", (d) => { err += d; });
     const timer = setTimeout(() => { try { child.kill(); } catch (e) {} rejectP(new Error("Download timed out after 180s.")); }, opts.timeoutMs || 180000);
     child.on("error", (e) => { clearTimeout(timer); rejectP(new Error("Could not run yt-dlp: " + e.message)); });
     child.on("close", (code) => {
       clearTimeout(timer);
       const hit = fs.readdirSync(dir).find((n) => n.startsWith("study_" + stamp + "."));
-      if (code === 0 && hit) resolveP(path.join(dir, hit));
-      else rejectP(new Error("yt-dlp failed (exit " + code + "): " + err.trim().slice(-500)));
+      if (code === 0 && hit) {
+        const m = /duration=([\d.]+)/.exec(said);
+        return resolveP({ file: path.join(dir, hit), duration_s: m ? Number(m[1]) : null });
+      }
+      // an older yt-dlp may not know --print after_move: try once without it
+      if (!opts.noPrint && /--print|after_move|no such option|unrecognized/i.test(err))
+        return resolveP(downloadVideo(url, dir, Object.assign({}, opts, { noPrint: true })));
+      rejectP(new Error("yt-dlp failed (exit " + code + "): " + err.trim().slice(-500)));
     });
   });
 }
@@ -381,7 +391,20 @@ async function sampleFramesViaAe(file, opts) {
   if (typeof host !== "function") throw new Error("no After Effects bridge to read frames with");
   const interval = Math.max(0.1, Number(opts.interval_s) || 0.5);
   const nap = opts.sleep || sleep;
-  const open = await host("study_open", { file, long_edge: Number(opts.long_edge) || AE_LONG_EDGE });
+  const run = opts.run || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+  const open = await host("study_open", { file, run, long_edge: Number(opts.long_edge) || AE_LONG_EDGE });
+  const frameDir = open.frame_dir || null;
+  // Frames a cancelled study left behind would sit under the same names and
+  // satisfy the "is it written yet?" poll at once, so the previous reel's
+  // picture would be measured as this one's. Every other run goes first.
+  if (frameDir) {
+    try {
+      const root = path.dirname(frameDir);
+      for (const n of fs.readdirSync(root))
+        if (path.join(root, n) !== frameDir) fs.rmSync(path.join(root, n), { recursive: true, force: true });
+    } catch (e) {}
+  }
+  const deadline = Date.now() + (Number(opts.total_budget_ms) || 10 * 60 * 1000);
   try {
     const duration = Number(open.duration_s) || 0;
     if (!(duration > 0)) throw new Error("After Effects reports no duration for " + path.basename(file));
@@ -399,6 +422,10 @@ async function sampleFramesViaAe(file, opts) {
         continue;
       }
       stalls = 0;
+      if (Date.now() > deadline)
+        throw new Error("Studying " + path.basename(file) + " through After Effects passed "
+          + Math.round((Number(opts.total_budget_ms) || 600000) / 60000) + " minutes at frame " + i
+          + " of " + times.length + " — stopped. Shorten the clip, raise interval_s, or install ffmpeg for the fast path.");
       for (const g of got) {
         // saveFrameToPng can return before the bytes are all on disk
         let buf = null;
@@ -410,6 +437,13 @@ async function sampleFramesViaAe(file, opts) {
           + " — is Preferences > Scripting & Expressions > Allow Scripts to Write Files and Access Network on?");
         try { fs.unlinkSync(g.file); } catch (e) {}
         const img = png.decodePng(buf);
+        if (!frames.length) {                          // what did AE really give us?
+          frames.png_format = img.format;
+          frames.render_size = img.width + "x" + img.height;
+          if (open.sample_width && (img.width !== open.sample_width || img.height !== open.sample_height))
+            frames.geometry_note = "After Effects rendered " + img.width + "x" + img.height + " where the comp is "
+              + open.sample_width + "x" + open.sample_height + " — the frames were measured at that size.";
+        }
         frames.push({ t: g.t, rgb: png.resampleRgb(img.rgb, img.width, img.height, SAMPLE_W, SAMPLE_H) });
       }
       i += got.length;
@@ -420,10 +454,16 @@ async function sampleFramesViaAe(file, opts) {
     frames.source = { duration_s: duration, fps: Number(open.fps) || null,
                       width: Number(open.width) || null, height: Number(open.height) || null,
                       sample_width: open.sample_width, sample_height: open.sample_height,
-                      project_bpc: open.project_bpc || null, working_space: open.working_space || null };
+                      pixel_aspect: open.pixel_aspect || null, native_fps: open.native_fps || null,
+                      conform_fps: open.conform_fps || null, ae_version: open.ae_version || null,
+                      project_bpc: open.project_bpc || null, working_space: open.working_space || null,
+                      linear_blending: open.linear_blending === undefined ? null : open.linear_blending,
+                      png_format: frames.png_format || null, render_size: frames.render_size || null,
+                      geometry_note: frames.geometry_note || null };
     return frames;
   } finally {
     try { await host("study_close", {}); } catch (e) {}
+    if (frameDir) { try { fs.rmSync(frameDir, { recursive: true, force: true }); } catch (e) {} }
   }
 }
 
@@ -496,6 +536,21 @@ async function studyFile(file, opts) {
       + "resolves; re-study with a smaller interval_s.");
   if (frames.decode_errors && frames.decode_errors.length)
     warnings.push("ffmpeg reported while decoding: " + frames.decode_errors.join(" | ").slice(0, 300));
+  // Pixel-for-pixel identical frames at the end mean one of two things and
+  // the pixels cannot tell them apart: an edit that holds on a card, or a
+  // file that stopped decoding. Record it as the fact it is — the length
+  // yt-dlp reported is what actually catches a short file.
+  let frozen = 0;
+  for (let i = diffs.length - 1; i > 0 && diffs[i] === 0; i--) frozen += 1;
+  const frozenS = frozen * interval;
+  if (frozenS >= 3) {
+    entry.static_tail_s = +frozenS.toFixed(1);
+    if (frozen >= diffs.length * 0.25)
+      warnings.push("The last " + frozenS.toFixed(1) + " s are pixel-for-pixel identical — either the edit ends on a "
+        + "held frame, or the file stops early. Nothing here can tell those apart; if the length looks short, "
+        + "download it again.");
+  }
+  if (frames.geometry_note) warnings.push(frames.geometry_note);
   return { entry, diffs, warnings };
 }
 

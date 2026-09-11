@@ -470,7 +470,10 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   console.log(JSON.stringify({ edits: prof.edits.map((e) => ({ source: e.source, cuts: e.cuts, shots: e.shots.length, duration_s: e.duration_s, studied_with: e.studied_with })), aggregate: prof.aggregate, study_files: studyFiles.length, tr }));
   smExpect(prof.edits.length === 2 && prof.edits.every((e) => e.cuts === 2 && e.shots.length === 3 && e.duration_s === 12 && e.complete) && prof.aggregate.cuts_per_minute === 10 && prof.aggregate.shot_length_s.median === 4,
     "two edits measured through the real tool chain into ~/ClaudeAssistantStyle/car-edits.json", prof.aggregate);
-  smExpect(studyFiles.length === 2 && tr.gemini_notes === 1 && /Studied —/.test(tr.last) && tr.last_has_two_edits, "downloads kept, Gemini's missing key reported once, the final card carries the aggregate", tr);
+  const studyVids = studyFiles.filter((n) => /\.mp4$/.test(n)), studyMeta = studyFiles.filter((n) => /\.meta\.json$/.test(n));
+  smExpect(studyMeta.length === 2 && JSON.parse(fs.readFileSync(path.join(HOME, "ClaudeAssistantStudy", studyMeta[0]), "utf8")).duration_s === 12,
+    "each download remembers the length yt-dlp reported, so a short decode can be caught without ffmpeg", studyMeta);
+  smExpect(studyVids.length === 2 && tr.gemini_notes === 1 && /Studied —/.test(tr.last) && tr.last_has_two_edits, "downloads kept, Gemini's missing key reported once, the final card carries the aggregate", tr);
   smExpect(prof.edits.every((e) => e.sampled_with === "ffmpeg"), "with ffmpeg on PATH the frames came from ffmpeg", prof.edits.map((e) => e.sampled_with));
   smExpect(await page.evaluate(() => document.getElementById("approval").hidden), "the ffmpeg route never asked for approval (it touches nothing)");
 
@@ -478,7 +481,7 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   await page.click("#newchat");        // "yes for this session" ended with that chat
   const resetNote = await page.evaluate(() => [...document.querySelectorAll("#chat .card")].pop().textContent);
   smExpect(/approved one at a time again/.test(resetNote), "a new chat takes back 'yes for this session'", resetNote);
-  const studyFile = path.join(HOME, "ClaudeAssistantStudy", fs.readdirSync(path.join(HOME, "ClaudeAssistantStudy"))[0]);
+  const studyFile = path.join(HOME, "ClaudeAssistantStudy", fs.readdirSync(path.join(HOME, "ClaudeAssistantStudy")).find((n) => /\.mp4$/.test(n)));
   await page.fill("#input", "study the downloaded file with after effects: " + studyFile);
   await page.keyboard.press("Enter");
   await page.waitForSelector("#approval:not([hidden])", { timeout: 20000 });

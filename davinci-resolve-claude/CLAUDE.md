@@ -743,3 +743,31 @@ drifts on variable-frame-rate phone video. AE-sampled exposure and cast
 carry the project's colour management, so they are not exactly
 comparable with ffmpeg-sampled entries; sampled_with / project_bpc /
 working_space are recorded in every entry and study_edit says so.
+Research round (4 parallel agents + synthesis) found five defects in the
+first cut, all fixed: (1) the frame folder was fixed and files were named
+s0.png upward from index 0 every run, so frames a CANCELLED study left
+behind satisfied the "is it written yet?" poll immediately and the
+previous reel got measured as this one — each study now writes into
+study-frames/<run>/ and stylelib sweeps every sibling run before reading
+and its own folder in the finally; (2) the comp was made with PAR 1 while
+the footage may not be, which would letterbox and put black bars into the
+numbers — the comp now takes item.pixelAspect; (3) sample times landing
+exactly on a frame boundary were a coin flip between two frames, so they
+are snapped to mid-frame (floor(t/fdur)*fdur + fdur/2); (4) samplingQuality
+was unset, and at an 8:1 downscale that noise lands straight in the
+frame-to-frame diffs cuts are found from — BICUBIC now; (5) the
+truncation guard was DEAD on the AE route, because expect_duration_s came
+from the same AE duration the sample count was derived from — downloadVideo
+now asks yt-dlp for the container length with --print after_move: (falling
+back to a plain download on an older build that rejects the flag), study_url
+writes it beside the download as <file>.meta.json, and study_edit prefers it.
+Also: study_open rejects placeholders, audio-only, stills and zero-size
+imports by name; entries record pixel_aspect, native/conform fps, ae_version,
+linear_blending and what pnglib saw in the PNG (depth, colour type, alpha,
+gAMA/sRGB/iCCP) since the format is undocumented; a geometry note if AE
+renders at a size other than the comp; a 10-minute wall clock; and a hard
+warning on AE 24.6 + 32 bpc, where Adobe confirmed everything renders as
+linear light regardless of the setting. A pixel-identical tail is recorded
+as static_tail_s and only warned about when it is over a quarter of the
+clip — pixels cannot tell a held logo from a stalled decoder, so the
+length cross-check is what actually catches a short file.

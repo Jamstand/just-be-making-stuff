@@ -318,8 +318,16 @@ function CA_studyComp() {
   return null;
 }
 
+// Each study writes into its OWN folder. Frames left behind by a study
+// that was cancelled or failed would otherwise sit there under the same
+// s0.png, s1.png names, and the panel — which polls for a complete PNG —
+// would read the previous reel's picture as this one's.
+var CA_STUDY_RUN = null;
 function CA_studyFrameDir() {
-  var dir = new Folder(CA_grabDir().fsName + "/study-frames");
+  var base = new Folder(CA_grabDir().fsName + "/study-frames");
+  if (!base.exists) base.create();
+  if (!CA_STUDY_RUN) return base;
+  var dir = new Folder(base.fsName + "/" + CA_STUDY_RUN);
   if (!dir.exists) dir.create();
   return dir;
 }
@@ -334,6 +342,7 @@ CA_TOOLS.study_open = function (a) {
            + "be saved. Turn on Preferences > Scripting & Expressions > Allow "
            + "Scripts to Write Files and Access Network, then try again.");
   CA_TOOLS.study_close({});                  // never two studies at once
+  CA_STUDY_RUN = String(a.run || new Date().getTime());
   var folder = CA_studyFolder(true);
   io = new ImportOptions(f);
   try { if (typeof io.canImportAs === "function" && typeof ImportAsType !== "undefined"
@@ -348,14 +357,16 @@ CA_TOOLS.study_open = function (a) {
            + ") — a codec it does not read (VP9/AV1/WebM are not native)?");
   }
   item.parentFolder = folder;
-  if (item.footageMissing) {
-    CA_TOOLS.study_close({});
-    CA_err(f.name + " imported but After Effects reports the footage as missing.");
-  }
-  if (!(item.duration > 0)) {
-    CA_TOOLS.study_close({});
-    CA_err(f.name + " imported with no duration — a still image rather than a video?");
-  }
+  var ms = null, bad = null;
+  try { ms = item.mainSource; } catch (eS) {}
+  if (item.footageMissing) bad = "After Effects reports the footage as missing";
+  else if (typeof PlaceholderSource !== "undefined" && ms && ms instanceof PlaceholderSource)
+    bad = "After Effects made a placeholder instead of reading it";
+  else if (item.hasVideo === false) bad = "there is no video track After Effects can read";
+  else if (ms && ms.isStill) bad = "After Effects read it as a still, not a movie";
+  else if (!item.width || !item.height) bad = "After Effects reports it as " + item.width + "x" + item.height;
+  else if (!(item.duration > 0)) bad = "it has no duration — a still image rather than a video?";
+  if (bad) { CA_TOOLS.study_close({}); CA_err("Cannot study " + f.name + ": " + bad + "."); }
   // The temp comp keeps the source's SHAPE, shrunk by a whole-ish factor:
   // After Effects does a clean uniform downscale and the panel does the rest
   // in integer arithmetic, so both routes end up measuring the same picture.
@@ -364,7 +375,9 @@ CA_TOOLS.study_open = function (a) {
   k = Math.max(1, Math.round(Math.max(item.width, item.height) / longEdge));
   w = Math.max(4, Math.round(item.width / k));
   h = Math.max(4, Math.round(item.height / k));
-  comp = app.project.items.addComp(CA_STUDY_COMP, w, h, 1, item.duration, fps);
+  // the comp takes the footage's pixel aspect: a mismatch would make After
+  // Effects letterbox the layer, and those black bars would be measured
+  comp = app.project.items.addComp(CA_STUDY_COMP, w, h, item.pixelAspect || 1, item.duration, fps);
   if (typeof comp.saveFrameToPng !== "function") {
     CA_TOOLS.study_close({});
     CA_err("saveFrameToPng is missing in this After Effects version, so the "
@@ -374,16 +387,26 @@ CA_TOOLS.study_open = function (a) {
   try { comp.resolutionFactor = [1, 1]; } catch (e2) {}
   l = comp.layers.add(item);
   try { l.quality = LayerQuality.BEST; } catch (e3) {}
+  // an 8:1 downscale samples very few pixels without this, and the noise
+  // lands straight in the frame-to-frame differences cuts are found from
+  try { l.samplingQuality = LayerSamplingQuality.BICUBIC; } catch (e3b) {}
   // uniform, and rounded UP so rounding never leaves a transparent edge
   sc = 100 * Math.max(w / item.width, h / item.height);
   l.property("ADBE Transform Group").property("ADBE Scale").setValue([sc, sc]);
   try { bpc = app.project.bitsPerChannel; } catch (e4) {}
   try { space = app.project.workingSpace; } catch (e5) {}
+  var linear = null, ver = null, native = null, conform = null;
+  try { linear = !!app.project.linearBlending; } catch (e6) {}
+  try { ver = app.version; } catch (e7) {}
+  try { native = ms && ms.nativeFrameRate; } catch (e8) {}
+  try { conform = ms && ms.conformFrameRate; } catch (e9) {}
   return { item: item.name, comp: comp.name, duration_s: item.duration,
            fps: fps, width: item.width, height: item.height,
            sample_width: w, sample_height: h, scale_pct: sc,
-           project_bpc: bpc, working_space: space,
-           frame_dir: CA_studyFrameDir().fsName };
+           pixel_aspect: item.pixelAspect, native_fps: native || null,
+           conform_fps: conform || null, ae_version: ver,
+           project_bpc: bpc, working_space: space, linear_blending: linear,
+           run: CA_STUDY_RUN, frame_dir: CA_studyFrameDir().fsName };
 };
 
 // One batch of frames: stops early when budget_ms is spent so a long edit
@@ -398,11 +421,16 @@ CA_TOOLS.study_sample = function (a) {
   var budget = (a.budget_ms === undefined || a.budget_ms === null) ? 8000 : Number(a.budget_ms);
   if (!(budget >= 0)) budget = 8000;
   var base = parseInt(a.index, 10) || 0;
-  var last = Math.max(0, comp.duration - 1 / comp.frameRate);
+  var fdur = comp.frameDuration || (1 / (comp.frameRate || 30));
+  var last = Math.max(0, comp.duration - fdur);
   for (i = 0; i < times.length; i++) {
     if (i > 0 && new Date().getTime() - t0 >= budget) break;
     t = Number(times[i]);
     if (!(t >= 0)) t = 0;
+    if (t > last) t = last;
+    // land in the MIDDLE of the frame that contains t: asking for a time
+    // that sits exactly on a boundary is a coin flip between two frames
+    t = Math.floor(t / fdur) * fdur + fdur / 2;
     if (t > last) t = last;
     f = new File(dir.fsName + "/s" + (base + i) + ".png");
     // saveFrameToPng hands back a file-like object that carries its own
@@ -419,6 +447,7 @@ CA_TOOLS.study_sample = function (a) {
 
 CA_TOOLS.study_close = function (a) {
   var folder = CA_studyFolder(false), removed = 0, i, it;
+  CA_STUDY_RUN = null;                       // the panel sweeps the frame folders
   if (!folder) return { removed: 0 };
   // comps first: dropping footage a comp still uses would empty it noisily
   for (i = folder.numItems; i >= 1; i--) {

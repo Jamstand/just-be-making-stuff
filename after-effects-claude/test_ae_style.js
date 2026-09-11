@@ -61,8 +61,13 @@ function frame(level, rg, bg, seed) {
 
   // ---- downloader + sampler over the harness fakes
   const fakebin = path.join(__dirname, "verify-electron", "fakebin");
-  const dl = await style.downloadVideo("https://www.tiktok.com/t/ZP8vojUtd/", path.join(HOME, "ClaudeAssistantStudy"), { bin: path.join(fakebin, "yt-dlp") });
-  check("downloadVideo: yt-dlp's output template lands in ~/ClaudeAssistantStudy", /ClaudeAssistantStudy\/study_\w+\.mp4$/.test(dl) && fs.existsSync(dl), dl);
+  const dlRes0 = await style.downloadVideo("https://www.tiktok.com/t/ZP8vojUtd/", path.join(HOME, "ClaudeAssistantStudy"), { bin: path.join(fakebin, "yt-dlp") });
+  const dl = dlRes0.file;
+  check("downloadVideo: the file lands in ~/ClaudeAssistantStudy and yt-dlp also reports the clip's real length",
+    /ClaudeAssistantStudy\/study_\w+\.mp4$/.test(dl) && fs.existsSync(dl) && dlRes0.duration_s === 12, JSON.stringify(dlRes0));
+  const dlOld = await style.downloadVideo("https://www.tiktok.com/t/ZP8vojUtd/", path.join(HOME, "ClaudeAssistantStudy"), { bin: path.join(fakebin, "yt-dlp"), noPrint: true });
+  check("downloadVideo: an older yt-dlp that cannot --print still downloads, just without the length",
+    fs.existsSync(dlOld.file) && dlOld.duration_s === null, JSON.stringify(dlOld));
   let dlErr = null; try { await style.downloadVideo("https://example.com/fail", HOME, { bin: path.join(fakebin, "yt-dlp") }); } catch (err) { dlErr = err.message; }
   check("downloadVideo: a yt-dlp failure surfaces its stderr", /yt-dlp failed \(exit 1\).*Unsupported URL/.test(dlErr || ""), dlErr);
   let noBin = null; try { await style.downloadVideo("https://x", HOME, { bin: "/nonexistent/yt-dlp" }); } catch (err) { noBin = err.message; }
@@ -116,7 +121,8 @@ function frame(level, rg, bg, seed) {
     const rp = await style.probeVideo(vid, { ffmpeg: realFfmpeg });
     const rr = await style.studyFile(vid, { interval_s: 0.5, ffmpeg: realFfmpeg, expect_duration_s: rp.duration_s, fps: rp.fps, source: "real" });
     check("REAL ffmpeg (" + realFfmpeg + "): probe 12 s / 30 fps / 320x180; study finds 2 cuts, 3 shots, warm middle, cool end",
-      rp.duration_s === 12 && rp.fps === 30 && rp.width === 320 && rp.height === 180 && rr.entry.cuts === 2 && rr.entry.shots.length === 3 && rr.entry.shots[1].cast_rg > 5 && rr.entry.shots[2].cast_bg > 5 && rr.warnings.length === 0,
+      rp.duration_s === 12 && rp.fps === 30 && rp.width === 320 && rp.height === 180 && rr.entry.cuts === 2 && rr.entry.shots.length === 3 && rr.entry.shots[1].cast_rg > 5 && rr.entry.shots[2].cast_bg > 5
+      && rr.entry.static_tail_s === 3.5 && /ends on a held frame/.test(rr.warnings.join(" ")),
       JSON.stringify({ rp, entry: rr.entry, warnings: rr.warnings }));
     const bytes = fs.readFileSync(vid), trunc = path.join(HOME, "real-trunc.mp4");
     fs.writeFileSync(trunc, bytes.subarray(0, Math.floor(bytes.length * 0.55)));
@@ -170,6 +176,34 @@ function frame(level, rg, bg, seed) {
     && aeStudy.entry.shot_lengths_s.join() === real.entry.shot_lengths_s.join()
     && Math.abs(aeStudy.entry.shots[1].cast_rg - real.entry.shots[1].cast_rg) < 1.5,
     JSON.stringify({ ae: aeStudy.entry.shot_lengths_s, ff: real.entry.shot_lengths_s, aeCast: aeStudy.entry.shots[1].cast_rg, ffCast: real.entry.shots[1].cast_rg }));
+  // the bug that made this worth writing: a study that was cancelled leaves
+  // s0.png behind, and the poll for "is it written yet?" is satisfied by the
+  // stale file at once — so the previous reel would be measured as this one
+  const runsRoot = path.join(HOME, "runs");
+  const stale = path.join(runsRoot, "oldrun");
+  fs.mkdirSync(stale, { recursive: true });
+  fs.writeFileSync(path.join(stale, "s0.png"), encodePng(4, 4, Buffer.alloc(48, 250)));   // a white frame nobody asked for
+  let usedDir = null;
+  const runHost = async (name, args) => {
+    if (name === "study_open") { usedDir = path.join(runsRoot, args.run); fs.mkdirSync(usedDir, { recursive: true });
+      return { duration_s: 1, fps: 30, width: 100, height: 100, sample_width: 4, sample_height: 4, frame_dir: usedDir }; }
+    if (name === "study_sample") return { files: args.times.map((t, i) => {
+      const file = path.join(usedDir, "s" + (args.index + i) + ".png");
+      fs.writeFileSync(file, encodePng(4, 4, Buffer.alloc(48, 10)));                      // the real, dark frame
+      return { t, file }; }) };
+    return { removed: 1 };
+  };
+  const runFrames = await style.sampleFramesViaAe("/study/x.mp4", { interval_s: 0.5, host: runHost });
+  check("sampleFramesViaAe: frames left by an earlier study are swept before this one reads anything",
+    runFrames.length === 2 && runFrames[0].rgb[0] === 10 && !fs.existsSync(stale), JSON.stringify({ first: runFrames[0].rgb[0], staleGone: !fs.existsSync(stale) }));
+  check("sampleFramesViaAe: its own frame folder goes when it is done", !fs.existsSync(usedDir), usedDir);
+  check("sampleFramesViaAe: records what After Effects actually wrote (the format is undocumented)",
+    runFrames.source.png_format.depth === 8 && runFrames.source.png_format.colour_type === 2 && runFrames.source.render_size === "4x4",
+    JSON.stringify(runFrames.source.png_format));
+  let overBudget = null;
+  try { await style.sampleFramesViaAe("/study/x.mp4", { interval_s: 0.02, host: runHost, total_budget_ms: -1 }); } catch (err) { overBudget = err.message; }
+  check("sampleFramesViaAe: a study that runs away stops instead of hanging the panel", /passed .* minutes at frame/.test(overBudget || ""), overBudget);
+
   let closedAfterThrow = false;
   const brokenHost = async (name, args) => {
     if (name === "study_open") return { duration_s: 4, fps: 30, width: 100, height: 100, sample_width: 50, sample_height: 50 };

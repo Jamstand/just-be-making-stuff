@@ -217,7 +217,7 @@ function buildSandbox() {
       f.duration = project._importDuration === undefined ? 5 : project._importDuration;
       f.width = 1920; f.height = 1080; f.frameRate = 24; f.hasVideo = true;
       f.footageMissing = false; f.parentFolder = null;
-      f.mainSource = { file: { fsName: io._path }, isStill: false };
+      f.mainSource = { file: { fsName: io._path }, isStill: !!project._importStill };
       f.remove = function () { project._items.splice(project._items.indexOf(f), 1); project.numItems = project._items.length; };
       project._items.push(f); project.numItems = project._items.length;
       return f;
@@ -573,13 +573,14 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
   const studyVid = path.join(os2.tmpdir(), "ae-study-" + process.pid + ".mp4");
   FS.writeFileSync(studyVid, "not really a video, the fake DOM does not care");
   const itemsBeforeStudy = sandbox.app.project.numItems;
-  const sOpen = invoke("study_open", { file: studyVid });
+  const sOpen = invoke("study_open", { file: studyVid, run: "run-a" });
   const studyFolder = sandbox.app.project._items.find((x) => x.name === "__ClaudeStudy__");
   const studyComp = sandbox.app.project._items.find((x) => x.name === "__ClaudeStudyFrame__");
   check("study_open: imports into its own folder and builds a comp that keeps the source's shape",
     sOpen.ok && sOpen.data.width === 1920 && sOpen.data.height === 1080
     && sOpen.data.sample_width === 240 && sOpen.data.sample_height === 135   // 1920x1080 / 8
     && Math.abs(sOpen.data.scale_pct - 12.5) < 0.01 && sOpen.data.project_bpc === 8
+    && /study-frames\/run-a$/.test(sOpen.data.frame_dir) && sOpen.data.run === "run-a"
     && !!studyFolder && !!studyComp && studyComp.parentFolder === studyFolder
     && studyComp.numLayers === 1 && studyFolder.numItems === 2, JSON.stringify(sOpen));
   const scaleProp = studyComp.layer(1).property("ADBE Transform Group").property("ADBE Scale");
@@ -594,8 +595,14 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
   check("study_sample: a spent budget stops the batch early but always writes one",
     ssBudget.ok && ssBudget.data.wrote === 1 && ssBudget.data.next_index === 11, JSON.stringify(ssBudget.data));
   const ssClamp = invoke("study_sample", { times: [-5, 999], index: 20 });
-  check("study_sample: times outside the clip are clamped into it",
-    ssClamp.ok && ssClamp.data.files[0].t === 0 && ssClamp.data.files[1].t < 5, JSON.stringify(ssClamp.data.files));
+  check("study_sample: times outside the clip are clamped into it, and every time lands mid-frame",
+    ssClamp.ok && Math.abs(ssClamp.data.files[0].t - 1 / 48) < 1e-9      // 24 fps -> half a frame in
+    && ssClamp.data.files[1].t < 5, JSON.stringify(ssClamp.data.files));
+  const ssSnap = invoke("study_sample", { times: [1.5], index: 30 });
+  check("study_sample: a time sitting exactly on a frame boundary is moved to the middle of that frame",
+    ssSnap.ok && Math.abs(ssSnap.data.files[0].t - (1.5 + 1 / 48)) < 1e-9, JSON.stringify(ssSnap.data.files));
+  check("study_sample: every frame of this run is written under the run's own folder",
+    ssSnap.data.files.every((f) => /study-frames\/run-a\//.test(f.file)), JSON.stringify(ssSnap.data.files));
   const sClose = invoke("study_close", {});
   check("study_close: the folder, the comp and the imported footage all go; the project is as it was",
     sClose.ok && sClose.data.removed === 2 && sandbox.app.project.numItems === itemsBeforeStudy
@@ -611,6 +618,11 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
   check("study_open: a codec After Effects cannot read is a plain error, not a crash",
     !badCodec.ok && /could not import/.test(badCodec.error) && /VP9/.test(badCodec.error), JSON.stringify(badCodec));
   delete sandbox.app.project._importThrows;
+  sandbox.app.project._importStill = true;
+  const stillSrc = invoke("study_open", { file: studyVid });
+  check("study_open: footage After Effects read as a still is refused by name",
+    !stillSrc.ok && /read it as a still/.test(stillSrc.error), JSON.stringify(stillSrc));
+  delete sandbox.app.project._importStill;
   const prefWas = sandbox.app.preferences.getPrefAsLong;
   sandbox.app.preferences.getPrefAsLong = () => 0;
   const noWrite = invoke("study_open", { file: studyVid });

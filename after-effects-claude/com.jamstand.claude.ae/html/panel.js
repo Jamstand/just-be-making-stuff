@@ -1331,9 +1331,17 @@ tool("study_url",
       throw new Error("yt-dlp is not installed — it is what fetches the video. The panel can install it "
         + "itself: run install_yt_dlp (no Homebrew needed). ffmpeg is NOT required; without it After "
         + "Effects reads the frames.");
-    const file = s._testDownload ? await s._testDownload(url, style.STUDY_DIR)
-                                 : await style.downloadVideo(url, style.STUDY_DIR);
-    const out = { downloaded: file, url, size_mb: Math.round(fs.statSync(file).size / 1048576 * 10) / 10 };
+    const got = s._testDownload ? await s._testDownload(url, style.STUDY_DIR)
+                                : await style.downloadVideo(url, style.STUDY_DIR);
+    const file = typeof got === "string" ? got : got.file;
+    const containerDuration = typeof got === "string" ? null : got.duration_s;
+    // Remembered beside the download: study_edit compares it against how
+    // much really decoded, which is the only guard against a half-download
+    // when there is no ffmpeg to probe with.
+    if (containerDuration > 0)
+      try { fs.writeFileSync(file + ".meta.json", JSON.stringify({ url, duration_s: containerDuration })); } catch (e) {}
+    const out = { downloaded: file, url, duration_s: containerDuration,
+                  size_mb: Math.round(fs.statSync(file).size / 1048576 * 10) / 10 };
     if (style.findFfmpeg()) { try { out.probe = await style.probeVideo(file); } catch (e) { out.probe = { note: e.message }; } }
     else out.frames_from = "After Effects (no ffmpeg here) — study_edit will ask once before importing the video into a temporary folder";
     out.next = "study_edit with this file (source = the link), then watch_video with profile car-edits and the same source.";
@@ -1351,7 +1359,9 @@ tool("study_edit",
   + "it). With ffmpeg installed a 60 s reel takes a few seconds and nothing "
   + "in the project is touched. WITHOUT ffmpeg After Effects decodes the "
   + "video itself — slower, and it imports the file into a temporary folder "
-  + "it removes again, so the panel asks the user once.",
+  + "it removes again, so the panel asks the user once (that import and "
+  + "removal marks the project as changed, so After Effects will offer to "
+  + "save on quit even though nothing of the user's was touched).",
   { file: { type: "string" },
     name: { type: "string", description: "Profile name (default car-edits)." },
     source: { type: "string", description: "Label for what is studied (default the file name) — use the link." },
@@ -1369,6 +1379,12 @@ tool("study_edit",
           text: "Reading frame " + pr.done + " of " + pr.total + " in After Effects…" }, false) });
       probe = frames.source || null;
       sendUI("study_progress", { done: 0, total: 0, text: "" }, false);
+      // AE's duration is what the sample count came from, so it can never
+      // reveal a short decode; the length yt-dlp reported can.
+      try {
+        const meta = JSON.parse(fs.readFileSync(file + ".meta.json", "utf8"));
+        if (meta.duration_s > 0) probe = Object.assign({}, probe, { duration_s: meta.duration_s, duration_from: "yt-dlp" });
+      } catch (e) {}
     } else {
       try { probe = await style.probeVideo(file); } catch (e) {}
       frames = await style.sampleFrames(file, { interval_s: interval });
@@ -1379,7 +1395,16 @@ tool("study_edit",
                                             expect_duration_s: probe && probe.duration_s });   // throws on a truncated decode
     if (probe && probe.duration_s) r.entry.duration_s = probe.duration_s;   // the container's exact length (coverage checked above)
     r.entry.sampled_with = viaAe ? "after-effects" : "ffmpeg";
-    if (viaAe && probe) { r.entry.project_bpc = probe.project_bpc || null; r.entry.working_space = probe.working_space || null; }
+    if (viaAe && probe) {
+      r.entry.project_bpc = probe.project_bpc || null;
+      r.entry.working_space = probe.working_space || null;
+      r.entry.linear_blending = probe.linear_blending;
+      r.entry.ae_version = probe.ae_version || null;
+      r.entry.ae_png = probe.png_format || null;
+      r.entry.render_size = probe.render_size || null;
+      if (probe.conform_fps && probe.native_fps && Math.abs(probe.conform_fps - probe.native_fps) > 0.01)
+        r.entry.fps_conformed = probe.native_fps + " -> " + probe.conform_fps;
+    }
     const loaded = style.loadProfile(a.name || "car-edits");
     style.mergeEntry(loaded.profile, r.entry);
     const aggregate = style.saveProfile(loaded.profile, loaded.file);
@@ -1390,6 +1415,10 @@ tool("study_edit",
       shots: e.shots.length, shot_lengths_s: e.shot_lengths_s.slice(0, 60), diff_series: r.diffs.slice(0, 150),
       profile_file: loaded.file, aggregate };
     if (r.warnings.length) out.stride_warning = r.warnings.join(" ");
+    if (viaAe && /^24\.6/.test(String((probe && probe.ae_version) || "")) && Number(probe && probe.project_bpc) === 32)
+      out.colour_warning = "After Effects 24.6 renders a 32-bit project as linear light whatever the setting says "
+        + "(Adobe confirmed it, fixed in 25.0), so the exposure and cast in this entry are not trustworthy. Set the "
+        + "project to 8 bpc under File > Project Settings > Color and study it again.";
     if (viaAe) out.colour_note = "Frames came through After Effects, so exposure and cast carry the project's "
       + "colour management (" + (probe && probe.project_bpc ? probe.project_bpc + " bpc" : "unknown depth")
       + (probe && probe.working_space ? ", " + probe.working_space : "") + "). Entries sampled with ffmpeg are "

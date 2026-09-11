@@ -34,6 +34,7 @@ function decodePng(input) {
     throw new Error("not a PNG file");
   let width = 0, height = 0, depth = 0, type = 0, interlace = 0;
   let palette = null, trns = null, sawIhdr = false, sawIend = false;
+  const seen = {};
   const idat = [];
   let p = 8;
   while (p + 8 <= buf.length) {
@@ -49,6 +50,7 @@ function decodePng(input) {
     } else if (name === "PLTE") palette = buf.subarray(at, at + len);
     else if (name === "tRNS") trns = buf.subarray(at, at + len);
     else if (name === "IDAT") idat.push(buf.subarray(at, at + len));
+    else if (name === "gAMA" || name === "sRGB" || name === "iCCP") seen[name] = true;
     else if (name === "IEND") { sawIend = true; break; }
     p = at + len + 4;                                  // + CRC
   }
@@ -110,7 +112,11 @@ function decodePng(input) {
     if (a === 255) { rgb[o] = r; rgb[o + 1] = g; rgb[o + 2] = b; }
     else { rgb[o] = (r * a / 255) | 0; rgb[o + 1] = (g * a / 255) | 0; rgb[o + 2] = (b * a / 255) | 0; }
   }
-  return { width, height, rgb };
+  // Adobe documents nothing about what saveFrameToPng writes, so every
+  // study records what it actually got.
+  return { width, height, rgb,
+           format: { depth, colour_type: type, interlace, alpha: type === 4 || type === 6 || !!trns,
+                     gama: !!seen.gAMA, srgb: !!seen.sRGB, iccp: !!seen.iCCP } };
 }
 
 // Box-average down (or nearest-neighbour up) to tw x th — the same job

@@ -16,3 +16,6 @@ fs.writeFileSync(out, JSON.stringify({ fake: "video", url, duration: 12, fps: 30
 // as chatty as a real fragmented download: hundreds of progress lines (a
 // reader that never drains stdout would stall on this)
 for (let i = 0; i <= 2000; i++) process.stdout.write("[download] " + (i / 20).toFixed(1) + "% of 12.34MiB at 3.21MiB/s ETA 00:03 (frag " + i + "/2000)\n");
+// --print after_move:TEMPLATE prints once the file is in place
+const pi = args.indexOf("--print");
+if (pi !== -1) process.stdout.write(String(args[pi + 1]).replace(/^after_move:/, "").replace("%(duration)s", "12") + "\n");
