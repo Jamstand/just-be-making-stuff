@@ -4,8 +4,12 @@
 // the requested fps/scale from the fake video's shot plan.
 const fs = require("fs");
 const args = process.argv.slice(2);
-const file = args[args.indexOf("-i") + 1];
+if (args.includes("--version") || args.includes("-version")) {
+  process.stdout.write("ffmpeg version 9.0.1 Copyright (c) 2000-2026 the FFmpeg developers\n"); process.exit(0);
+}
+const file = args.indexOf("-i") === -1 ? null : args[args.indexOf("-i") + 1];
 let meta;
+if (!file) { process.stderr.write("At least one input file must be specified\n"); process.exit(1); }
 try { meta = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { process.stderr.write(file + ": Invalid data found when processing input\n"); process.exit(1); }
 if (args.indexOf("rawvideo") === -1) {
   process.stderr.write("Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '" + file + "':\n  Duration: 00:00:" + String(meta.duration).padStart(2, "0")

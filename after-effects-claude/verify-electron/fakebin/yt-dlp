@@ -3,7 +3,9 @@
 // tiny "video" the fake ffmpeg understands (JSON: duration + a shot plan).
 const fs = require("fs");
 const args = process.argv.slice(2);
-const template = args[args.indexOf("-o") + 1];
+if (args.includes("--version")) { process.stdout.write("2026.08.19\n"); process.exit(0); }
+if (args.includes("--update-to")) { process.stdout.write("Updated yt-dlp to nightly@2026.09.10\n"); process.exit(0); }
+const template = args.indexOf("-o") === -1 ? null : args[args.indexOf("-o") + 1];
 const url = args[args.length - 1];
 if (!template || !url) { process.stderr.write("usage\n"); process.exit(2); }
 if (/fail/.test(url)) { process.stderr.write("ERROR: Unsupported URL: " + url + "\n"); process.exit(1); }
