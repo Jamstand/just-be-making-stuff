@@ -16,7 +16,7 @@ pack but shares no files with it and is not affiliated with Maiven, Peter Boese
 | `ppfilters/` | `JamPure_Cinematic.ini`, `JamPure_Natural.ini` | `assettocorsa\system\cfg\ppfilters\` | CM > Settings > Video > Post-processing filter |
 | `ppfilters/Pure scripts/` | `JamPure_Cinematic.lua` | `assettocorsa\system\cfg\ppfilters\Pure scripts\` | Automatic while the Cinematic filter is active |
 | `pure-config/` | `JamPure_pure_config.ini` | `assettocorsa\extension\config-ext\Pure\` | In game: Pure Config app > Main > Load |
-| `csp-presets/` | `JamPure_CSP_Ultra.ini`, `JamPure_CSP_Balanced.ini` | `%LOCALAPPDATA%\AcTools Content Manager\Presets\Custom Shaders Patch\` | CM > Settings > Custom Shaders Patch > presets button (top right) |
+| `csp-presets/` | `JamPure_CSP_Ultra.ini`, `JamPure_CSP_Balanced.ini` (built from `base/Maiven_Ultra_highend_vans.ini`) | `%LOCALAPPDATA%\AcTools Content Manager\Presets\Custom Shaders Patch\` | CM > Settings > Custom Shaders Patch > presets button (top right) |
 | `cm-video-presets/` | `JamPure Ultra.cmpreset`, `JamPure Balanced.cmpreset` | `%LOCALAPPDATA%\AcTools Content Manager\Presets\Video Settings\` | CM > Settings > Video > presets button (top right) |
 
 `Install-JamPure.ps1` copies all of the above to the right places for you.
@@ -71,7 +71,7 @@ the -File parameter does not exist". Add `-WhatIf` to preview, or
 
 ### Then, in Content Manager
 
-1. **Settings > Custom Shaders Patch > WeatherFX**: make sure it is enabled and the weather style is *Pure LCS* (or *Pure Gamma*). The CSP presets deliberately leave WeatherFX alone, so whatever you had stays.
+1. **Settings > Custom Shaders Patch > WeatherFX**: make sure it is enabled and the weather style is *Pure*. The CSP presets carry the WeatherFX selection over from the Maiven export (`IMPLEMENTATION=pure`, controller `pureCtrl static`), so nothing changes there.
 2. **Settings > Custom Shaders Patch**: presets button (top right) > *JamPure_CSP_Ultra* or *JamPure_CSP_Balanced*.
 3. **Settings > Video**: presets button > *JamPure Ultra* or *JamPure Balanced*. Then **re-select your resolution and refresh rate** – the preset ships with 1920x1080 @ 60 Hz because it has to contain something that exists on every screen.
 4. **Settings > Video > Post-processing**: filter should now read *JamPure_Cinematic*. Switch to *JamPure_Natural* any time.
@@ -130,6 +130,76 @@ re-reads the filter values on load, so ini edits and the slider panel stack.
 | Night city glow | Pure config `nlp.level`, `nlp.density` |
 | Wind / rain volume | Pure config `sound.*` |
 
+## The CSP presets and the Maiven "Ultra highend" export
+
+Both CSP presets are generated from `csp-presets/base/Maiven_Ultra_highend_vans.ini`,
+the Content Manager export of the *Ultra highend preset (Maiven)* settings
+(`acstuff.club/s/GSum`). Everything that is not a graphics-quality knob is carried
+over byte for byte: NeckFX (Realistic NeckFX script, G-force tilt), kirbycam chaser
+camera, gamepad assist, physics experiments, audio, GUI tweaks, the DLSS/upscaler
+selection and, importantly, the Pure WeatherFX selection.
+
+The export was checked key by key against the CSP 0.2.11 config definitions and the
+CSP documentation for every setting's range. It targets a newer preview build than
+0.2.11 (112 keys, mostly the DLSS/XeSS/FSR3 upscaler options and RainFX, only exist
+in previews), so the presets need that preview build too.
+
+**What was already at maximum in the Maiven export:** ExtraFX on with High motion
+blur, Hi-Z SSLR at 600 steps (the docs' own ceiling is 250), HBAO+ at full opacity,
+2048 cubemap with physically based sampling, prefiltering and reprojection, local
+cubemaps for cars and tracks, refracting headlights, headlight shadows in high
+quality, dynamic lights in the rear mirror with sun shadows, full-resolution smoke
+with shadows, Real Mirrors, rain maps at High, windscreen reflections, sparks and
+debris limits, full-resolution colour buffer, doublesided shadows, DLSS at 100 %
+render scale (that is DLAA: native resolution with the AI anti-aliasing only).
+
+**What the Ultra preset raises, and why:**
+
+| Setting | Maiven export | Ultra | CSP documentation |
+| --- | --- | --- | --- |
+| LOD distance multipliers (cars / track / trees) | 1.0 | 3.2 | range 0.2 to 3.2; trees need a restart |
+| Limit visible cars | on | off | "disabling will negatively affect FPS"; first thing to turn back on if a full grid stutters |
+| LOD-less car limit | 40 | 200 | range 2 to 200 |
+| Low-res cockpits for other cars in first person | on | off | detail vs. Maiven's "less distracting" choice |
+| Post-AA quality (FXAA 3.11) | High | Ultra | Medium / High / Ultra; only matters when the upscaler is off |
+| MSAA custom resolve kernel | off | on | "improves quality further, slightly reduces performance" |
+| Volumetric headlights resolution | 0.20 (default) | 0.32 | range 0.08 to 0.32 |
+| Cars casting dynamic shadows (driving / spectating) | 2 / 3 (default) | 5 / 5 | range 0 to 5 |
+| Detailed shadows from nearby cars | 1 (default) | 4 | range 0 to 4 |
+| Cars casting dynamic lights | 10 (default) | 50 | range 0 to 50 |
+| Smoke quantity limit | 1.0 | 1.2 | range 0.1 to 1.2 |
+| Cubemap colour depth | 32 bpp | 64 bpp | hidden option, higher precision reflections |
+| Real Mirrors refresh | 2 per frame | everything every frame | "update everything is 0" |
+| Mirror render distance | 800 m (default) | 2400 m | range 400 to 2400 |
+| Mirror colour precision | reduced (0.2.11 default) | full | `COMPACT_FORMAT=0` |
+| Shadow distance / fourth cascade | 200 m / 1500 m (default) | 400 m / 2000 m | ranges 50 to 400 and 1000 to 2000 |
+| Shadow anisotropic filtering | off (default) | on | new in 0.2.11 |
+| Cascade overhang | 0.95 | 1.0 | "increase to make transition sharper, increasing effective resolution" |
+| Lazier shadow-map update | on (default) | off | all three shadow maps every frame |
+| Cloud shadow resolution | normal | detailed | `DETAILED_CLOUD_SHADOWS=1` |
+| Post-processing resolution | adaptive (default) | full | `[WEATHER_FX:PP_TWEAKS] FULL_RESOLUTION=1` |
+| GrassFX quality | High (3) | Very high (4) | 0 to 4 |
+| Trees receive shadows | off (default) | on | fine with TAA/DLAA |
+| Skidmarks | 200 bits, plain blending | 800 bits, advanced blending | range up to 800 |
+| "Limit things with many cars" (general, shadows, smoke) | on | off | CSP's automatic quality reductions for big grids |
+| Screenshot JPEG quality | 99 | 100 | |
+
+**Deliberately left alone:** `CARS_LIT_MULT=0.4` and `TILT_MIP_BIAS=-2.5` (Maiven's
+look), sparks and debris spawn rates (quantity, not quality), `STEPS_HIZ=600`, the
+ghost/anamorphic glare being allowed in first-person view (`NO_ANAMORPHIC_GLARE=0`,
+`NO_GHOST_GLARE=0`, which is what lets the Cinematic filter's flares show in cockpit
+view), the obsolete SSGI (the docs mark it "obsolete and incorrect"), and the
+upscaler method.
+
+**How this interacts with the rest of the pack:** the video presets keep post-processing
+and FXAA enabled, which CSP requires for the upscaler and its anti-aliasing hook, and
+keep Kunos motion blur off, which ExtraFX requires. The Balanced CSP preset also drops
+DLSS to its 67 % "Quality" step; if you use a different upscaler method, change the
+matching `QUALITY_*` key in `build-csp-presets.py` and rerun it.
+
+To tweak anything, edit the override tables in `csp-presets/build-csp-presets.py` and
+run it; it prints the full list of changes against the base export.
+
 ## Ultra vs Balanced
 
 | Setting | Ultra | Balanced |
@@ -139,10 +209,12 @@ re-reads the filter values on load, so ini edits and the slider panel stack.
 | World detail / smoke | Max / 3 | High / 2 |
 | Post-processing / glare / DOF quality | 5 / 5 / 5 | 4 / 4 / 3 |
 | Mirrors / cubemap | 1024 HQ / 2048, 6 faces, 1000 m | 512 HQ / 1024, 3 faces, 600 m |
-| CSP ExtraFX | SSGI, SSLR high, HBAO, volumetric lights, fog blur, motion blur | SSLR low, HBAO, volumetric lights, motion blur |
-| GrassFX | Quality 4 with shadows | Quality 2, no shadows |
-| Car shadows from headlights | 3 cars, HQ | 1 car |
-| FSR upscaling | Off | On (0.77 scale, sharpen 0.85) |
+| CSP ExtraFX | SSLR Hi-Z 600 steps, HBAO+, volumetric lights at max res, fog blur, High motion blur | SSLR Simple 120 steps, HBAO+, volumetric lights default res, Medium motion blur |
+| GrassFX | Very high with shadows and ExtraFX pass | Medium, no shadows |
+| Car shadows from headlights | 5 cars, HQ, 4 detailed | 2 cars, standard |
+| Upscaler | Maiven export as is (DLSS at 100 % = DLAA) | DLSS at 67 % (Quality) |
+| Cubemap / mirrors | 2048 64 bpp, mirrors every frame, 2400 m | 1024 32 bpp, 2 mirrors per frame, 800 m |
+| Shadows | 400 m automatic splits, 2000 m fourth cascade, every map every frame | 200 m, 1500 m, lazier update |
 | Texture LOD bias / frame latency | −0.5 / 1 | −0.25 / 1 |
 
 Both presets turn Kunos motion blur off (CSP's ExtraFX blur replaces it) and leave
@@ -166,6 +238,11 @@ VSync off; cap frames in your driver or with `FPS_CAP_MS` if you need it.
   output use Pure's own HDR filter or edit the tonemapping section.
 - **Pink or black screen.** ExtraFX needs a recent CSP; load the Balanced CSP preset
   or disable ExtraFX in Content Manager.
+- **Full grids stutter with the Ultra CSP preset.** Turn *Limit visible cars* back on
+  (Graphics adjustments > LODs) and drop the LOD multipliers to 2.0; those two are the
+  costly ones in large fields.
+- **Want the exact Maiven settings back.** `csp-presets/base/Maiven_Ultra_highend_vans.ini`
+  is the untouched export; drop it onto Content Manager.
 
 ## Regenerating the video presets
 
