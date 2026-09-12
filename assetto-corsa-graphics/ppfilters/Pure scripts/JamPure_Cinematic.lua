@@ -22,7 +22,7 @@
   erroring out.
 ]]
 
-local SCRIPT_VERSION = 1.0
+local SCRIPT_VERSION = 1.1
 
 -- ---------------------------------------------------------------------------
 -- helpers
@@ -36,6 +36,8 @@ local function try(f, ...)
   return nil
 end
 
+local base  -- filter values, filled in below
+
 local function clamp(v, lo, hi)
   if v < lo then return lo end
   if v > hi then return hi end
@@ -48,6 +50,20 @@ end
 
 local function round(v)
   return math.floor(v + 0.5)
+end
+
+-- sign-preserving power (Pure's negative_pow): keeps the direction of a negative base
+local function signedPow(v, e)
+  if v < 0 then return -((-v) ^ e) end
+  return v ^ e
+end
+
+-- Pure's cubemap-based exposure estimate is calibrated for a filter with exposure /
+-- auto-exposure target 0.3 and gamma 1.2. Filters with a lower gamma end up darker,
+-- so the multiplier gets a gamma term (same shape other Pure filters use).
+local function exposureMultiplier()
+  local reference = (base.aeEnabled > 0) and base.target or base.exposure
+  return 1 + (reference - 0.3) + signedPow(3 * (1.2 - base.gamma ^ 0.4), 0.76)
 end
 
 -- 0 by day, 1 by night (Pure's day_compensate(v) returns 1 by day, v by night).
@@ -64,7 +80,7 @@ end
 -- values read from the active .ini filter (so edits to the ini are respected)
 -- ---------------------------------------------------------------------------
 
-local base = {
+base = {
   exposure = 0.30,
   gamma = 1.15,
   target = 0.32,
@@ -184,10 +200,9 @@ function init_pure_script()
   registerColorCorrections()
 
   -- Pure's exposure calculation (cubemap brightness estimation), scaled so the
-  -- filter's own exposure / auto-exposure target is the reference point.
+  -- filter's own exposure / auto-exposure target and gamma are the reference point.
   try(PURE__use_ExpCalc, true)
-  local reference = (base.aeEnabled > 0) and base.target or base.exposure
-  try(PURE__ExpCalc_set_Multiplier, 1 + (reference - 0.3))
+  try(PURE__ExpCalc_set_Multiplier, exposureMultiplier())
   try(PURE__ExpCalc_set_Target, 1.0)
 
   try(__SCRIPT__setVersion, SCRIPT_VERSION)
@@ -211,6 +226,8 @@ function init_pure_script()
   try(__SCRIPT__UI_Separator)
 
   -- exposure
+  try(__SCRIPT__UI_SliderFloat, 'Exposure gain', 1.0, 0.5, 2.5)
+  try(__SCRIPT__UI_SliderFloat, 'Brightness', 1.0, 0.5, 2.0)
   try(__SCRIPT__UI_Checkbox, 'Exposure adaption', true)
   try(__SCRIPT__UI_SliderFloat, 'Exposure adaption interior', 0.90, 0.0, 1.0)
   try(__SCRIPT__UI_SliderFloat, 'Exposure adaption exterior', 0.50, 0.0, 1.0)
@@ -238,7 +255,9 @@ function update_pure_script(dt)
 
   -- ---- exposure -----------------------------------------------------------
   local adapt = flag('Exposure adaption', true)
+  local gain = clamp(num('Exposure gain', 1), 0.1, 4)
   try(PURE__use_ExpCalc, adapt)
+  try(PURE__ExpCalc_set_Multiplier, exposureMultiplier() * gain)
   if adapt then
     local interior = (ac ~= nil) and (try(ac.isInteriorView) == true)
     try(PURE__set_ExpCalc, interior and num('Exposure adaption interior', 0.9) or num('Exposure adaption exterior', 0.5))
@@ -268,10 +287,11 @@ function update_pure_script(dt)
   local teal = clamp(num('Teal shadows', 0.35), 0, 1)
   local fadeMul = num('Film fade', 1)
   local brightnessLift = num('Night brightness lift', 0.06)
+  local brightness = clamp(num('Brightness', 1), 0.1, 4)
 
   try(ac.setPpSaturation, base.saturation * p.sat * satMul)
   try(ac.setPpContrast, base.contrast * p.con * conMul)
-  try(ac.setPpBrightness, base.brightness * lerp(1.0, 1.0 + brightnessLift, night))
+  try(ac.setPpBrightness, base.brightness * brightness * lerp(1.0, 1.0 + brightnessLift, night))
   try(ac.setPpHue, base.hue)
   try(ac.setPpSepia, p.sepia)
   try(ac.setPpColorTemperatureK, base.colorTemp + p.temp)

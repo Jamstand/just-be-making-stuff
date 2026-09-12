@@ -85,8 +85,8 @@ the -File parameter does not exist". Add `-WhatIf` to preview, or
 
 **JamPure_Cinematic** – ACES tonemapping, mild filmic contrast, warm white balance,
 teal-lifted shadows, soft bloom with light anamorphic streaks and ghosting, warm
-sunrays, gentle chromatic aberration, lens distortion and vignette, and a replay-friendly
-depth of field. This is the "Maiven-style" look and the one the script drives.
+sunrays, gentle chromatic aberration, a light vignette, and a replay-friendly depth of
+field (lens distortion is in the file but switched off). This is the "Maiven-style" look and the one the script drives.
 
 **JamPure_Natural** – sensitometric tonemapping, neutral white balance, restrained
 bloom, no ghosting, no chromatic aberration, no distortion, near-zero vignette,
@@ -106,8 +106,43 @@ shallower DOF. Built for racing and for people who find the cinematic effects di
 | Night glare boost | Extra bloom on lights once the sun is down |
 | Night brightness lift | Small brightness increase at night so unlit corners stay readable |
 | Godrays length | Multiplier; also follows Pure's cloud-cover modulation |
+| Exposure gain | Multiplier on Pure's exposure estimate; the first thing to move if the image is too dark or bright |
+| Brightness | Plain post-processing brightness multiplier, works even with exposure adaption off |
 | Exposure adaption (+ interior / exterior) | Pure's cubemap-based exposure estimate, blended in with separate strength for cockpit and outside cameras |
 | Spectrum adaption / VAO adaption | Pure's overcast compensation features |
+
+## Editing the look live, with the game running
+
+There are four places to change things while you drive, from quickest to deepest:
+
+1. **The "Post Process Filter" app** (CSP's filter selector, the small window in the top
+   left in your screenshot). The arrows switch filters and the *Exposure* row is a live
+   exposure multiplier, so nudging it is the fastest fix for a too-dark or too-bright
+   scene. The small arrow next to the filter name opens a menu with CSP's own filter
+   editor, which exposes every section of the `.ini` (tonemapping, colour, glare,
+   sunrays, DOF, vignette, distortion) with sliders and saves back to the file in
+   `system\cfg\ppfilters`. Content Manager's own PP-filter page says the same: with CSP
+   you create and edit filters in-game and see changes live.
+2. **Pure Config app > the script section** (Cinematic filter only): the sliders described
+   below, including *Exposure gain* and *Brightness*, which are pure multipliers on top of
+   whatever the filter and Pure compute. Pure remembers them.
+3. **Pure PP app** (ships with Pure): live control over the active filter's general,
+   tonemapping and "spice" values, independent of this pack.
+4. **Content Manager > Content > PP filters > Edit**: the same sections as the in-game
+   editor, with the full ini visible, for editing while AC is closed.
+
+Whatever you save from the in-game editor overwrites `JamPure_Cinematic.ini`, so keep a
+copy of the shipped one if you want to compare.
+
+### Version 1.1 changes after first in-game feedback
+
+- **Lens distortion is now off.** It was drawing black rounded corners at the screen edges.
+- **Brighter by default.** The Pure script now applies the same gamma compensation other
+  Pure filters use when driving Pure's exposure estimate (a 1.15-gamma filter gets a
+  roughly 1.5x boost instead of 1.0x), and the filter's auto-exposure target moved from
+  0.32 to 0.38. The first build sat well under that and crushed the shadows.
+- **Vignette** softened from 0.12 to 0.07.
+- New live sliders: *Exposure gain* (0.5 to 2.5) and *Brightness* (0.5 to 2.0).
 
 ## Tuning cheat-sheet
 
