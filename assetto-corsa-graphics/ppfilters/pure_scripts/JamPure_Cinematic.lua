@@ -136,7 +136,7 @@ end
 --   temp / wb   Kelvin offsets on the filter's colour temperature / white balance
 --   sepia       absolute sepia amount
 --   tonemap     ac.TonemapFunction id (2 Sensitometric, 7 ACES, 8 Uchimura,
---               10 Lottes, 11 Uncharted, 13 Filmic)
+--               10 Lottes, 11 Uncharted, 13 Filmic, 16 AgX on recent CSP)
 --   lift        rgb bias added to the whole frame (tiny values, lifts shadows)
 --   fade        strength of the FadeRgb "washed film" correction
 -- ---------------------------------------------------------------------------
@@ -267,7 +267,7 @@ function init_pure_script()
   uiSlider('Contrast', 1.0, 0.8, 1.3)
   uiSlider('Teal shadows', 0.35, 0.0, 1.0)
   uiSlider('Film fade', 1.0, 0.0, 2.0)
-  uiSlider('Tonemap override (-1 = profile)', -1, -1, 14)
+  uiSlider('Tonemap override (-1 = profile)', -1, -1, 16)
   uiSeparator()
 
   uiText('Glare and sunrays')
@@ -351,7 +351,7 @@ function update_pure_script(dt)
 
   -- tonemapping: only poke CSP when the function actually changes
   local override = round(num('Tonemap override (-1 = profile)', -1))
-  local tonemap = (override >= 0) and clamp(override, 0, 14) or p.tonemap
+  local tonemap = (override >= 0) and clamp(override, 0, 16) or p.tonemap
   if tonemap ~= lastTonemap then
     lastTonemap = tonemap
     try(ac.setPpTonemapFunction, tonemap)

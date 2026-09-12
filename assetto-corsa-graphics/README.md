@@ -14,7 +14,7 @@ pack but shares no files with it and is not affiliated with Maiven, Peter Boese
 | Folder | File(s) | Goes to | Loaded from |
 | --- | --- | --- | --- |
 | `ppfilters/` | `JamPure_Cinematic.ini`, `JamPure_Natural.ini` | `assettocorsa\system\cfg\ppfilters\` | CM > Settings > Video > Post-processing filter |
-| `ppfilters/pure_scripts/` | `JamPure_Cinematic.lua` | `assettocorsa\system\cfg\ppfilters\pure_scripts\` | Automatic while the Cinematic filter is active |
+| `ppfilters/pure_scripts/` | `JamPure_Cinematic.lua` | `assettocorsa\system\cfg\ppfilters\pure_scripts\` (Pure Gamma) and `...\ppfilters\purelcs_scripts\` (Pure LCS) | Automatic while the Cinematic filter is active |
 | `pure-config/` | `JamPure_pure_config.ini` | `assettocorsa\extension\config-ext\Pure\` | In game: Pure Config app > Main > Load |
 | `csp-presets/` | `JamPure_CSP_Ultra.ini`, `JamPure_CSP_Balanced.ini` (built from `base/Maiven_Ultra_highend_vans.ini`) | `%LOCALAPPDATA%\AcTools Content Manager\Presets\Custom Shaders Patch\` | CM > Settings > Custom Shaders Patch > presets button (top right) |
 | `cm-video-presets/` | `JamPure Ultra.cmpreset`, `JamPure Balanced.cmpreset` | `%LOCALAPPDATA%\AcTools Content Manager\Presets\Video Settings\` | CM > Settings > Video > presets button (top right) |
@@ -25,7 +25,8 @@ pack but shares no files with it and is not affiliated with Maiven, Peter Boese
 
 - Assetto Corsa with [Content Manager](https://acstuff.club/app/)
 - [Custom Shaders Patch](https://acstuff.club/patch/) 0.2.x (0.2.3 preview or newer recommended; ExtraFX, GrassFX and the weather features the presets enable need it)
-- [Pure](https://peterboese.gumroad.com/l/pure) 0.2xx or newer, in either **Pure LCS** or **Pure Gamma** mode. The filters work with both; LCS is the current recommendation.
+- [Pure](https://peterboese.gumroad.com/l/pure) 0.2xx or newer, in either **Pure LCS** or **Pure Gamma** mode. The filters work with both; LCS is the current recommendation. (Weather style `pure` in Content Manager is Pure Gamma, `pure lcs` is Pure LCS.)
+- CSP > Graphics adjustments > **Scriptable filters** enabled with implementation `pure`. Pure installs this and every Pure script, including this pack's, runs through it. The Maiven CSP export has it on.
 - Ultra tier: roughly RTX 3070 / RX 6800 or better at 1440p. Balanced tier: GTX 1660 / RX 5600 class at 1080p.
 
 ## Install
@@ -64,7 +65,7 @@ the -File parameter does not exist". Add `-WhatIf` to preview, or
 ### Option C – by hand
 
 1. Copy `ppfilters\JamPure_Cinematic.ini` and `ppfilters\JamPure_Natural.ini` to `assettocorsa\system\cfg\ppfilters\` (or drag the .ini onto the Content Manager window).
-2. Copy `ppfilters\pure_scripts\JamPure_Cinematic.lua` to `assettocorsa\system\cfg\ppfilters\pure_scripts\` (create the folder if it does not exist; the name is exactly `pure_scripts`, with an underscore).
+2. Copy `ppfilters\pure_scripts\JamPure_Cinematic.lua` to `assettocorsa\system\cfg\ppfilters\pure_scripts\` (Pure Gamma) **and** to `assettocorsa\system\cfg\ppfilters\purelcs_scripts\` (Pure LCS). Create the folders if they do not exist; the names are exactly those, with underscores. Pure only looks in the folder that matches the active weather style.
 3. Copy `pure-config\JamPure_pure_config.ini` to `assettocorsa\extension\config-ext\Pure\`.
 4. Copy `csp-presets\*.ini` to `%LOCALAPPDATA%\AcTools Content Manager\Presets\Custom Shaders Patch\` (or drag them onto Content Manager).
 5. Copy `cm-video-presets\*.cmpreset` to `%LOCALAPPDATA%\AcTools Content Manager\Presets\Video Settings\`.
@@ -101,7 +102,7 @@ shallower DOF. Built for racing and for people who find the cinematic effects di
 | Saturation / Contrast | Multipliers on the filter's values |
 | Teal shadows | Strength of the blue-green shadow lift in the Cinematic profile |
 | Film fade | Multiplier on the profile's "washed film" amount |
-| Tonemap override | −1 uses the profile's curve; 0–14 forces a CSP tonemap function (2 Sensitometric, 7 ACES, 8 Uchimura, 10 Lottes, 11 Uncharted, 13 Filmic) |
+| Tonemap override | −1 uses the profile's curve; 0–16 forces a CSP tonemap function (2 Sensitometric, 7 ACES, 8 Uchimura, 10 Lottes, 11 Uncharted, 13 Filmic, 16 AgX on recent CSP builds) |
 | Glare profile 0–3 | Subtle / default / strong / max – scales the bloom and star thresholds |
 | Night glare boost | Extra bloom on lights once the sun is down |
 | Night brightness lift | Small brightness increase at night so unlit corners stay readable |
@@ -133,7 +134,14 @@ There are four places to change things while you drive, from quickest to deepest
    editor, with the full ini visible, for editing while AC is closed.
 
 Whatever you save from the in-game editor overwrites `JamPure_Cinematic.ini`, so keep a
-copy of the shipped one if you want to compare.
+copy of the shipped one if you want to compare. The script's own sliders are saved by
+Pure to `extension\config-ext\Pure\JamPure_Cinematic_ScriptSettings.ini`; the Pure PP
+File tab shows that as "Settings loaded". Two Pure-specific habits worth knowing: after
+switching filters with the selector app, restart the session, otherwise the exposure can
+stay wrong until you do; and Pure Config's PP tab has an "export PPfilter related config"
+button that writes the current Pure Config next to the script as `pure_scripts\JamPure_Cinematic.ini`,
+which Pure then applies automatically whenever this filter is active. This pack does not
+ship one on purpose, so your own Pure Config stays in charge.
 
 ### Version 1.1 changes after first in-game feedback
 
@@ -145,10 +153,12 @@ copy of the shipped one if you want to compare.
 ### Version 1.2: the script was never being loaded
 
 The Pure PP app reported "The current PP-filter has no Pure Script! Script loaded:
-default_script.lua". Pure looks for per-filter scripts in
-`system\cfg\ppfilters\pure_scripts\` (underscore), which is where every current public
-filter pack ships them; versions 1.0 and 1.1 of this pack installed the script into a
-"Pure scripts" folder that Pure ignores. With no script, none of the exposure handling
+default_script.lua". Pure's scripting documentation and its changelog (since Pure 0.14)
+say a script is loaded when it sits in `system\cfg\ppfilters\pure_scripts\` (underscore)
+and carries the same name as the selected filter; Pure LCS reads `purelcs_scripts\`
+instead. Every current public filter pack ships its scripts there. Versions 1.0 and 1.1
+of this pack installed the script into a "Pure scripts" folder that Pure ignores, so Pure
+fell back to `default_script.lua`, which is documented behaviour since Pure 0.59. With no script, none of the exposure handling
 ran, hence the dark image. 1.2 fixes the folder (the installer also deletes the stale
 copy) and, while at it, rewrites the exposure part to match what current Pure filters do:
 
@@ -284,9 +294,14 @@ VSync off; cap frames in your driver or with `FPS_CAP_MS` if you need it.
 - **The filter is missing from the list.** Restart Content Manager after copying
   files; it caches the ppfilters folder.
 - **Pure PP says "The current PP-filter has no Pure Script" / no slider panel.** The Lua file
-  must sit in `system\cfg\ppfilters\pure_scripts\` (underscore, not a space) and be named
-  exactly like the filter (`JamPure_Cinematic.lua`). Pack versions before 1.2 installed it
-  into a "Pure scripts" folder, which Pure ignores; rerun the installer and it moves it. CSP's *Lua Debug*
+  must sit in `system\cfg\ppfilters\pure_scripts\` for Pure Gamma or `purelcs_scripts\` for
+  Pure LCS (underscores, not spaces) and be named exactly like the filter
+  (`JamPure_Cinematic.lua`). Pack versions before 1.2 installed it into a "Pure scripts"
+  folder, which Pure ignores; rerun the installer, it copies to both folders and removes the
+  stale one. Dropping the filter onto Content Manager installs only the `.ini`, never the
+  script, which is the other common way to end up here.
+- **Pure Config warns "This PPfilter might only be compatible with Pure Gamma!"** Pure LCS is
+  active but only the Gamma folder has the script; copy it to `purelcs_scripts\` as well. CSP's *Lua Debug*
   app shows script errors if a Pure or CSP version changed an API.
 - **Washed-out look.** That is usually Pure Gamma; switch the weather style to Pure LCS,
   or lower `[TONEMAPPING] GAMMA` to 1.0.

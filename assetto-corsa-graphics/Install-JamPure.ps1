@@ -7,7 +7,8 @@
     expects it in:
 
       ppfilters\*.ini                 -> <AC>\system\cfg\ppfilters\
-      ppfilters\pure_scripts\*.lua    -> <AC>\system\cfg\ppfilters\pure_scripts\
+      ppfilters\pure_scripts\*.lua    -> <AC>\system\cfg\ppfilters\pure_scripts\   (Pure Gamma)
+                                      and <AC>\system\cfg\ppfilters\purelcs_scripts\ (Pure LCS)
       pure-config\*.ini               -> <AC>\extension\config-ext\Pure\
       csp-presets\*.ini               -> %LOCALAPPDATA%\AcTools Content Manager\Presets\Custom Shaders Patch\
       cm-video-presets\*.cmpreset     -> %LOCALAPPDATA%\AcTools Content Manager\Presets\Video Settings\
@@ -77,6 +78,7 @@ $cmPresets = Join-Path $env:LOCALAPPDATA 'AcTools Content Manager\Presets'
 $jobs = @(
     @{ From = 'ppfilters\*.ini';               To = Join-Path $AcRoot 'system\cfg\ppfilters' },
     @{ From = 'ppfilters\pure_scripts\*.lua';  To = Join-Path $AcRoot 'system\cfg\ppfilters\pure_scripts' },
+    @{ From = 'ppfilters\pure_scripts\*.lua';  To = Join-Path $AcRoot 'system\cfg\ppfilters\purelcs_scripts' },
     @{ From = 'pure-config\*.ini';             To = Join-Path $AcRoot 'extension\config-ext\Pure' },
     @{ From = 'csp-presets\*.ini';             To = Join-Path $cmPresets 'Custom Shaders Patch' },
     @{ From = 'cm-video-presets\*.cmpreset';   To = Join-Path $cmPresets 'Video Settings' }
