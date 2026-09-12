@@ -7,8 +7,10 @@
 // learn from the same edits and the user can open and correct it. No model
 // weights change; the profile file IS the memory.
 //
-// yt-dlp does the downloading and ffmpeg the frame sampling (a 60 s reel is
-// ~120 thumbnail frames in a few seconds). Both: brew install yt-dlp ffmpeg.
+// yt-dlp does the downloading (install_yt_dlp fetches it, no Homebrew) and
+// ffmpeg the frame sampling when it happens to be installed (a 60 s reel is
+// ~120 thumbnail frames in a few seconds); without ffmpeg, After Effects
+// decodes the frames itself (sampleFramesViaAe).
 "use strict";
 const fs = require("fs");
 const os = require("os");

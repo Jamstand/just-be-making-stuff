@@ -656,6 +656,14 @@ check("import_and_matte: missing file is a clean error", !im.ok && /not found/i.
   check("the host file uses no ECMA-262 3rd edition reserved word as an identifier (ExtendScript refuses the WHOLE file, and Node cannot see it)",
     reservedWordUses(hostSrc).length === 0, JSON.stringify(reservedWordUses(hostSrc)));
   check("...and the guard that says so actually catches one", reservedWordUses("var a = 1, native = null;").length === 1);
+  // Everything Claude reads from the panel — tool descriptions, the /train
+  // prompt, error text — must never send the user to Homebrew again:
+  // install_yt_dlp replaces it and ffmpeg is optional (After Effects reads
+  // the frames itself). One stale description did exactly that once.
+  const shippedBrew = ["html/panel.js", "html/app.js", "slash.js", "stylelib.js"].flatMap((file) =>
+    fs.readFileSync(path.join(__dirname, "com.jamstand.claude.ae", file), "utf8").split("\n")
+      .map((line, i) => (/brew install/i.test(line) ? file + ":" + (i + 1) : null)).filter(Boolean));
+  check("nothing the panel ships tells the user to brew install anything", shippedBrew.length === 0, JSON.stringify(shippedBrew));
   check("study_open: a missing file is refused", !invoke("study_open", { file: "/no/such/file.mp4" }).ok);
   const studyLeft = invoke("study_open", { file: studyVid, run: "run-b" });
   const strayFolder = sandbox.app.project._items.find((x) => x.name === "__ClaudeStudy__");

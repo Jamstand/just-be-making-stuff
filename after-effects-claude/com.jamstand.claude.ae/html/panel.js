@@ -1320,8 +1320,9 @@ tool("set_music_dir",
 // a profile file future turns read. Same file as the Resolve panel's.
 tool("study_url",
   "Paste-a-link studying: download a video from a URL (TikTok, Instagram, "
-  + "YouTube — anything yt-dlp handles; needs 'brew install yt-dlp ffmpeg' "
-  + "once) into ~/ClaudeAssistantStudy, ready for study_edit. Only study "
+  + "YouTube — anything yt-dlp handles; if yt-dlp is missing run install_yt_dlp "
+  + "once, no Homebrew, and ffmpeg is optional) into ~/ClaudeAssistantStudy, "
+  + "ready for study_edit. Only study "
   + "content you are entitled to view; the download is for local analysis. "
   + "Nothing is added to the project.",
   { url: { type: "string" } }, ["url"], { readonly: true }, async (s, a) => {
