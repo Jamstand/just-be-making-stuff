@@ -30,17 +30,38 @@ pack but shares no files with it and is not affiliated with Maiven, Peter Boese
 
 ## Install
 
-### Option A – installer (Windows PowerShell)
+### Option A – paste-and-go (nothing to download first)
 
+Open PowerShell (Start menu > type `powershell` > Enter) and paste this whole block:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'
+$zip = "$env:TEMP\jampure.zip"; $dir = "$env:TEMP\jampure"
+Invoke-WebRequest 'https://github.com/Jamstand/just-be-making-stuff/archive/refs/heads/claude/amazing-johnson-clvxu2.zip' -OutFile $zip
+Expand-Archive $zip -DestinationPath $dir -Force
+Get-ChildItem $dir -Recurse -File | Unblock-File
+powershell -ExecutionPolicy Bypass -File "$dir\just-be-making-stuff-claude-amazing-johnson-clvxu2\assetto-corsa-graphics\Install-JamPure.ps1"
 ```
+
+It downloads this branch as a ZIP, unpacks it to your temp folder and runs the
+installer. The installer finds Assetto Corsa through Steam, copies every file to
+its destination and prints what it did.
+
+### Option B – installer from a downloaded copy
+
+Download the ZIP from GitHub (green *Code* button > *Download ZIP*), extract it,
+then run the installer **from inside the `assetto-corsa-graphics` folder**:
+
+```powershell
+cd "$env:USERPROFILE\Downloads\just-be-making-stuff-claude-amazing-johnson-clvxu2\assetto-corsa-graphics"
 powershell -ExecutionPolicy Bypass -File .\Install-JamPure.ps1
 ```
 
-It finds Assetto Corsa through Steam, copies every file to its destination and
-prints what it did. Add `-WhatIf` to preview, or `-AcRoot "D:\Games\assettocorsa"`
-if the game is somewhere unusual.
+Running it from any other folder gives "The argument '.\Install-JamPure.ps1' to
+the -File parameter does not exist". Add `-WhatIf` to preview, or
+`-AcRoot "D:\Games\assettocorsa"` if the game is somewhere unusual.
 
-### Option B – by hand
+### Option C – by hand
 
 1. Copy `ppfilters\JamPure_Cinematic.ini` and `ppfilters\JamPure_Natural.ini` to `assettocorsa\system\cfg\ppfilters\` (or drag the .ini onto the Content Manager window).
 2. Copy `ppfilters\Pure scripts\JamPure_Cinematic.lua` to `assettocorsa\system\cfg\ppfilters\Pure scripts\` (create the folder if it does not exist).
