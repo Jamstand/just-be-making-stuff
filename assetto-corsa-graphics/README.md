@@ -14,7 +14,7 @@ pack but shares no files with it and is not affiliated with Maiven, Peter Boese
 | Folder | File(s) | Goes to | Loaded from |
 | --- | --- | --- | --- |
 | `ppfilters/` | `JamPure_Cinematic.ini`, `JamPure_Natural.ini` | `assettocorsa\system\cfg\ppfilters\` | CM > Settings > Video > Post-processing filter |
-| `ppfilters/Pure scripts/` | `JamPure_Cinematic.lua` | `assettocorsa\system\cfg\ppfilters\Pure scripts\` | Automatic while the Cinematic filter is active |
+| `ppfilters/pure_scripts/` | `JamPure_Cinematic.lua` | `assettocorsa\system\cfg\ppfilters\pure_scripts\` | Automatic while the Cinematic filter is active |
 | `pure-config/` | `JamPure_pure_config.ini` | `assettocorsa\extension\config-ext\Pure\` | In game: Pure Config app > Main > Load |
 | `csp-presets/` | `JamPure_CSP_Ultra.ini`, `JamPure_CSP_Balanced.ini` (built from `base/Maiven_Ultra_highend_vans.ini`) | `%LOCALAPPDATA%\AcTools Content Manager\Presets\Custom Shaders Patch\` | CM > Settings > Custom Shaders Patch > presets button (top right) |
 | `cm-video-presets/` | `JamPure Ultra.cmpreset`, `JamPure Balanced.cmpreset` | `%LOCALAPPDATA%\AcTools Content Manager\Presets\Video Settings\` | CM > Settings > Video > presets button (top right) |
@@ -64,7 +64,7 @@ the -File parameter does not exist". Add `-WhatIf` to preview, or
 ### Option C – by hand
 
 1. Copy `ppfilters\JamPure_Cinematic.ini` and `ppfilters\JamPure_Natural.ini` to `assettocorsa\system\cfg\ppfilters\` (or drag the .ini onto the Content Manager window).
-2. Copy `ppfilters\Pure scripts\JamPure_Cinematic.lua` to `assettocorsa\system\cfg\ppfilters\Pure scripts\` (create the folder if it does not exist).
+2. Copy `ppfilters\pure_scripts\JamPure_Cinematic.lua` to `assettocorsa\system\cfg\ppfilters\pure_scripts\` (create the folder if it does not exist; the name is exactly `pure_scripts`, with an underscore).
 3. Copy `pure-config\JamPure_pure_config.ini` to `assettocorsa\extension\config-ext\Pure\`.
 4. Copy `csp-presets\*.ini` to `%LOCALAPPDATA%\AcTools Content Manager\Presets\Custom Shaders Patch\` (or drag them onto Content Manager).
 5. Copy `cm-video-presets\*.cmpreset` to `%LOCALAPPDATA%\AcTools Content Manager\Presets\Video Settings\`.
@@ -106,10 +106,11 @@ shallower DOF. Built for racing and for people who find the cinematic effects di
 | Night glare boost | Extra bloom on lights once the sun is down |
 | Night brightness lift | Small brightness increase at night so unlit corners stay readable |
 | Godrays length | Multiplier; also follows Pure's cloud-cover modulation |
-| Exposure gain | Multiplier on Pure's exposure estimate; the first thing to move if the image is too dark or bright |
+| Exposure target day / night | What Pure's cubemap estimate aims for (1.4 / 2.6 by default, the range current Pure filters use); raise for a brighter image |
+| Exposure gain | Multiplier on top of the estimate; the quickest single slider if the image is too dark or bright |
 | Brightness | Plain post-processing brightness multiplier, works even with exposure adaption off |
 | Exposure adaption (+ interior / exterior) | Pure's cubemap-based exposure estimate, blended in with separate strength for cockpit and outside cameras |
-| Spectrum adaption / VAO adaption | Pure's overcast compensation features |
+| Spectrum adaption / VAO adaption | Pure's overcast compensation features, 0 to 1 |
 
 ## Editing the look live, with the game running
 
@@ -137,12 +138,30 @@ copy of the shipped one if you want to compare.
 ### Version 1.1 changes after first in-game feedback
 
 - **Lens distortion is now off.** It was drawing black rounded corners at the screen edges.
-- **Brighter by default.** The Pure script now applies the same gamma compensation other
-  Pure filters use when driving Pure's exposure estimate (a 1.15-gamma filter gets a
-  roughly 1.5x boost instead of 1.0x), and the filter's auto-exposure target moved from
-  0.32 to 0.38. The first build sat well under that and crushed the shadows.
-- **Vignette** softened from 0.12 to 0.07.
-- New live sliders: *Exposure gain* (0.5 to 2.5) and *Brightness* (0.5 to 2.0).
+- **Brighter by default.** The filter's auto-exposure target moved from 0.32 to 0.38 and
+  the vignette softened from 0.12 to 0.07.
+- New live sliders: *Exposure gain* and *Brightness*.
+
+### Version 1.2: the script was never being loaded
+
+The Pure PP app reported "The current PP-filter has no Pure Script! Script loaded:
+default_script.lua". Pure looks for per-filter scripts in
+`system\cfg\ppfilters\pure_scripts\` (underscore), which is where every current public
+filter pack ships them; versions 1.0 and 1.1 of this pack installed the script into a
+"Pure scripts" folder that Pure ignores. With no script, none of the exposure handling
+ran, hence the dark image. 1.2 fixes the folder (the installer also deletes the stale
+copy) and, while at it, rewrites the exposure part to match what current Pure filters do:
+
+- Pure's cubemap-based exposure with an explicit **day / night target** (1.4 / 2.6),
+  iris limits 0.05 to 0.8 and 2 s / 4 s adaption, all exposed as sliders, instead of a
+  derived multiplier.
+- The script talks to the current `pure.*` API (`pure.script.ui`, `pure.exposure.cbe`,
+  `pure.mod`, `pure.pp`) and falls back to the older `__SCRIPT__*` / `PURE__*` names.
+- Spectrum and VAO adaption are 0 to 1 sliders now, as in current Pure.
+- Requirements the exposure part shares with every cubemap-driven filter: reflections
+  rendering frequency in AC video settings must not be *static* (the video presets use
+  six faces per frame), and CSP > Reflections FX > "Use proper physically-based sampling"
+  must be on (the Maiven export has it on).
 
 ## Tuning cheat-sheet
 
@@ -264,8 +283,10 @@ VSync off; cap frames in your driver or with `FPS_CAP_MS` if you need it.
   `JamPure_pure_config.ini`.
 - **The filter is missing from the list.** Restart Content Manager after copying
   files; it caches the ppfilters folder.
-- **No slider panel in Pure Config.** The Lua file must sit in `system\cfg\ppfilters\Pure scripts\`
-  and be named exactly like the filter (`JamPure_Cinematic.lua`). CSP's *Lua Debug*
+- **Pure PP says "The current PP-filter has no Pure Script" / no slider panel.** The Lua file
+  must sit in `system\cfg\ppfilters\pure_scripts\` (underscore, not a space) and be named
+  exactly like the filter (`JamPure_Cinematic.lua`). Pack versions before 1.2 installed it
+  into a "Pure scripts" folder, which Pure ignores; rerun the installer and it moves it. CSP's *Lua Debug*
   app shows script errors if a Pure or CSP version changed an API.
 - **Washed-out look.** That is usually Pure Gamma; switch the weather style to Pure LCS,
   or lower `[TONEMAPPING] GAMMA` to 1.0.

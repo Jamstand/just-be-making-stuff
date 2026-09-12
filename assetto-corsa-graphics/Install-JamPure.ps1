@@ -7,7 +7,7 @@
     expects it in:
 
       ppfilters\*.ini                 -> <AC>\system\cfg\ppfilters\
-      ppfilters\Pure scripts\*.lua    -> <AC>\system\cfg\ppfilters\Pure scripts\
+      ppfilters\pure_scripts\*.lua    -> <AC>\system\cfg\ppfilters\pure_scripts\
       pure-config\*.ini               -> <AC>\extension\config-ext\Pure\
       csp-presets\*.ini               -> %LOCALAPPDATA%\AcTools Content Manager\Presets\Custom Shaders Patch\
       cm-video-presets\*.cmpreset     -> %LOCALAPPDATA%\AcTools Content Manager\Presets\Video Settings\
@@ -76,7 +76,7 @@ $cmPresets = Join-Path $env:LOCALAPPDATA 'AcTools Content Manager\Presets'
 
 $jobs = @(
     @{ From = 'ppfilters\*.ini';               To = Join-Path $AcRoot 'system\cfg\ppfilters' },
-    @{ From = 'ppfilters\Pure scripts\*.lua';  To = Join-Path $AcRoot 'system\cfg\ppfilters\Pure scripts' },
+    @{ From = 'ppfilters\pure_scripts\*.lua';  To = Join-Path $AcRoot 'system\cfg\ppfilters\pure_scripts' },
     @{ From = 'pure-config\*.ini';             To = Join-Path $AcRoot 'extension\config-ext\Pure' },
     @{ From = 'csp-presets\*.ini';             To = Join-Path $cmPresets 'Custom Shaders Patch' },
     @{ From = 'cm-video-presets\*.cmpreset';   To = Join-Path $cmPresets 'Video Settings' }
@@ -106,6 +106,13 @@ foreach ($job in $jobs) {
         }
         Write-Host ("  {0,-34} -> {1}" -f $file.Name, $job.To)
     }
+}
+
+# Earlier pack versions copied the script to a wrongly named folder; Pure never reads it there.
+$stale = Join-Path $AcRoot 'system\cfg\ppfilters\Pure scripts\JamPure_Cinematic.lua'
+if (Test-Path $stale) {
+    if ($PSCmdlet.ShouldProcess($stale, 'Remove stale copy')) { Remove-Item $stale -Force }
+    Write-Host "  removed stale copy: $stale"
 }
 
 Write-Host ''
