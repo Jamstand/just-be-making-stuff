@@ -1,0 +1,1274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Face Sweep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ivory:#F0EEE6; --cream:#FAF9F5; --paper:#F5F3EC;
+    --ink:#1F1F1E; --char:#2B2A28; --muted:#6B6A65;
+    --hair:#C9C5B6; --mist:#E3DFD0; --slate:#B8B4A4;
+    --coral:#CC785C; --coral-ink:#7A3A28;
+    --good:#4A6B3A; --bad:#B5523B; --warn:#9A6B1E;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--ivory); color: var(--ink);
+    font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .serif { font-family: 'Fraunces', serif; font-weight: 400; letter-spacing: -0.01em; }
+  .mono  { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+  button { font-family: inherit; }
+  [hidden] { display: none !important; }
+
+  .app {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    grid-template-rows: 56px 1fr;
+    grid-template-areas: "top top" "side stage";
+    height: 100vh; min-height: 0;
+  }
+  .top {
+    grid-area: top;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; gap: 12px;
+    border-bottom: 1px solid var(--ink);
+    background: var(--ivory);
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+  .brand .mark { font-family: 'Fraunces',serif; font-size: 20px; font-weight: 500; white-space: nowrap; }
+  .brand .tag  { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.14em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .top-right { display: flex; gap: 10px; align-items: center; }
+  .stat { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .stat .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--slate); margin-right: 6px; vertical-align: 1px; }
+  .stat.ok .dot { background: var(--good); }
+  .stat.err .dot { background: var(--bad); }
+  .stat.busy .dot { background: var(--coral); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .btn {
+    border: 1px solid var(--ink); background: transparent; color: var(--ink);
+    border-radius: 999px; padding: 7px 14px; font-size: 12px; font-weight: 500;
+    cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { background: var(--ink); color: var(--cream); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn:disabled:hover { background: transparent; color: var(--ink); }
+  .btn.primary { background: var(--ink); color: var(--cream); }
+  .btn.primary:hover { background: var(--coral); border-color: var(--coral); color: var(--ink); }
+  .btn.primary:disabled:hover { background: var(--ink); color: var(--cream); }
+  .btn.ghost { border-color: var(--hair); color: var(--char); }
+  .btn.ghost:hover { background: var(--paper); color: var(--ink); }
+  .btn.coral { background: var(--coral); border-color: var(--coral); color: var(--ink); }
+  .btn.coral:hover { background: var(--coral-ink); border-color: var(--coral-ink); color: var(--cream); }
+  .btn.danger { border-color: var(--bad); color: var(--bad); }
+  .btn.danger:hover { background: var(--bad); color: var(--cream); }
+  .btn.danger:disabled:hover { background: transparent; color: var(--bad); }
+  .btn.sm { padding: 4px 10px; font-size: 11px; }
+  .linkbtn { background: none; border: none; color: var(--coral-ink); text-decoration: underline; cursor: pointer; font-size: inherit; padding: 0; }
+
+  .side {
+    grid-area: side;
+    border-right: 1px solid var(--ink);
+    background: var(--cream);
+    overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+  .panel { padding: 18px 20px; border-bottom: 1px solid var(--hair); }
+  .panel h3 {
+    font-family: 'Fraunces',serif; font-weight: 400; font-size: 18px;
+    letter-spacing: -0.01em; margin-bottom: 4px;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  }
+  .panel h3 .n { font-style: italic; color: var(--coral-ink); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+  .panel .help { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  input[type=text] {
+    flex: 1; min-width: 0; border: 1px solid var(--hair); background: var(--ivory);
+    border-radius: 8px; padding: 8px 12px; font-family: inherit; font-size: 13px; color: var(--ink);
+  }
+  input[type=text]:focus { outline: none; border-color: var(--coral); }
+  select { border: 1px solid var(--hair); background: var(--ivory); border-radius: 8px; padding: 6px 10px; font-family: inherit; font-size: 12px; color: var(--ink); }
+  details.settings { margin-top: 12px; font-size: 12px; }
+  details.settings summary { cursor: pointer; color: var(--muted); }
+  details.settings label { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  details.settings input[type=range] { flex: 1; }
+
+  .saved { margin-top: 10px; display: grid; gap: 6px; }
+  .saved .root { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 6px 10px; border: 1px solid var(--hair); border-radius: 8px; background: var(--ivory); }
+  .saved .root.active { border-color: var(--coral); }
+  .saved .root .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .people { display: grid; gap: 8px; margin-top: 8px; }
+  .person { border: 1px solid var(--hair); border-radius: 10px; padding: 10px 12px; background: var(--ivory); cursor: pointer; }
+  .person.active { border-color: var(--coral); background: var(--paper); }
+  .person .hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .person .nm { font-weight: 600; font-size: 13px; }
+  .person .refs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .person .refs .r { position: relative; width: 44px; height: 44px; border-radius: 8px; overflow: hidden; background: var(--mist); }
+  .person .refs .r img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .person .refs .r button { position: absolute; top: 0; right: 0; width: 16px; height: 16px; font-size: 10px; line-height: 14px; border: none; background: rgba(31,31,30,0.8); color: var(--cream); cursor: pointer; border-radius: 0 0 0 6px; }
+  .person .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .drop {
+    margin-top: 10px; border: 1px dashed var(--hair); border-radius: 10px; padding: 14px; text-align: center;
+    font-size: 12px; color: var(--muted); background: var(--ivory);
+  }
+  .drop.over { border-color: var(--coral); background: var(--paper); }
+
+  .progress { height: 6px; background: var(--mist); border-radius: 3px; margin-top: 12px; overflow: hidden; }
+  .progress .bar { height: 100%; width: 0; background: var(--coral); transition: width 0.15s; }
+  .scan-stats { font-size: 11px; color: var(--char); margin-top: 8px; white-space: pre-line; }
+  details.issues { margin-top: 8px; font-size: 12px; }
+  details.issues summary { cursor: pointer; color: var(--muted); }
+  details.issues ul { list-style: none; margin-top: 6px; max-height: 160px; overflow: auto; font-size: 11px; }
+  details.issues li { padding: 2px 0; border-bottom: 1px solid var(--mist); word-break: break-all; }
+
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 3px; background: var(--hair); border-radius: 2px; outline: none; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); cursor: pointer; border: 2px solid var(--cream); }
+  input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--ink); cursor: pointer; border: 2px solid var(--cream); }
+  .thr-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .thr-labels .mono { color: var(--char); }
+
+  .stage { grid-area: stage; display: flex; flex-direction: column; min-height: 0; }
+  .tabs { display: flex; gap: 4px; padding: 10px 20px 0; border-bottom: 1px solid var(--hair); background: var(--ivory); }
+  .tab { border: none; background: transparent; padding: 8px 12px; font-size: 13px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab.active { color: var(--ink); border-bottom-color: var(--ink); }
+  .tab .count { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--mist); font-size: 11px; margin-left: 4px; color: var(--char); }
+  .tab.active .count { background: var(--coral); color: var(--ink); }
+  .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--mist); font-size: 12px; flex-wrap: wrap; }
+  .toolbar .spacer { flex: 1; }
+  .toolbar .sum { color: var(--muted); }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--hair); border-radius: 12px; background: var(--cream); overflow: hidden; position: relative; }
+  .card.off { opacity: 0.5; }
+  .card .th { position: relative; aspect-ratio: 4/3; background: var(--mist); }
+  .card .th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .th .face { position: absolute; left: 8px; bottom: 8px; width: 44px; height: 44px; border-radius: 8px; border: 2px solid var(--cream); overflow: hidden; background: var(--mist); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+  .card .th .face img { width: 100%; height: 100%; object-fit: cover; }
+  .card .th .chk { position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; accent-color: var(--coral); cursor: pointer; }
+  .card .th .kind { position: absolute; top: 8px; right: 8px; font-size: 10px; padding: 2px 6px; border-radius: 999px; background: rgba(31,31,30,0.75); color: var(--cream); text-transform: uppercase; letter-spacing: 0.1em; }
+  .card .bd { padding: 8px 10px 10px; }
+  .card .path { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--char); word-break: break-all; line-height: 1.35; max-height: 2.7em; overflow: hidden; }
+  .card .chips { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+  .chip { font-size: 10px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--hair); color: var(--char); text-transform: uppercase; letter-spacing: 0.08em; }
+  .chip.strong { background: rgba(74,107,58,0.15); border-color: rgba(74,107,58,0.4); color: var(--good); }
+  .chip.likely { background: rgba(204,120,92,0.15); border-color: rgba(204,120,92,0.5); color: var(--coral-ink); }
+  .chip.possible { background: rgba(154,107,30,0.12); border-color: rgba(154,107,30,0.4); color: var(--warn); }
+  .card .acts { display: flex; gap: 6px; margin-top: 8px; }
+  .card .acts button { flex: 1; }
+  .empty { padding: 60px 20px; text-align: center; color: var(--muted); font-size: 13px; max-width: 520px; margin: 0 auto; }
+  .empty h4 { font-family: 'Fraunces',serif; font-weight: 400; font-size: 22px; color: var(--ink); margin-bottom: 8px; }
+  .empty ol { text-align: left; margin: 14px auto 0; padding-left: 20px; display: inline-block; }
+  .empty li { margin: 4px 0; }
+
+  .actionbar {
+    display: flex; align-items: center; gap: 10px; padding: 12px 20px;
+    border-top: 1px solid var(--ink); background: var(--cream); flex-wrap: wrap;
+  }
+  .actionbar .sel { font-size: 13px; flex: 1; min-width: 160px; }
+  .actionbar .sel strong { font-weight: 600; }
+  .actionbar .hint { font-size: 11px; color: var(--muted); width: 100%; }
+
+  .clusters { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+  .cluster { border: 1px solid var(--hair); border-radius: 12px; background: var(--cream); padding: 10px; text-align: center; cursor: pointer; }
+  .cluster:hover { border-color: var(--coral); }
+  .cluster img { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto 8px; background: var(--mist); }
+  .cluster .n { font-size: 11px; color: var(--muted); }
+  .cluster .use { margin-top: 8px; }
+
+  .ops { display: grid; gap: 10px; }
+  .op { border: 1px solid var(--hair); border-radius: 12px; background: var(--cream); padding: 12px 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .op .t { flex: 1; min-width: 200px; }
+  .op .t .h { font-weight: 600; font-size: 13px; }
+  .op .t .s { font-size: 11px; color: var(--muted); }
+  .op.undone { opacity: 0.55; }
+
+  .toasts { position: fixed; right: 16px; top: 66px; display: grid; gap: 8px; z-index: 50; }
+  .toast { background: var(--ink); color: var(--cream); padding: 10px 14px; border-radius: 10px; font-size: 12px; max-width: 360px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+  .toast.bad { background: var(--bad); }
+
+  .backdrop { position: fixed; inset: 0; background: rgba(31,31,30,0.45); display: flex; align-items: center; justify-content: center; z-index: 40; padding: 16px; }
+  .modal { background: var(--cream); border-radius: 16px; width: min(640px, 100%); max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.35); }
+  .modal .mh { padding: 18px 22px 10px; }
+  .modal .mh h2 { font-family: 'Fraunces',serif; font-weight: 400; font-size: 24px; letter-spacing: -0.01em; }
+  .modal .mb { padding: 0 22px; overflow-y: auto; font-size: 13px; }
+  .modal .mb p { margin: 8px 0; }
+  .modal .mf { padding: 14px 22px 18px; display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+  .modal .mf .left { margin-right: auto; font-size: 12px; color: var(--muted); }
+  .warn { border: 1px solid rgba(181,82,59,0.4); background: rgba(181,82,59,0.08); color: var(--coral-ink); padding: 10px 12px; border-radius: 10px; font-size: 12.5px; }
+  .note { border: 1px solid var(--hair); background: var(--ivory); padding: 10px 12px; border-radius: 10px; font-size: 12.5px; color: var(--char); }
+  .filelist { margin: 10px 0; border: 1px solid var(--hair); border-radius: 10px; background: var(--ivory); max-height: 200px; overflow: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  .filelist div { padding: 3px 10px; border-bottom: 1px solid var(--mist); word-break: break-all; }
+  .filelist div:last-child { border-bottom: none; }
+  .modal label.ck { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0; font-size: 13px; cursor: pointer; }
+  .modal label.ck input { margin-top: 3px; accent-color: var(--bad); }
+  .modal .field { margin: 10px 0; }
+  .modal .field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 4px; }
+  .modal .field .row { margin-top: 0; }
+  .facepick { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin: 10px 0; }
+  .facepick button { border: 2px solid var(--hair); border-radius: 12px; background: var(--ivory); padding: 6px; cursor: pointer; }
+  .facepick button:hover { border-color: var(--coral); }
+  .facepick img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: block; }
+  .oplog { font-family: 'JetBrains Mono', monospace; font-size: 11px; max-height: 220px; overflow: auto; border: 1px solid var(--hair); border-radius: 10px; background: var(--ivory); padding: 8px 10px; margin: 10px 0; white-space: pre-wrap; word-break: break-all; }
+
+  .gate { position: fixed; inset: 0; background: var(--ivory); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .gate .box { max-width: 560px; }
+  .gate h1 { font-family: 'Fraunces',serif; font-weight: 400; font-size: 34px; margin-bottom: 12px; }
+  .gate p { margin: 8px 0; color: var(--char); }
+
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 56px auto 1fr; grid-template-areas: "top" "side" "stage"; height: auto; min-height: 100vh; }
+    .side { border-right: none; border-bottom: 1px solid var(--ink); max-height: none; }
+    .brand .tag { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="gate" id="gate" hidden>
+  <div class="box">
+    <h1>Face Sweep needs a desktop Chromium browser.</h1>
+    <p>This app reads and organises files directly on your computer, which needs the File System Access API. That is available in <strong>Chrome, Edge, Brave, Opera or Arc on Windows, macOS, Linux or ChromeOS</strong>. Firefox, Safari and mobile browsers can't do this yet.</p>
+    <p id="gateWhy" class="mono" style="font-size:12px;color:var(--muted)"></p>
+  </div>
+</div>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="mark">Face Sweep</span>
+      <span class="tag">Find one person across your whole photo library</span>
+    </div>
+    <div class="top-right">
+      <span class="stat" id="modelStat"><span class="dot"></span>Face model: not loaded</span>
+      <button class="btn ghost" id="helpBtn">How it works</button>
+    </div>
+  </header>
+
+  <aside class="side">
+    <section class="panel">
+      <h3>1 · Library <span class="n" id="libName">no folder yet</span></h3>
+      <p class="help">Pick the folder that holds your photos and videos — your Pictures folder, or your whole user folder. Sub-folders are included. Nothing is uploaded anywhere; scanning happens on this computer.</p>
+      <div class="row">
+        <button class="btn primary" id="pickBtn">Choose folder…</button>
+      </div>
+      <div class="saved" id="savedRoots"></div>
+      <details class="settings">
+        <summary>Scan settings</summary>
+        <label>Quality
+          <select id="quality">
+            <option value="fast">Fast (1024 px)</option>
+            <option value="balanced" selected>Balanced (1400 px)</option>
+            <option value="thorough">Thorough (2000 px, finds small faces)</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="incVideos" checked> Include videos</label>
+        <label>Frames per video <input type="range" id="vframes" min="3" max="24" value="10"> <span class="mono" id="vframesVal">10</span></label>
+      </details>
+    </section>
+
+    <section class="panel">
+      <h3>2 · Who to find</h3>
+      <p class="help">Add a person, then give them a few clear photos (different angles and ages help). Or scan first and pick them from the <em>People found</em> tab.</p>
+      <div class="row">
+        <input type="text" id="newPersonName" placeholder="Name, e.g. Alex" maxlength="60">
+        <button class="btn" id="newPersonBtn">Add person</button>
+      </div>
+      <div class="people" id="peopleList"></div>
+      <div class="drop" id="refDrop">
+        <input type="file" id="refInput" multiple accept="image/*,.heic,.heif" hidden>
+        Drop reference photos of the selected person here, or <button class="linkbtn" id="refBrowse" type="button">browse</button>.
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>3 · Scan</h3>
+      <div class="row">
+        <button class="btn primary" id="scanBtn" disabled>Scan library</button>
+        <button class="btn ghost" id="pauseBtn" hidden>Pause</button>
+        <button class="btn ghost" id="stopBtn" hidden>Stop</button>
+      </div>
+      <div class="progress"><div class="bar" id="scanBar"></div></div>
+      <div class="scan-stats mono" id="scanStats">Choose a folder to begin.</div>
+      <details class="issues" id="issues" hidden>
+        <summary>Skipped files (<span id="issueCount">0</span>)</summary>
+        <ul id="issueList"></ul>
+      </details>
+    </section>
+
+    <section class="panel">
+      <h3>4 · Strictness</h3>
+      <p class="help">Lower = only very confident matches. Higher = catches more, but you'll review more. Adjusting this never needs a re-scan.</p>
+      <input type="range" id="threshold" min="0.40" max="0.65" step="0.01" value="0.55">
+      <div class="thr-labels"><span>Strict</span><span class="mono" id="thrVal">0.55</span><span>Loose</span></div>
+    </section>
+  </aside>
+
+  <main class="stage">
+    <nav class="tabs">
+      <button class="tab active" data-tab="matches">Matches <span class="count" id="matchCount">0</span></button>
+      <button class="tab" data-tab="people">People found <span class="count" id="clusterCount">0</span></button>
+      <button class="tab" data-tab="history">History <span class="count" id="opCount">0</span></button>
+    </nav>
+
+    <section class="view" id="view-matches">
+      <div class="toolbar">
+        <button class="btn ghost sm" id="selAll">Select all</button>
+        <button class="btn ghost sm" id="selNone">Select none</button>
+        <button class="btn ghost sm" id="selStrong">Strong only</button>
+        <span class="spacer"></span>
+        <span class="sum" id="excludedNote" hidden></span>
+        <label class="sum">Sort
+          <select id="sort">
+            <option value="conf">by confidence</option>
+            <option value="path">by folder</option>
+            <option value="date">newest first</option>
+          </select>
+        </label>
+      </div>
+      <div class="scroll">
+        <div class="empty" id="matchEmpty">
+          <h4>Nothing to review yet.</h4>
+          <div id="matchEmptyText">Pick a folder, add the person you're looking for, then scan.</div>
+          <ol>
+            <li>Choose the folder with your photos and videos.</li>
+            <li>Add the person and a couple of reference photos.</li>
+            <li>Scan. Every file with a face is checked against those photos.</li>
+            <li>Review the matches here, then move, hide or delete them — you confirm first, every time.</li>
+          </ol>
+        </div>
+        <div class="grid" id="matchGrid"></div>
+        <div class="row" id="moreRow" hidden><button class="btn ghost" id="moreBtn">Show more</button></div>
+      </div>
+      <div class="actionbar" id="actionBar" hidden>
+        <span class="sel" id="selSummary"></span>
+        <button class="btn" data-action="move">Move to folder…</button>
+        <button class="btn" data-action="hide">Hide…</button>
+        <button class="btn danger" data-action="delete">Delete…</button>
+        <span class="hint">Nothing changes on disk until you confirm on the next screen.</span>
+      </div>
+    </section>
+
+    <section class="view" id="view-people" hidden>
+      <div class="toolbar">
+        <span class="sum" id="clusterSum">Faces found in your library, grouped by who they look like. Click one to use it as the person to find.</span>
+      </div>
+      <div class="scroll">
+        <div class="empty" id="clusterEmpty"><h4>No faces grouped yet.</h4>Run a scan and everyone the scan finds shows up here.</div>
+        <div class="clusters" id="clusterGrid"></div>
+        <div class="row" id="clusterMoreRow" hidden><button class="btn ghost" id="clusterMoreBtn">Show more</button></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-history" hidden>
+      <div class="toolbar"><span class="sum">Everything Face Sweep has changed on disk. Moves and hides can be reversed from here. Deletes cannot.</span></div>
+      <div class="scroll">
+        <div class="empty" id="opsEmpty"><h4>No changes made yet.</h4></div>
+        <div class="ops" id="opsList"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="backdrop" id="modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="mh"><h2 id="modalTitle"></h2></div>
+    <div class="mb" id="modalBody"></div>
+    <div class="mf" id="modalFoot"></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------------------------------------------------------------- config */
+const LIB = {
+  faceapi: 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js',
+  models:  'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model/',
+  heic:    'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js',
+};
+const IMAGE_EXT = new Set(['jpg','jpeg','jfif','png','webp','gif','bmp','avif','heic','heif']);
+const VIDEO_EXT = new Set(['mp4','m4v','mov','webm','mkv','avi','3gp','mpg','mpeg','wmv','mts','m2ts']);
+const SKIP_DIRS = new Set(['node_modules','$RECYCLE.BIN','System Volume Information','Library','AppData','Application Data']);
+const HIDDEN_DIR = '.facesweep-hidden';
+const QUALITY = { fast: 1024, balanced: 1400, thorough: 2000 };
+const MIN_FACE_SCORE = 0.5;
+const CLUSTER_DIST = 0.5;
+const PAGE = 240;
+
+/* ---------------------------------------------------------------- state */
+const state = {
+  root: null,                 // { id, name, handle }
+  dirs: new Map(),            // relDir -> FileSystemDirectoryHandle
+  files: new Map(),           // relPath -> entry
+  people: [],                 // { id, name, refs: [{ d: Float32Array, thumb: Blob }], excluded: [] }
+  personId: null,
+  threshold: 0.55,
+  matches: [],                // [{ entry, best, faceIdx }]
+  unchecked: new Set(),
+  clusters: [],
+  ops: [],
+  scanning: false, paused: false, stopRequested: false,
+  issues: [],
+  shown: PAGE, clustersShown: 60,
+  sort: 'conf',
+  modelsReady: false,
+};
+window.faceSweep = state; // handy for debugging in devtools
+
+/* ---------------------------------------------------------------- tiny utils */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+const extOf = (name) => { const i = name.lastIndexOf('.'); return i < 0 ? '' : name.slice(i + 1).toLowerCase(); };
+const joinPath = (dir, name) => (dir ? dir + '/' + name : name);
+const dirOf = (rel) => { const i = rel.lastIndexOf('/'); return i < 0 ? '' : rel.slice(0, i); };
+const baseOf = (rel) => { const i = rel.lastIndexOf('/'); return i < 0 ? rel : rel.slice(i + 1); };
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  const u = ['B','KB','MB','GB','TB']; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i === 0 ? n : n.toFixed(n >= 10 ? 0 : 1)) + ' ' + u[i];
+}
+function fmtDate(ts) { try { return new Date(ts).toLocaleString(); } catch { return String(ts); } }
+function withTimeout(p, ms, what) {
+  let t; const timeout = new Promise((_, rej) => { t = setTimeout(() => rej(new Error(what || 'timed out')), ms); });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(t));
+}
+function dist(a, b) { let s = 0; for (let i = 0; i < a.length; i++) { const v = a[i] - b[i]; s += v * v; } return Math.sqrt(s); }
+function toast(msg, bad) {
+  const el = document.createElement('div'); el.className = 'toast' + (bad ? ' bad' : ''); el.textContent = msg;
+  $('toasts').appendChild(el); setTimeout(() => el.remove(), bad ? 7000 : 4000);
+}
+function canvasToBlob(c, type, q) { return new Promise((res, rej) => c.toBlob((b) => b ? res(b) : rej(new Error('toBlob failed')), type, q)); }
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = src; s.async = true;
+    s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src));
+    document.head.appendChild(s);
+  });
+}
+function confLabel(d) { return d <= 0.45 ? 'strong' : d <= 0.52 ? 'likely' : 'possible'; }
+
+/* ---------------------------------------------------------------- IndexedDB */
+const DB_NAME = 'facesweep', DB_VER = 1;
+let dbPromise = null;
+function openDB() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, DB_VER);
+    r.onupgradeneeded = () => {
+      const db = r.result;
+      db.createObjectStore('roots', { keyPath: 'id' });
+      const f = db.createObjectStore('faces', { keyPath: 'key' }); f.createIndex('rootId', 'rootId');
+      db.createObjectStore('people', { keyPath: 'id' });
+      const o = db.createObjectStore('ops', { keyPath: 'id' }); o.createIndex('rootId', 'rootId');
+    };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  return dbPromise;
+}
+function req(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+const idb = {
+  async get(store, key) { const db = await openDB(); return req(db.transaction(store).objectStore(store).get(key)); },
+  async put(store, val) { const db = await openDB(); return req(db.transaction(store, 'readwrite').objectStore(store).put(val)); },
+  async del(store, key) { const db = await openDB(); return req(db.transaction(store, 'readwrite').objectStore(store).delete(key)); },
+  async all(store, index, value) {
+    const db = await openDB(); const os = db.transaction(store).objectStore(store);
+    return req(index ? os.index(index).getAll(value) : os.getAll());
+  },
+};
+const faceKey = (rootId, relPath) => rootId + '|' + relPath;
+
+/* ---------------------------------------------------------------- face model */
+let modelPromise = null;
+function setModelStat(cls, text) { const el = $('modelStat'); el.className = 'stat ' + cls; el.innerHTML = '<span class="dot"></span>' + esc(text); }
+function ensureModels() {
+  if (modelPromise) return modelPromise;
+  modelPromise = (async () => {
+    setModelStat('busy', 'Face model: downloading (about 12 MB, once)…');
+    if (!window.faceapi) await loadScript(LIB.faceapi);
+    await faceapi.nets.ssdMobilenetv1.loadFromUri(LIB.models);
+    await faceapi.nets.faceLandmark68Net.loadFromUri(LIB.models);
+    await faceapi.nets.faceRecognitionNet.loadFromUri(LIB.models);
+    state.modelsReady = true;
+    setModelStat('ok', 'Face model: ready (' + faceapi.tf.getBackend() + ')');
+  })().catch((e) => { modelPromise = null; setModelStat('err', 'Face model failed: ' + e.message); throw e; });
+  return modelPromise;
+}
+let ssdOpts = null;
+async function detectFaces(canvas) {
+  await ensureModels();
+  ssdOpts = ssdOpts || new faceapi.SsdMobilenetv1Options({ minConfidence: MIN_FACE_SCORE });
+  const dets = await faceapi.detectAllFaces(canvas, ssdOpts).withFaceLandmarks().withFaceDescriptors();
+  const W = canvas.width, H = canvas.height;
+  return dets.map((r) => ({
+    d: new Float32Array(r.descriptor),
+    score: r.detection.score,
+    box: { x: r.detection.box.x / W, y: r.detection.box.y / H, w: r.detection.box.width / W, h: r.detection.box.height / H },
+  }));
+}
+
+/* ---------------------------------------------------------------- decoding */
+async function toBitmapSource(file, ext) {
+  if (ext === 'heic' || ext === 'heif') {
+    if (!window.heic2any) await loadScript(LIB.heic);
+    const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+    return Array.isArray(out) ? out[0] : out;
+  }
+  return file;
+}
+async function decodeImage(file, ext, maxSide) {
+  const src = await toBitmapSource(file, ext);
+  const bmp = await createImageBitmap(src, { imageOrientation: 'from-image' });
+  try {
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    return c;
+  } finally { bmp.close(); }
+}
+function once(el, ok, ms, what) {
+  return withTimeout(new Promise((res, rej) => {
+    const done = () => { cleanup(); res(); };
+    const fail = () => { cleanup(); rej(new Error(el.error && el.error.message ? el.error.message : 'cannot decode this video')); };
+    function cleanup() { el.removeEventListener(ok, done); el.removeEventListener('error', fail); }
+    el.addEventListener(ok, done); el.addEventListener('error', fail);
+  }), ms, what);
+}
+async function* videoFrames(file, nFrames, maxSide) {
+  const url = URL.createObjectURL(file);
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+  const c = document.createElement('canvas');
+  try {
+    await once(v, 'loadedmetadata', 20000, 'video took too long to open');
+    let dur = v.duration;
+    if (!isFinite(dur) || dur <= 0) {
+      try { const p = once(v, 'seeked', 8000); v.currentTime = 1e6; await p; dur = v.duration; } catch { dur = 0; }
+      if (!isFinite(dur)) dur = 0;
+    }
+    const n = dur > 0 ? Math.max(1, Math.min(nFrames, Math.ceil(dur / 1.5))) : 1;
+    for (let i = 0; i < n; i++) {
+      const t = dur > 0 ? Math.min(Math.max(0, dur - 0.05), dur * (i + 0.5) / n) : 0.01;
+      const p = once(v, 'seeked', 15000, 'video seek timed out');
+      v.currentTime = t; await p;
+      if (!v.videoWidth) throw new Error('no video track');
+      const scale = Math.min(1, maxSide / Math.max(v.videoWidth, v.videoHeight));
+      c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      yield { canvas: c, t };
+    }
+  } finally {
+    v.removeAttribute('src'); try { v.load(); } catch {}
+    URL.revokeObjectURL(url);
+  }
+}
+async function thumbOf(canvas, max) {
+  const scale = Math.min(1, max / Math.max(canvas.width, canvas.height));
+  const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(canvas.width * scale)); c.height = Math.max(1, Math.round(canvas.height * scale));
+  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+  return canvasToBlob(c, 'image/jpeg', 0.8);
+}
+async function cropFace(canvas, box) {
+  const W = canvas.width, H = canvas.height;
+  const size = Math.max(box.w * W, box.h * H) * 1.6;
+  const cx = (box.x + box.w / 2) * W, cy = (box.y + box.h / 2) * H;
+  const c = document.createElement('canvas'); c.width = c.height = 112;
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#E3DFD0'; ctx.fillRect(0, 0, 112, 112);
+  ctx.drawImage(canvas, cx - size / 2, cy - size / 2, size, size, 0, 0, 112, 112);
+  return canvasToBlob(c, 'image/jpeg', 0.8);
+}
+
+/* ---------------------------------------------------------------- library (roots) */
+async function permissionOf(handle, mode) {
+  if (typeof handle.queryPermission !== 'function') return 'granted';
+  try { return await handle.queryPermission({ mode }); } catch { return 'prompt'; }
+}
+async function requestPermission(handle, mode) {
+  if (typeof handle.requestPermission !== 'function') return 'granted';
+  try { return await handle.requestPermission({ mode }); } catch (e) { return 'denied'; }
+}
+async function loadRoots() {
+  const roots = await idb.all('roots');
+  roots.sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0));
+  const box = $('savedRoots'); box.innerHTML = '';
+  for (const r of roots) {
+    if (state.root && state.root.id === r.id) continue;
+    const row = document.createElement('div'); row.className = 'root';
+    row.innerHTML = '<span class="nm">' + esc(r.name || 'Library') + '</span><button class="btn ghost sm">Open</button><button class="btn ghost sm" title="Forget this folder">×</button>';
+    row.querySelectorAll('button')[0].onclick = async () => {
+      const p = await requestPermission(r.handle, 'read');
+      if (p !== 'granted') return toast('Access to that folder was not granted.', true);
+      await useRoot(r.handle);
+    };
+    row.querySelectorAll('button')[1].onclick = async () => { await idb.del('roots', r.id); loadRoots(); };
+    box.appendChild(row);
+  }
+}
+async function useRoot(handle) {
+  const roots = await idb.all('roots');
+  let rec = null;
+  for (const r of roots) { try { if (await handle.isSameEntry(r.handle)) { rec = r; break; } } catch {} }
+  if (!rec) rec = { id: uid(), name: handle.name || 'Library', addedAt: Date.now() };
+  rec.handle = handle; rec.lastUsed = Date.now();
+  await idb.put('roots', rec);
+  state.root = { id: rec.id, name: rec.name, handle };
+  state.dirs = new Map([['', handle]]);
+  state.files.clear(); state.matches = []; state.clusters = []; state.unchecked.clear(); state.issues = [];
+  $('libName').textContent = rec.name;
+  $('scanBtn').disabled = false;
+  $('scanStats').textContent = 'Ready to scan "' + rec.name + '".';
+  await loadRoots(); await loadOps();
+  await loadCachedIndex();
+  renderAll();
+}
+async function loadCachedIndex() {
+  // Anything scanned before is available immediately for matching; a scan re-validates it.
+  const rows = await idb.all('faces', 'rootId', state.root.id);
+  for (const row of rows) {
+    if (row.status !== 'ok') continue;
+    state.files.set(row.relPath, entryFromRow(row));
+  }
+  if (rows.length) $('scanStats').textContent = rows.length + ' files remembered from an earlier scan. Scan again to pick up new or changed files.';
+}
+function entryFromRow(row) {
+  return { relPath: row.relPath, dir: dirOf(row.relPath), name: baseOf(row.relPath), size: row.size, mtime: row.mtime, kind: row.kind, faces: row.faces, thumb: row.thumb, status: row.status, cached: true };
+}
+
+/* ---------------------------------------------------------------- scanning */
+async function walk(dirHandle, relDir, out) {
+  state.dirs.set(relDir, dirHandle);
+  let it;
+  try { it = dirHandle.entries(); } catch (e) { state.issues.push({ path: relDir || '/', why: 'cannot list folder: ' + e.message }); return; }
+  try {
+    for await (const [name, h] of it) {
+      if (h.kind === 'directory') {
+        if (name.startsWith('.') || SKIP_DIRS.has(name)) continue;
+        await walk(h, joinPath(relDir, name), out);
+      } else {
+        const ext = extOf(name);
+        const kind = IMAGE_EXT.has(ext) ? 'image' : VIDEO_EXT.has(ext) ? 'video' : null;
+        if (!kind) continue;
+        if (kind === 'video' && !$('incVideos').checked) continue;
+        out.push({ relPath: joinPath(relDir, name), dir: relDir, name, ext, kind, handle: h });
+      }
+      if (out.length % 200 === 0) { $('scanStats').textContent = 'Listing files… ' + out.length + ' found so far'; await sleep(0); }
+    }
+  } catch (e) { state.issues.push({ path: relDir || '/', why: 'stopped listing folder: ' + e.message }); }
+}
+function renderIssues() {
+  const n = state.issues.length; $('issues').hidden = n === 0; $('issueCount').textContent = n;
+  $('issueList').innerHTML = state.issues.slice(0, 500).map((i) => '<li><span class="mono">' + esc(i.path) + '</span> — ' + esc(i.why) + '</li>').join('');
+}
+async function processImage(item, file, maxSide) {
+  const canvas = await decodeImage(file, item.ext, maxSide);
+  const faces = await detectFaces(canvas);
+  for (const f of faces) f.thumb = await cropFace(canvas, f.box);
+  const thumb = faces.length ? await thumbOf(canvas, 360) : null;
+  return { faces, thumb };
+}
+async function processVideo(item, file, maxSide, nFrames) {
+  const faces = []; let thumb = null; let frames = 0;
+  for await (const { canvas, t } of videoFrames(file, nFrames, maxSide)) {
+    frames++;
+    const fs = await detectFaces(canvas);
+    for (const f of fs) { f.t = t; f.thumb = await cropFace(canvas, f.box); faces.push(f); }
+    if (fs.length && !thumb) thumb = await thumbOf(canvas, 360);
+    if (state.stopRequested) break;
+  }
+  if (!frames) throw new Error('no frames could be read');
+  return { faces, thumb };
+}
+async function scan() {
+  if (state.scanning || !state.root) return;
+  state.scanning = true; state.paused = false; state.stopRequested = false; state.issues = [];
+  $('scanStats').textContent = 'Starting…';
+  const btn = $('scanBtn'); btn.disabled = true; btn.textContent = 'Scanning…';
+  $('pauseBtn').hidden = false; $('stopBtn').hidden = false; $('pauseBtn').textContent = 'Pause';
+  const maxSide = QUALITY[$('quality').value] || QUALITY.balanced;
+  const nFrames = +$('vframes').value || 10;
+  const bar = $('scanBar'); bar.style.width = '0%';
+  let done = 0, faces = 0, reused = 0, t0 = Date.now(), list = [];
+  try {
+    if (await requestPermission(state.root.handle, 'read') !== 'granted') throw new Error('read access to the folder was not granted');
+    $('scanStats').textContent = 'Listing files…';
+    state.dirs = new Map();
+    await walk(state.root.handle, '', list);
+    const seen = new Set(list.map((i) => i.relPath));
+    for (const rel of [...state.files.keys()]) if (!seen.has(rel)) state.files.delete(rel); // gone from disk
+    $('scanStats').textContent = list.length + ' photos and videos found. Loading face model…';
+    await ensureModels();
+
+    const prep = async (item) => {
+      const file = await item.handle.getFile();
+      const row = await idb.get('faces', faceKey(state.root.id, item.relPath));
+      const fresh = row && row.size === file.size && row.mtime === file.lastModified && (row.q || 0) >= maxSide && (item.kind !== 'video' || (row.vf || 0) >= nFrames);
+      return { item, file, row: fresh ? row : null };
+    };
+    let next = list.length ? prep(list[0]) : null;
+    for (let i = 0; i < list.length; i++) {
+      while (state.paused && !state.stopRequested) await sleep(150);
+      if (state.stopRequested) break;
+      let p;
+      try { p = await next; } catch (e) { p = { item: list[i], error: e }; }
+      next = i + 1 < list.length ? prep(list[i + 1]) : null;
+      const { item, file, row } = p;
+      try {
+        if (p.error) throw p.error;
+        if (row) {
+          reused++;
+          if (row.status === 'ok') state.files.set(item.relPath, entryFromRow(row)); else { state.files.delete(item.relPath); if (row.status !== 'ok') state.issues.push({ path: item.relPath, why: row.error || row.status }); }
+          faces += row.status === 'ok' ? row.faces.length : 0;
+        } else {
+          const res = item.kind === 'image' ? await processImage(item, file, maxSide) : await processVideo(item, file, maxSide, nFrames);
+          const rec = { key: faceKey(state.root.id, item.relPath), rootId: state.root.id, relPath: item.relPath, size: file.size, mtime: file.lastModified, kind: item.kind, faces: res.faces, thumb: res.thumb, status: 'ok', q: maxSide, vf: nFrames, at: Date.now() };
+          await idb.put('faces', rec);
+          state.files.set(item.relPath, entryFromRow(rec));
+          faces += res.faces.length;
+        }
+      } catch (e) {
+        const why = (e && e.message) || String(e);
+        state.issues.push({ path: item.relPath, why });
+        state.files.delete(item.relPath);
+        const rec = { key: faceKey(state.root.id, item.relPath), rootId: state.root.id, relPath: item.relPath, size: file ? file.size : 0, mtime: file ? file.lastModified : 0, kind: item.kind, faces: [], thumb: null, status: 'error', error: why, q: maxSide, vf: nFrames, at: Date.now() };
+        try { await idb.put('faces', rec); } catch {}
+      }
+      done++;
+      bar.style.width = (100 * done / list.length).toFixed(1) + '%';
+      const secs = (Date.now() - t0) / 1000, rate = done / Math.max(secs, 0.001), eta = rate > 0 ? Math.round((list.length - done) / rate) : 0;
+      $('scanStats').textContent = done + ' / ' + list.length + ' files · ' + faces + ' faces · ' + reused + ' reused from cache' + (eta > 1 && done < list.length ? '\nabout ' + (eta > 90 ? Math.round(eta / 60) + ' min' : eta + ' s') + ' left' : '');
+      if (done % 5 === 0) { computeMatches(); renderMatches(); }
+    }
+    const stopped = state.stopRequested;
+    $('scanStats').textContent = (stopped ? 'Scan stopped. ' : 'Scan complete. ') + done + ' of ' + list.length + ' files checked · ' + faces + ' faces · ' + Math.round((Date.now() - t0) / 1000) + ' s';
+    if (!stopped) bar.style.width = '100%';
+    toast(stopped ? 'Scan stopped.' : 'Scan complete: ' + done + ' files checked.');
+  } catch (e) {
+    $('scanStats').textContent = 'Scan failed: ' + e.message;
+    toast('Scan failed: ' + e.message, true);
+  } finally {
+    state.scanning = false; state.paused = false;
+    btn.disabled = false; btn.textContent = 'Scan library';
+    $('pauseBtn').hidden = true; $('stopBtn').hidden = true;
+    renderIssues();
+    computeClusters();
+    computeMatches();
+    renderAll();
+  }
+}
+
+/* ---------------------------------------------------------------- people */
+function currentPerson() { return state.people.find((p) => p.id === state.personId) || null; }
+async function loadPeople() {
+  state.people = (await idb.all('people')).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  for (const p of state.people) { p.refs = p.refs || []; p.excluded = p.excluded || []; }
+  if (!currentPerson() && state.people.length) state.personId = state.people[0].id;
+}
+async function savePerson(p) { await idb.put('people', p); }
+async function createPerson(name) {
+  const p = { id: uid(), name: name.trim() || 'Person ' + (state.people.length + 1), refs: [], excluded: [], createdAt: Date.now() };
+  state.people.push(p); state.personId = p.id; await savePerson(p);
+  renderPeople(); computeMatches(); renderMatches();
+  return p;
+}
+async function deletePerson(p) {
+  state.people = state.people.filter((x) => x.id !== p.id);
+  await idb.del('people', p.id);
+  if (state.personId === p.id) state.personId = state.people.length ? state.people[0].id : null;
+  renderPeople(); computeMatches(); renderMatches();
+}
+async function addReferenceFiles(files) {
+  let p = currentPerson();
+  if (!p) { const nm = $('newPersonName').value.trim(); p = await createPerson(nm || 'Person 1'); $('newPersonName').value = ''; }
+  const maxSide = QUALITY.thorough;
+  for (const file of files) {
+    const ext = extOf(file.name);
+    try {
+      setModelStat('busy', 'Looking for faces in ' + file.name + '…');
+      const canvas = await decodeImage(file, ext, maxSide);
+      const faces = await detectFaces(canvas);
+      if (!faces.length) { toast('No face found in ' + file.name + '. Try a clearer, closer photo.', true); continue; }
+      for (const f of faces) f.thumb = await cropFace(canvas, f.box);
+      let chosen = faces.length === 1 ? faces : await pickFacesModal(file.name, faces, p.name);
+      if (!chosen || !chosen.length) continue;
+      for (const f of chosen) p.refs.push({ d: f.d, thumb: f.thumb, from: file.name });
+      await savePerson(p);
+      toast('Added ' + chosen.length + ' reference face' + (chosen.length > 1 ? 's' : '') + ' for ' + p.name + '.');
+    } catch (e) { toast('Could not use ' + file.name + ': ' + e.message, true); }
+  }
+  setModelStat('ok', 'Face model: ready');
+  renderPeople(); computeMatches(); renderMatches();
+}
+function pickFacesModal(fileName, faces, personName) {
+  return new Promise((resolve) => {
+    const body = document.createElement('div');
+    body.innerHTML = '<p>' + esc(fileName) + ' has ' + faces.length + ' faces. Which one is <strong>' + esc(personName) + '</strong>?</p><div class="facepick"></div>';
+    const grid = body.querySelector('.facepick');
+    faces.forEach((f) => {
+      const b = document.createElement('button'); const img = document.createElement('img'); img.src = URL.createObjectURL(f.thumb); b.appendChild(img);
+      b.onclick = () => { closeModal(); resolve([f]); };
+      grid.appendChild(b);
+    });
+    openModal('Which face?', body, [
+      { label: 'Skip this photo', cls: 'ghost', onClick: () => { closeModal(); resolve(null); } },
+    ]);
+  });
+}
+function renderPeople() {
+  const box = $('peopleList'); box.innerHTML = '';
+  for (const p of state.people) {
+    const el = document.createElement('div'); el.className = 'person' + (p.id === state.personId ? ' active' : '');
+    el.innerHTML = '<div class="hd"><span class="nm">' + esc(p.name) + '</span><span><button class="btn ghost sm" data-x>Remove</button></span></div><div class="refs"></div><div class="meta"></div>';
+    const refs = el.querySelector('.refs');
+    p.refs.forEach((r, i) => {
+      const d = document.createElement('div'); d.className = 'r';
+      const img = document.createElement('img'); img.src = URL.createObjectURL(r.thumb); d.appendChild(img);
+      const x = document.createElement('button'); x.textContent = '×'; x.title = 'Remove this reference';
+      x.onclick = async (ev) => { ev.stopPropagation(); p.refs.splice(i, 1); await savePerson(p); renderPeople(); computeMatches(); renderMatches(); };
+      d.appendChild(x); refs.appendChild(d);
+    });
+    el.querySelector('.meta').textContent = p.refs.length ? p.refs.length + ' reference face' + (p.refs.length > 1 ? 's' : '') + (p.id === state.personId ? ' · selected' : '') : 'No reference faces yet — drop photos below or pick from People found.';
+    el.onclick = () => { state.personId = p.id; renderPeople(); computeMatches(); renderMatches(); };
+    el.querySelector('[data-x]').onclick = (ev) => { ev.stopPropagation(); if (confirm('Remove ' + p.name + ' and their reference faces? (No photos are touched.)')) deletePerson(p); };
+    box.appendChild(el);
+  }
+  $('matchEmptyText').textContent = !state.root ? 'Pick a folder, add the person you\'re looking for, then scan.' : !currentPerson() || !currentPerson().refs.length ? 'Add a person with at least one reference face, then scan.' : state.files.size ? 'No files match ' + currentPerson().name + ' at this strictness.' : 'Scan the library to find matches.';
+}
+
+/* ---------------------------------------------------------------- clusters ("People found") */
+function computeClusters() {
+  const all = [];
+  for (const e of state.files.values()) e.faces.forEach((f, i) => all.push({ e, f, i }));
+  all.sort((a, b) => b.f.score - a.f.score);
+  const clusters = [];
+  for (const x of all) {
+    let best = null, bd = CLUSTER_DIST;
+    for (const c of clusters) { const d = dist(c.centroid, x.f.d); if (d < bd) { bd = d; best = c; } }
+    if (best) {
+      best.members.push(x); const n = best.members.length;
+      for (let k = 0; k < 128; k++) best.centroid[k] += (x.f.d[k] - best.centroid[k]) / n;
+      best.files.add(x.e.relPath);
+    } else clusters.push({ centroid: new Float32Array(x.f.d), members: [x], files: new Set([x.e.relPath]) });
+  }
+  clusters.sort((a, b) => b.files.size - a.files.size);
+  state.clusters = clusters;
+}
+function renderClusters() {
+  const grid = $('clusterGrid'); grid.innerHTML = '';
+  const list = state.clusters;
+  $('clusterCount').textContent = list.length;
+  $('clusterEmpty').hidden = list.length > 0;
+  const shown = list.slice(0, state.clustersShown);
+  for (const c of shown) {
+    const el = document.createElement('div'); el.className = 'cluster';
+    const rep = c.members[0];
+    el.innerHTML = '<img alt=""><div class="n">in ' + c.files.size + ' file' + (c.files.size === 1 ? '' : 's') + '</div><button class="btn sm use">This is them</button>';
+    el.querySelector('img').src = URL.createObjectURL(rep.f.thumb);
+    el.querySelector('.use').onclick = (ev) => { ev.stopPropagation(); useCluster(c); };
+    el.onclick = () => useCluster(c);
+    grid.appendChild(el);
+  }
+  $('clusterMoreRow').hidden = list.length <= state.clustersShown;
+}
+async function useCluster(c) {
+  let p = currentPerson();
+  if (!p) {
+    const nm = prompt('What is this person\'s name?', $('newPersonName').value.trim() || '');
+    if (nm === null) return;
+    p = await createPerson(nm || 'Person 1');
+  }
+  const picks = c.members.slice(0, 12);
+  for (const m of picks) p.refs.push({ d: m.f.d, thumb: m.f.thumb, from: m.e.relPath });
+  await savePerson(p);
+  toast('Added ' + picks.length + ' faces from your library to ' + p.name + '.');
+  renderPeople(); computeMatches(); renderMatches(); switchTab('matches');
+}
+
+/* ---------------------------------------------------------------- matching */
+function computeMatches() {
+  const p = currentPerson();
+  state.matches = [];
+  if (!p || !p.refs.length) { renderCounts(); return; }
+  const ex = new Set(p.excluded);
+  const refs = p.refs.map((r) => r.d);
+  for (const e of state.files.values()) {
+    if (ex.has(e.relPath) || !e.faces.length) continue;
+    let best = Infinity, idx = -1;
+    e.faces.forEach((f, i) => { for (const r of refs) { const d = dist(f.d, r); if (d < best) { best = d; idx = i; } } });
+    if (best <= state.threshold) state.matches.push({ entry: e, best, faceIdx: idx });
+  }
+  sortMatches();
+  renderCounts();
+}
+function sortMatches() {
+  const m = state.matches;
+  if (state.sort === 'path') m.sort((a, b) => a.entry.relPath.localeCompare(b.entry.relPath));
+  else if (state.sort === 'date') m.sort((a, b) => b.entry.mtime - a.entry.mtime);
+  else m.sort((a, b) => a.best - b.best);
+}
+function selectedMatches() { return state.matches.filter((m) => !state.unchecked.has(m.entry.relPath)); }
+function renderCounts() {
+  $('matchCount').textContent = state.matches.length;
+  const sel = selectedMatches();
+  const bytes = sel.reduce((s, m) => s + (m.entry.size || 0), 0);
+  $('selSummary').innerHTML = '<strong>' + sel.length + '</strong> of ' + state.matches.length + ' selected · ' + fmtBytes(bytes);
+  $('actionBar').hidden = state.matches.length === 0;
+  for (const b of $('actionBar').querySelectorAll('button')) b.disabled = sel.length === 0 || state.scanning;
+  const p = currentPerson();
+  const exn = p ? p.excluded.length : 0;
+  $('excludedNote').hidden = exn === 0;
+  $('excludedNote').innerHTML = exn + ' marked "not them" · <button class="linkbtn" id="clearEx">undo</button>';
+  const c = $('clearEx'); if (c) c.onclick = async () => { p.excluded = []; await savePerson(p); computeMatches(); renderMatches(); };
+}
+const urlCache = new Map();
+function blobUrl(key, blob) {
+  if (!blob) return '';
+  let u = urlCache.get(key); if (!u) { u = URL.createObjectURL(blob); urlCache.set(key, u); }
+  return u;
+}
+function renderMatches() {
+  renderCounts();
+  const grid = $('matchGrid'); grid.innerHTML = '';
+  $('matchEmpty').hidden = state.matches.length > 0;
+  const p = currentPerson();
+  const shown = state.matches.slice(0, state.shown);
+  for (const m of shown) {
+    const e = m.entry, on = !state.unchecked.has(e.relPath), lab = confLabel(m.best);
+    const card = document.createElement('div'); card.className = 'card' + (on ? '' : ' off');
+    card.innerHTML =
+      '<div class="th"><img alt="" loading="lazy"><input type="checkbox" class="chk"' + (on ? ' checked' : '') + '><span class="kind">' + e.kind + '</span><div class="face"><img alt=""></div></div>' +
+      '<div class="bd"><div class="path" title="' + esc(e.relPath) + '">' + esc(e.relPath) + '</div>' +
+      '<div class="chips"><span class="chip ' + lab + '">' + lab + ' · ' + m.best.toFixed(2) + '</span><span class="chip">' + fmtBytes(e.size) + '</span></div>' +
+      '<div class="acts"><button class="btn ghost sm" data-no>Not them</button><button class="btn ghost sm" data-ref>Add as reference</button></div></div>';
+    const imgs = card.querySelectorAll('img');
+    imgs[0].src = blobUrl('t:' + e.relPath, e.thumb);
+    const face = e.faces[m.faceIdx]; imgs[1].src = face && face.thumb ? blobUrl('f:' + e.relPath + ':' + m.faceIdx, face.thumb) : '';
+    const chk = card.querySelector('.chk');
+    chk.onchange = () => { if (chk.checked) state.unchecked.delete(e.relPath); else state.unchecked.add(e.relPath); card.classList.toggle('off', !chk.checked); renderCounts(); };
+    card.querySelector('[data-no]').onclick = async () => { if (!p) return; p.excluded.push(e.relPath); await savePerson(p); computeMatches(); renderMatches(); };
+    card.querySelector('[data-ref]').onclick = async () => {
+      if (!p || !face) return; p.refs.push({ d: face.d, thumb: face.thumb, from: e.relPath }); await savePerson(p);
+      toast('Added this face as a reference for ' + p.name + '.'); renderPeople(); computeMatches(); renderMatches();
+    };
+    grid.appendChild(card);
+  }
+  $('moreRow').hidden = state.matches.length <= state.shown;
+  $('moreBtn').textContent = 'Show ' + Math.min(PAGE, state.matches.length - state.shown) + ' more';
+}
+
+/* ---------------------------------------------------------------- file operations */
+async function ensureDir(base, parts) {
+  let h = base;
+  for (const part of parts) { if (!part) continue; h = await h.getDirectoryHandle(part, { create: true }); }
+  return h;
+}
+async function resolveDir(base, relDir) {
+  let h = base;
+  for (const part of relDir.split('/')) { if (!part) continue; h = await h.getDirectoryHandle(part); }
+  return h;
+}
+async function exists(dir, name) { try { await dir.getFileHandle(name); return true; } catch { return false; } }
+async function uniqueName(dir, name) {
+  if (!(await exists(dir, name))) return name;
+  const i = name.lastIndexOf('.'); const stem = i > 0 ? name.slice(0, i) : name, ext = i > 0 ? name.slice(i) : '';
+  for (let n = 1; n < 10000; n++) { const cand = stem + ' (' + n + ')' + ext; if (!(await exists(dir, cand))) return cand; }
+  throw new Error('could not find a free name for ' + name);
+}
+async function moveFile(srcDir, name, dstDir, newName) {
+  const src = await srcDir.getFileHandle(name);
+  if (typeof src.move === 'function') {
+    try { await src.move(dstDir, newName); return; } catch (e) { /* not supported for this handle; fall back to copy + delete */ }
+  }
+  const file = await src.getFile();
+  const dst = await dstDir.getFileHandle(newName, { create: true });
+  const w = await dst.createWritable();
+  try { await file.stream().pipeTo(w); } catch (e) { try { await w.abort(); } catch {} throw e; }
+  const written = await (await dstDir.getFileHandle(newName)).getFile();
+  if (written.size !== file.size) { try { await dstDir.removeEntry(newName); } catch {} throw new Error('copy came out the wrong size, original left in place'); }
+  await srcDir.removeEntry(name);
+}
+async function rekeyCache(oldRel, newRel, newDir, newName) {
+  const rootId = state.root.id;
+  try {
+    const row = await idb.get('faces', faceKey(rootId, oldRel));
+    await idb.del('faces', faceKey(rootId, oldRel));
+    if (row && newRel !== null) {
+      let size = row.size, mtime = row.mtime;
+      try { const f = await (await newDir.getFileHandle(newName)).getFile(); size = f.size; mtime = f.lastModified; } catch {}
+      await idb.put('faces', { ...row, key: faceKey(rootId, newRel), relPath: newRel, size, mtime });
+    }
+  } catch {}
+}
+async function executeAction(action, items, opts, log, progress) {
+  const root = state.root;
+  const op = { id: uid(), ts: Date.now(), rootId: root.id, rootName: root.name, action, person: currentPerson() ? currentPerson().name : '', items: [], undone: false,
+    dest: action === 'hide' ? HIDDEN_DIR : action === 'move' ? (opts.external ? opts.externalName : opts.folder) : null,
+    external: !!opts.external, extHandle: opts.external ? opts.externalHandle : null };
+  let ok = 0, failed = 0;
+  for (let i = 0; i < items.length; i++) {
+    const e = items[i];
+    const rec = { from: e.relPath, to: null, ok: false, err: null, size: e.size };
+    try {
+      const srcDir = state.dirs.get(e.dir) || await resolveDir(root.handle, e.dir);
+      if (action === 'delete') {
+        await srcDir.removeEntry(e.name);
+        await rekeyCache(e.relPath, null);
+        log('deleted  ' + e.relPath);
+      } else if (action === 'hide') {
+        const dst = await ensureDir(root.handle, [HIDDEN_DIR, ...e.dir.split('/')]);
+        const nn = await uniqueName(dst, e.name);
+        await moveFile(srcDir, e.name, dst, nn);
+        rec.to = joinPath(joinPath(HIDDEN_DIR, e.dir), nn);
+        await rekeyCache(e.relPath, rec.to, dst, nn);
+        log('hid      ' + e.relPath + '  →  ' + rec.to);
+      } else if (action === 'move') {
+        if (!opts.external && e.dir === opts.folder) { rec.ok = true; rec.skipped = true; log('already there: ' + e.relPath); ok++; op.items.push(rec); continue; }
+        const dst = opts.external ? opts.externalHandle : await ensureDir(root.handle, opts.folder.split('/'));
+        const nn = await uniqueName(dst, e.name);
+        await moveFile(srcDir, e.name, dst, nn);
+        rec.to = opts.external ? nn : joinPath(opts.folder, nn);
+        if (opts.external) await rekeyCache(e.relPath, null); else await rekeyCache(e.relPath, rec.to, dst, nn);
+        log('moved    ' + e.relPath + '  →  ' + (opts.external ? opts.externalName + '/' : '') + rec.to);
+      }
+      rec.ok = true; ok++;
+      state.files.delete(e.relPath); state.unchecked.delete(e.relPath);
+    } catch (err) {
+      rec.err = (err && err.message) || String(err); failed++;
+      log('FAILED   ' + e.relPath + '  (' + rec.err + ')');
+    }
+    op.items.push(rec);
+    progress(i + 1, items.length);
+    if (i % 3 === 0) await sleep(0);
+  }
+  await idb.put('ops', op);
+  state.ops.unshift(op);
+  computeMatches(); computeClusters(); renderAll();
+  return { ok, failed, op };
+}
+async function restoreOp(op) {
+  const root = state.root;
+  if (!root || root.id !== op.rootId) return toast('Open the library "' + op.rootName + '" first to restore this.', true);
+  if (await requestPermission(root.handle, 'readwrite') !== 'granted') return toast('Write access was not granted.', true);
+  let base = root.handle;
+  if (op.external) {
+    if (!op.extHandle) return toast('The destination folder of this move is unknown, so it cannot be restored automatically.', true);
+    if (await requestPermission(op.extHandle, 'readwrite') !== 'granted') return toast('Access to the destination folder was not granted.', true);
+    base = op.extHandle;
+  }
+  const items = op.items.filter((it) => it.ok && it.to && !it.skipped);
+  const body = document.createElement('div');
+  body.innerHTML = '<p>Restoring <strong>' + items.length + '</strong> file' + (items.length === 1 ? '' : 's') + ' to where they were.</p><div class="oplog"></div>';
+  const logEl = body.querySelector('.oplog'); const log = (s) => { logEl.textContent += s + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+  openModal('Restoring…', body, []);
+  let ok = 0, failed = 0;
+  for (const it of items) {
+    try {
+      const srcDir = await resolveDir(base, dirOf(it.to));
+      const dstDir = await ensureDir(root.handle, dirOf(it.from).split('/'));
+      const nn = await uniqueName(dstDir, baseOf(it.from));
+      await moveFile(srcDir, baseOf(it.to), dstDir, nn);
+      it.restoredTo = joinPath(dirOf(it.from), nn); ok++;
+      if (!op.external) await rekeyCache(it.to, it.restoredTo, dstDir, nn);
+      log('restored ' + it.to + '  →  ' + it.restoredTo);
+    } catch (e) { failed++; log('FAILED   ' + it.to + '  (' + e.message + ')'); }
+  }
+  op.undone = true; op.restoredAt = Date.now();
+  await idb.put('ops', op);
+  let reindexed = 0;
+  if (!op.external) {
+    for (const it of items) {
+      if (!it.restoredTo) continue;
+      try { const row = await idb.get('faces', faceKey(root.id, it.restoredTo)); if (row && row.status === 'ok') { state.files.set(row.relPath, entryFromRow(row)); reindexed++; } } catch {}
+    }
+  }
+  setModalFoot([{ label: 'Done', cls: 'primary', onClick: closeModal }]);
+  $('modalTitle').textContent = failed ? 'Restored ' + ok + ', ' + failed + ' failed' : 'Restored ' + ok + ' file' + (ok === 1 ? '' : 's');
+  if (reindexed < ok) toast('Some restored files will show up again after the next scan.');
+  computeClusters(); computeMatches(); renderAll();
+}
+async function loadOps() {
+  state.ops = state.root ? (await idb.all('ops', 'rootId', state.root.id)).sort((a, b) => b.ts - a.ts) : [];
+  renderOps();
+}
+function renderOps() {
+  $('opCount').textContent = state.ops.length;
+  $('opsEmpty').hidden = state.ops.length > 0;
+  const box = $('opsList'); box.innerHTML = '';
+  for (const op of state.ops) {
+    const n = op.items.filter((i) => i.ok && !i.skipped).length, f = op.items.filter((i) => !i.ok).length;
+    const verb = op.action === 'delete' ? 'Deleted' : op.action === 'hide' ? 'Hid' : 'Moved';
+    const el = document.createElement('div'); el.className = 'op' + (op.undone ? ' undone' : '');
+    el.innerHTML = '<div class="t"><div class="h">' + verb + ' ' + n + ' file' + (n === 1 ? '' : 's') + (op.person ? ' of ' + esc(op.person) : '') + (op.dest ? ' → <span class="mono">' + esc(op.dest) + '</span>' : '') + (f ? ' · ' + f + ' failed' : '') + '</div><div class="s">' + esc(fmtDate(op.ts)) + (op.undone ? ' · restored ' + esc(fmtDate(op.restoredAt)) : op.action === 'delete' ? ' · permanent' : '') + '</div></div>';
+    const det = document.createElement('button'); det.className = 'btn ghost sm'; det.textContent = 'Details';
+    det.onclick = () => {
+      const b = document.createElement('div'); b.innerHTML = '<div class="filelist"></div>';
+      b.querySelector('.filelist').innerHTML = op.items.map((i) => '<div>' + (i.ok ? (i.skipped ? '· ' : '✓ ') : '✗ ') + esc(i.from) + (i.to ? ' → ' + esc(i.to) : '') + (i.err ? ' — ' + esc(i.err) : '') + '</div>').join('');
+      openModal(verb + ' ' + n + ' files', b, [{ label: 'Close', cls: 'ghost', onClick: closeModal }]);
+    };
+    el.appendChild(det);
+    if (op.action !== 'delete' && !op.undone && n > 0) {
+      const r = document.createElement('button'); r.className = 'btn sm'; r.textContent = 'Restore';
+      r.onclick = () => restoreOp(op); el.appendChild(r);
+    }
+    box.appendChild(el);
+  }
+}
+
+/* ---------------------------------------------------------------- confirmation flow */
+function openModal(title, bodyEl, buttons) {
+  $('modalTitle').textContent = title;
+  const mb = $('modalBody'); mb.innerHTML = ''; mb.appendChild(bodyEl);
+  setModalFoot(buttons);
+  $('modal').hidden = false;
+}
+function setModalFoot(buttons) {
+  const mf = $('modalFoot'); mf.innerHTML = '';
+  for (const b of buttons) {
+    if (b.left) { const s = document.createElement('span'); s.className = 'left'; s.innerHTML = b.left; mf.appendChild(s); continue; }
+    const el = document.createElement('button'); el.className = 'btn ' + (b.cls || ''); el.textContent = b.label; el.disabled = !!b.disabled; if (b.id) el.id = b.id;
+    el.onclick = b.onClick; mf.appendChild(el);
+  }
+}
+function closeModal() { $('modal').hidden = true; $('modalBody').innerHTML = ''; }
+
+function openConfirm(action) {
+  const items = selectedMatches().map((m) => m.entry);
+  if (!items.length) return;
+  const p = currentPerson();
+  const bytes = items.reduce((s, e) => s + (e.size || 0), 0);
+  const n = items.length, plural = n === 1 ? '' : 's';
+  const body = document.createElement('div');
+  const opts = { folder: 'Face Sweep/' + (p ? p.name.replace(/[\\/:*?"<>|]/g, '-') : 'Person'), external: false, externalHandle: null, externalName: '' };
+  let html = '<p><strong>' + n + ' file' + plural + '</strong> (' + fmtBytes(bytes) + ') matched ' + (p ? '<strong>' + esc(p.name) + '</strong>' : 'the selected person') + ' and ' + (n === 1 ? 'is' : 'are') + ' selected.</p>';
+  if (action === 'delete') {
+    html += '<div class="warn"><strong>This permanently erases ' + n + ' file' + plural + ' from your disk.</strong> They do <em>not</em> go to the Recycle Bin or Trash, and Face Sweep cannot bring them back. If you might want them later, use <em>Hide</em> or <em>Move</em> instead — both can be reversed from History.</div>';
+  } else if (action === 'hide') {
+    html += '<div class="note">Files move into a folder named <span class="mono">' + HIDDEN_DIR + '</span> at the top of your library, keeping their sub-folder layout. Photo apps, Finder and Explorer (with hidden files off) won\'t show a dot-folder like that. You can put everything back from the <em>History</em> tab.<br><br><em>Windows tip:</em> Explorer shows dot-folders by default. Right-click the folder → Properties → tick Hidden if you want it out of sight there too.</div>';
+  } else {
+    html += '<div class="note">Files move into one folder (they are not copied, so nothing is duplicated). You can put everything back from the <em>History</em> tab.</div>' +
+      '<div class="field"><label>Destination inside your library</label><div class="row"><input type="text" id="destFolder" value="' + esc(opts.folder) + '"><button class="btn ghost sm" id="destPick">Choose another folder…</button></div><div class="s" id="destNote" style="font-size:11px;color:var(--muted);margin-top:4px"></div></div>';
+  }
+  html += '<div class="filelist">' + items.slice(0, 2000).map((e) => '<div>' + esc(e.relPath) + '</div>').join('') + (n > 2000 ? '<div>… and ' + (n - 2000) + ' more</div>' : '') + '</div>';
+  if (action === 'delete') html += '<label class="ck"><input type="checkbox" id="ack"> I understand these ' + n + ' file' + plural + ' will be erased permanently and cannot be recovered.</label>';
+  body.innerHTML = html;
+  const verb = action === 'delete' ? 'Delete' : action === 'hide' ? 'Hide' : 'Move';
+  const confirmId = 'confirmGo';
+  openModal(verb + ' ' + n + ' file' + plural + '?', body, [
+    { left: 'Your browser will also ask once for permission to change files in this folder.' },
+    { label: 'Cancel', cls: 'ghost', onClick: closeModal },
+    { label: verb + ' ' + n + ' file' + plural, cls: action === 'delete' ? 'danger' : 'primary', id: confirmId, disabled: action === 'delete', onClick: () => go() },
+  ]);
+  if (action === 'delete') $('ack').onchange = (ev) => { $(confirmId).disabled = !ev.target.checked; };
+  if (action === 'move') {
+    $('destFolder').oninput = (ev) => { opts.folder = ev.target.value.replace(/^\/+|\/+$/g, '').replace(/\\/g, '/') || 'Face Sweep'; opts.external = false; $('destNote').textContent = ''; };
+    $('destPick').onclick = async () => {
+      try {
+        const h = await window.showDirectoryPicker({ mode: 'readwrite', id: 'face-sweep-dest' });
+        opts.external = true; opts.externalHandle = h; opts.externalName = h.name || 'chosen folder';
+        $('destFolder').value = opts.externalName; $('destFolder').disabled = true;
+        $('destNote').textContent = 'Files will move to the folder you just picked (outside the library). Restoring still works while you keep this browser profile.';
+      } catch (e) { if (e && e.name !== 'AbortError') toast(e.message, true); }
+    };
+  }
+  async function go() {
+    if (action === 'delete' && !$('ack').checked) return;
+    if (action === 'move' && !opts.external && !opts.folder) return toast('Enter a destination folder name.', true);
+    const perm = await requestPermission(state.root.handle, 'readwrite');
+    if (perm !== 'granted') { toast('Write access was not granted, nothing was changed.', true); return; }
+    const runBody = document.createElement('div');
+    runBody.innerHTML = '<div class="progress"><div class="bar" id="opBar"></div></div><div class="oplog" id="opLog"></div>';
+    openModal(verb.replace(/e$/, '') + 'ing ' + n + ' file' + plural + '…', runBody, []);
+    const logEl = runBody.querySelector('#opLog'); const log = (s) => { logEl.textContent += s + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+    const bar = runBody.querySelector('#opBar');
+    const res = await executeAction(action, items, opts, log, (d, t) => { bar.style.width = (100 * d / t).toFixed(1) + '%'; });
+    const done = verb === 'Delete' ? 'Deleted' : verb === 'Hide' ? 'Hid' : 'Moved';
+    $('modalTitle').textContent = res.failed ? done + ' ' + res.ok + ', ' + res.failed + ' failed' : done + ' ' + res.ok + ' file' + (res.ok === 1 ? '' : 's');
+    const foot = [{ label: 'Done', cls: 'primary', onClick: closeModal }];
+    if (action !== 'delete') foot.unshift({ left: 'Changed your mind? Use Restore in the History tab.' });
+    setModalFoot(foot);
+    toast(res.failed ? 'Finished with ' + res.failed + ' failure' + (res.failed === 1 ? '' : 's') + '. See the log.' : done + ' ' + res.ok + ' file' + (res.ok === 1 ? '' : 's') + '.', !!res.failed);
+  }
+}
+
+/* ---------------------------------------------------------------- UI glue */
+function switchTab(name) {
+  for (const t of document.querySelectorAll('.tab')) t.classList.toggle('active', t.dataset.tab === name);
+  for (const v of document.querySelectorAll('.view')) v.hidden = v.id !== 'view-' + name;
+}
+function renderAll() { renderPeople(); renderMatches(); renderClusters(); renderOps(); }
+function showHelp() {
+  const b = document.createElement('div');
+  b.innerHTML =
+    '<p><strong>Everything stays on your computer.</strong> Face Sweep opens the folder you choose, looks at each photo and video with an on-device face model (downloaded once from a public CDN), and never uploads your files anywhere.</p>' +
+    '<p><strong>How matching works.</strong> Every face becomes a 128-number fingerprint. A file matches when one of its faces is close enough to one of the person\'s reference faces. The strictness slider is that distance. Results are cached, so re-scanning only looks at new or changed files, and switching person or strictness is instant.</p>' +
+    '<p><strong>Videos</strong> are checked by sampling frames spread across the clip. Adjust how many under Scan settings.</p>' +
+    '<p><strong>Before anything changes on disk</strong> you see the exact list of files and confirm. Delete is permanent (no Recycle Bin), so it needs an extra tick. Hide and Move can be reversed from History.</p>' +
+    '<p><strong>Tips.</strong> Give the person 3–6 reference faces from different angles. Use "Add as reference" on a correct match to improve recall. Use "Not them" on a wrong one so it never comes back. Start on Strict, then loosen and review what appears.</p>' +
+    '<p><strong>Limits.</strong> Works in Chromium browsers (Chrome, Edge, Brave). HEIC photos are supported; some video formats (for example HEVC on older machines) can\'t be decoded by the browser and are listed under Skipped files. Copied moves get a new "modified" date; the photo\'s own EXIF date is untouched.</p>';
+  openModal('How Face Sweep works', b, [{ label: 'Close', cls: 'ghost', onClick: closeModal }]);
+}
+function bind() {
+  $('helpBtn').onclick = showHelp;
+  $('pickBtn').onclick = async () => {
+    try {
+      const h = await window.showDirectoryPicker({ mode: 'read', id: 'face-sweep-library' });
+      await useRoot(h);
+      ensureModels().catch(() => {});
+    } catch (e) { if (e && e.name !== 'AbortError') toast(e.message, true); }
+  };
+  $('vframes').oninput = (ev) => { $('vframesVal').textContent = ev.target.value; };
+  $('newPersonBtn').onclick = async () => { const nm = $('newPersonName').value.trim(); if (!nm) return $('newPersonName').focus(); await createPerson(nm); $('newPersonName').value = ''; };
+  $('newPersonName').onkeydown = (ev) => { if (ev.key === 'Enter') $('newPersonBtn').click(); };
+  $('refBrowse').onclick = () => $('refInput').click();
+  $('refInput').onchange = async (ev) => { const files = [...ev.target.files]; ev.target.value = ''; if (files.length) await addReferenceFiles(files); };
+  const drop = $('refDrop');
+  drop.ondragover = (ev) => { ev.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = () => drop.classList.remove('over');
+  drop.ondrop = async (ev) => { ev.preventDefault(); drop.classList.remove('over'); const files = [...ev.dataTransfer.files].filter((f) => f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name)); if (files.length) await addReferenceFiles(files); };
+  $('scanBtn').onclick = scan;
+  $('pauseBtn').onclick = () => { state.paused = !state.paused; $('pauseBtn').textContent = state.paused ? 'Resume' : 'Pause'; };
+  $('stopBtn').onclick = () => { state.stopRequested = true; state.paused = false; };
+  $('threshold').oninput = (ev) => { state.threshold = +ev.target.value; $('thrVal').textContent = state.threshold.toFixed(2); computeMatches(); renderMatches(); };
+  $('sort').onchange = (ev) => { state.sort = ev.target.value; sortMatches(); renderMatches(); };
+  $('selAll').onclick = () => { state.unchecked.clear(); renderMatches(); };
+  $('selNone').onclick = () => { for (const m of state.matches) state.unchecked.add(m.entry.relPath); renderMatches(); };
+  $('selStrong').onclick = () => { for (const m of state.matches) { if (confLabel(m.best) === 'strong') state.unchecked.delete(m.entry.relPath); else state.unchecked.add(m.entry.relPath); } renderMatches(); };
+  $('moreBtn').onclick = () => { state.shown += PAGE; renderMatches(); };
+  $('clusterMoreBtn').onclick = () => { state.clustersShown += 60; renderClusters(); };
+  for (const t of document.querySelectorAll('.tab')) t.onclick = () => switchTab(t.dataset.tab);
+  for (const b of $('actionBar').querySelectorAll('button')) b.onclick = () => openConfirm(b.dataset.action);
+  window.addEventListener('beforeunload', (ev) => { if (state.scanning) { ev.preventDefault(); ev.returnValue = ''; } });
+}
+async function init() {
+  const ok = typeof window.showDirectoryPicker === 'function' && window.isSecureContext;
+  if (!ok) {
+    $('gate').hidden = false;
+    $('gateWhy').textContent = !window.isSecureContext ? 'This page must be opened over https:// or from localhost.' : 'window.showDirectoryPicker is not available in this browser.';
+    return;
+  }
+  bind();
+  await loadPeople();
+  await loadRoots();
+  renderAll();
+}
+init();
+})();
+</script>
+</body>
+</html>

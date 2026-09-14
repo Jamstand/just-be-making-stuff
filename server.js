@@ -1125,6 +1125,11 @@ app.post('/ai/photo-edit', async (req, res) => {
 
 app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', 'photo-ai.html')));
 
+// Face Sweep at /face-sweep: finds one person across a local photo/video
+// library and moves, hides or deletes their files after confirmation. Fully
+// client-side (File System Access API + on-device face model); no API needed.
+app.get('/face-sweep', (req, res) => res.sendFile(path.join(__dirname, 'public', 'face-sweep.html')));
+
 // ── Claude Design (Max ed.) ──────────────────────────────────────────────────
 //
 // A small single-player clone of the iteration loop at claude.ai/design:
