@@ -2,7 +2,7 @@
   "id": "face-sweep-phone",
   "name": "Face Sweep",
   "short_name": "Face Sweep",
-  "description": "Find every photo of one person on your phone. Runs on-device; nothing is uploaded.",
+  "description": "Find one person in the photos you pick, on-device. Nothing is uploaded.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

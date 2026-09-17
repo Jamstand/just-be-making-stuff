@@ -259,7 +259,7 @@
     <div class="progress"><div class="bar" id="scanBar"></div></div>
     <div class="scan-stats mono" id="scanStats">No photos chosen yet.</div>
     <details class="issues" id="issues" hidden>
-      <summary>Skipped (<span id="issueCount">0</span>)</summary>
+      <summary>Skipped files (<span id="issueCount">0</span>)</summary>
       <ul id="issueList"></ul>
     </details>
     <details class="settings">
@@ -428,7 +428,7 @@ async function createPerson(name) {
 }
 async function deletePerson(p) {
   state.people = state.people.filter((x) => x.id !== p.id); await idb.del('people', p.id);
-  if (state.personId === p.id) state.personId = state.people.length ? state.people[0].id : null;
+  if (state.personId === p.id) { state.personId = state.people.length ? state.people[0].id : null; lsSet('facesweep-phone-person', state.personId || ''); }
   renderPeople(); computeMatches(); renderResults();
 }
 async function addReferenceFiles(files) {
@@ -542,12 +542,12 @@ async function check() {
       done++;
       bar.style.width = (100 * done / list.length).toFixed(1) + '%';
       const secs = (Date.now() - t0) / 1000, rate = done / Math.max(secs, 0.001), eta = Math.round((list.length - done) / rate);
-      $('scanStats').textContent = done + ' / ' + list.length + ' · ' + faces + ' faces' + (reused ? ' · ' + reused + ' remembered' : '') + (eta > 1 && done < list.length ? '\nabout ' + (eta > 90 ? Math.round(eta / 60) + ' min' : eta + ' s') + ' left · keep this screen open' : '');
+      $('scanStats').textContent = done + ' / ' + list.length + ' · ' + faces + ' face' + (faces === 1 ? '' : 's') + (reused ? ' · ' + reused + ' remembered' : '') + (eta > 1 && done < list.length ? '\nabout ' + (eta > 90 ? Math.round(eta / 60) + ' min' : eta + ' s') + ' left · keep this screen open' : '');
       if (done % 4 === 0) { computeMatches(); renderResults(); }
       await sleep(0);
     }
     const stopped = state.stopRequested;
-    $('scanStats').textContent = (stopped ? 'Stopped. ' : 'Done. ') + done + ' of ' + list.length + ' checked · ' + faces + ' faces · ' + Math.round((Date.now() - t0) / 1000) + ' s';
+    $('scanStats').textContent = (stopped ? 'Stopped. ' : 'Done. ') + done + ' of ' + list.length + ' checked · ' + faces + ' face' + (faces === 1 ? '' : 's') + ' · ' + Math.round((Date.now() - t0) / 1000) + ' s';
     if (!stopped) bar.style.width = '100%';
       lsSet(LAST_KEY, JSON.stringify({ personId: state.personId, sigs: list.slice(0, done).map((e) => e.sig), at: Date.now() }));
   } catch (e) {
@@ -606,12 +606,14 @@ function renderResults() {
   if (sel.map((m) => m.entry.sig).join(',') !== shareKey) $('shareBtn').textContent = 'Share…';
   $('copyBtn').disabled = sel.length === 0;
   const exn = p.excludedPhone.length; $('excludedNote').hidden = exn === 0;
-  $('excludedNote').innerHTML = exn + ' marked "not them" · <button class="linkbtn" id="clearEx">undo</button>';
+  $('excludedNote').innerHTML = exn + ' marked "not them" · <button class="linkbtn" id="clearEx">clear all</button>';
   const cx = $('clearEx'); if (cx) cx.onclick = () => { p.excludedPhone = []; computeMatches(); renderResults(); savePerson(p); };
   const grid = $('grid'); grid.innerHTML = '';
   const matchBySig = new Map(state.matches.map((m) => [m.entry.sig, m]));
   const items = state.view === 'all' ? checked.map((e) => ({ entry: e, m: matchBySig.get(e.sig) || null })) : state.matches.map((m) => ({ entry: m.entry, m }));
-  $('matchEmpty').hidden = !(state.view === 'matches' && n === 0 && p.refs.length);
+  const anyFaces = checked.some((e) => e.faces.length);
+  $('matchEmpty').hidden = !(state.view === 'matches' && n === 0 && p.refs.length && !state.checking);
+  $('matchEmpty').innerHTML = anyFaces ? '<h4>No matches at this strictness.</h4>Drag the slider toward Loose, or add more reference photos.' : '<h4>No faces were found in these photos.</h4>Try a batch with clearer, closer faces.';
   for (const { entry: e, m } of items) {
     const on = m && !state.unchecked.has(e.sig);
     const cell = document.createElement('div'); cell.className = 'cell' + (m ? (on ? ' on' : ' off') : '');
@@ -702,7 +704,7 @@ function showList(intro) {
 async function copyList() {
   const sel = selectedMatches(); if (!sel.length) return;
   const text = listText(sel);
-  try { await navigator.clipboard.writeText(text); toast('Copied ' + sel.length + ' line' + (sel.length === 1 ? '' : 's') + ' to the clipboard.'); }
+  try { await navigator.clipboard.writeText(text); toast('Copied the list (' + sel.length + ' file' + (sel.length === 1 ? '' : 's') + ') to the clipboard.'); }
   catch { showList('Copy isn\'t available here, so here is the list:'); }
 }
 
@@ -710,7 +712,7 @@ async function copyList() {
 function computeClusters() { state.clusters = clusterFaces(state.batch.filter((e) => e.status === 'ok'), (e) => e.sig); }
 function renderClusters() {
   const list = state.clusters; $('peopleFound').hidden = list.length === 0;
-  $('clusterCount').textContent = list.length ? list.length + ' people' : '';
+  $('clusterCount').textContent = list.length ? (list.length === 1 ? '1 person' : list.length + ' people') : '';
   const grid = $('clusterGrid'); grid.innerHTML = '';
   for (const c of list.slice(0, 40)) {
     const el = document.createElement('div'); el.className = 'cluster';
@@ -725,7 +727,7 @@ async function useCluster(c) {
   if (!p) { const nm = prompt('What is this person\'s name?', $('newPersonName').value.trim() || ''); if (nm === null) return; p = await createPerson(nm || 'Person 1'); }
   const picks = c.members.slice(0, 10);
   for (const m of picks) p.refs.push({ d: m.f.d, thumb: m.f.thumb, from: m.e.name });
-  await savePerson(p); toast('Added ' + picks.length + ' faces to ' + p.name + '.');
+  await savePerson(p); toast('Added ' + picks.length + ' face' + (picks.length === 1 ? '' : 's') + ' to ' + p.name + '.');
   renderPeople(); computeMatches(); renderResults(); $('results').scrollIntoView({ behavior: 'smooth' });
 }
 
@@ -772,7 +774,8 @@ function bind() {
   $('viewerNo').onclick = async () => { const p = currentPerson(); if (!viewing || !p) return; p.excludedPhone.push(viewing.e.sig); await savePerson(p); closeViewer(); computeMatches(); renderResults(); toast('Marked as not ' + p.name + '.'); };
   $('viewerRef').onclick = async () => {
     const p = currentPerson(); if (!viewing || !p) return;
-    const e = viewing.e; const f = e.faces[viewing.m ? viewing.m.faceIdx : 0]; if (!f) return;
+    const e = viewing.e; let f = viewing.m ? e.faces[viewing.m.faceIdx] : null;
+    if (!f) { const chosen = e.faces.length === 1 ? e.faces : await pickFacesModal(e.name, e.faces, p.name); if (!chosen || !chosen.length) return; f = chosen[0]; }
     p.refs.push({ d: f.d, thumb: f.thumb, from: e.name }); await savePerson(p); closeViewer();
     toast('Added as a reference for ' + p.name + '.'); renderPeople(); computeMatches(); renderResults();
   };

@@ -36,7 +36,7 @@ Windows tip: Explorer shows dot-folders by default. Right-click `.facesweep-hidd
 
 ## Phone: how to use it
 
-Open the phone page in Safari (iPhone) or Chrome (Android) and add it to your home screen if you like (iPhone: Share → Add to Home Screen; Android: ⋮ → Add to Home screen).
+Open the phone page in Safari (iPhone) or Chrome (Android) and add it to your home screen if you like (iPhone: Share → Add to Home Screen; Android: ⋮ → Install and create shortcut, or Add to Home screen on older Chrome). On iPhone the installed app keeps its own separate memory, so add the person again there.
 
 **The fast way is built into your phone.** The Photos app already groups faces, sees your whole library, and can delete, hide or make an album in a few taps with its own confirmations. The phone page opens with those exact steps for your phone:
 
