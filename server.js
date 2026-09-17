@@ -1128,7 +1128,7 @@ app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', '
 // Face Sweep at /face-sweep: finds one person across a local photo/video
 // library and moves, hides or deletes their files after confirmation. Fully
 // client-side (File System Access API + on-device face model); no API needed.
-app.get('/face-sweep', (req, res) => res.sendFile(path.join(__dirname, 'public', 'face-sweep.html')));
+app.get('/face-sweep', (req, res) => req.originalUrl.startsWith('/face-sweep/') ? res.redirect(301, '/face-sweep') : res.sendFile(path.join(__dirname, 'public', 'face-sweep.html'))); // a trailing slash would break the page's relative URLs
 app.get('/face-sweep-phone', (req, res) => res.redirect(301, '/face-sweep-phone/'));
 
 // ── Claude Design (Max ed.) ──────────────────────────────────────────────────

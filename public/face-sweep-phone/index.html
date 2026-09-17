@@ -36,7 +36,7 @@
   }
   button { font-family: inherit; font-size: inherit; }
   [hidden] { display: none !important; }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
 
   .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 0 10px; border-bottom: 1px solid var(--ink); }
   .brand { display: flex; align-items: baseline; gap: 8px; }
@@ -67,7 +67,7 @@
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
   input[type=text] { flex: 1; min-width: 0; border: 1px solid var(--hair); background: var(--ivory); border-radius: 10px; padding: 10px 12px; font-family: inherit; font-size: 16px; color: var(--ink); }
   input[type=text]:focus { outline: none; border-color: var(--coral); }
-  select { border: 1px solid var(--hair); background: var(--ivory); border-radius: 10px; padding: 8px 10px; font-family: inherit; font-size: 14px; color: var(--ink); }
+  select { border: 1px solid var(--hair); background: var(--ivory); border-radius: 10px; padding: 8px 10px; font-family: inherit; font-size: 16px; color: var(--ink); }
   details.settings { margin-top: 12px; font-size: 13px; }
   details.settings summary { cursor: pointer; color: var(--muted); }
   details.settings label { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -140,7 +140,7 @@
   .cluster .n { font-size: 11px; color: var(--muted); }
   .cluster .use { margin-top: 6px; }
 
-  .actionbar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--cream); border-top: 1px solid var(--ink); padding: 10px 16px calc(10px + var(--sab)); z-index: 30; }
+  .actionbar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--cream); border-top: 1px solid var(--ink); padding: 10px max(16px, env(safe-area-inset-right)) calc(10px + var(--sab)) max(16px, env(safe-area-inset-left)); z-index: 30; }
   .actionbar .in { max-width: 640px; margin: 0 auto; display: flex; gap: 8px; align-items: center; }
   .actionbar .sel { flex: 1; font-size: 14px; min-width: 0; }
   .actionbar .sel strong { font-weight: 600; }
@@ -201,13 +201,13 @@
         <li>Tap <b>Select</b> (top right). If <b>Select All</b> appears at the top left, tap it. Otherwise slide your finger across the photos to select them in runs.</li>
         <li>Then choose one:
           <ul>
-            <li><b>Delete:</b> tap the trash icon, then <b>Delete</b>. They wait in <b>Recently Deleted</b> for 30 days, so a mistake can be undone.</li>
+            <li><b>Delete:</b> tap the trash icon and confirm. They wait in <b>Recently Deleted</b> for 30 days, so a mistake can be undone.</li>
             <li><b>Hide:</b> tap <b>…</b>, then <b>Hide</b>. They move to the <b>Hidden</b> collection (under Utilities), locked with Face ID.</li>
-            <li><b>Separate album:</b> tap <b>…</b>, then <b>Add to Album</b>, then <b>New Album</b>. (iOS 17: tap the Share icon, then <b>Add to Album</b>.)</li>
+            <li><b>Separate album:</b> tap <b>…</b> (on iOS 26, the Share icon), then <b>Add to Album</b>, then create a new album.</li>
           </ul>
         </li>
       </ol>
-      <p class="note">Deleting from a person's page deletes from your whole library (and iCloud). If a photo is wrongly tagged, select it and tap <b>…</b> → <b>This is Not [name]</b> instead. If the same person shows up as two faces, open People &amp; Pets, tap <b>Edit</b>, select both, then <b>…</b> → <b>Merge</b>.</p>
+      <p class="note">Deleting from a person's page deletes from your whole library (and iCloud). If a photo is wrongly tagged, open or select it and tap <b>…</b> → <b>This is Not [name]</b> instead. If the same person shows up as two faces, open People &amp; Pets, tap <b>Edit</b> (older: <b>Select</b>), pick both, then <b>Merge</b>.</p>
     </details>
     <details id="g-android">
       <summary>Android: Google Photos</summary>
@@ -216,19 +216,19 @@
         <li>Touch and hold the first photo, then drag your finger down the grid to select a run, or tap the others. There is no Select all.</li>
         <li>Then choose one:
           <ul>
-            <li><b>Delete:</b> tap <b>Trash</b> (bottom), then <b>Move to trash</b>. Trash keeps them for at least 30 days.</li>
-            <li><b>Hide:</b> tap <b>⋮</b> (top right), then <b>Archive</b>: gone from the main grid, still in albums and search. For real hiding tap <b>Add to</b> (bottom), then <b>Move to Locked Folder</b>: gone from everywhere, behind your screen lock (set it up once under Collections → Locked).</li>
-            <li><b>Separate album:</b> tap <b>Add to</b>, then <b>Album</b>, then <b>New album</b>. Even easier: open any album, tap <b>⋮</b> → <b>Options</b> → <b>Add</b>, pick the person's face, and Google Photos keeps that album filled with their photos by itself.</li>
+            <li><b>Delete:</b> tap <b>Trash</b> (bottom) and confirm. Trash keeps them for 30 days.</li>
+            <li><b>Hide:</b> tap <b>⋮</b> (top right), then <b>Archive</b>: gone from the main grid, still in albums and search. For real hiding tap <b>Add to</b> (bottom), then <b>Move to Locked Folder</b>: gone from everywhere, behind your screen lock (set it up once under Collections → Locked). To delete or share them later, move them out of the Locked Folder first.</li>
+            <li><b>Separate album:</b> tap <b>Add to album</b> (under <b>Add to</b> in newer versions) and give it a title. Even easier: open any album, tap <b>⋮</b> → <b>Options</b> → <b>Add</b>, pick the person's face, and Google Photos keeps that album filled with their photos by itself.</li>
           </ul>
         </li>
       </ol>
-      <p class="note">No faces showing? Tap your profile picture → <b>Photos settings</b> → <b>Privacy</b> → turn on <b>Face Groups</b>. Google doesn't offer it in every region.</p>
+      <p class="note">No faces showing? Tap your profile picture → <b>Photos settings</b> → <b>Privacy</b> → turn on <b>Face Groups</b>, then give it time to group. Google doesn't offer it in every region.</p>
     </details>
     <details id="g-samsung">
       <summary>Samsung Gallery</summary>
       <ol>
         <li>Open <b>Gallery</b>, tap <b>Collections</b> (older phones: <b>Albums</b>), scroll to <b>People and pets</b> and tap the person. Missing? Turn on <b>Face recognition</b> in Gallery's settings (Menu → Settings) and give it time to scan.</li>
-        <li>Touch and hold a photo, then tap <b>All</b> at the top left.</li>
+        <li>Touch and hold a photo, then tap the others (or <b>All</b> at the top, where offered).</li>
         <li>Tap <b>Delete</b> → <b>Move to Trash</b> (kept 30 days), or tap <b>⋮</b> for <b>Move to Secure Folder</b> (hide) or <b>Create album</b>.</li>
       </ol>
     </details>
@@ -355,7 +355,7 @@
 (() => {
 'use strict';
 const C = window.FaceSweepCore;
-const { extOf, kindOf, dist, confLabel, idb, faceKey, ensureModels, detectFaces, decodeImage, cropFace, processImage, processVideo, photoDate, bestMatch, clusterFaces, isIOS, isAndroid } = C;
+const { extOf, kindOf, dist, confLabel, idb, faceKey, ensureModels, modelsReady, detectFaces, decodeImage, cropFace, processImage, processVideo, mediaDate, bestMatch, clusterFaces, isIOS, isAndroid, isPermanentError } = C;
 const ROOT = 'phone';
 const QUALITY = { fast: 800, balanced: 1024, thorough: 1400 };
 const LAST_KEY = 'facesweep-phone-last';
@@ -377,8 +377,14 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) 
 function fmtBytes(n) { if (!n) return '0 B'; const u = ['B','KB','MB','GB']; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i === 0 ? n : n.toFixed(n >= 10 ? 0 : 1)) + ' ' + u[i]; }
 function fmtDate(d) { if (!d) return ''; const x = d instanceof Date ? d : new Date(d); if (isNaN(x)) return ''; return x.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) + ', ' + x.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); }
 function toast(msg, bad) { const el = document.createElement('div'); el.className = 'toast' + (bad ? ' bad' : ''); el.textContent = msg; $('toasts').appendChild(el); setTimeout(() => el.remove(), bad ? 7000 : 3500); }
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+// One object URL per Blob while it is on screen; all are revoked when a new batch replaces the old one.
 const urlCache = new Map();
-function blobUrl(key, blob) { if (!blob) return ''; let u = urlCache.get(key); if (!u) { u = URL.createObjectURL(blob); urlCache.set(key, u); } return u; }
+function blobUrl(_key, blob) { if (!blob) return ''; let u = urlCache.get(blob); if (!u) { u = URL.createObjectURL(blob); urlCache.set(blob, u); } return u; }
+function revokeAllUrls() { for (const u of urlCache.values()) { try { URL.revokeObjectURL(u); } catch {} } urlCache.clear(); }
+// Phone pickers report the hand-over time as the file's modified time; only trust it when it is clearly older than that.
+const dateOf = (e) => e.date || (e.mtime && (Date.now() - e.mtime) > 6 * 3600 * 1000 ? e.mtime : null);
 function setModelStat(cls, text) { $('modelStat').className = 'stat ' + cls; $('modelText').textContent = text; }
 C.setModelStatusHandler(setModelStat);
 // Cache key from content, not the modified time: phones can hand over the same photo
@@ -392,7 +398,6 @@ async function sigOf(file) {
     return file.size + '|' + [...new Uint8Array(h)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
   } catch { return file.name + '|' + file.size + '|' + file.lastModified; }
 }
-const isTransient = (why) => /timed out|took too long|timeout/i.test(why || '');
 const isStandalone = () => (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
 
 /* ---------------------------------------------------------------- modal */
@@ -409,15 +414,15 @@ function closeModal() { $('modal').hidden = true; $('modalBody').innerHTML = '';
 function currentPerson() { return state.people.find((p) => p.id === state.personId) || null; }
 async function loadPeople() {
   state.people = (await idb.all('people')).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  for (const p of state.people) { p.refs = p.refs || []; p.excluded = p.excluded || []; }
-  const saved = localStorage.getItem('facesweep-phone-person');
+  for (const p of state.people) { p.refs = p.refs || []; p.excluded = p.excluded || []; p.excludedPhone = p.excludedPhone || []; }
+  const saved = lsGet('facesweep-phone-person');
   if (saved && state.people.some((p) => p.id === saved)) state.personId = saved;
   if (!currentPerson() && state.people.length) state.personId = state.people[0].id;
 }
 async function savePerson(p) { await idb.put('people', p); }
 async function createPerson(name) {
-  const p = { id: uid(), name: name.trim() || 'Person ' + (state.people.length + 1), refs: [], excluded: [], createdAt: Date.now() };
-  state.people.push(p); state.personId = p.id; await savePerson(p);
+  const p = { id: uid(), name: name.trim() || 'Person ' + (state.people.length + 1), refs: [], excluded: [], excludedPhone: [], createdAt: Date.now() };
+  state.people.push(p); state.personId = p.id; lsSet('facesweep-phone-person', p.id); await savePerson(p);
   renderPeople(); computeMatches(); renderResults();
   return p;
 }
@@ -443,7 +448,7 @@ async function addReferenceFiles(files) {
       toast('Added a reference face for ' + p.name + '.');
     } catch (e) { toast('Could not use ' + file.name + ': ' + e.message, true); }
   }
-  setModelStat('ok', 'Face model: ready');
+  if (modelsReady()) setModelStat('ok', 'Face model: ready');
   renderPeople(); computeMatches(); renderResults();
 }
 function pickFacesModal(fileName, faces, personName) {
@@ -451,7 +456,7 @@ function pickFacesModal(fileName, faces, personName) {
     const body = document.createElement('div');
     body.innerHTML = '<p>' + esc(fileName) + ' has ' + faces.length + ' faces. Which one is <strong>' + esc(personName) + '</strong>?</p><div class="facepick"></div>';
     const grid = body.querySelector('.facepick');
-    faces.forEach((f) => { const b = document.createElement('button'); const img = document.createElement('img'); img.src = URL.createObjectURL(f.thumb); b.appendChild(img); b.onclick = () => { closeModal(); resolve([f]); }; grid.appendChild(b); });
+    faces.forEach((f) => { const b = document.createElement('button'); const img = document.createElement('img'); img.src = blobUrl(null, f.thumb); b.appendChild(img); b.onclick = () => { closeModal(); resolve([f]); }; grid.appendChild(b); });
     openModal('Which face?', body, [{ label: 'Skip this photo', cls: 'ghost', onClick: () => { closeModal(); resolve(null); } }]);
   });
 }
@@ -463,13 +468,13 @@ function renderPeople() {
     const refs = el.querySelector('.refs');
     p.refs.forEach((r, i) => {
       const d = document.createElement('div'); d.className = 'r';
-      const img = document.createElement('img'); img.src = URL.createObjectURL(r.thumb); d.appendChild(img);
+      const img = document.createElement('img'); img.src = blobUrl(null, r.thumb); d.appendChild(img);
       const x = document.createElement('button'); x.textContent = '×';
       x.onclick = async (ev) => { ev.stopPropagation(); p.refs.splice(i, 1); await savePerson(p); renderPeople(); computeMatches(); renderResults(); };
       d.appendChild(x); refs.appendChild(d);
     });
     el.querySelector('.meta').textContent = p.refs.length ? p.refs.length + ' reference face' + (p.refs.length > 1 ? 's' : '') + (p.id === state.personId ? ' · selected' : '') : 'No reference faces yet.';
-    el.onclick = () => { state.personId = p.id; localStorage.setItem('facesweep-phone-person', p.id); renderPeople(); computeMatches(); renderResults(); };
+    el.onclick = () => { state.personId = p.id; lsSet('facesweep-phone-person', p.id); renderPeople(); computeMatches(); renderResults(); };
     el.querySelector('[data-x]').onclick = (ev) => { ev.stopPropagation(); if (confirm('Remove ' + p.name + ' and their reference faces? No photos are touched.')) deletePerson(p); };
     box.appendChild(el);
   }
@@ -477,9 +482,13 @@ function renderPeople() {
 }
 
 /* ---------------------------------------------------------------- batch */
+let pickSeq = 0;
 async function onPick(files) {
+  const token = ++pickSeq;
   $('scanStats').textContent = 'Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '…'; $('checkBtn').disabled = true;
   const list = await Promise.all([...files].map(async (file) => ({ file, sig: await sigOf(file), name: file.name, size: file.size, mtime: file.lastModified, kind: kindOf(file), faces: [], thumb: null, date: null, status: 'pending' })));
+  if (token !== pickSeq) return; // a newer pick superseded this one
+  revokeAllUrls(); renderPeople();
   const skipped = list.filter((e) => !e.kind).length;
   state.batch = list.filter((e) => e.kind);
   state.fromMemory = false; state.issues = []; state.matches = []; state.unchecked.clear(); state.clusters = [];
@@ -514,11 +523,12 @@ async function check() {
       try {
         const key = faceKey(ROOT, e.sig);
         const row = await idb.get('faces', key);
-        const fresh = row && (row.status === 'ok' ? ((row.q || 0) >= maxSide && (e.kind !== 'video' || (row.vf || 0) >= nFrames)) : !isTransient(row.error));
+        const fresh = row && (row.status === 'ok' ? ((row.q || 0) >= maxSide && (e.kind !== 'video' || (row.vf || 0) >= nFrames)) : isPermanentError(row.error));
         if (fresh) { entryFromRow(e, row); reused++; if (row.status !== 'ok') state.issues.push({ name: e.name, why: row.error || row.status }); }
         else {
-          const date = e.kind === 'image' ? await photoDate(e.file) : null;
+          const date = await mediaDate(e.file);
           const res = e.kind === 'image' ? await processImage(e.file, maxSide, { alwaysThumb: true, thumbMax: 320 }) : await processVideo(e.file, maxSide, nFrames, { alwaysThumb: true, thumbMax: 320, shouldStop: () => state.stopRequested });
+          if (res.partial) break; // stopped mid-video: leave it pending rather than caching a half result
           const rec = { key, rootId: ROOT, relPath: e.sig, name: e.name, size: e.size, mtime: e.mtime, kind: e.kind, faces: res.faces, thumb: res.thumb, date, status: 'ok', q: maxSide, vf: nFrames, at: Date.now() };
           await idb.put('faces', rec); entryFromRow(e, rec);
         }
@@ -539,7 +549,7 @@ async function check() {
     const stopped = state.stopRequested;
     $('scanStats').textContent = (stopped ? 'Stopped. ' : 'Done. ') + done + ' of ' + list.length + ' checked · ' + faces + ' faces · ' + Math.round((Date.now() - t0) / 1000) + ' s';
     if (!stopped) bar.style.width = '100%';
-    try { localStorage.setItem(LAST_KEY, JSON.stringify({ personId: state.personId, sigs: list.slice(0, done).map((e) => e.sig), at: Date.now() })); } catch {}
+      lsSet(LAST_KEY, JSON.stringify({ personId: state.personId, sigs: list.slice(0, done).map((e) => e.sig), at: Date.now() }));
   } catch (e) {
     $('scanStats').textContent = 'Check failed: ' + e.message; toast('Check failed: ' + e.message, true);
   } finally {
@@ -550,7 +560,7 @@ async function check() {
   }
 }
 async function restoreLast() {
-  let last = null; try { last = JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch {}
+  let last = null; try { last = JSON.parse(lsGet(LAST_KEY) || 'null'); } catch {}
   if (!last || !last.sigs || !last.sigs.length) return;
   const batch = [];
   for (const sig of last.sigs) {
@@ -560,7 +570,7 @@ async function restoreLast() {
   }
   if (!batch.length) return;
   state.batch = batch; state.fromMemory = true;
-  if (last.personId && state.people.some((p) => p.id === last.personId)) state.personId = last.personId;
+  if (last.personId && state.people.some((p) => p.id === last.personId)) { state.personId = last.personId; renderPeople(); }
   $('batchName').textContent = batch.length + ' from last time';
   $('scanStats').textContent = 'Showing your last check (' + batch.length + ' files). Choose photos to check a new batch.';
   $('scanBar').style.width = '100%';
@@ -573,7 +583,7 @@ let shareKey = '', shareCursor = 0, forceBatches = false;
 function computeMatches() {
   const p = currentPerson(); state.matches = [];
   if (!p || !p.refs.length) return;
-  const ex = new Set(p.excluded); const refs = p.refs.map((r) => r.d);
+  const ex = new Set(p.excludedPhone); const refs = p.refs.map((r) => r.d);
   for (const e of state.batch) {
     if (e.status !== 'ok' || !e.faces.length || ex.has(e.sig)) continue;
     const { best, idx } = bestMatch(e.faces, refs);
@@ -595,9 +605,9 @@ function renderResults() {
   $('shareBtn').disabled = sel.length === 0 || state.fromMemory;
   if (sel.map((m) => m.entry.sig).join(',') !== shareKey) $('shareBtn').textContent = 'Share…';
   $('copyBtn').disabled = sel.length === 0;
-  const exn = p.excluded.length; $('excludedNote').hidden = exn === 0;
+  const exn = p.excludedPhone.length; $('excludedNote').hidden = exn === 0;
   $('excludedNote').innerHTML = exn + ' marked "not them" · <button class="linkbtn" id="clearEx">undo</button>';
-  const cx = $('clearEx'); if (cx) cx.onclick = () => { p.excluded = []; computeMatches(); renderResults(); savePerson(p); };
+  const cx = $('clearEx'); if (cx) cx.onclick = () => { p.excludedPhone = []; computeMatches(); renderResults(); savePerson(p); };
   const grid = $('grid'); grid.innerHTML = '';
   const matchBySig = new Map(state.matches.map((m) => [m.entry.sig, m]));
   const items = state.view === 'all' ? checked.map((e) => ({ entry: e, m: matchBySig.get(e.sig) || null })) : state.matches.map((m) => ({ entry: m.entry, m }));
@@ -619,7 +629,7 @@ function renderResults() {
 function toggle(sig) { if (state.unchecked.has(sig)) state.unchecked.delete(sig); else state.unchecked.add(sig); renderResults(); }
 function listText(sel) {
   const p = currentPerson();
-  return (p ? p.name + ' — ' : '') + sel.length + ' file' + (sel.length === 1 ? '' : 's') + '\n' + sel.map((m) => m.entry.name + ' — ' + (fmtDate(m.entry.date || m.entry.mtime) || 'unknown date') + ' — ' + confLabel(m.best)).join('\n');
+  return (p ? p.name + ' — ' : '') + sel.length + ' file' + (sel.length === 1 ? '' : 's') + '\n' + sel.map((m) => m.entry.name + ' — ' + (fmtDate(dateOf(m.entry)) || 'date unknown') + ' — ' + confLabel(m.best)).join('\n');
 }
 
 /* ---------------------------------------------------------------- viewer */
@@ -629,10 +639,12 @@ function openViewer(e, m) {
   viewing = { e, m };
   const box = $('viewerImg'); box.innerHTML = '';
   if (e.file) viewerUrl = URL.createObjectURL(e.file);
-  if (e.file && e.kind === 'video') { const v = document.createElement('video'); v.controls = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.src = viewerUrl; box.appendChild(v); }
-  else { const img = document.createElement('img'); img.alt = e.name; img.src = viewerUrl || blobUrl('t:' + e.sig, e.thumb); box.appendChild(img); }
+  const showThumb = () => { box.innerHTML = ''; const img = document.createElement('img'); img.alt = e.name; img.src = blobUrl(null, e.thumb); box.appendChild(img); };
+  if (e.file && e.kind === 'video') { const v = document.createElement('video'); v.controls = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.src = viewerUrl; v.onerror = showThumb; box.appendChild(v); }
+  else if (viewerUrl) { const img = document.createElement('img'); img.alt = e.name; img.src = viewerUrl; img.onerror = showThumb; box.appendChild(img); } // browsers that can't render the original (HEIC on Chrome) fall back to the thumbnail
+  else showThumb();
   $('viewerName').textContent = e.name;
-  $('viewerMeta').textContent = [fmtDate(e.date || e.mtime) || 'unknown date', fmtBytes(e.size), m ? confLabel(m.best) + ' match (' + m.best.toFixed(2) + ')' : (e.faces.length ? e.faces.length + ' face' + (e.faces.length === 1 ? '' : 's') + ', not a match' : 'no faces found')].join(' · ');
+  $('viewerMeta').textContent = [fmtDate(dateOf(e)) || 'date unknown', fmtBytes(e.size), m ? confLabel(m.best) + ' match (' + m.best.toFixed(2) + ')' : (e.faces.length ? e.faces.length + ' face' + (e.faces.length === 1 ? '' : 's') + ', not a match' : 'no faces found')].join(' · ');
   $('viewerNo').hidden = !m; $('viewerRef').hidden = !e.faces.length; $('viewerToggle').hidden = !m;
   $('viewerToggle').textContent = m && !state.unchecked.has(e.sig) ? 'Unselect' : 'Select';
   $('viewer').hidden = false;
@@ -665,8 +677,12 @@ async function shareMatches() {
   const all = sel.map((m) => m.entry.file);
   let files = null;
   if (shareCursor === 0 && !forceBatches && navigator.canShare({ files: all })) files = all;
-  else files = pickShareBatch(all, shareCursor);
-  if (!files) return showList('This browser can\'t share these files. Here is the list instead:');
+  else {
+    const skipped = [];
+    while (shareCursor < all.length && !(files = pickShareBatch(all, shareCursor))) { skipped.push(all[shareCursor].name); shareCursor++; }
+    if (skipped.length) toast(skipped.length + ' file' + (skipped.length === 1 ? '' : 's') + ' can\'t be shared by this browser: ' + skipped.slice(0, 3).join(', ') + (skipped.length > 3 ? '…' : ''), true);
+    if (!files) { shareCursor = 0; shareKey = ''; $('shareBtn').textContent = 'Share…'; if (skipped.length === sel.length) showList('This browser can\'t share these files. Here is the list instead:'); return; }
+  }
   try {
     await navigator.share({ files }); // files only: adding a title makes some iOS targets treat the share as text
     shareCursor += files.length;
@@ -699,7 +715,7 @@ function renderClusters() {
   for (const c of list.slice(0, 40)) {
     const el = document.createElement('div'); el.className = 'cluster';
     el.innerHTML = '<img alt=""><div class="n">in ' + c.files.size + ' file' + (c.files.size === 1 ? '' : 's') + '</div><button class="btn sm use">This is them</button>';
-    el.querySelector('img').src = URL.createObjectURL(c.members[0].f.thumb);
+    el.querySelector('img').src = blobUrl(null, c.members[0].f.thumb);
     el.querySelector('.use').onclick = () => useCluster(c);
     grid.appendChild(el);
   }
@@ -719,16 +735,16 @@ function showHelp() {
   b.innerHTML = '<p><strong>Everything stays on your phone.</strong> The photos you pick are read by this page only, checked with an on-device face model (downloaded once, about 12 MB), and never uploaded.</p>' +
     '<p><strong>What it can\'t do.</strong> A web page isn\'t allowed to delete, hide or move photos in your camera roll. That\'s why the Photos-app steps are at the top: they do the actual deleting, with your phone\'s own confirmation. Face Sweep tells you which photos to pick.</p>' +
     '<p><strong>Tips.</strong> Give the person 3–6 reference faces from different angles. Tap a result to see its date and file name, then find it in Photos by searching the date. Use "Not them" on a wrong match so it stays out. Start on Strict, then loosen.</p>' +
-    '<p><strong>Memory.</strong> Results are remembered on this phone, so checking the same photos again is instant, and the last check reopens with the app. Clear the site data in your browser to wipe it.</p>' +
+    '<p><strong>Memory.</strong> Results are remembered on this phone, so checking the same photos again is instant, and the last check reopens with the app. Safari forgets a website\'s data after seven days without a visit; adding Face Sweep to your Home Screen keeps it. Clear the site data in your browser to wipe it.</p>' +
     '<p><a href="../face-sweep.html" style="color:var(--coral-ink)">Face Sweep for desktop</a> scans whole folders on a computer and can move, hide or delete files itself.</p>';
   openModal('How Face Sweep works', b, [{ label: 'Close', cls: 'ghost', onClick: closeModal }]);
 }
 function renderInstallHint() {
   if (isStandalone() || !(isIOS() || isAndroid())) return;
-  if (localStorage.getItem('facesweep-phone-installhint') === 'no') return;
+  if (lsGet('facesweep-phone-installhint') === 'no') return;
   $('installHint').hidden = false;
   $('installText').innerHTML = (isIOS() ? '<strong>Keep it on your Home Screen:</strong> tap Share, then <em>Add to Home Screen</em> (on iOS 26, leave <em>Open as Web App</em> on). The installed app keeps its own memory, so add the person again there.' : '<strong>Keep it on your Home screen:</strong> tap the <span class="mono">⋮</span> menu, then <em>Install and create shortcut</em> (older Chrome: <em>Add to Home screen</em>).') + ' <button class="linkbtn" id="hideInstall">Dismiss</button>';
-  $('hideInstall').onclick = () => { localStorage.setItem('facesweep-phone-installhint', 'no'); $('installHint').hidden = true; };
+  $('hideInstall').onclick = () => { lsSet('facesweep-phone-installhint', 'no'); $('installHint').hidden = true; };
 }
 
 /* ---------------------------------------------------------------- glue */
@@ -753,7 +769,7 @@ function bind() {
   $('copyBtn').onclick = copyList;
   $('viewerClose').onclick = closeViewer;
   $('viewerToggle').onclick = () => { if (!viewing) return; toggle(viewing.e.sig); $('viewerToggle').textContent = state.unchecked.has(viewing.e.sig) ? 'Select' : 'Unselect'; };
-  $('viewerNo').onclick = async () => { const p = currentPerson(); if (!viewing || !p) return; p.excluded.push(viewing.e.sig); await savePerson(p); closeViewer(); computeMatches(); renderResults(); toast('Marked as not ' + p.name + '.'); };
+  $('viewerNo').onclick = async () => { const p = currentPerson(); if (!viewing || !p) return; p.excludedPhone.push(viewing.e.sig); await savePerson(p); closeViewer(); computeMatches(); renderResults(); toast('Marked as not ' + p.name + '.'); };
   $('viewerRef').onclick = async () => {
     const p = currentPerson(); if (!viewing || !p) return;
     const e = viewing.e; const f = e.faces[viewing.m ? viewing.m.faceIdx : 0]; if (!f) return;

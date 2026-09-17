@@ -8,8 +8,10 @@
 
 const LIB = {
   faceapi: 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js',
+  faceapiIntegrity: 'sha384-M5nePoB6/w/a9JhtegEibSLGiJy/+QMZZMfvcxjWVCQW/HPwrQ7i21V/Px/8AyVA',
   models:  'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model/',
   heic:    'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js',
+  heicIntegrity: 'sha384-OTofQ0MEeiSgh62havBcemCIK0gqj809wX6UA0uPISNMRnR6NZyCdGzX3SbLrgwL',
   // Must match the TensorFlow.js version bundled in face-api (see its dist/tfjs.version.js).
   wasm:    'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/',
 };
@@ -33,13 +35,17 @@ function withTimeout(p, ms, what) {
   return Promise.race([p, timeout]).finally(() => clearTimeout(t));
 }
 function canvasToBlob(c, type, q) { return new Promise((res, rej) => c.toBlob((b) => b ? res(b) : rej(new Error('toBlob failed')), type, q)); }
-function loadScript(src) {
+function loadScript(src, integrity) {
   return new Promise((res, rej) => {
     const s = document.createElement('script'); s.src = src; s.async = true; s.crossOrigin = 'anonymous';
+    if (integrity) s.integrity = integrity;
     s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src));
     document.head.appendChild(s);
   });
 }
+// Decode failures that will not change on retry. Anything else (timeouts, a script that
+// failed to download, a lost GPU context) deserves another attempt next time.
+const isPermanentError = (why) => /cannot decode|no video track|no frames could be read|empty image|not supported/i.test(why || '');
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const isAndroid = () => /Android/i.test(navigator.userAgent);
 
@@ -82,7 +88,7 @@ function ensureModels() {
   if (modelPromise) return modelPromise;
   modelPromise = (async () => {
     say('busy', 'Face model: downloading (about 12 MB, once)…');
-    if (!global.faceapi) await loadScript(LIB.faceapi);
+    if (!global.faceapi) await loadScript(LIB.faceapi, LIB.faceapiIntegrity);
     // Without WebGL (some phones, privacy browsers) TensorFlow.js falls back to the
     // WebAssembly backend. The face-api bundle doesn't ship its .wasm files, so point
     // it at the matching official package, then wait for the backend to initialise.
@@ -132,7 +138,7 @@ function decodeViaImg(blob, maxSide) {
   })(), 60000, 'image took too long to decode');
 }
 async function heicToJpeg(file) {
-  if (!global.heic2any) await loadScript(LIB.heic);
+  if (!global.heic2any) await loadScript(LIB.heic, LIB.heicIntegrity);
   const out = await global.heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
   return Array.isArray(out) ? out[0] : out;
 }
@@ -179,13 +185,15 @@ async function* videoFrames(file, nFrames, maxSide) {
   } finally {
     v.removeAttribute('src'); try { v.load(); } catch {}
     URL.revokeObjectURL(url);
+    c.width = c.height = 0;
   }
 }
 async function thumbOf(canvas, max) {
   const scale = Math.min(1, max / Math.max(canvas.width, canvas.height));
   const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(canvas.width * scale)); c.height = Math.max(1, Math.round(canvas.height * scale));
   c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
-  return canvasToBlob(c, 'image/jpeg', 0.8);
+  const b = await canvasToBlob(c, 'image/jpeg', 0.8); c.width = c.height = 0;
+  return b;
 }
 async function cropFace(canvas, box) {
   const W = canvas.width, H = canvas.height;
@@ -194,7 +202,8 @@ async function cropFace(canvas, box) {
   const c = document.createElement('canvas'); c.width = c.height = 112;
   const ctx = c.getContext('2d'); ctx.fillStyle = '#E3DFD0'; ctx.fillRect(0, 0, 112, 112);
   ctx.drawImage(canvas, cx - size / 2, cy - size / 2, size, size, 0, 0, 112, 112);
-  return canvasToBlob(c, 'image/jpeg', 0.8);
+  const b = await canvasToBlob(c, 'image/jpeg', 0.8); c.width = c.height = 0;
+  return b;
 }
 // One-shot processing of an image file: faces (with descriptors and face crops) and a thumbnail.
 async function processImage(file, maxSide, opts) {
@@ -202,20 +211,23 @@ async function processImage(file, maxSide, opts) {
   const faces = await detectFaces(canvas);
   for (const f of faces) f.thumb = await cropFace(canvas, f.box);
   const thumb = faces.length || (opts && opts.alwaysThumb) ? await thumbOf(canvas, (opts && opts.thumbMax) || 360) : null;
-  return { faces, thumb, width: canvas.width, height: canvas.height };
+  const out = { faces, thumb, width: canvas.width, height: canvas.height };
+  canvas.width = canvas.height = 0; // release the backing store now rather than at GC time (matters on iOS)
+  return out;
 }
 // Same for a video: faces from sampled frames, thumbnail from the first frame with a face.
+// If opts.shouldStop() interrupts the sampling, the result is flagged partial and must not be cached.
 async function processVideo(file, maxSide, nFrames, opts) {
-  const faces = []; let thumb = null; let frames = 0;
+  const faces = []; let thumb = null; let frames = 0; let partial = false;
   for await (const { canvas, t } of videoFrames(file, nFrames, maxSide)) {
     frames++;
     const fs = await detectFaces(canvas);
     for (const f of fs) { f.t = t; f.thumb = await cropFace(canvas, f.box); faces.push(f); }
     if (!thumb && (fs.length || (opts && opts.alwaysThumb))) thumb = await thumbOf(canvas, (opts && opts.thumbMax) || 360);
-    if (opts && opts.shouldStop && opts.shouldStop()) break;
+    if (opts && opts.shouldStop && opts.shouldStop()) { partial = true; break; }
   }
   if (!frames) throw new Error('no frames could be read');
-  return { faces, thumb };
+  return { faces, thumb, partial };
 }
 
 /* ---------------------------------------------------------------- photo date (EXIF) */
@@ -223,9 +235,11 @@ async function processVideo(file, maxSide, nFrames, opts) {
 // decoding the image. Returns a Date, or null if there is no usable EXIF date.
 function parseExifDate(s) {
   const m = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(s || '');
-  if (!m || m[1] === '0000') return null;
-  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
-  return isNaN(d.getTime()) ? null : d;
+  if (!m) return null;
+  const [Y, M, D, h, mi, sec] = m.slice(1).map(Number);
+  if (Y < 1900 || Y > 2200 || M < 1 || M > 12 || D < 1 || D > 31 || h > 23 || mi > 59 || sec > 60) return null;
+  const d = new Date(Y, M - 1, D, h, mi, Math.min(sec, 59));
+  return isNaN(d.getTime()) || d.getMonth() !== M - 1 ? null : d;
 }
 function tiffDate(dv, tiff) {
   const le = dv.getUint16(tiff) === 0x4949;
@@ -261,9 +275,22 @@ function jpegDate(dv) {
   }
   return null;
 }
+// ISO base media (HEIF, MP4, MOV) box walker with an iteration cap so a crafted file can't stall the page.
+const fourccAt = (dv, p) => String.fromCharCode(dv.getUint8(p), dv.getUint8(p + 1), dv.getUint8(p + 2), dv.getUint8(p + 3));
+function boxesOf(dv, start, end) {
+  const out = []; let p = start;
+  while (p + 8 <= end && out.length < 4096) {
+    let size = dv.getUint32(p); const type = fourccAt(dv, p + 4); let hdr = 8;
+    if (size === 1) { if (p + 16 > end) break; size = Number(dv.getBigUint64(p + 8)); hdr = 16; } else if (size === 0) size = end - p;
+    if (!(size >= hdr)) break;
+    out.push({ type, start: p, body: p + hdr, end: Math.min(end, p + size) }); p += size;
+  }
+  return out;
+}
+const ISO_IMAGE_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1', 'heif', 'avif', 'avis']);
 function heifDate(dv) {
-  const fourcc = (p) => String.fromCharCode(dv.getUint8(p), dv.getUint8(p + 1), dv.getUint8(p + 2), dv.getUint8(p + 3));
-  const boxes = (start, end) => { const out = []; let p = start; while (p + 8 <= end) { let size = dv.getUint32(p); const type = fourcc(p + 4); let hdr = 8; if (size === 1) { size = Number(dv.getBigUint64(p + 8)); hdr = 16; } else if (size === 0) size = end - p; if (size < hdr) break; out.push({ type, start: p, body: p + hdr, end: Math.min(end, p + size) }); p += size; } return out; };
+  const fourcc = (p) => fourccAt(dv, p);
+  const boxes = (start, end) => boxesOf(dv, start, end);
   const top = boxes(0, dv.byteLength);
   if (!top.some((b) => b.type === 'ftyp')) return null;
   const meta = top.find((b) => b.type === 'meta'); if (!meta) return null;
@@ -282,13 +309,16 @@ function heifDate(dv) {
   const b0 = dv.getUint8(p), b1 = dv.getUint8(p + 1); p += 2;
   const offSize = b0 >> 4, lenSize = b0 & 15, baseSize = b1 >> 4, idxSize = lv >= 1 ? (b1 & 15) : 0;
   const itemCount = lv < 2 ? dv.getUint16(p) : dv.getUint32(p); p += lv < 2 ? 2 : 4;
-  const rd = (size) => { let v = 0; if (size === 4) v = dv.getUint32(p); else if (size === 8) v = Number(dv.getBigUint64(p)); p += size; return v; };
+  if (itemCount > 20000) return null;
+  const rd = (size) => { let v = 0; if (p + size > dv.byteLength) throw new RangeError('iloc'); if (size === 4) v = dv.getUint32(p); else if (size === 8) v = Number(dv.getBigUint64(p)); p += size; return v; };
   for (let i = 0; i < itemCount; i++) {
+    if (p + 8 > dv.byteLength) return null;
     const id = lv < 2 ? dv.getUint16(p) : dv.getUint32(p); p += lv < 2 ? 2 : 4;
     let method = 0; if (lv >= 1) { method = dv.getUint16(p) & 15; p += 2; }
     p += 2; // data_reference_index
     const base = rd(baseSize);
     const extents = dv.getUint16(p); p += 2;
+    if (extents > 1000) return null;
     let first = null;
     for (let k = 0; k < extents; k++) { if (idxSize) rd(idxSize); const off = rd(offSize), len = rd(lenSize); if (k === 0) first = { off, len }; }
     if (id === exifId) {
@@ -301,13 +331,47 @@ function heifDate(dv) {
   }
   return null;
 }
-async function photoDate(file) {
+// MP4 / MOV: moov/mvhd creation_time (seconds since 1904-01-01 UTC). Camera apps usually
+// put moov at the end of the file, so the tail is scanned when the head has no moov.
+function mvhdDate(dv, moov) {
+  const mvhd = boxesOf(dv, moov.body, moov.end).find((b) => b.type === 'mvhd');
+  if (!mvhd || mvhd.body + 12 > dv.byteLength) return null;
+  const ver = dv.getUint8(mvhd.body);
+  const secs = ver === 1 ? (mvhd.body + 12 <= dv.byteLength ? Number(dv.getBigUint64(mvhd.body + 4)) : 0) : dv.getUint32(mvhd.body + 4);
+  if (!secs) return null;
+  const d = new Date((secs - 2082844800) * 1000);
+  return d.getFullYear() > 1971 && d.getFullYear() < 2200 ? d : null;
+}
+function mp4HeadDate(dv) {
+  const top = boxesOf(dv, 0, dv.byteLength);
+  const moov = top.find((b) => b.type === 'moov');
+  return moov ? mvhdDate(dv, moov) : null;
+}
+function mp4TailDate(dv) {
+  for (let i = dv.byteLength - 8; i >= 4; i--) {
+    if (fourccAt(dv, i) !== 'moov') continue;
+    const size = dv.getUint32(i - 4);
+    if (size >= 8 && i - 4 + size === dv.byteLength) { const d = mvhdDate(dv, { body: i + 4, end: dv.byteLength }); if (d) return d; }
+  }
+  return null;
+}
+function isoBrand(dv) { const top = boxesOf(dv, 0, Math.min(dv.byteLength, 64)); const f = top.find((b) => b.type === 'ftyp'); return f && f.body + 4 <= dv.byteLength ? fourccAt(dv, f.body) : null; }
+// Capture date of a photo or video from its own metadata, without decoding it. Returns a Date or null.
+async function mediaDate(file) {
   try {
-    const dv = new DataView(await file.slice(0, 512 * 1024).arrayBuffer());
-    if (dv.byteLength < 12) return null;
-    return jpegDate(dv) || heifDate(dv);
+    const head = new DataView(await file.slice(0, 512 * 1024).arrayBuffer());
+    if (head.byteLength < 12) return null;
+    const d = jpegDate(head) || heifDate(head) || mp4HeadDate(head);
+    if (d) return d;
+    const brand = isoBrand(head);
+    if (brand && !ISO_IMAGE_BRANDS.has(brand) && file.size > head.byteLength) {
+      const tail = new DataView(await file.slice(Math.max(0, file.size - 2 * 1024 * 1024)).arrayBuffer());
+      return mp4TailDate(tail);
+    }
+    return null;
   } catch { return null; }
 }
+const photoDate = mediaDate;
 
 /* ---------------------------------------------------------------- matching & clustering */
 function bestMatch(faces, refs) {
@@ -337,11 +401,11 @@ function clusterFaces(items, idOf) {
 
 global.FaceSweepCore = {
   LIB, IMAGE_EXT, VIDEO_EXT, MIN_FACE_SCORE, CLUSTER_DIST,
-  extOf, kindOf, dist, confLabel, withTimeout, canvasToBlob, loadScript, isIOS, isAndroid,
+  extOf, kindOf, dist, confLabel, withTimeout, canvasToBlob, loadScript, isIOS, isAndroid, isPermanentError,
   openDB, idb, faceKey,
   setModelStatusHandler, ensureModels, modelsReady, detectFaces,
   decodeImage, videoFrames, thumbOf, cropFace, processImage, processVideo,
-  photoDate, parseExifDate,
+  photoDate, mediaDate, parseExifDate,
   bestMatch, clusterFaces,
 };
 })(window);

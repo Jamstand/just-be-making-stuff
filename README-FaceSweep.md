@@ -40,9 +40,9 @@ Open the phone page in Safari (iPhone) or Chrome (Android) and add it to your ho
 
 **The fast way is built into your phone.** The Photos app already groups faces, sees your whole library, and can delete, hide or make an album in a few taps with its own confirmations. The phone page opens with those exact steps for your phone:
 
-- **iPhone:** Photos → People & Pets (Collections tab on iOS 26+, swipe up on iOS 18, Albums tab on iOS 17) → the person → Select → Select All (or drag across photos) → trash icon, or **…** → Hide, or **…** → Add to Album. Deleted photos wait 30 days in Recently Deleted.
-- **Android, Google Photos:** Collections → People & pets → the face → touch-and-hold and drag to select → Trash, or ⋮ → Archive (still in albums), or Add to → Move to Locked Folder (hidden everywhere), or Add to → Album. Trash keeps items at least 30 days. Any album can also auto-collect a person: open the album → ⋮ → Options → Add → pick the face.
-- **Samsung Gallery:** Collections → People and pets → the person → touch-and-hold → All → Delete / ⋮ → Move to Secure Folder / Create album.
+- **iPhone:** Photos → People & Pets (Collections tab on iOS 26+, swipe up on iOS 18, Albums tab on iOS 17) → the person → Select → Select All (or drag across photos) → trash icon, or **…** → Hide, or **…** → Add to Album (Share → Add to Album on iOS 26). Deleted photos wait 30 days in Recently Deleted.
+- **Android, Google Photos:** Collections → People & pets → the face → touch-and-hold and drag to select → Trash, or ⋮ → Archive (still in albums), or Add to → Move to Locked Folder (hidden everywhere; move them out again before deleting), or Add to album. Trash keeps items 30 days. Any album can also auto-collect a person: open the album → ⋮ → Options → Add → pick the face.
+- **Samsung Gallery:** Collections → People and pets → the person → touch-and-hold to select → Delete / ⋮ → Move to Secure Folder / Create album.
 
 **Face Sweep for phones** is the second opinion, or the tool for someone your Photos app hasn't grouped:
 
