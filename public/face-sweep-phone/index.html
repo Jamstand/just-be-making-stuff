@@ -727,7 +727,7 @@ function renderInstallHint() {
   if (isStandalone() || !(isIOS() || isAndroid())) return;
   if (localStorage.getItem('facesweep-phone-installhint') === 'no') return;
   $('installHint').hidden = false;
-  $('installText').innerHTML = (isIOS() ? '<strong>Keep it on your Home Screen:</strong> tap Share <span class="mono">⎋</span> below, then <em>Add to Home Screen</em>.' : '<strong>Keep it on your Home screen:</strong> tap the <span class="mono">⋮</span> menu, then <em>Add to Home screen</em> or <em>Install app</em>.') + ' <button class="linkbtn" id="hideInstall">Dismiss</button>';
+  $('installText').innerHTML = (isIOS() ? '<strong>Keep it on your Home Screen:</strong> tap Share, then <em>Add to Home Screen</em> (on iOS 26, leave <em>Open as Web App</em> on). The installed app keeps its own memory, so add the person again there.' : '<strong>Keep it on your Home screen:</strong> tap the <span class="mono">⋮</span> menu, then <em>Install and create shortcut</em> (older Chrome: <em>Add to Home screen</em>).') + ' <button class="linkbtn" id="hideInstall">Dismiss</button>';
   $('hideInstall').onclick = () => { localStorage.setItem('facesweep-phone-installhint', 'no'); $('installHint').hidden = true; };
 }
 
@@ -772,6 +772,9 @@ async function init() {
   await loadPeople(); renderPeople();
   await restoreLast();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
+  // Installed apps get their storage protected from automatic eviction (Safari grants this for
+  // Home Screen apps; Chrome for installed sites). Harmless if refused.
+  if (isStandalone() && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 }
 init();
 })();
