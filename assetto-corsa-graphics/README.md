@@ -186,9 +186,9 @@ settings between sessions.
 | App | What it shows | Needs |
 | --- | --- | --- |
 | **Traffic Radar** | Cars around you as dots on a radar that keeps your heading up, coloured by closing speed, with distance and closing speed on the nearest car ahead and behind. | nothing |
-| **Convoy** | Everyone in the session sorted by distance, with a direction arrow, speed and a "with you / close / dropped" status. Works offline with AI too. | nothing |
+| **Convoy** | Everyone in the session sorted by distance, with a direction arrow, speed and a "with you / close / far / dropped" status. Works offline with AI too. | nothing |
 | **Stream Ticker** | Twitch follows, subs, cheers and tips in a corner of the game: newest event large, the last few below, plus viewers and followers. | widget server |
-| **Telemetry Out** | Pushes speed, gear, rpm, fuel, laps and car name to the widget server a few times per second and shows the send status. | widget server |
+| **Telemetry Out** | Pushes speed, gear, rpm, fuel, laps and car name to the widget server a few times per second, from a timer so it keeps going with the panel closed, and shows send status, rate and counters. | widget server |
 | **Now Playing** | The current track from Windows' media session, or from the server's Spotify proxy as fallback, with a live progress bar. | optional: widget server |
 | **Filter Doctor** | Active PP filter, whether its Pure script exists for Gamma and for LCS, exposure and multiplier with nudge buttons, time of day, sun angle, weather and render flags. | nothing |
 | **Frame Time** | Frame-time graph with fps, average, 1 % low and worst frame, plus car count, VRAM, MSAA, FSR, LCS and detail level. | nothing |
@@ -222,7 +222,15 @@ the server is down, so leaving them open without the server running costs nothin
   multiplier as the Post Process Filter app's slider.
 - **Frame Time** samples the real frame time, so it keeps measuring while paused.
 - **Cruise Cluster** estimates range from your own consumption over the last few kilometres;
-  it shows "range --" until it has driven enough to know.
+  it shows "range --" until it has driven enough to know. It draws its own rounded panel, so the
+  window background is set fully transparent.
+- **Now Playing** reads Windows' media session first (Spotify, browsers and most players report
+  there) and only asks the server when that has nothing.
+
+### Testing
+
+`apps/harness/` holds the harness the apps were built against (see its README). Every app
+passes it; what it cannot judge is looks, so open each window in game once and resize it.
 
 ## Tuning cheat-sheet
 
