@@ -1129,6 +1129,7 @@ app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', '
 // library and moves, hides or deletes their files after confirmation. Fully
 // client-side (File System Access API + on-device face model); no API needed.
 app.get('/face-sweep', (req, res) => res.sendFile(path.join(__dirname, 'public', 'face-sweep.html')));
+app.get('/face-sweep-phone', (req, res) => res.redirect(301, '/face-sweep-phone/'));
 
 // ── Claude Design (Max ed.) ──────────────────────────────────────────────────
 //

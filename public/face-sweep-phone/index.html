@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Face Sweep</title>
+<meta name="theme-color" content="#F0EEE6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Face Sweep">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ivory:#F0EEE6; --cream:#FAF9F5; --paper:#F5F3EC;
+    --ink:#1F1F1E; --char:#2B2A28; --muted:#6B6A65;
+    --hair:#C9C5B6; --mist:#E3DFD0; --slate:#B8B4A4;
+    --coral:#CC785C; --coral-ink:#7A3A28;
+    --good:#4A6B3A; --bad:#B5523B; --warn:#9A6B1E;
+    --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    background: var(--ivory); color: var(--ink);
+    font-size: 15px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding-top: var(--sat);
+    padding-bottom: calc(var(--sab) + 96px);
+  }
+  button { font-family: inherit; font-size: inherit; }
+  [hidden] { display: none !important; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 0 10px; border-bottom: 1px solid var(--ink); }
+  .brand { display: flex; align-items: baseline; gap: 8px; }
+  .brand .mark { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 500; }
+  .brand .tag { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.14em; }
+  .stat { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .stat .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--slate); }
+  .stat.ok .dot { background: var(--good); }
+  .stat.err .dot { background: var(--bad); }
+  .stat.busy .dot { background: var(--coral); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .btn { border: 1px solid var(--ink); background: transparent; color: var(--ink); border-radius: 999px; padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap; touch-action: manipulation; }
+  .btn:disabled { opacity: 0.45; }
+  .btn.primary { background: var(--ink); color: var(--cream); }
+  .btn.ghost { border-color: var(--hair); color: var(--char); }
+  .btn.coral { background: var(--coral); border-color: var(--coral); color: var(--ink); }
+  .btn.sm { padding: 6px 12px; font-size: 12px; }
+  .btn.block { width: 100%; }
+  .linkbtn { background: none; border: none; color: var(--coral-ink); text-decoration: underline; cursor: pointer; padding: 0; font-size: inherit; }
+
+  .card { background: var(--cream); border: 1px solid var(--hair); border-radius: 16px; padding: 16px; margin-top: 14px; }
+  .card h2 { font-family: 'Fraunces', serif; font-weight: 400; font-size: 20px; letter-spacing: -0.01em; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .card h2 .n { font-style: italic; color: var(--coral-ink); font-size: 14px; }
+  .card .help { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .card.fast { background: var(--paper); border-color: var(--coral); }
+  .card.fast h2 { color: var(--ink); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  input[type=text] { flex: 1; min-width: 0; border: 1px solid var(--hair); background: var(--ivory); border-radius: 10px; padding: 10px 12px; font-family: inherit; font-size: 16px; color: var(--ink); }
+  input[type=text]:focus { outline: none; border-color: var(--coral); }
+  select { border: 1px solid var(--hair); background: var(--ivory); border-radius: 10px; padding: 8px 10px; font-family: inherit; font-size: 14px; color: var(--ink); }
+  details.settings { margin-top: 12px; font-size: 13px; }
+  details.settings summary { cursor: pointer; color: var(--muted); }
+  details.settings label { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  details.settings input[type=range] { flex: 1; }
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; background: var(--hair); border-radius: 2px; outline: none; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); border: 3px solid var(--cream); }
+  .thr-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+
+  .guide details { border-top: 1px solid var(--hair); padding: 10px 0; }
+  .guide details:last-child { padding-bottom: 0; }
+  .guide summary { cursor: pointer; font-weight: 600; font-size: 14px; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+  .guide summary::-webkit-details-marker { display: none; }
+  .guide summary::after { content: '+'; color: var(--muted); font-size: 18px; }
+  .guide details[open] summary::after { content: '–'; }
+  .guide ol { padding-left: 20px; margin-top: 8px; font-size: 14px; }
+  .guide li { margin: 6px 0; }
+  .guide .note { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+  .guide b { font-weight: 600; }
+  .steps { font-size: 14px; }
+
+  .people { display: grid; gap: 8px; margin-top: 8px; }
+  .person { border: 1px solid var(--hair); border-radius: 12px; padding: 10px 12px; background: var(--ivory); }
+  .person.active { border-color: var(--coral); background: var(--paper); }
+  .person .hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .person .nm { font-weight: 600; }
+  .person .refs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .person .refs .r { position: relative; width: 48px; height: 48px; border-radius: 10px; overflow: hidden; background: var(--mist); }
+  .person .refs .r img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .person .refs .r button { position: absolute; top: 0; right: 0; width: 20px; height: 20px; font-size: 12px; line-height: 18px; border: none; background: rgba(31,31,30,0.8); color: var(--cream); border-radius: 0 0 0 8px; }
+  .person .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .progress { height: 8px; background: var(--mist); border-radius: 4px; margin-top: 12px; overflow: hidden; }
+  .progress .bar { height: 100%; width: 0; background: var(--coral); transition: width 0.15s; }
+  .scan-stats { font-size: 12px; color: var(--char); margin-top: 8px; white-space: pre-line; }
+  details.issues { margin-top: 8px; font-size: 13px; }
+  details.issues summary { cursor: pointer; color: var(--muted); }
+  details.issues ul { list-style: none; margin-top: 6px; max-height: 160px; overflow: auto; font-size: 12px; }
+  details.issues li { padding: 3px 0; border-bottom: 1px solid var(--mist); word-break: break-all; }
+
+  .headline { font-family: 'Fraunces', serif; font-size: 22px; margin: 4px 0 10px; }
+  .headline strong { font-weight: 500; color: var(--coral-ink); }
+  .toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 10px 0; font-size: 13px; }
+  .toolbar .spacer { flex: 1; }
+  .seg { display: inline-flex; border: 1px solid var(--hair); border-radius: 999px; overflow: hidden; }
+  .seg button { border: none; background: transparent; padding: 6px 12px; font-size: 13px; color: var(--muted); }
+  .seg button.on { background: var(--ink); color: var(--cream); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  @media (min-width: 520px) { .grid { grid-template-columns: repeat(4, 1fr); } }
+  .cell { position: relative; border-radius: 10px; overflow: hidden; background: var(--mist); aspect-ratio: 1; }
+  .cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cell.off img { opacity: 0.35; }
+  .cell .chk { position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; background: rgba(31,31,30,0.35); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 14px; }
+  .cell.on .chk { background: var(--coral); border-color: var(--coral); }
+  .cell .chip { position: absolute; bottom: 6px; left: 6px; right: 6px; font-size: 10px; padding: 2px 6px; border-radius: 999px; background: rgba(31,31,30,0.75); color: #fff; text-transform: uppercase; letter-spacing: 0.06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cell .chip.strong { background: rgba(74,107,58,0.9); }
+  .cell .chip.likely { background: rgba(204,120,92,0.95); color: var(--ink); }
+  .cell .chip.possible { background: rgba(154,107,30,0.9); }
+  .cell .chip.none { background: rgba(31,31,30,0.55); }
+  .cell .kind { position: absolute; top: 6px; right: 6px; font-size: 9px; padding: 1px 5px; border-radius: 999px; background: rgba(31,31,30,0.7); color: #fff; text-transform: uppercase; letter-spacing: 0.08em; }
+  .cell .face { position: absolute; bottom: 26px; right: 6px; width: 30px; height: 30px; border-radius: 6px; border: 2px solid #fff; overflow: hidden; background: var(--mist); }
+  .cell .face img { width: 100%; height: 100%; object-fit: cover; }
+  .empty { padding: 28px 12px; text-align: center; color: var(--muted); font-size: 14px; }
+  .empty h4 { font-family: 'Fraunces', serif; font-weight: 400; font-size: 20px; color: var(--ink); margin-bottom: 6px; }
+  .list { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--ivory); border: 1px solid var(--hair); border-radius: 10px; padding: 8px 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin-top: 10px; }
+
+  .clusters { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 10px; }
+  .cluster { text-align: center; border: 1px solid var(--hair); border-radius: 12px; padding: 8px; background: var(--ivory); }
+  .cluster img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto 6px; background: var(--mist); }
+  .cluster .n { font-size: 11px; color: var(--muted); }
+  .cluster .use { margin-top: 6px; }
+
+  .actionbar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--cream); border-top: 1px solid var(--ink); padding: 10px 16px calc(10px + var(--sab)); z-index: 30; }
+  .actionbar .in { max-width: 640px; margin: 0 auto; display: flex; gap: 8px; align-items: center; }
+  .actionbar .sel { flex: 1; font-size: 14px; min-width: 0; }
+  .actionbar .sel strong { font-weight: 600; }
+  .actionbar .sel small { display: block; font-size: 11px; color: var(--muted); }
+
+  .toasts { position: fixed; left: 16px; right: 16px; top: calc(var(--sat) + 12px); display: grid; gap: 8px; z-index: 50; pointer-events: none; }
+  .toast { background: var(--ink); color: var(--cream); padding: 10px 14px; border-radius: 10px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
+  .toast.bad { background: var(--bad); }
+
+  .backdrop { position: fixed; inset: 0; background: rgba(31,31,30,0.5); display: flex; align-items: flex-end; justify-content: center; z-index: 40; }
+  .modal { background: var(--cream); border-radius: 18px 18px 0 0; width: 100%; max-width: 640px; max-height: 88vh; display: flex; flex-direction: column; padding-bottom: var(--sab); }
+  @media (min-width: 640px) { .backdrop { align-items: center; padding: 16px; } .modal { border-radius: 18px; } }
+  .modal .mh { padding: 16px 18px 8px; }
+  .modal .mh h3 { font-family: 'Fraunces', serif; font-weight: 400; font-size: 21px; }
+  .modal .mb { padding: 0 18px; overflow-y: auto; font-size: 14px; }
+  .modal .mb p { margin: 8px 0; }
+  .modal .mf { padding: 12px 18px 16px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .facepick { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; margin: 8px 0; }
+  .facepick button { border: 2px solid var(--hair); border-radius: 12px; background: var(--ivory); padding: 5px; }
+  .facepick img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: block; }
+  .install { margin-top: 12px; border: 1px dashed var(--hair); border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--char); background: var(--paper); display: flex; gap: 10px; align-items: center; }
+  .install img { width: 36px; height: 36px; border-radius: 9px; flex: 0 0 auto; }
+
+  .viewer { position: fixed; inset: 0; background: #111; z-index: 45; display: flex; flex-direction: column; }
+  .viewer .img { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .viewer .img img, .viewer .img video { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .viewer .info { background: var(--cream); padding: 12px 16px calc(12px + var(--sab)); font-size: 13px; }
+  .viewer .info .fn { font-family: 'JetBrains Mono', monospace; font-size: 13px; word-break: break-all; }
+  .viewer .info .dt { color: var(--muted); margin-top: 2px; }
+  .viewer .info .row { margin-top: 10px; }
+  .viewer .close { position: absolute; top: calc(var(--sat) + 10px); right: 12px; background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 999px; width: 40px; height: 40px; font-size: 22px; }
+  .gate { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><span class="mark">Face Sweep</span><span class="tag">phone</span></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <span class="stat" id="modelStat"><span class="dot"></span><span id="modelText">Face model: not loaded</span></span>
+      <button class="btn ghost sm" id="helpBtn">?</button>
+    </div>
+  </header>
+
+  <div class="install" id="installHint" hidden>
+    <img src="icon-180.png" alt="">
+    <div id="installText"></div>
+  </div>
+
+  <section class="card fast guide" id="guide">
+    <h2>Delete, hide or sort a person's photos: the fast way</h2>
+    <p class="help">Your phone's Photos app already groups faces, sees your whole library, and can delete, hide or make an album in a few taps, with a confirmation at each step. Use it for the big job. Use Face Sweep below to double-check a batch, or to find someone your Photos app hasn't grouped.</p>
+    <details id="g-ios">
+      <summary>iPhone: Photos app</summary>
+      <ol>
+        <li>Open <b>Photos</b> and find <b>People &amp; Pets</b>: on iOS 26 or later tap <b>Collections</b> at the bottom; on iOS 18 swipe up below your photos; on iOS 17 tap <b>Albums</b>.</li>
+        <li>Tap the person. If they aren't named yet, tap <b>Name This Person</b> (iOS 17: <b>Add Name</b>). On iOS 17 also tap <b>Show More</b> so every photo is listed.</li>
+        <li>Tap <b>Select</b> (top right). If <b>Select All</b> appears at the top left, tap it. Otherwise slide your finger across the photos to select them in runs.</li>
+        <li>Then choose one:
+          <ul>
+            <li><b>Delete:</b> tap the trash icon, then <b>Delete</b>. They wait in <b>Recently Deleted</b> for 30 days, so a mistake can be undone.</li>
+            <li><b>Hide:</b> tap <b>…</b>, then <b>Hide</b>. They move to the <b>Hidden</b> collection (under Utilities), locked with Face ID.</li>
+            <li><b>Separate album:</b> tap <b>…</b>, then <b>Add to Album</b>, then <b>New Album</b>. (iOS 17: tap the Share icon, then <b>Add to Album</b>.)</li>
+          </ul>
+        </li>
+      </ol>
+      <p class="note">Deleting from a person's page deletes from your whole library (and iCloud). If a photo is wrongly tagged, select it and tap <b>…</b> → <b>This is Not [name]</b> instead. If the same person shows up as two faces, open People &amp; Pets, tap <b>Edit</b>, select both, then <b>…</b> → <b>Merge</b>.</p>
+    </details>
+    <details id="g-android">
+      <summary>Android: Google Photos</summary>
+      <ol>
+        <li>Open <b>Google Photos</b>, tap <b>Collections</b> (bottom), then <b>People &amp; pets</b>, and tap the face. Newer versions also show faces at the top of <b>Search</b>.</li>
+        <li>Touch and hold the first photo, then drag your finger down the grid to select a run, or tap the others. There is no Select all.</li>
+        <li>Then choose one:
+          <ul>
+            <li><b>Delete:</b> tap <b>Trash</b> (bottom), then <b>Move to trash</b>. Trash keeps them for 30 days.</li>
+            <li><b>Hide:</b> tap <b>⋮</b> (top right), then <b>Archive</b>: gone from the main grid, still in albums and search. For real hiding tap <b>Add to</b> (bottom), then <b>Move to Locked Folder</b>: gone from everywhere, behind your screen lock (set it up once under Collections → Locked).</li>
+            <li><b>Separate album:</b> tap <b>Add to</b>, then <b>Album</b>, then <b>New album</b>. Even easier: open any album, tap <b>⋮</b> → <b>Options</b> → <b>Add</b>, pick the person's face, and Google Photos keeps that album filled with their photos by itself.</li>
+          </ul>
+        </li>
+      </ol>
+      <p class="note">No faces showing? Tap your profile picture → <b>Photos settings</b> → <b>Privacy</b> → turn on <b>Face Groups</b>. Google doesn't offer it in every region.</p>
+    </details>
+    <details id="g-samsung">
+      <summary>Samsung Gallery</summary>
+      <ol>
+        <li>Open <b>Gallery</b>, tap <b>Collections</b> (older phones: <b>Albums</b>), scroll to <b>People and pets</b> and tap the person. Missing? Turn on <b>Face recognition</b> in Gallery's settings (Menu → Settings) and give it time to scan.</li>
+        <li>Touch and hold a photo, then tap <b>All</b> at the top left.</li>
+        <li>Tap <b>Delete</b> → <b>Move to Trash</b> (kept 30 days), or tap <b>⋮</b> for <b>Move to Secure Folder</b> (hide) or <b>Create album</b>.</li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2>1 · Who to find</h2>
+    <p class="help">Add a person and give them a few clear photos. Different angles help. You can also check a batch first and pick them from <em>Who's in these photos</em>.</p>
+    <div class="row">
+      <input type="text" id="newPersonName" placeholder="Name, e.g. Alex" maxlength="60" autocomplete="off">
+      <button class="btn" id="newPersonBtn">Add</button>
+    </div>
+    <div class="people" id="peopleList"></div>
+    <input type="file" id="refInput" multiple accept="image/*" hidden>
+    <div class="row"><button class="btn primary block" id="refBrowse">Add photos of the selected person…</button></div>
+  </section>
+
+  <section class="card">
+    <h2>2 · Photos to check <span class="n" id="batchName"></span></h2>
+    <p class="help">Pick the photos and videos to look through. In the picker you can select many at once, so work in batches: an album, a trip, a month. <span id="pickHint"></span></p>
+    <input type="file" id="batchInput" multiple accept="image/*,video/*" hidden>
+    <div class="row">
+      <button class="btn primary" id="pickBtn">Choose photos…</button>
+      <button class="btn coral" id="checkBtn" disabled>Check them</button>
+      <button class="btn ghost" id="pauseBtn" hidden>Pause</button>
+      <button class="btn ghost" id="stopBtn" hidden>Stop</button>
+    </div>
+    <div class="progress"><div class="bar" id="scanBar"></div></div>
+    <div class="scan-stats mono" id="scanStats">No photos chosen yet.</div>
+    <details class="issues" id="issues" hidden>
+      <summary>Skipped (<span id="issueCount">0</span>)</summary>
+      <ul id="issueList"></ul>
+    </details>
+    <details class="settings">
+      <summary>Settings</summary>
+      <label>Quality
+        <select id="quality">
+          <option value="fast">Fast (800 px)</option>
+          <option value="balanced" selected>Balanced (1024 px)</option>
+          <option value="thorough">Thorough (1400 px, small faces)</option>
+        </select>
+      </label>
+      <label>Frames per video <input type="range" id="vframes" min="2" max="12" value="6"> <span class="mono" id="vframesVal">6</span></label>
+    </details>
+  </section>
+
+  <section class="card" id="results" hidden>
+    <h2>3 · Results</h2>
+    <div class="headline" id="headline"></div>
+    <div id="lastNote" class="help" hidden>Showing your last check from memory. Choose the photos again if you want to share them.</div>
+    <input type="range" id="threshold" min="0.40" max="0.65" step="0.01" value="0.55">
+    <div class="thr-labels"><span>Strict</span><span class="mono" id="thrVal">0.55</span><span>Loose</span></div>
+    <div class="toolbar">
+      <div class="seg"><button class="on" data-view="matches" id="viewMatches">Matches</button><button data-view="all" id="viewAll">Everything</button></div>
+      <span class="spacer"></span>
+      <span id="excludedNote" style="font-size:12px;color:var(--muted)" hidden></span>
+      <button class="btn ghost sm" id="selAll">All</button>
+      <button class="btn ghost sm" id="selNone">None</button>
+    </div>
+    <div class="empty" id="matchEmpty" hidden><h4>No matches at this strictness.</h4>Drag the slider toward Loose, or add more reference photos.</div>
+    <div class="grid" id="grid"></div>
+    <div class="guide" style="margin-top:14px">
+      <details id="next-ios">
+        <summary>Now delete or hide them in Photos</summary>
+        <ol>
+          <li>Tap a photo above to see its date and file name.</li>
+          <li>In <b>Photos</b>, tap <b>Search</b> and type the date, e.g. <span class="mono">12 March 2025</span>, or scroll your library to that day.</li>
+          <li>Tap <b>Select</b>, tap the photos, then the trash icon, or <b>…</b> for <b>Hide</b> / <b>Add to Album</b>.</li>
+          <li>Or <b>Share…</b> the matches below to <b>Save to Files</b> as a separate folder, then delete the originals.</li>
+        </ol>
+      </details>
+      <details id="next-android">
+        <summary>Now delete or hide them in Google Photos</summary>
+        <ol>
+          <li>Tap a photo above to see its date and file name.</li>
+          <li>In <b>Google Photos</b>, tap <b>Search</b> and type the date, e.g. <span class="mono">12 March 2025</span>.</li>
+          <li>Touch and hold to select, then <b>Trash</b>, or <b>⋮</b> → <b>Archive</b>, or <b>Add to</b> → <b>Album</b>.</li>
+          <li>Or <b>Share…</b> the matches below into a folder or another app, then delete the originals.</li>
+        </ol>
+      </details>
+    </div>
+    <div class="list" id="listBox" hidden></div>
+  </section>
+
+  <section class="card" id="peopleFound" hidden>
+    <h2>Who's in these photos? <span class="n" id="clusterCount"></span></h2>
+    <p class="help">Faces from the last check, grouped. Tap one to use it as the person to find.</p>
+    <div class="clusters" id="clusterGrid"></div>
+  </section>
+
+  <p class="help" style="margin:18px 0 8px;font-size:12px">On a computer? <a href="../face-sweep.html" style="color:var(--coral-ink)">Face Sweep for desktop</a> scans whole folders and can move, hide or delete the files itself.</p>
+</div>
+
+<div class="actionbar" id="actionBar" hidden>
+  <div class="in">
+    <div class="sel" id="selSummary"></div>
+    <button class="btn" id="shareBtn">Share…</button>
+    <button class="btn ghost" id="copyBtn">Copy list</button>
+  </div>
+</div>
+
+<div class="backdrop" id="modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="mh"><h3 id="modalTitle"></h3></div>
+    <div class="mb" id="modalBody"></div>
+    <div class="mf" id="modalFoot"></div>
+  </div>
+</div>
+
+<div class="viewer" id="viewer" hidden>
+  <button class="close" id="viewerClose" aria-label="Close">×</button>
+  <div class="img" id="viewerImg"></div>
+  <div class="info">
+    <div class="fn" id="viewerName"></div>
+    <div class="dt" id="viewerMeta"></div>
+    <div class="row"><button class="btn ghost sm" id="viewerNo">Not them</button><button class="btn ghost sm" id="viewerRef">Add as reference</button><span class="spacer" style="flex:1"></span><button class="btn sm" id="viewerToggle">Unselect</button></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="../face-sweep-core.js"></script>
+<script>
+(() => {
+'use strict';
+const C = window.FaceSweepCore;
+const { extOf, kindOf, dist, confLabel, idb, faceKey, ensureModels, detectFaces, decodeImage, cropFace, processImage, processVideo, photoDate, bestMatch, clusterFaces, isIOS, isAndroid } = C;
+const ROOT = 'phone';
+const QUALITY = { fast: 800, balanced: 1024, thorough: 1400 };
+const LAST_KEY = 'facesweep-phone-last';
+
+const state = {
+  people: [], personId: null, threshold: 0.55,
+  batch: [],            // [{ sig, file, name, size, mtime, kind, faces, thumb, date, status }]
+  checking: false, paused: false, stopRequested: false, issues: [],
+  matches: [], unchecked: new Set(), view: 'matches',
+  clusters: [], fromMemory: false,
+};
+window.faceSweep = state;
+
+/* ---------------------------------------------------------------- utils */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+function fmtBytes(n) { if (!n) return '0 B'; const u = ['B','KB','MB','GB']; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i === 0 ? n : n.toFixed(n >= 10 ? 0 : 1)) + ' ' + u[i]; }
+function fmtDate(d) { if (!d) return ''; const x = d instanceof Date ? d : new Date(d); if (isNaN(x)) return ''; return x.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) + ', ' + x.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); }
+function toast(msg, bad) { const el = document.createElement('div'); el.className = 'toast' + (bad ? ' bad' : ''); el.textContent = msg; $('toasts').appendChild(el); setTimeout(() => el.remove(), bad ? 7000 : 3500); }
+const urlCache = new Map();
+function blobUrl(key, blob) { if (!blob) return ''; let u = urlCache.get(key); if (!u) { u = URL.createObjectURL(blob); urlCache.set(key, u); } return u; }
+function setModelStat(cls, text) { $('modelStat').className = 'stat ' + cls; $('modelText').textContent = text; }
+C.setModelStatusHandler(setModelStat);
+// Cache key from content, not the modified time: phones can hand over the same photo
+// with a fresh timestamp (or re-exported bytes) on every pick. Hashing the head and
+// tail of the file is cheap even for large videos.
+async function sigOf(file) {
+  try {
+    const parts = [await file.slice(0, 256 * 1024).arrayBuffer()];
+    if (file.size > 320 * 1024) parts.push(await file.slice(file.size - 64 * 1024).arrayBuffer());
+    const h = await crypto.subtle.digest('SHA-256', await new Blob(parts).arrayBuffer());
+    return file.size + '|' + [...new Uint8Array(h)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch { return file.name + '|' + file.size + '|' + file.lastModified; }
+}
+const isStandalone = () => (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+
+/* ---------------------------------------------------------------- modal */
+function openModal(title, bodyEl, buttons) {
+  $('modalTitle').textContent = title;
+  const mb = $('modalBody'); mb.innerHTML = ''; mb.appendChild(bodyEl);
+  const mf = $('modalFoot'); mf.innerHTML = '';
+  for (const b of buttons) { const el = document.createElement('button'); el.className = 'btn ' + (b.cls || ''); el.textContent = b.label; el.onclick = b.onClick; mf.appendChild(el); }
+  $('modal').hidden = false;
+}
+function closeModal() { $('modal').hidden = true; $('modalBody').innerHTML = ''; }
+
+/* ---------------------------------------------------------------- people */
+function currentPerson() { return state.people.find((p) => p.id === state.personId) || null; }
+async function loadPeople() {
+  state.people = (await idb.all('people')).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  for (const p of state.people) { p.refs = p.refs || []; p.excluded = p.excluded || []; }
+  const saved = localStorage.getItem('facesweep-phone-person');
+  if (saved && state.people.some((p) => p.id === saved)) state.personId = saved;
+  if (!currentPerson() && state.people.length) state.personId = state.people[0].id;
+}
+async function savePerson(p) { await idb.put('people', p); }
+async function createPerson(name) {
+  const p = { id: uid(), name: name.trim() || 'Person ' + (state.people.length + 1), refs: [], excluded: [], createdAt: Date.now() };
+  state.people.push(p); state.personId = p.id; await savePerson(p);
+  renderPeople(); computeMatches(); renderResults();
+  return p;
+}
+async function deletePerson(p) {
+  state.people = state.people.filter((x) => x.id !== p.id); await idb.del('people', p.id);
+  if (state.personId === p.id) state.personId = state.people.length ? state.people[0].id : null;
+  renderPeople(); computeMatches(); renderResults();
+}
+async function addReferenceFiles(files) {
+  let p = currentPerson();
+  if (!p) { p = await createPerson($('newPersonName').value.trim() || 'Person 1'); $('newPersonName').value = ''; }
+  for (const file of files) {
+    try {
+      setModelStat('busy', 'Looking for faces in ' + file.name + '…');
+      const canvas = await decodeImage(file, extOf(file.name), QUALITY.thorough);
+      const faces = await detectFaces(canvas);
+      if (!faces.length) { toast('No face found in ' + file.name + '. Try a clearer, closer photo.', true); continue; }
+      for (const f of faces) f.thumb = await cropFace(canvas, f.box);
+      const chosen = faces.length === 1 ? faces : await pickFacesModal(file.name, faces, p.name);
+      if (!chosen || !chosen.length) continue;
+      for (const f of chosen) p.refs.push({ d: f.d, thumb: f.thumb, from: file.name });
+      await savePerson(p);
+      toast('Added a reference face for ' + p.name + '.');
+    } catch (e) { toast('Could not use ' + file.name + ': ' + e.message, true); }
+  }
+  setModelStat('ok', 'Face model: ready');
+  renderPeople(); computeMatches(); renderResults();
+}
+function pickFacesModal(fileName, faces, personName) {
+  return new Promise((resolve) => {
+    const body = document.createElement('div');
+    body.innerHTML = '<p>' + esc(fileName) + ' has ' + faces.length + ' faces. Which one is <strong>' + esc(personName) + '</strong>?</p><div class="facepick"></div>';
+    const grid = body.querySelector('.facepick');
+    faces.forEach((f) => { const b = document.createElement('button'); const img = document.createElement('img'); img.src = URL.createObjectURL(f.thumb); b.appendChild(img); b.onclick = () => { closeModal(); resolve([f]); }; grid.appendChild(b); });
+    openModal('Which face?', body, [{ label: 'Skip this photo', cls: 'ghost', onClick: () => { closeModal(); resolve(null); } }]);
+  });
+}
+function renderPeople() {
+  const box = $('peopleList'); box.innerHTML = '';
+  for (const p of state.people) {
+    const el = document.createElement('div'); el.className = 'person' + (p.id === state.personId ? ' active' : '');
+    el.innerHTML = '<div class="hd"><span class="nm">' + esc(p.name) + '</span><button class="btn ghost sm" data-x>Remove</button></div><div class="refs"></div><div class="meta"></div>';
+    const refs = el.querySelector('.refs');
+    p.refs.forEach((r, i) => {
+      const d = document.createElement('div'); d.className = 'r';
+      const img = document.createElement('img'); img.src = URL.createObjectURL(r.thumb); d.appendChild(img);
+      const x = document.createElement('button'); x.textContent = '×';
+      x.onclick = async (ev) => { ev.stopPropagation(); p.refs.splice(i, 1); await savePerson(p); renderPeople(); computeMatches(); renderResults(); };
+      d.appendChild(x); refs.appendChild(d);
+    });
+    el.querySelector('.meta').textContent = p.refs.length ? p.refs.length + ' reference face' + (p.refs.length > 1 ? 's' : '') + (p.id === state.personId ? ' · selected' : '') : 'No reference faces yet.';
+    el.onclick = () => { state.personId = p.id; localStorage.setItem('facesweep-phone-person', p.id); renderPeople(); computeMatches(); renderResults(); };
+    el.querySelector('[data-x]').onclick = (ev) => { ev.stopPropagation(); if (confirm('Remove ' + p.name + ' and their reference faces? No photos are touched.')) deletePerson(p); };
+    box.appendChild(el);
+  }
+  $('refBrowse').textContent = currentPerson() ? 'Add photos of ' + currentPerson().name + '…' : 'Add photos of this person…';
+}
+
+/* ---------------------------------------------------------------- batch */
+async function onPick(files) {
+  $('scanStats').textContent = 'Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '…'; $('checkBtn').disabled = true;
+  const list = await Promise.all([...files].map(async (file) => ({ file, sig: await sigOf(file), name: file.name, size: file.size, mtime: file.lastModified, kind: kindOf(file), faces: [], thumb: null, date: null, status: 'pending' })));
+  const skipped = list.filter((e) => !e.kind).length;
+  state.batch = list.filter((e) => e.kind);
+  state.fromMemory = false; state.issues = []; state.matches = []; state.unchecked.clear(); state.clusters = [];
+  const nI = state.batch.filter((e) => e.kind === 'image').length, nV = state.batch.length - nI;
+  $('batchName').textContent = state.batch.length ? nI + ' photo' + (nI === 1 ? '' : 's') + (nV ? ', ' + nV + ' video' + (nV === 1 ? '' : 's') : '') : '';
+  $('scanStats').textContent = state.batch.length ? state.batch.length + ' chosen (' + fmtBytes(state.batch.reduce((s, e) => s + e.size, 0)) + ').' + (skipped ? ' ' + skipped + ' skipped (not photos or videos).' : '') + ' Tap "Check them".' : 'Nothing usable was chosen.';
+  $('scanBar').style.width = '0%';
+  $('checkBtn').disabled = !state.batch.length;
+  $('results').hidden = true; $('peopleFound').hidden = true; $('actionBar').hidden = true; $('lastNote').hidden = true;
+  renderIssues();
+}
+function renderIssues() {
+  const n = state.issues.length; $('issues').hidden = n === 0; $('issueCount').textContent = n;
+  $('issueList').innerHTML = state.issues.slice(0, 300).map((i) => '<li><span class="mono">' + esc(i.name) + '</span> — ' + esc(i.why) + '</li>').join('');
+}
+function entryFromRow(e, row) { e.faces = row.faces; e.thumb = row.thumb; e.date = row.date || null; e.status = row.status; }
+async function check() {
+  if (state.checking || !state.batch.length) return;
+  state.checking = true; state.paused = false; state.stopRequested = false; state.issues = [];
+  $('scanStats').textContent = 'Starting…';
+  const btn = $('checkBtn'); btn.disabled = true; btn.textContent = 'Checking…'; $('pickBtn').disabled = true;
+  $('pauseBtn').hidden = false; $('stopBtn').hidden = false; $('pauseBtn').textContent = 'Pause';
+  const maxSide = QUALITY[$('quality').value] || QUALITY.balanced;
+  const nFrames = +$('vframes').value || 6;
+  const bar = $('scanBar'); bar.style.width = '0%';
+  const list = state.batch; let done = 0, faces = 0, reused = 0; const t0 = Date.now();
+  try {
+    await ensureModels();
+    for (const e of list) {
+      while (state.paused && !state.stopRequested) await sleep(150);
+      if (state.stopRequested) break;
+      try {
+        const key = faceKey(ROOT, e.sig);
+        const row = await idb.get('faces', key);
+        const fresh = row && (row.q || 0) >= maxSide && (e.kind !== 'video' || (row.vf || 0) >= nFrames);
+        if (fresh) { entryFromRow(e, row); reused++; if (row.status !== 'ok') state.issues.push({ name: e.name, why: row.error || row.status }); }
+        else {
+          const date = e.kind === 'image' ? await photoDate(e.file) : null;
+          const res = e.kind === 'image' ? await processImage(e.file, maxSide, { alwaysThumb: true, thumbMax: 320 }) : await processVideo(e.file, maxSide, nFrames, { alwaysThumb: true, thumbMax: 320, shouldStop: () => state.stopRequested });
+          const rec = { key, rootId: ROOT, relPath: e.sig, name: e.name, size: e.size, mtime: e.mtime, kind: e.kind, faces: res.faces, thumb: res.thumb, date, status: 'ok', q: maxSide, vf: nFrames, at: Date.now() };
+          await idb.put('faces', rec); entryFromRow(e, rec);
+        }
+        faces += e.faces.length;
+      } catch (err) {
+        const why = (err && err.message) || String(err);
+        e.status = 'error'; e.faces = [];
+        state.issues.push({ name: e.name, why });
+        try { await idb.put('faces', { key: faceKey(ROOT, e.sig), rootId: ROOT, relPath: e.sig, name: e.name, size: e.size, mtime: e.mtime, kind: e.kind, faces: [], thumb: null, status: 'error', error: why, q: maxSide, vf: nFrames, at: Date.now() }); } catch {}
+      }
+      done++;
+      bar.style.width = (100 * done / list.length).toFixed(1) + '%';
+      const secs = (Date.now() - t0) / 1000, rate = done / Math.max(secs, 0.001), eta = Math.round((list.length - done) / rate);
+      $('scanStats').textContent = done + ' / ' + list.length + ' · ' + faces + ' faces' + (reused ? ' · ' + reused + ' remembered' : '') + (eta > 1 && done < list.length ? '\nabout ' + (eta > 90 ? Math.round(eta / 60) + ' min' : eta + ' s') + ' left · keep this screen open' : '');
+      if (done % 4 === 0) { computeMatches(); renderResults(); }
+      await sleep(0);
+    }
+    const stopped = state.stopRequested;
+    $('scanStats').textContent = (stopped ? 'Stopped. ' : 'Done. ') + done + ' of ' + list.length + ' checked · ' + faces + ' faces · ' + Math.round((Date.now() - t0) / 1000) + ' s';
+    if (!stopped) bar.style.width = '100%';
+    try { localStorage.setItem(LAST_KEY, JSON.stringify({ personId: state.personId, sigs: list.slice(0, done).map((e) => e.sig), at: Date.now() })); } catch {}
+  } catch (e) {
+    $('scanStats').textContent = 'Check failed: ' + e.message; toast('Check failed: ' + e.message, true);
+  } finally {
+    state.checking = false; state.paused = false;
+    btn.disabled = false; btn.textContent = 'Check them'; $('pickBtn').disabled = false;
+    $('pauseBtn').hidden = true; $('stopBtn').hidden = true;
+    renderIssues(); computeClusters(); computeMatches(); renderResults(); renderClusters();
+  }
+}
+async function restoreLast() {
+  let last = null; try { last = JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch {}
+  if (!last || !last.sigs || !last.sigs.length) return;
+  const batch = [];
+  for (const sig of last.sigs) {
+    const row = await idb.get('faces', faceKey(ROOT, sig)); if (!row || row.status !== 'ok') continue;
+    const e = { file: null, sig, name: row.name, size: row.size, mtime: row.mtime, kind: row.kind, faces: [], thumb: null, date: null, status: 'ok' };
+    entryFromRow(e, row); batch.push(e);
+  }
+  if (!batch.length) return;
+  state.batch = batch; state.fromMemory = true;
+  if (last.personId && state.people.some((p) => p.id === last.personId)) state.personId = last.personId;
+  $('batchName').textContent = batch.length + ' from last time';
+  $('scanStats').textContent = 'Showing your last check (' + batch.length + ' files). Choose photos to check a new batch.';
+  $('scanBar').style.width = '100%';
+  computeClusters(); computeMatches(); renderResults(); renderClusters();
+  $('lastNote').hidden = false;
+}
+
+/* ---------------------------------------------------------------- matching & results */
+function computeMatches() {
+  const p = currentPerson(); state.matches = [];
+  if (!p || !p.refs.length) return;
+  const ex = new Set(p.excluded); const refs = p.refs.map((r) => r.d);
+  for (const e of state.batch) {
+    if (e.status !== 'ok' || !e.faces.length || ex.has(e.sig)) continue;
+    const { best, idx } = bestMatch(e.faces, refs);
+    if (best <= state.threshold) state.matches.push({ entry: e, best, faceIdx: idx });
+  }
+  state.matches.sort((a, b) => a.best - b.best);
+}
+function selectedMatches() { return state.matches.filter((m) => !state.unchecked.has(m.entry.sig)); }
+function renderResults() {
+  const p = currentPerson();
+  const checked = state.batch.filter((e) => e.status !== 'pending');
+  const show = checked.length > 0 && !!p;
+  $('results').hidden = !show;
+  if (!show) { $('actionBar').hidden = true; return; }
+  const n = state.matches.length, sel = selectedMatches();
+  $('headline').innerHTML = p.refs.length ? '<strong>' + esc(p.name) + '</strong> is in <strong>' + n + '</strong> of ' + checked.length + (state.checking ? ' so far' : '') : 'Add a reference face for ' + esc(p.name) + ' to see matches.';
+  $('actionBar').hidden = n === 0;
+  $('selSummary').innerHTML = '<strong>' + sel.length + '</strong> of ' + n + ' selected' + (state.fromMemory ? '<small>Choose the photos again to share them.</small>' : '<small>' + fmtBytes(sel.reduce((s, m) => s + m.entry.size, 0)) + '</small>');
+  $('shareBtn').disabled = sel.length === 0 || state.fromMemory;
+  $('copyBtn').disabled = sel.length === 0;
+  const exn = p.excluded.length; $('excludedNote').hidden = exn === 0;
+  $('excludedNote').innerHTML = exn + ' marked "not them" · <button class="linkbtn" id="clearEx">undo</button>';
+  const cx = $('clearEx'); if (cx) cx.onclick = () => { p.excluded = []; computeMatches(); renderResults(); savePerson(p); };
+  const grid = $('grid'); grid.innerHTML = '';
+  const matchBySig = new Map(state.matches.map((m) => [m.entry.sig, m]));
+  const items = state.view === 'all' ? checked.map((e) => ({ entry: e, m: matchBySig.get(e.sig) || null })) : state.matches.map((m) => ({ entry: m.entry, m }));
+  $('matchEmpty').hidden = !(state.view === 'matches' && n === 0 && p.refs.length);
+  for (const { entry: e, m } of items) {
+    const on = m && !state.unchecked.has(e.sig);
+    const cell = document.createElement('div'); cell.className = 'cell' + (m ? (on ? ' on' : ' off') : '');
+    const lab = m ? confLabel(m.best) : 'none';
+    cell.innerHTML = '<img alt="" loading="lazy">' + (m ? '<div class="chk">' + (on ? '✓' : '') + '</div><div class="face"><img alt=""></div>' : '') + (e.kind === 'video' ? '<span class="kind">video</span>' : '') + '<span class="chip ' + lab + '">' + (m ? lab + ' ' + m.best.toFixed(2) : (e.faces.length ? e.faces.length + ' face' + (e.faces.length === 1 ? '' : 's') : 'no faces')) + '</span>';
+    const imgs = cell.querySelectorAll('img');
+    imgs[0].src = blobUrl('t:' + e.sig, e.thumb);
+    if (m) { const f = e.faces[m.faceIdx]; imgs[1].src = f && f.thumb ? blobUrl('f:' + e.sig + ':' + m.faceIdx, f.thumb) : ''; }
+    if (m) cell.querySelector('.chk').onclick = (ev) => { ev.stopPropagation(); toggle(e.sig); };
+    cell.onclick = () => openViewer(e, m);
+    grid.appendChild(cell);
+  }
+  const ios = isIOS(); $('next-ios').hidden = !ios && isAndroid(); $('next-android').hidden = ios;
+}
+function toggle(sig) { if (state.unchecked.has(sig)) state.unchecked.delete(sig); else state.unchecked.add(sig); renderResults(); }
+function listText(sel) {
+  const p = currentPerson();
+  return (p ? p.name + ' — ' : '') + sel.length + ' file' + (sel.length === 1 ? '' : 's') + '\n' + sel.map((m) => m.entry.name + ' — ' + (fmtDate(m.entry.date || m.entry.mtime) || 'unknown date') + ' — ' + confLabel(m.best)).join('\n');
+}
+
+/* ---------------------------------------------------------------- viewer */
+let viewing = null;
+function openViewer(e, m) {
+  viewing = { e, m };
+  const box = $('viewerImg'); box.innerHTML = '';
+  if (e.file && e.kind === 'video') { const v = document.createElement('video'); v.controls = true; v.playsInline = true; v.src = URL.createObjectURL(e.file); box.appendChild(v); }
+  else { const img = document.createElement('img'); img.src = e.file && e.kind === 'image' ? URL.createObjectURL(e.file) : blobUrl('t:' + e.sig, e.thumb); box.appendChild(img); }
+  $('viewerName').textContent = e.name;
+  $('viewerMeta').textContent = [fmtDate(e.date || e.mtime) || 'unknown date', fmtBytes(e.size), m ? confLabel(m.best) + ' match (' + m.best.toFixed(2) + ')' : (e.faces.length ? e.faces.length + ' face' + (e.faces.length === 1 ? '' : 's') + ', not a match' : 'no faces found')].join(' · ');
+  $('viewerNo').hidden = !m; $('viewerRef').hidden = !e.faces.length; $('viewerToggle').hidden = !m;
+  $('viewerToggle').textContent = m && !state.unchecked.has(e.sig) ? 'Unselect' : 'Select';
+  $('viewer').hidden = false;
+}
+function closeViewer() {
+  const box = $('viewerImg'); for (const el of box.querySelectorAll('img,video')) { if (el.src && el.src.startsWith('blob:') && !urlCache.has(el.src)) { try { if (!([...urlCache.values()].includes(el.src))) URL.revokeObjectURL(el.src); } catch {} } }
+  box.innerHTML = ''; $('viewer').hidden = true; viewing = null;
+}
+
+/* ---------------------------------------------------------------- share / copy */
+async function shareMatches() {
+  const sel = selectedMatches().filter((m) => m.entry.file);
+  if (!sel.length) return;
+  const files = sel.map((m) => m.entry.file);
+  const p = currentPerson();
+  if (!navigator.share || !navigator.canShare) return showList('Sharing files isn\'t supported in this browser. Here is the list instead:');
+  if (!navigator.canShare({ files })) {
+    if (sel.length > 10 && navigator.canShare({ files: files.slice(0, 10) })) return toast('Your phone limits how many files can be shared at once. Select 10 or fewer and try again.', true);
+    return showList('This browser can\'t share these files. Here is the list instead:');
+  }
+  try { await navigator.share({ files, title: (p ? 'Photos of ' + p.name : 'Face Sweep matches') }); toast('Shared ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '.'); }
+  catch (e) { if (e && e.name !== 'AbortError') toast('Share failed: ' + e.message, true); }
+}
+function showList(intro) {
+  const box = $('listBox'); box.hidden = false;
+  box.textContent = (intro ? intro + '\n\n' : '') + listText(selectedMatches());
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+async function copyList() {
+  const sel = selectedMatches(); if (!sel.length) return;
+  const text = listText(sel);
+  try { await navigator.clipboard.writeText(text); toast('Copied ' + sel.length + ' line' + (sel.length === 1 ? '' : 's') + ' to the clipboard.'); }
+  catch { showList('Copy isn\'t available here, so here is the list:'); }
+}
+
+/* ---------------------------------------------------------------- clusters */
+function computeClusters() { state.clusters = clusterFaces(state.batch.filter((e) => e.status === 'ok'), (e) => e.sig); }
+function renderClusters() {
+  const list = state.clusters; $('peopleFound').hidden = list.length === 0;
+  $('clusterCount').textContent = list.length ? list.length + ' people' : '';
+  const grid = $('clusterGrid'); grid.innerHTML = '';
+  for (const c of list.slice(0, 40)) {
+    const el = document.createElement('div'); el.className = 'cluster';
+    el.innerHTML = '<img alt=""><div class="n">in ' + c.files.size + ' file' + (c.files.size === 1 ? '' : 's') + '</div><button class="btn sm use">This is them</button>';
+    el.querySelector('img').src = URL.createObjectURL(c.members[0].f.thumb);
+    el.querySelector('.use').onclick = () => useCluster(c);
+    grid.appendChild(el);
+  }
+}
+async function useCluster(c) {
+  let p = currentPerson();
+  if (!p) { const nm = prompt('What is this person\'s name?', $('newPersonName').value.trim() || ''); if (nm === null) return; p = await createPerson(nm || 'Person 1'); }
+  const picks = c.members.slice(0, 10);
+  for (const m of picks) p.refs.push({ d: m.f.d, thumb: m.f.thumb, from: m.e.name });
+  await savePerson(p); toast('Added ' + picks.length + ' faces to ' + p.name + '.');
+  renderPeople(); computeMatches(); renderResults(); $('results').scrollIntoView({ behavior: 'smooth' });
+}
+
+/* ---------------------------------------------------------------- help & install */
+function showHelp() {
+  const b = document.createElement('div');
+  b.innerHTML = '<p><strong>Everything stays on your phone.</strong> The photos you pick are read by this page only, checked with an on-device face model (downloaded once, about 12 MB), and never uploaded.</p>' +
+    '<p><strong>What it can\'t do.</strong> A web page isn\'t allowed to delete, hide or move photos in your camera roll. That\'s why the Photos-app steps are at the top: they do the actual deleting, with your phone\'s own confirmation. Face Sweep tells you which photos to pick.</p>' +
+    '<p><strong>Tips.</strong> Give the person 3–6 reference faces from different angles. Tap a result to see its date and file name, then find it in Photos by searching the date. Use "Not them" on a wrong match so it stays out. Start on Strict, then loosen.</p>' +
+    '<p><strong>Memory.</strong> Results are remembered on this phone, so checking the same photos again is instant, and the last check reopens with the app. Clear the site data in your browser to wipe it.</p>' +
+    '<p><a href="../face-sweep.html" style="color:var(--coral-ink)">Face Sweep for desktop</a> scans whole folders on a computer and can move, hide or delete files itself.</p>';
+  openModal('How Face Sweep works', b, [{ label: 'Close', cls: 'ghost', onClick: closeModal }]);
+}
+function renderInstallHint() {
+  if (isStandalone() || !(isIOS() || isAndroid())) return;
+  if (localStorage.getItem('facesweep-phone-installhint') === 'no') return;
+  $('installHint').hidden = false;
+  $('installText').innerHTML = (isIOS() ? '<strong>Keep it on your Home Screen:</strong> tap Share <span class="mono">⎋</span> below, then <em>Add to Home Screen</em>.' : '<strong>Keep it on your Home screen:</strong> tap the <span class="mono">⋮</span> menu, then <em>Add to Home screen</em> or <em>Install app</em>.') + ' <button class="linkbtn" id="hideInstall">Dismiss</button>';
+  $('hideInstall').onclick = () => { localStorage.setItem('facesweep-phone-installhint', 'no'); $('installHint').hidden = true; };
+}
+
+/* ---------------------------------------------------------------- glue */
+function bind() {
+  $('helpBtn').onclick = showHelp;
+  $('newPersonBtn').onclick = async () => { const nm = $('newPersonName').value.trim(); if (!nm) return $('newPersonName').focus(); await createPerson(nm); $('newPersonName').value = ''; };
+  $('newPersonName').onkeydown = (ev) => { if (ev.key === 'Enter') $('newPersonBtn').click(); };
+  $('refBrowse').onclick = () => $('refInput').click();
+  $('refInput').onchange = async (ev) => { const files = [...ev.target.files]; ev.target.value = ''; if (files.length) await addReferenceFiles(files); };
+  $('pickBtn').onclick = () => $('batchInput').click();
+  $('batchInput').onchange = async (ev) => { const files = [...ev.target.files]; ev.target.value = ''; if (files.length) { ensureModels().catch(() => {}); await onPick(files); } };
+  $('checkBtn').onclick = check;
+  $('pauseBtn').onclick = () => { state.paused = !state.paused; $('pauseBtn').textContent = state.paused ? 'Resume' : 'Pause'; };
+  $('stopBtn').onclick = () => { state.stopRequested = true; state.paused = false; };
+  $('vframes').oninput = (ev) => { $('vframesVal').textContent = ev.target.value; };
+  $('threshold').oninput = (ev) => { state.threshold = +ev.target.value; $('thrVal').textContent = state.threshold.toFixed(2); computeMatches(); renderResults(); };
+  $('viewMatches').onclick = () => { state.view = 'matches'; $('viewMatches').classList.add('on'); $('viewAll').classList.remove('on'); renderResults(); };
+  $('viewAll').onclick = () => { state.view = 'all'; $('viewAll').classList.add('on'); $('viewMatches').classList.remove('on'); renderResults(); };
+  $('selAll').onclick = () => { state.unchecked.clear(); renderResults(); };
+  $('selNone').onclick = () => { for (const m of state.matches) state.unchecked.add(m.entry.sig); renderResults(); };
+  $('shareBtn').onclick = shareMatches;
+  $('copyBtn').onclick = copyList;
+  $('viewerClose').onclick = closeViewer;
+  $('viewerToggle').onclick = () => { if (!viewing) return; toggle(viewing.e.sig); $('viewerToggle').textContent = state.unchecked.has(viewing.e.sig) ? 'Select' : 'Unselect'; };
+  $('viewerNo').onclick = async () => { const p = currentPerson(); if (!viewing || !p) return; p.excluded.push(viewing.e.sig); await savePerson(p); closeViewer(); computeMatches(); renderResults(); toast('Marked as not ' + p.name + '.'); };
+  $('viewerRef').onclick = async () => {
+    const p = currentPerson(); if (!viewing || !p) return;
+    const e = viewing.e; const f = e.faces[viewing.m ? viewing.m.faceIdx : 0]; if (!f) return;
+    p.refs.push({ d: f.d, thumb: f.thumb, from: e.name }); await savePerson(p); closeViewer();
+    toast('Added as a reference for ' + p.name + '.'); renderPeople(); computeMatches(); renderResults();
+  };
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { if (!$('viewer').hidden) closeViewer(); } });
+  window.addEventListener('beforeunload', (ev) => { if (state.checking) { ev.preventDefault(); ev.returnValue = ''; } });
+}
+async function init() {
+  bind();
+  const ios = isIOS(), android = isAndroid();
+  if (ios) $('g-ios').open = true; else if (android) $('g-android').open = true; else $('g-ios').open = true;
+  $('pickHint').textContent = ios ? 'Tip: choose Photo Library, then drag across photos to grab many. Your iPhone converts each one before handing it over, so a big batch takes a moment before anything shows here.' : android ? 'Tip: touch and hold, then drag to select. Android lets you pick up to 100 at a time.' : '';
+  renderInstallHint();
+  await loadPeople(); renderPeople();
+  await restoreLast();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
+}
+init();
+})();
+</script>
+</body>
+</html>

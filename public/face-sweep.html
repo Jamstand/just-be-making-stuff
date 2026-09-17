@@ -239,6 +239,8 @@
     <h1>Face Sweep needs a desktop Chromium browser.</h1>
     <p>This app reads and organises files directly on your computer, which needs the File System Access API. That is available in <strong>Chrome, Edge, Brave, Opera or Arc on Windows, macOS, Linux or ChromeOS</strong>. Firefox, Safari and mobile browsers can't do this yet.</p>
     <p id="gateWhy" class="mono" style="font-size:12px;color:var(--muted)"></p>
+    <p style="margin-top:16px"><a class="btn primary" href="face-sweep-phone/" style="text-decoration:none;display:inline-block">On a phone? Open Face Sweep for phones →</a></p>
+    <p style="font-size:12px;color:var(--muted)">The phone version finds the person's photos from a batch you pick and walks you through deleting, hiding or sorting them in your Photos app.</p>
   </div>
 </div>
 
@@ -389,23 +391,17 @@
 
 <div class="toasts" id="toasts"></div>
 
+<script src="face-sweep-core.js"></script>
 <script>
 (() => {
 'use strict';
 
 /* ---------------------------------------------------------------- config */
-const LIB = {
-  faceapi: 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js',
-  models:  'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model/',
-  heic:    'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js',
-};
-const IMAGE_EXT = new Set(['jpg','jpeg','jfif','png','webp','gif','bmp','avif','heic','heif']);
-const VIDEO_EXT = new Set(['mp4','m4v','mov','webm','mkv','avi','3gp','mpg','mpeg','wmv','mts','m2ts']);
+const C = window.FaceSweepCore;
+const { IMAGE_EXT, VIDEO_EXT, extOf, dist, confLabel, idb, faceKey, ensureModels, detectFaces, decodeImage, cropFace, processImage, processVideo, bestMatch, clusterFaces } = C;
 const SKIP_DIRS = new Set(['node_modules','$RECYCLE.BIN','System Volume Information','Library','AppData','Application Data']);
 const HIDDEN_DIR = '.facesweep-hidden';
 const QUALITY = { fast: 1024, balanced: 1400, thorough: 2000 };
-const MIN_FACE_SCORE = 0.5;
-const CLUSTER_DIST = 0.5;
 const PAGE = 240;
 
 /* ---------------------------------------------------------------- state */
@@ -424,7 +420,6 @@ const state = {
   issues: [],
   shown: PAGE, clustersShown: 60,
   sort: 'conf',
-  modelsReady: false,
 };
 window.faceSweep = state; // handy for debugging in devtools
 
@@ -433,7 +428,6 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
-const extOf = (name) => { const i = name.lastIndexOf('.'); return i < 0 ? '' : name.slice(i + 1).toLowerCase(); };
 const joinPath = (dir, name) => (dir ? dir + '/' + name : name);
 const dirOf = (rel) => { const i = rel.lastIndexOf('/'); return i < 0 ? '' : rel.slice(0, i); };
 const baseOf = (rel) => { const i = rel.lastIndexOf('/'); return i < 0 ? rel : rel.slice(i + 1); };
@@ -444,156 +438,14 @@ function fmtBytes(n) {
   return (i === 0 ? n : n.toFixed(n >= 10 ? 0 : 1)) + ' ' + u[i];
 }
 function fmtDate(ts) { try { return new Date(ts).toLocaleString(); } catch { return String(ts); } }
-function withTimeout(p, ms, what) {
-  let t; const timeout = new Promise((_, rej) => { t = setTimeout(() => rej(new Error(what || 'timed out')), ms); });
-  return Promise.race([p, timeout]).finally(() => clearTimeout(t));
-}
-function dist(a, b) { let s = 0; for (let i = 0; i < a.length; i++) { const v = a[i] - b[i]; s += v * v; } return Math.sqrt(s); }
 function toast(msg, bad) {
   const el = document.createElement('div'); el.className = 'toast' + (bad ? ' bad' : ''); el.textContent = msg;
   $('toasts').appendChild(el); setTimeout(() => el.remove(), bad ? 7000 : 4000);
 }
-function canvasToBlob(c, type, q) { return new Promise((res, rej) => c.toBlob((b) => b ? res(b) : rej(new Error('toBlob failed')), type, q)); }
-function loadScript(src) {
-  return new Promise((res, rej) => {
-    const s = document.createElement('script'); s.src = src; s.async = true;
-    s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src));
-    document.head.appendChild(s);
-  });
-}
-function confLabel(d) { return d <= 0.45 ? 'strong' : d <= 0.52 ? 'likely' : 'possible'; }
-
-/* ---------------------------------------------------------------- IndexedDB */
-const DB_NAME = 'facesweep', DB_VER = 1;
-let dbPromise = null;
-function openDB() {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((res, rej) => {
-    const r = indexedDB.open(DB_NAME, DB_VER);
-    r.onupgradeneeded = () => {
-      const db = r.result;
-      db.createObjectStore('roots', { keyPath: 'id' });
-      const f = db.createObjectStore('faces', { keyPath: 'key' }); f.createIndex('rootId', 'rootId');
-      db.createObjectStore('people', { keyPath: 'id' });
-      const o = db.createObjectStore('ops', { keyPath: 'id' }); o.createIndex('rootId', 'rootId');
-    };
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-  return dbPromise;
-}
-function req(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
-const idb = {
-  async get(store, key) { const db = await openDB(); return req(db.transaction(store).objectStore(store).get(key)); },
-  async put(store, val) { const db = await openDB(); return req(db.transaction(store, 'readwrite').objectStore(store).put(val)); },
-  async del(store, key) { const db = await openDB(); return req(db.transaction(store, 'readwrite').objectStore(store).delete(key)); },
-  async all(store, index, value) {
-    const db = await openDB(); const os = db.transaction(store).objectStore(store);
-    return req(index ? os.index(index).getAll(value) : os.getAll());
-  },
-};
-const faceKey = (rootId, relPath) => rootId + '|' + relPath;
 
 /* ---------------------------------------------------------------- face model */
-let modelPromise = null;
 function setModelStat(cls, text) { const el = $('modelStat'); el.className = 'stat ' + cls; el.innerHTML = '<span class="dot"></span>' + esc(text); }
-function ensureModels() {
-  if (modelPromise) return modelPromise;
-  modelPromise = (async () => {
-    setModelStat('busy', 'Face model: downloading (about 12 MB, once)…');
-    if (!window.faceapi) await loadScript(LIB.faceapi);
-    await faceapi.nets.ssdMobilenetv1.loadFromUri(LIB.models);
-    await faceapi.nets.faceLandmark68Net.loadFromUri(LIB.models);
-    await faceapi.nets.faceRecognitionNet.loadFromUri(LIB.models);
-    state.modelsReady = true;
-    setModelStat('ok', 'Face model: ready (' + faceapi.tf.getBackend() + ')');
-  })().catch((e) => { modelPromise = null; setModelStat('err', 'Face model failed: ' + e.message); throw e; });
-  return modelPromise;
-}
-let ssdOpts = null;
-async function detectFaces(canvas) {
-  await ensureModels();
-  ssdOpts = ssdOpts || new faceapi.SsdMobilenetv1Options({ minConfidence: MIN_FACE_SCORE });
-  const dets = await faceapi.detectAllFaces(canvas, ssdOpts).withFaceLandmarks().withFaceDescriptors();
-  const W = canvas.width, H = canvas.height;
-  return dets.map((r) => ({
-    d: new Float32Array(r.descriptor),
-    score: r.detection.score,
-    box: { x: r.detection.box.x / W, y: r.detection.box.y / H, w: r.detection.box.width / W, h: r.detection.box.height / H },
-  }));
-}
-
-/* ---------------------------------------------------------------- decoding */
-async function toBitmapSource(file, ext) {
-  if (ext === 'heic' || ext === 'heif') {
-    if (!window.heic2any) await loadScript(LIB.heic);
-    const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
-    return Array.isArray(out) ? out[0] : out;
-  }
-  return file;
-}
-async function decodeImage(file, ext, maxSide) {
-  const src = await toBitmapSource(file, ext);
-  const bmp = await createImageBitmap(src, { imageOrientation: 'from-image' });
-  try {
-    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
-    const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
-    const c = document.createElement('canvas'); c.width = w; c.height = h;
-    c.getContext('2d').drawImage(bmp, 0, 0, w, h);
-    return c;
-  } finally { bmp.close(); }
-}
-function once(el, ok, ms, what) {
-  return withTimeout(new Promise((res, rej) => {
-    const done = () => { cleanup(); res(); };
-    const fail = () => { cleanup(); rej(new Error(el.error && el.error.message ? el.error.message : 'cannot decode this video')); };
-    function cleanup() { el.removeEventListener(ok, done); el.removeEventListener('error', fail); }
-    el.addEventListener(ok, done); el.addEventListener('error', fail);
-  }), ms, what);
-}
-async function* videoFrames(file, nFrames, maxSide) {
-  const url = URL.createObjectURL(file);
-  const v = document.createElement('video');
-  v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
-  const c = document.createElement('canvas');
-  try {
-    await once(v, 'loadedmetadata', 20000, 'video took too long to open');
-    let dur = v.duration;
-    if (!isFinite(dur) || dur <= 0) {
-      try { const p = once(v, 'seeked', 8000); v.currentTime = 1e6; await p; dur = v.duration; } catch { dur = 0; }
-      if (!isFinite(dur)) dur = 0;
-    }
-    const n = dur > 0 ? Math.max(1, Math.min(nFrames, Math.ceil(dur / 1.5))) : 1;
-    for (let i = 0; i < n; i++) {
-      const t = dur > 0 ? Math.min(Math.max(0, dur - 0.05), dur * (i + 0.5) / n) : 0.01;
-      const p = once(v, 'seeked', 15000, 'video seek timed out');
-      v.currentTime = t; await p;
-      if (!v.videoWidth) throw new Error('no video track');
-      const scale = Math.min(1, maxSide / Math.max(v.videoWidth, v.videoHeight));
-      c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
-      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-      yield { canvas: c, t };
-    }
-  } finally {
-    v.removeAttribute('src'); try { v.load(); } catch {}
-    URL.revokeObjectURL(url);
-  }
-}
-async function thumbOf(canvas, max) {
-  const scale = Math.min(1, max / Math.max(canvas.width, canvas.height));
-  const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(canvas.width * scale)); c.height = Math.max(1, Math.round(canvas.height * scale));
-  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
-  return canvasToBlob(c, 'image/jpeg', 0.8);
-}
-async function cropFace(canvas, box) {
-  const W = canvas.width, H = canvas.height;
-  const size = Math.max(box.w * W, box.h * H) * 1.6;
-  const cx = (box.x + box.w / 2) * W, cy = (box.y + box.h / 2) * H;
-  const c = document.createElement('canvas'); c.width = c.height = 112;
-  const ctx = c.getContext('2d'); ctx.fillStyle = '#E3DFD0'; ctx.fillRect(0, 0, 112, 112);
-  ctx.drawImage(canvas, cx - size / 2, cy - size / 2, size, size, 0, 0, 112, 112);
-  return canvasToBlob(c, 'image/jpeg', 0.8);
-}
+C.setModelStatusHandler(setModelStat);
 
 /* ---------------------------------------------------------------- library (roots) */
 async function permissionOf(handle, mode) {
@@ -676,25 +528,6 @@ function renderIssues() {
   const n = state.issues.length; $('issues').hidden = n === 0; $('issueCount').textContent = n;
   $('issueList').innerHTML = state.issues.slice(0, 500).map((i) => '<li><span class="mono">' + esc(i.path) + '</span> — ' + esc(i.why) + '</li>').join('');
 }
-async function processImage(item, file, maxSide) {
-  const canvas = await decodeImage(file, item.ext, maxSide);
-  const faces = await detectFaces(canvas);
-  for (const f of faces) f.thumb = await cropFace(canvas, f.box);
-  const thumb = faces.length ? await thumbOf(canvas, 360) : null;
-  return { faces, thumb };
-}
-async function processVideo(item, file, maxSide, nFrames) {
-  const faces = []; let thumb = null; let frames = 0;
-  for await (const { canvas, t } of videoFrames(file, nFrames, maxSide)) {
-    frames++;
-    const fs = await detectFaces(canvas);
-    for (const f of fs) { f.t = t; f.thumb = await cropFace(canvas, f.box); faces.push(f); }
-    if (fs.length && !thumb) thumb = await thumbOf(canvas, 360);
-    if (state.stopRequested) break;
-  }
-  if (!frames) throw new Error('no frames could be read');
-  return { faces, thumb };
-}
 async function scan() {
   if (state.scanning || !state.root) return;
   state.scanning = true; state.paused = false; state.stopRequested = false; state.issues = [];
@@ -736,7 +569,7 @@ async function scan() {
           if (row.status === 'ok') state.files.set(item.relPath, entryFromRow(row)); else { state.files.delete(item.relPath); if (row.status !== 'ok') state.issues.push({ path: item.relPath, why: row.error || row.status }); }
           faces += row.status === 'ok' ? row.faces.length : 0;
         } else {
-          const res = item.kind === 'image' ? await processImage(item, file, maxSide) : await processVideo(item, file, maxSide, nFrames);
+          const res = item.kind === 'image' ? await processImage(file, maxSide) : await processVideo(file, maxSide, nFrames, { shouldStop: () => state.stopRequested });
           const rec = { key: faceKey(state.root.id, item.relPath), rootId: state.root.id, relPath: item.relPath, size: file.size, mtime: file.lastModified, kind: item.kind, faces: res.faces, thumb: res.thumb, status: 'ok', q: maxSide, vf: nFrames, at: Date.now() };
           await idb.put('faces', rec);
           state.files.set(item.relPath, entryFromRow(rec));
@@ -852,23 +685,7 @@ function renderPeople() {
 }
 
 /* ---------------------------------------------------------------- clusters ("People found") */
-function computeClusters() {
-  const all = [];
-  for (const e of state.files.values()) e.faces.forEach((f, i) => all.push({ e, f, i }));
-  all.sort((a, b) => b.f.score - a.f.score);
-  const clusters = [];
-  for (const x of all) {
-    let best = null, bd = CLUSTER_DIST;
-    for (const c of clusters) { const d = dist(c.centroid, x.f.d); if (d < bd) { bd = d; best = c; } }
-    if (best) {
-      best.members.push(x); const n = best.members.length;
-      for (let k = 0; k < 128; k++) best.centroid[k] += (x.f.d[k] - best.centroid[k]) / n;
-      best.files.add(x.e.relPath);
-    } else clusters.push({ centroid: new Float32Array(x.f.d), members: [x], files: new Set([x.e.relPath]) });
-  }
-  clusters.sort((a, b) => b.files.size - a.files.size);
-  state.clusters = clusters;
-}
+function computeClusters() { state.clusters = clusterFaces([...state.files.values()], (e) => e.relPath); }
 function renderClusters() {
   const grid = $('clusterGrid'); grid.innerHTML = '';
   const list = state.clusters;
@@ -909,8 +726,7 @@ function computeMatches() {
   const refs = p.refs.map((r) => r.d);
   for (const e of state.files.values()) {
     if (ex.has(e.relPath) || !e.faces.length) continue;
-    let best = Infinity, idx = -1;
-    e.faces.forEach((f, i) => { for (const r of refs) { const d = dist(f.d, r); if (d < best) { best = d; idx = i; } } });
+    const { best, idx } = bestMatch(e.faces, refs);
     if (best <= state.threshold) state.matches.push({ entry: e, best, faceIdx: idx });
   }
   sortMatches();
@@ -1220,6 +1036,7 @@ function showHelp() {
     '<p><strong>Videos</strong> are checked by sampling frames spread across the clip. Adjust how many under Scan settings.</p>' +
     '<p><strong>Before anything changes on disk</strong> you see the exact list of files and confirm. Delete is permanent (no Recycle Bin), so it needs an extra tick. Hide and Move can be reversed from History.</p>' +
     '<p><strong>Tips.</strong> Give the person 3–6 reference faces from different angles. Use "Add as reference" on a correct match to improve recall. Use "Not them" on a wrong one so it never comes back. Start on Strict, then loosen and review what appears.</p>' +
+    '<p><strong>On a phone?</strong> <a href="face-sweep-phone/" style="color:var(--coral-ink)">Face Sweep for phones</a> finds the person in a batch of photos you pick and guides you through your Photos app for the rest.</p>' +
     '<p><strong>Limits.</strong> Works in Chromium browsers (Chrome, Edge, Brave). HEIC photos are supported; some video formats (for example HEVC on older machines) can\'t be decoded by the browser and are listed under Skipped files. Copied moves get a new "modified" date; the photo\'s own EXIF date is untouched.</p>';
   openModal('How Face Sweep works', b, [{ label: 'Close', cls: 'ghost', onClick: closeModal }]);
 }

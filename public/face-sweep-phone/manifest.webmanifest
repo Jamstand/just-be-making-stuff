@@ -1,0 +1,17 @@
+{
+  "id": "face-sweep-phone",
+  "name": "Face Sweep",
+  "short_name": "Face Sweep",
+  "description": "Find every photo of one person on your phone. Runs on-device; nothing is uploaded.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F0EEE6",
+  "theme_color": "#F0EEE6",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
