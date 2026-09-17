@@ -475,12 +475,52 @@ async function fetchTwitchFollowerCount() {
 // ── SSE event bus ────────────────────────────────────────────────────────────
 const sseClients = new Set();
 
+// Recent-events ring buffer so clients that cannot hold an SSE stream open
+// (the in-game Assetto Corsa ticker app polls over plain HTTP) can catch up.
+const RECENT_EVENTS_MAX = 50;
+const recentEvents = [];
+let eventSeq = 0;
+
 function broadcast(event, data) {
   const payload = `data: ${JSON.stringify({ event, data })}\n\n`;
   for (const res of sseClients) {
     try { res.write(payload); } catch {}
   }
+  if (event !== 'ac') {
+    // telemetry is high-rate and has its own endpoint; keep the buffer for real events
+    eventSeq += 1;
+    recentEvents.push({ seq: eventSeq, t: Date.now(), event, data });
+    if (recentEvents.length > RECENT_EVENTS_MAX) recentEvents.splice(0, recentEvents.length - RECENT_EVENTS_MAX);
+  }
 }
+
+// GET /widget-events/recent?since=<seq> -> { seq, events: [...] } (events newer than `since`).
+// since=0 (or missing) returns only the current seq so a fresh client does not replay old backlog.
+app.get('/widget-events/recent', (req, res) => {
+  const since = Number(req.query.since);
+  const events = Number.isFinite(since) && since > 0 ? recentEvents.filter((e) => e.seq > since) : [];
+  res.json({ seq: eventSeq, events });
+});
+
+// ── Assetto Corsa telemetry (posted by the in-game JamPure Telemetry app) ──
+// POST /ac/telemetry {car, speedKmh, gear, rpm, ...} -> stored + broadcast as SSE event "ac".
+// GET  /ac/telemetry -> latest snapshot (or {stale:true} when nothing arrived for 5 s).
+let acTelemetry = null;
+let acTelemetryAt = 0;
+
+app.post('/ac/telemetry', (req, res) => {
+  const b = req.body;
+  if (!b || typeof b !== 'object') return res.status(400).json({ error: 'expected a JSON object' });
+  acTelemetry = { ...b, receivedAt: Date.now() };
+  acTelemetryAt = acTelemetry.receivedAt;
+  broadcast('ac', acTelemetry);
+  res.json({ ok: true });
+});
+
+app.get('/ac/telemetry', (req, res) => {
+  if (!acTelemetry) return res.json({ stale: true });
+  res.json({ ...acTelemetry, stale: Date.now() - acTelemetryAt > 5000 });
+});
 
 app.get('/widget-events', (req, res) => {
   res.writeHead(200, {

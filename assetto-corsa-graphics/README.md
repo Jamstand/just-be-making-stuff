@@ -18,6 +18,7 @@ pack but shares no files with it and is not affiliated with Maiven, Peter Boese
 | `pure-config/` | `JamPure_pure_config.ini` | `assettocorsa\extension\config-ext\Pure\` | In game: Pure Config app > Main > Load |
 | `csp-presets/` | `JamPure_CSP_Ultra.ini`, `JamPure_CSP_Balanced.ini` (built from `base/Maiven_Ultra_highend_vans.ini`) | `%LOCALAPPDATA%\AcTools Content Manager\Presets\Custom Shaders Patch\` | CM > Settings > Custom Shaders Patch > presets button (top right) |
 | `cm-video-presets/` | `JamPure Ultra.cmpreset`, `JamPure Balanced.cmpreset` | `%LOCALAPPDATA%\AcTools Content Manager\Presets\Video Settings\` | CM > Settings > Video > presets button (top right) |
+| `apps/lua/` | eight `JamPure*` folders (manifest.ini + .lua each) | `assettocorsa\apps\lua\<App>\` | In game: apps sidebar on the right edge, click the app to open it |
 
 `Install-JamPure.ps1` copies all of the above to the right places for you.
 
@@ -172,6 +173,56 @@ copy) and, while at it, rewrites the exposure part to match what current Pure fi
   rendering frequency in AC video settings must not be *static* (the video presets use
   six faces per frame), and CSP > Reflections FX > "Use proper physically-based sampling"
   must be on (the Maiven export has it on).
+
+## In-game HUD apps
+
+Eight CSP Lua apps, written against the CSP 0.2.11 SDK definitions and checked by a
+harness that runs each one for 150 frames in five simulated sessions (offline day, an online
+night with 12 cars, rain and music, a paused replay with the widget server unreachable, a tiny
+window, and one with the Pure script present on disk). Open them from the apps sidebar in
+game; every app has a settings page (the gear icon on its title bar) and remembers its
+settings between sessions.
+
+| App | What it shows | Needs |
+| --- | --- | --- |
+| **Traffic Radar** | Cars around you as dots on a radar that keeps your heading up, coloured by closing speed, with distance and closing speed on the nearest car ahead and behind. | nothing |
+| **Convoy** | Everyone in the session sorted by distance, with a direction arrow, speed and a "with you / close / dropped" status. Works offline with AI too. | nothing |
+| **Stream Ticker** | Twitch follows, subs, cheers and tips in a corner of the game: newest event large, the last few below, plus viewers and followers. | widget server |
+| **Telemetry Out** | Pushes speed, gear, rpm, fuel, laps and car name to the widget server a few times per second and shows the send status. | widget server |
+| **Now Playing** | The current track from Windows' media session, or from the server's Spotify proxy as fallback, with a live progress bar. | optional: widget server |
+| **Filter Doctor** | Active PP filter, whether its Pure script exists for Gamma and for LCS, exposure and multiplier with nudge buttons, time of day, sun angle, weather and render flags. | nothing |
+| **Frame Time** | Frame-time graph with fps, average, 1 % low and worst frame, plus car count, VRAM, MSAA, FSR, LCS and detail level. | nothing |
+| **Cruise Cluster** | Road-car dash: big speed, gear, rpm bar with red zone, fuel with estimated range, trip and odometer, beam, indicator, hazard, handbrake, ABS and TC lights, clock. | nothing |
+
+### The widget server side
+
+Three of the apps talk to the Node widget server in this repository (`server.js`, the one
+that already feeds the OBS overlays). Start it with `npm start` on the gaming PC and leave
+the apps' *base URL* setting at `http://localhost:3000`. This pack added to the server:
+
+- `GET /widget-events/recent?since=<seq>`: the last 50 Twitch events with sequence numbers,
+  which the Stream Ticker polls (the in-game Lua runtime can't hold an SSE stream open).
+- `POST /ac/telemetry` and `GET /ac/telemetry`: the Telemetry Out app posts here; the server
+  stores the latest snapshot and re-broadcasts it as the SSE event `ac`.
+- `public/widgets/AC_Telemetry.html`: a new OBS browser-source widget showing speed, gear,
+  rpm, fuel and lap times live. It dims itself when data stops and only shows demo numbers
+  before any real data has ever arrived. Listed on the widgets directory page.
+
+CSP allows a script at most two web requests in flight; the apps keep one and back off when
+the server is down, so leaving them open without the server running costs nothing.
+
+### Notes per app
+
+- **Traffic Radar** ignores disconnected cars and cars CSP hides labels for. Range, dot size,
+  AI inclusion and driver names (online) are settings.
+- **Stream Ticker** has a "test event" button in its settings to check placement without
+  waiting for a real follow.
+- **Filter Doctor** rechecks the script files every 2 s, not every frame, and shows the exact
+  path it expects when a script is missing. The +/- buttons drive the same exposure
+  multiplier as the Post Process Filter app's slider.
+- **Frame Time** samples the real frame time, so it keeps measuring while paused.
+- **Cruise Cluster** estimates range from your own consumption over the last few kilometres;
+  it shows "range --" until it has driven enough to know.
 
 ## Tuning cheat-sheet
 

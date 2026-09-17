@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AC Telemetry · vans_it widgets</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { background: transparent; }
+  body { min-height: 100vh; display: flex; align-items: flex-end; justify-content: flex-start; padding: 18px; }
+  .telemetry { width: 420px; padding: 16px 20px 14px; display: grid; grid-template-columns: auto 1fr auto; gap: 6px 18px; align-items: end;
+    transition: opacity .5s ease; }
+  .telemetry.stale { opacity: .35; }
+  .speed { font-family: var(--mono); font-size: 64px; font-weight: 600; line-height: .9; letter-spacing: -0.03em; }
+  .speed small { font-family: var(--sans); font-size: 12px; font-weight: 500; letter-spacing: .18em; text-transform: uppercase; opacity: .55; margin-left: 6px; }
+  .gear { font-family: var(--serif); font-size: 58px; font-weight: 600; line-height: .9; text-align: center; color: var(--ochre); }
+  .gear small { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .26em; text-transform: uppercase; opacity: .55; margin-top: 4px; }
+  .rpm { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
+  .rpm > div { height: 100%; width: 0%; background: linear-gradient(90deg, var(--paper), var(--ochre) 70%, var(--rust)); transition: width .12s linear; }
+  .meta { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 12px; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; opacity: .75; }
+  .meta b { font-weight: 600; opacity: 1; }
+  .car { grid-column: 1 / -1; font-family: var(--serif); font-size: 18px; font-style: italic; opacity: .9; }
+  .fuel { text-align: right; font-family: var(--mono); font-size: 12px; opacity: .8; }
+  .fuel .bar { width: 90px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); margin-top: 6px; overflow: hidden; }
+  .fuel .bar > div { height: 100%; background: var(--moss); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="../vendor/react.development.js"></script>
+<script src="../vendor/react-dom.development.js"></script>
+<script src="../vendor/babel.min.js"></script>
+<script src="widget-shared.js"></script>
+
+<script type="text/babel">
+// Live driving data from Assetto Corsa. The in-game "JamPure Telemetry Out" app
+// POSTs to /ac/telemetry a few times per second; the server re-broadcasts it as
+// SSE event "ac" (Widget.subscribe) and keeps the latest snapshot at GET /ac/telemetry.
+//   ?endpoint=/ac/telemetry   fallback poll URL (or "off")
+//   ?poll=1000                fallback poll interval in ms
+//   ?mph=1                    show mph instead of km/h
+//   ?demo=1                   fake data when nothing arrives (Widget.demoOn)
+const DEMO = { car: 'BMW M340i', track: 'Shutoko Revival Project', speedKmh: 132, gear: 5, rpm: 3900, rpmLimiter: 7000, fuel: 38, maxFuel: 59, lap: 3, headlights: false };
+
+function fmtLap(ms) {
+  if (!ms || ms <= 0) return '--:--.---';
+  const s = ms / 1000;
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(3).padStart(6, '0')}`;
+}
+
+function App() {
+  const rawEndpoint = Widget.getParam('endpoint', '/ac/telemetry');
+  const endpoint = rawEndpoint === 'off' ? null : rawEndpoint;
+  const pollMs = parseInt(Widget.getParam('poll', '1000'), 10);
+  const mph = Widget.getParam('mph', '0') === '1';
+  const [data, setData] = React.useState(null);
+  const [lastAt, setLastAt] = React.useState(0);
+  const [hasLive, setHasLive] = React.useState(false);   // real data arrived at least once: never show demo again
+  const [now, setNow] = React.useState(Date.now());
+
+  React.useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, []);
+
+  // Preferred path: push over SSE.
+  React.useEffect(() => Widget.subscribe('ac', (d) => { if (d && typeof d === 'object') { setData(d); setLastAt(Date.now()); setHasLive(true); } }), []);
+
+  // Fallback path: poll the latest snapshot (also fills the first frame before any push arrives).
+  React.useEffect(() => {
+    if (!endpoint) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(endpoint, { cache: 'no-store' });
+        if (!res.ok) return;
+        const d = await res.json();
+        if (stopped || !d || d.speedKmh === undefined) return;   // {stale:true} with no snapshot yet
+        setData((prev) => (prev && prev.receivedAt && d.receivedAt && d.receivedAt <= prev.receivedAt) ? prev : d);
+        setLastAt((prevAt) => Math.max(prevAt, d.receivedAt || 0));
+        setHasLive(true);
+      } catch { /* keep last values */ }
+    };
+    poll();
+    const t = setInterval(poll, pollMs);
+    return () => { stopped = true; clearInterval(t); };
+  }, [endpoint, pollMs]);
+
+  const live = hasLive && now - lastAt < 5000;
+  const d = hasLive ? data : (Widget.demoOn ? DEMO : null);   // stale real data stays up (dimmed); demo only before any data
+  if (!d) return null;
+
+  const speed = mph ? (d.speedKmh || 0) * 0.621371 : (d.speedKmh || 0);
+  const gear = d.gear === 0 ? 'N' : d.gear === -1 ? 'R' : String(d.gear ?? '-');
+  const rpmFrac = d.rpmLimiter ? Math.min(1, (d.rpm || 0) / d.rpmLimiter) : 0;
+  const fuelFrac = d.maxFuel ? Math.min(1, (d.fuel || 0) / d.maxFuel) : 0;
+
+  return (
+    <div className={'st-card telemetry' + (hasLive && !live ? ' stale' : '')}>
+      <div className="speed">{Math.round(speed)}<small>{mph ? 'mph' : 'km/h'}</small></div>
+      <div className="gear">{gear}<small>gear</small></div>
+      <div className="fuel">{(d.fuel ?? 0).toFixed(1)} L<div className="bar"><div style={{ width: `${fuelFrac * 100}%` }} /></div></div>
+      <div className="rpm"><div style={{ width: `${rpmFrac * 100}%` }} /></div>
+      <div className="car">{d.car || 'Assetto Corsa'}{d.track ? ` · ${d.track}` : ''}</div>
+      <div className="meta">
+        <span>rpm <b>{Math.round(d.rpm || 0)}</b></span>
+        <span>lap <b>{d.lap ?? 0}</b></span>
+        <span>last <b>{fmtLap(d.lastLapMs)}</b></span>
+        <span>best <b>{fmtLap(d.bestLapMs)}</b></span>
+        <span className="st-eyebrow">{live ? 'live' : hasLive ? 'stale' : 'demo'}</span>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -12,6 +12,7 @@
       pure-config\*.ini               -> <AC>\extension\config-ext\Pure\
       csp-presets\*.ini               -> %LOCALAPPDATA%\AcTools Content Manager\Presets\Custom Shaders Patch\
       cm-video-presets\*.cmpreset     -> %LOCALAPPDATA%\AcTools Content Manager\Presets\Video Settings\
+      apps\lua\<App>\*                 -> <AC>\apps\lua\<App>\   (in-game HUD apps)
 
     The Assetto Corsa folder is found through the Steam registry entry and
     steamapps\libraryfolders.vdf. Pass -AcRoot if it lives somewhere else.
@@ -117,6 +118,21 @@ if (Test-Path $stale) {
     Write-Host "  removed stale copy: $stale"
 }
 
+# In-game Lua apps: one folder per app under apps\lua.
+$appsSrc = Join-Path $packRoot 'apps\lua'
+if (Test-Path $appsSrc) {
+    $appsDst = Join-Path $AcRoot 'apps\lua'
+    foreach ($app in Get-ChildItem -Path $appsSrc -Directory) {
+        $target = Join-Path $appsDst $app.Name
+        if ($PSCmdlet.ShouldProcess($target, "Copy app $($app.Name)")) {
+            New-Item -ItemType Directory -Path $target -Force | Out-Null
+            Copy-Item -Path (Join-Path $app.FullName '*') -Destination $target -Recurse -Force
+            $copied += (Get-ChildItem -Path $app.FullName -File -Recurse).Count
+        }
+        Write-Host ("  {0,-34} -> {1}" -f ("apps\lua\" + $app.Name), $appsDst)
+    }
+}
+
 Write-Host ''
 Write-Host "Done. $copied file(s) copied."
 Write-Host ''
@@ -125,3 +141,4 @@ Write-Host '  1. Content Manager > Settings > Custom Shaders Patch > WeatherFX: 
 Write-Host '  2. Content Manager > Settings > Video > presets (top right): load "JamPure Ultra" or "JamPure Balanced".'
 Write-Host '  3. Content Manager > Settings > Custom Shaders Patch > presets (top right): load "JamPure_CSP_Ultra" or "JamPure_CSP_Balanced".'
 Write-Host '  4. In game: Pure Config app > Main tab > Load > JamPure_pure_config.ini.'
+Write-Host '  5. In game: open the apps sidebar (move the mouse to the right edge) and enable the JamPure HUD apps you want.'
