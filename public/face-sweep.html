@@ -551,7 +551,7 @@ async function scan() {
     const prep = async (item) => {
       const file = await item.handle.getFile();
       const row = await idb.get('faces', faceKey(state.root.id, item.relPath));
-      const fresh = row && row.size === file.size && row.mtime === file.lastModified && (row.q || 0) >= maxSide && (item.kind !== 'video' || (row.vf || 0) >= nFrames);
+      const fresh = row && row.size === file.size && row.mtime === file.lastModified && (row.status === 'ok' ? ((row.q || 0) >= maxSide && (item.kind !== 'video' || (row.vf || 0) >= nFrames)) : !/timed out|took too long|timeout/i.test(row.error || ''));
       return { item, file, row: fresh ? row : null };
     };
     let next = list.length ? prep(list[0]) : null;

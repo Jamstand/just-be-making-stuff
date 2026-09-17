@@ -216,7 +216,7 @@
         <li>Touch and hold the first photo, then drag your finger down the grid to select a run, or tap the others. There is no Select all.</li>
         <li>Then choose one:
           <ul>
-            <li><b>Delete:</b> tap <b>Trash</b> (bottom), then <b>Move to trash</b>. Trash keeps them for 30 days.</li>
+            <li><b>Delete:</b> tap <b>Trash</b> (bottom), then <b>Move to trash</b>. Trash keeps them for at least 30 days.</li>
             <li><b>Hide:</b> tap <b>⋮</b> (top right), then <b>Archive</b>: gone from the main grid, still in albums and search. For real hiding tap <b>Add to</b> (bottom), then <b>Move to Locked Folder</b>: gone from everywhere, behind your screen lock (set it up once under Collections → Locked).</li>
             <li><b>Separate album:</b> tap <b>Add to</b>, then <b>Album</b>, then <b>New album</b>. Even easier: open any album, tap <b>⋮</b> → <b>Options</b> → <b>Add</b>, pick the person's face, and Google Photos keeps that album filled with their photos by itself.</li>
           </ul>
@@ -392,6 +392,7 @@ async function sigOf(file) {
     return file.size + '|' + [...new Uint8Array(h)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
   } catch { return file.name + '|' + file.size + '|' + file.lastModified; }
 }
+const isTransient = (why) => /timed out|took too long|timeout/i.test(why || '');
 const isStandalone = () => (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
 
 /* ---------------------------------------------------------------- modal */
@@ -513,7 +514,7 @@ async function check() {
       try {
         const key = faceKey(ROOT, e.sig);
         const row = await idb.get('faces', key);
-        const fresh = row && (row.q || 0) >= maxSide && (e.kind !== 'video' || (row.vf || 0) >= nFrames);
+        const fresh = row && (row.status === 'ok' ? ((row.q || 0) >= maxSide && (e.kind !== 'video' || (row.vf || 0) >= nFrames)) : !isTransient(row.error));
         if (fresh) { entryFromRow(e, row); reused++; if (row.status !== 'ok') state.issues.push({ name: e.name, why: row.error || row.status }); }
         else {
           const date = e.kind === 'image' ? await photoDate(e.file) : null;
@@ -568,6 +569,7 @@ async function restoreLast() {
 }
 
 /* ---------------------------------------------------------------- matching & results */
+let shareKey = '', shareCursor = 0, forceBatches = false;
 function computeMatches() {
   const p = currentPerson(); state.matches = [];
   if (!p || !p.refs.length) return;
@@ -591,6 +593,7 @@ function renderResults() {
   $('actionBar').hidden = n === 0;
   $('selSummary').innerHTML = '<strong>' + sel.length + '</strong> of ' + n + ' selected' + (state.fromMemory ? '<small>Choose the photos again to share them.</small>' : '<small>' + fmtBytes(sel.reduce((s, m) => s + m.entry.size, 0)) + '</small>');
   $('shareBtn').disabled = sel.length === 0 || state.fromMemory;
+  if (sel.map((m) => m.entry.sig).join(',') !== shareKey) $('shareBtn').textContent = 'Share…';
   $('copyBtn').disabled = sel.length === 0;
   const exn = p.excluded.length; $('excludedNote').hidden = exn === 0;
   $('excludedNote').innerHTML = exn + ' marked "not them" · <button class="linkbtn" id="clearEx">undo</button>';
@@ -620,12 +623,14 @@ function listText(sel) {
 }
 
 /* ---------------------------------------------------------------- viewer */
-let viewing = null;
+let viewing = null, viewerUrl = null;
 function openViewer(e, m) {
+  closeViewer();
   viewing = { e, m };
   const box = $('viewerImg'); box.innerHTML = '';
-  if (e.file && e.kind === 'video') { const v = document.createElement('video'); v.controls = true; v.playsInline = true; v.src = URL.createObjectURL(e.file); box.appendChild(v); }
-  else { const img = document.createElement('img'); img.src = e.file && e.kind === 'image' ? URL.createObjectURL(e.file) : blobUrl('t:' + e.sig, e.thumb); box.appendChild(img); }
+  if (e.file) viewerUrl = URL.createObjectURL(e.file);
+  if (e.file && e.kind === 'video') { const v = document.createElement('video'); v.controls = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.src = viewerUrl; box.appendChild(v); }
+  else { const img = document.createElement('img'); img.alt = e.name; img.src = viewerUrl || blobUrl('t:' + e.sig, e.thumb); box.appendChild(img); }
   $('viewerName').textContent = e.name;
   $('viewerMeta').textContent = [fmtDate(e.date || e.mtime) || 'unknown date', fmtBytes(e.size), m ? confLabel(m.best) + ' match (' + m.best.toFixed(2) + ')' : (e.faces.length ? e.faces.length + ' face' + (e.faces.length === 1 ? '' : 's') + ', not a match' : 'no faces found')].join(' · ');
   $('viewerNo').hidden = !m; $('viewerRef').hidden = !e.faces.length; $('viewerToggle').hidden = !m;
@@ -633,23 +638,45 @@ function openViewer(e, m) {
   $('viewer').hidden = false;
 }
 function closeViewer() {
-  const box = $('viewerImg'); for (const el of box.querySelectorAll('img,video')) { if (el.src && el.src.startsWith('blob:') && !urlCache.has(el.src)) { try { if (!([...urlCache.values()].includes(el.src))) URL.revokeObjectURL(el.src); } catch {} } }
+  const box = $('viewerImg'); for (const v of box.querySelectorAll('video')) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch {} }
   box.innerHTML = ''; $('viewer').hidden = true; viewing = null;
+  if (viewerUrl) { try { URL.revokeObjectURL(viewerUrl); } catch {} viewerUrl = null; }
 }
 
 /* ---------------------------------------------------------------- share / copy */
+// Chrome on Android allows at most 10 files / 50 MB per share; iOS has no documented cap
+// but each share() needs its own tap. So: share everything if the browser lets us, else
+// hand over batches, one tap at a time.
+const MAX_SHARE_BYTES = 48 * 1024 * 1024;
+function pickShareBatch(all, start) {
+  for (let n = Math.min(10, all.length - start); n > 0; n--) {
+    const files = all.slice(start, start + n);
+    if (files.reduce((s, f) => s + f.size, 0) <= MAX_SHARE_BYTES && navigator.canShare({ files })) return files;
+  }
+  return null;
+}
 async function shareMatches() {
   const sel = selectedMatches().filter((m) => m.entry.file);
   if (!sel.length) return;
-  const files = sel.map((m) => m.entry.file);
-  const p = currentPerson();
   if (!navigator.share || !navigator.canShare) return showList('Sharing files isn\'t supported in this browser. Here is the list instead:');
-  if (!navigator.canShare({ files })) {
-    if (sel.length > 10 && navigator.canShare({ files: files.slice(0, 10) })) return toast('Your phone limits how many files can be shared at once. Select 10 or fewer and try again.', true);
-    return showList('This browser can\'t share these files. Here is the list instead:');
+  const key = sel.map((m) => m.entry.sig).join(',');
+  if (key !== shareKey) { shareKey = key; shareCursor = 0; }
+  if (shareCursor >= sel.length) shareCursor = 0;
+  const all = sel.map((m) => m.entry.file);
+  let files = null;
+  if (shareCursor === 0 && !forceBatches && navigator.canShare({ files: all })) files = all;
+  else files = pickShareBatch(all, shareCursor);
+  if (!files) return showList('This browser can\'t share these files. Here is the list instead:');
+  try {
+    await navigator.share({ files }); // files only: adding a title makes some iOS targets treat the share as text
+    shareCursor += files.length;
+    if (shareCursor >= sel.length) { toast('Shared all ' + sel.length + ' file' + (sel.length === 1 ? '' : 's') + '.'); shareCursor = 0; shareKey = ''; $('shareBtn').textContent = 'Share…'; }
+    else { toast('Shared ' + shareCursor + ' of ' + sel.length + '. Tap "Share next" for the following ' + Math.min(10, sel.length - shareCursor) + '.'); $('shareBtn').textContent = 'Share next…'; }
+  } catch (e) {
+    if (!e || e.name === 'AbortError') return;
+    if (files.length > 1 && (e.name === 'NotAllowedError' || e.name === 'TypeError')) { forceBatches = true; return toast('Your phone limits how many files go in one share. Tap Share again to send them in smaller groups.', true); }
+    toast('Share failed: ' + e.message, true);
   }
-  try { await navigator.share({ files, title: (p ? 'Photos of ' + p.name : 'Face Sweep matches') }); toast('Shared ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '.'); }
-  catch (e) { if (e && e.name !== 'AbortError') toast('Share failed: ' + e.message, true); }
 }
 function showList(intro) {
   const box = $('listBox'); box.hidden = false;
