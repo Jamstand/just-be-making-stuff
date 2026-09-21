@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Portfolio Uploader</title>
+<meta name="description" content="Add photos and videos to the portfolio from your phone.">
+<meta name="theme-color" content="#0a0908">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Uploader">
+<link rel="manifest" href="upload.webmanifest">
+<link rel="apple-touch-icon" href="upload-icon.png">
+<link rel="icon" href="upload-icon.png">
+<style>
+  @font-face { font-family: "Cormorant Garamond"; font-style: normal; font-weight: 300 700; font-display: swap; src: url("fonts/cormorant-garamond.woff2") format("woff2"); }
+  @font-face { font-family: "Cormorant Garamond"; font-style: italic; font-weight: 300 700; font-display: swap; src: url("fonts/cormorant-garamond-italic.woff2") format("woff2"); }
+  @font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("fonts/inter.woff2") format("woff2"); }
+  @font-face { font-family: "Caveat"; font-style: normal; font-weight: 400 700; font-display: swap; src: url("fonts/caveat.woff2") format("woff2"); }
+
+  :root {
+    --bg: #0a0908; --bg-2: #14120f; --surface: #1a1713;
+    --ink: #ece7df; --muted: #9a938a; --faint: #8d857b;
+    --accent: #d4a259; --accent-soft: rgba(212,162,89,.14);
+    --ok: #8fc48a; --bad: #e08a7a;
+    --hairline: rgba(236,231,223,.12); --hairline-strong: rgba(236,231,223,.22);
+    --serif: "Cormorant Garamond", Georgia, serif;
+    --sans: "Inter", system-ui, -apple-system, sans-serif;
+    --hand: "Caveat", "Segoe Print", cursive;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased; min-height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  a { color: var(--accent); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  [hidden] { display: none !important; }
+
+  .top {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 16px 20px 12px; border-bottom: 1px solid var(--hairline);
+    position: sticky; top: 0; background: rgba(10,9,8,.9); backdrop-filter: blur(12px); z-index: 5;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
+  .brand svg { width: 24px; height: 24px; }
+  .brand .hand { font-family: var(--hand); font-weight: 500; font-size: 20px; color: var(--accent); }
+  .status { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+  .status i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .status.on i { background: var(--ok); }
+
+  main { max-width: 560px; margin: 0 auto; padding: 22px 20px 60px; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: 38px; line-height: 1.05; margin: 6px 0 8px; }
+  h1 em { font-style: italic; font-weight: 400; }
+  h2 { font-family: var(--hand); font-weight: 500; font-size: 24px; color: var(--accent); margin: 34px 0 10px; }
+  p.lede { color: var(--muted); font-size: 15px; max-width: 46ch; }
+
+  .card { background: var(--bg-2); border: 1px solid var(--hairline); border-radius: 12px; padding: 18px; margin-top: 16px; }
+  ol.steps { padding-left: 20px; color: var(--muted); font-size: 14px; display: grid; gap: 8px; }
+  ol.steps strong { color: var(--ink); font-weight: 500; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: var(--surface); padding: 1px 6px; border-radius: 4px; }
+
+  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  input[type="text"], input[type="password"], input[type="url"], input[type="number"], select, textarea {
+    width: 100%; background: var(--surface); border: 1px solid var(--hairline-strong); border-radius: 10px;
+    padding: 12px 14px; color: var(--ink); -webkit-appearance: none; appearance: none;
+  }
+  select { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%; background-size: 6px 6px; background-repeat: no-repeat; padding-right: 40px; }
+  textarea { min-height: 84px; resize: vertical; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 14px 22px; border-radius: 999px; border: 1px solid var(--hairline-strong);
+    background: none; cursor: pointer; font-weight: 550; font-size: 15px; transition: all .2s ease;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-solid { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .btn-solid:hover { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  .btn-wide { width: 100%; margin-top: 18px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn-text { background: none; border: 0; color: var(--muted); font-size: 13px; padding: 6px 0; cursor: pointer; }
+  .btn-text:hover { color: var(--accent); }
+
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; background: var(--surface); padding: 5px; border-radius: 999px; border: 1px solid var(--hairline); margin-top: 6px; }
+  .seg button { border: 0; background: none; border-radius: 999px; padding: 10px 6px; font-size: 14px; color: var(--muted); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg); font-weight: 600; }
+
+  .drop {
+    margin-top: 12px; border: 1px dashed var(--hairline-strong); border-radius: 12px; padding: 22px 16px;
+    text-align: center; color: var(--muted); font-size: 14px; position: relative; overflow: hidden; background: var(--surface);
+  }
+  .drop input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+  .drop .big { font-family: var(--hand); font-size: 24px; color: var(--ink); display: block; margin-bottom: 4px; }
+  .preview { margin-top: 12px; border-radius: 10px; overflow: hidden; border: 1px solid var(--hairline); background: #000; }
+  .preview img, .preview video { display: block; width: 100%; max-height: 300px; object-fit: contain; }
+  .preview-meta { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  .msg { margin-top: 14px; font-size: 14px; color: var(--muted); min-height: 1.4em; }
+  .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+  .progress { height: 3px; background: var(--hairline); border-radius: 2px; overflow: hidden; margin-top: 10px; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s ease; }
+
+  .bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); padding: 6px 0 2px; flex-wrap: wrap; }
+  .bar b { color: var(--ink); font-weight: 500; }
+
+  ul.items { list-style: none; display: grid; gap: 10px; }
+  ul.items li { display: grid; grid-template-columns: 76px 1fr auto; gap: 12px; align-items: center; background: var(--bg-2); border: 1px solid var(--hairline); border-radius: 10px; padding: 8px; }
+  .thumb { width: 76px; height: 56px; border-radius: 6px; object-fit: cover; background: linear-gradient(135deg, #3a2a18, #14120f); display: block; }
+  .thumb.ph { display: grid; place-items: center; font-family: var(--hand); font-size: 15px; color: var(--accent); }
+  .it-title { font-family: var(--serif); font-size: 19px; line-height: 1.15; }
+  .it-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .it-del { background: none; border: 1px solid var(--hairline); color: var(--muted); border-radius: 999px; width: 34px; height: 34px; font-size: 18px; line-height: 1; cursor: pointer; }
+  .it-del:hover { border-color: var(--bad); color: var(--bad); }
+
+  .foot { margin-top: 30px; font-size: 13px; color: var(--faint); }
+  .install { margin-top: 12px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--hairline); padding-top: 12px; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="16" cy="16" r="13" fill="none" stroke="#d4a259" stroke-width="1.6"/>
+      <circle cx="16" cy="16" r="4.5" fill="#d4a259"/>
+      <circle cx="16" cy="6.5" r="1.6" fill="#d4a259"/><circle cx="24.2" cy="11.2" r="1.6" fill="#d4a259"/>
+      <circle cx="24.2" cy="20.8" r="1.6" fill="#d4a259"/><circle cx="16" cy="25.5" r="1.6" fill="#d4a259"/>
+      <circle cx="7.8" cy="20.8" r="1.6" fill="#d4a259"/><circle cx="7.8" cy="11.2" r="1.6" fill="#d4a259"/>
+    </svg>
+    <span>josh iott</span><span class="hand">uploader</span>
+  </div>
+  <span class="status" id="status"><i></i><span id="statusText">not connected</span></span>
+</header>
+
+<main>
+
+  <!-- ── Setup ─────────────────────────────────────────────────────────── -->
+  <section id="setupView">
+    <h1>connect to <em>your site.</em></h1>
+    <p class="lede">This app publishes straight to your GitHub repo, and GitHub Pages puts it on the site. One-time setup: give it a token that can write to the repo.</p>
+
+    <div class="card">
+      <ol class="steps">
+        <li>On your phone, open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener"><strong>github.com → new fine-grained token</strong></a>.</li>
+        <li>Name it <strong>portfolio uploader</strong>. Under <strong>Repository access</strong> choose <em>Only select repositories</em> and pick <code id="repoHint">Jamstand/just-be-making-stuff</code>.</li>
+        <li>Under <strong>Permissions → Repository permissions</strong> set <strong>Contents</strong> to <em>Read and write</em>. Leave everything else alone.</li>
+        <li>Generate it, copy it, paste it below. It stays on this phone only.</li>
+      </ol>
+
+      <label for="repoInput">repo</label>
+      <input type="text" id="repoInput" value="Jamstand/just-be-making-stuff" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <label for="tokenInput">token</label>
+      <input type="password" id="tokenInput" placeholder="github_pat_…" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <button class="btn btn-solid btn-wide" id="connectBtn">connect</button>
+      <p class="msg" id="setupMsg"></p>
+    </div>
+
+    <p class="install" id="installHint">To keep this as an app: open the share menu in Safari (or the ⋮ menu in Chrome) and tap <strong>Add to Home Screen</strong>.</p>
+  </section>
+
+  <!-- ── App ───────────────────────────────────────────────────────────── -->
+  <section id="appView" hidden>
+    <div class="bar">
+      <span><b id="repoLabel"></b> · <span id="branchLabel"></span></span>
+      <button class="btn-text" id="disconnectBtn">disconnect</button>
+    </div>
+
+    <h1>add <em>something.</em></h1>
+
+    <div class="card">
+      <div class="seg" role="group" aria-label="What are you adding">
+        <button type="button" data-kind="photo" aria-pressed="true">photo</button>
+        <button type="button" data-kind="link" aria-pressed="false">video link</button>
+        <button type="button" data-kind="clip" aria-pressed="false">short clip</button>
+      </div>
+
+      <div id="photoPane">
+        <div class="drop">
+          <span class="big">pick a photo</span>
+          shrunk to 2000px on your phone before it uploads
+          <input type="file" id="photoInput" accept="image/*">
+        </div>
+        <div class="preview" id="photoPreview" hidden><img id="photoImg" alt=""></div>
+        <p class="preview-meta" id="photoMeta"></p>
+      </div>
+
+      <div id="linkPane" hidden>
+        <label for="linkInput">youtube or vimeo link</label>
+        <input type="url" id="linkInput" placeholder="https://youtu.be/…" inputmode="url" autocapitalize="none">
+        <p class="preview-meta">Best for anything longer than a few seconds. Unlisted Vimeo links work too.</p>
+      </div>
+
+      <div id="clipPane" hidden>
+        <div class="drop">
+          <span class="big">pick a clip</span>
+          under 25 MB · MP4 plays everywhere, iPhone .mov may only play in Safari
+          <input type="file" id="clipInput" accept="video/*">
+        </div>
+        <div class="preview" id="clipPreview" hidden><img id="clipPoster" alt="Poster frame"></div>
+        <p class="preview-meta" id="clipMeta"></p>
+      </div>
+
+      <label for="titleInput">title</label>
+      <input type="text" id="titleInput" placeholder="the coast at dusk" autocapitalize="none">
+      <div class="row">
+        <div>
+          <label for="catInput">type</label>
+          <select id="catInput">
+            <option value="photo">photo</option>
+            <option value="video">video</option>
+            <option value="cinema">film</option>
+          </select>
+        </div>
+        <div>
+          <label for="yearInput">year</label>
+          <input type="number" id="yearInput" inputmode="numeric" min="1990" max="2100">
+        </div>
+      </div>
+      <label for="blurbInput">a line or two about it</label>
+      <textarea id="blurbInput" placeholder="Shot at 6am. Worth it."></textarea>
+
+      <button class="btn btn-solid btn-wide" id="publishBtn">publish to the site</button>
+      <div class="progress" id="progress" hidden><i></i></div>
+      <p class="msg" id="publishMsg"></p>
+    </div>
+
+    <h2>( on the site now )</h2>
+    <ul class="items" id="itemList"></ul>
+    <p class="foot" id="footNote"></p>
+  </section>
+
+</main>
+
+<script>
+/* ── Config ─────────────────────────────────────────────────────────────── */
+const DEFAULT_REPO = 'Jamstand/just-be-making-stuff';
+const WORK_PATH = 'public/work.json';
+const MEDIA_DIR = 'public/work';
+const CLIP_MAX_BYTES = 25 * 1024 * 1024;
+const CATEGORIES = { video: 'video', photo: 'photo', cinema: 'film' };
+
+const $ = id => document.getElementById(id);
+const state = { token: '', repo: '', branch: '', items: [], workSha: '', kind: 'photo', photo: null, clip: null };
+
+/* ── GitHub API ─────────────────────────────────────────────────────────── */
+async function api(path, opts = {}) {
+  const r = await fetch('https://api.github.com' + path, {
+    ...opts,
+    headers: {
+      Authorization: 'Bearer ' + state.token,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(opts.headers || {}),
+    },
+  });
+  if (!r.ok) {
+    let detail = '';
+    try { detail = (await r.json()).message || ''; } catch (e) {}
+    const err = new Error(r.status === 401 ? 'GitHub rejected the token.'
+      : r.status === 403 ? 'The token can’t write to this repo — check its Contents permission.'
+      : r.status === 404 ? 'Not found — check the repo name and that the token can see it.'
+      : 'GitHub error ' + r.status + (detail ? ': ' + detail : ''));
+    err.status = r.status;
+    throw err;
+  }
+  return r.status === 204 ? null : r.json();
+}
+const getFile = path => api(`/repos/${state.repo}/contents/${path}?ref=${encodeURIComponent(state.branch)}`);
+const putFile = (path, contentB64, message, sha) =>
+  api(`/repos/${state.repo}/contents/${path}`, { method: 'PUT', body: JSON.stringify({ message, content: contentB64, branch: state.branch, ...(sha ? { sha } : {}) }) });
+const deleteFile = (path, sha, message) =>
+  api(`/repos/${state.repo}/contents/${path}`, { method: 'DELETE', body: JSON.stringify({ message, sha, branch: state.branch }) });
+
+const b64ToText = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\n/g, '')), c => c.charCodeAt(0)));
+const textToB64 = text => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+const blobToB64 = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+
+/* ── Connect / disconnect ───────────────────────────────────────────────── */
+function setStatus(on, text) { $('status').classList.toggle('on', on); $('statusText').textContent = text; }
+function pagesURL() {
+  const [owner, name] = state.repo.split('/');
+  return `https://${owner.toLowerCase()}.github.io/${name}/portfolio.html`;
+}
+function rawURL(path) { return `https://raw.githubusercontent.com/${state.repo}/${state.branch}/public/${path}`; }
+
+async function connect(repo, token, silent) {
+  state.repo = repo.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/\/$/, '');
+  state.token = token.trim();
+  const msg = $('setupMsg');
+  if (!/^[\w.-]+\/[\w.-]+$/.test(state.repo)) { msg.textContent = 'Repo should look like owner/name.'; msg.className = 'msg bad'; return false; }
+  if (!state.token) { msg.textContent = 'Paste the token first.'; msg.className = 'msg bad'; return false; }
+  msg.textContent = silent ? '' : 'Checking…'; msg.className = 'msg';
+  try {
+    const info = await api(`/repos/${state.repo}`);
+    state.branch = info.default_branch;
+    await loadItems();
+    localStorage.setItem('uploader.repo', state.repo);
+    localStorage.setItem('uploader.token', state.token);
+    $('repoLabel').textContent = state.repo; $('branchLabel').textContent = state.branch;
+    $('footNote').textContent = 'Everything you publish goes live at ' + pagesURL() + ' about two minutes later.';
+    $('setupView').hidden = true; $('appView').hidden = false;
+    setStatus(true, 'connected');
+    return true;
+  } catch (e) {
+    msg.textContent = e.message; msg.className = 'msg bad';
+    setStatus(false, 'not connected');
+    return false;
+  }
+}
+function disconnect() {
+  localStorage.removeItem('uploader.token');
+  state.token = ''; state.items = [];
+  $('tokenInput').value = '';
+  $('appView').hidden = true; $('setupView').hidden = false;
+  setStatus(false, 'not connected');
+}
+$('connectBtn').addEventListener('click', () => connect($('repoInput').value, $('tokenInput').value));
+$('tokenInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('connectBtn').click(); });
+$('disconnectBtn').addEventListener('click', disconnect);
+$('repoInput').addEventListener('input', () => { $('repoHint').textContent = $('repoInput').value || DEFAULT_REPO; });
+
+/* ── Item list ──────────────────────────────────────────────────────────── */
+async function loadItems() {
+  const file = await getFile(WORK_PATH);
+  state.workSha = file.sha;
+  const data = JSON.parse(b64ToText(file.content));
+  state.items = Array.isArray(data.items) ? data.items : [];
+  renderItems();
+}
+function renderItems() {
+  const ul = $('itemList');
+  ul.replaceChildren();
+  if (!state.items.length) { ul.insertAdjacentHTML('beforeend', '<li style="display:block;color:var(--muted);font-size:14px">Nothing yet — add the first one above.</li>'); return; }
+  state.items.forEach((item, i) => {
+    const li = document.createElement('li');
+    const m = item.media || {};
+    const thumbSrc = m.type === 'image' ? rawURL(m.src) : m.type === 'video' && m.poster ? rawURL(m.poster) : null;
+    const thumb = thumbSrc ? Object.assign(document.createElement('img'), { className: 'thumb', src: thumbSrc, alt: '' })
+      : Object.assign(document.createElement('div'), { className: 'thumb ph', textContent: m.type === 'youtube' || m.type === 'vimeo' ? '▶ link' : 'sample' });
+    const text = document.createElement('div');
+    text.innerHTML = '<div class="it-title"></div><div class="it-meta"></div>';
+    text.querySelector('.it-title').textContent = item.title;
+    text.querySelector('.it-meta').textContent = (CATEGORIES[item.category] || item.category) + ' · ' + item.year + (m.type === 'placeholder' ? ' · generated sample' : '');
+    const del = Object.assign(document.createElement('button'), { className: 'it-del', textContent: '×', title: 'Remove from the site' });
+    del.setAttribute('aria-label', 'Remove ' + item.title);
+    del.addEventListener('click', () => removeItem(i));
+    li.append(thumb, text, del);
+    ul.appendChild(li);
+  });
+}
+
+async function saveWork(message) {
+  const res = await putFile(WORK_PATH, textToB64(JSON.stringify({ items: state.items }, null, 2) + '\n'), message, state.workSha);
+  state.workSha = res.content.sha;
+}
+
+async function removeItem(i) {
+  const item = state.items[i];
+  if (!confirm(`Remove "${item.title}" from the site?`)) return;
+  const msg = $('publishMsg');
+  try {
+    msg.textContent = 'Removing…'; msg.className = 'msg';
+    await loadItems();                       // fresh copy in case the site changed elsewhere
+    const idx = state.items.findIndex(x => x.title === item.title && x.year === item.year);
+    if (idx < 0) throw new Error('That item is already gone.');
+    const [gone] = state.items.splice(idx, 1);
+    await saveWork('Remove work: ' + gone.title);
+    const m = gone.media || {};
+    for (const p of [m.src, m.poster]) {
+      if (p && p.startsWith('work/')) {
+        try { const f = await getFile('public/' + p); await deleteFile('public/' + p, f.sha, 'Remove file for: ' + gone.title); } catch (e) { /* file may already be gone */ }
+      }
+    }
+    renderItems();
+    msg.textContent = 'Removed. The site updates in about two minutes.'; msg.className = 'msg ok';
+  } catch (e) { msg.textContent = e.message; msg.className = 'msg bad'; }
+}
+
+/* ── Media prep ─────────────────────────────────────────────────────────── */
+function aspectFor(w, h) { const r = w / h; return r >= 1.9 ? 'wide' : r >= 1.3 ? 'video' : r <= 0.9 ? 'portrait' : 'square'; }
+function slugify(title) { return (title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'work') + '-' + Date.now().toString(36); }
+
+async function decodeImage(file) {
+  if ('createImageBitmap' in window) {
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (e) {}
+  }
+  return new Promise((res, rej) => { const img = new Image(); img.onload = () => res(img); img.onerror = rej; img.src = URL.createObjectURL(file); });
+}
+async function shrinkImage(source, maxW, quality, srcW, srcH) {
+  const sw = srcW || source.naturalWidth || source.width, sh = srcH || source.naturalHeight || source.height;
+  const scale = Math.min(1, maxW / sw);
+  const c = document.createElement('canvas');
+  c.width = Math.round(sw * scale); c.height = Math.round(sh * scale);
+  c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', quality));
+  return { blob, w: c.width, h: c.height };
+}
+
+$('photoInput').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  $('photoMeta').textContent = 'Preparing…';
+  try {
+    const src = await decodeImage(file);
+    const out = await shrinkImage(src, 2000, 0.86);
+    state.photo = { ...out, aspect: aspectFor(out.w, out.h) };
+    $('photoImg').src = URL.createObjectURL(out.blob); $('photoPreview').hidden = false;
+    $('photoMeta').textContent = `${out.w}×${out.h} · ${Math.round(out.blob.size / 1024)} KB · ${state.photo.aspect} frame`;
+    if (!$('titleInput').value) $('titleInput').value = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').toLowerCase();
+  } catch (err) { state.photo = null; $('photoMeta').textContent = 'Couldn’t read that image.'; }
+});
+
+$('clipInput').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  state.clip = null; $('clipPreview').hidden = true;
+  if (file.size > CLIP_MAX_BYTES) { $('clipMeta').textContent = `That clip is ${Math.round(file.size / 1048576)} MB — the limit is 25 MB. Put longer videos on YouTube or Vimeo and paste the link instead.`; return; }
+  $('clipMeta').textContent = 'Grabbing a poster frame…';
+  try {
+    const poster = await posterFrame(file);
+    state.clip = { file, poster: poster.blob, w: poster.w, h: poster.h, aspect: aspectFor(poster.w, poster.h), ext: (file.name.match(/\.(mp4|mov|m4v|webm)$/i) || [, 'mp4'])[1].toLowerCase() };
+    $('clipPoster').src = URL.createObjectURL(poster.blob); $('clipPreview').hidden = false;
+    $('clipMeta').textContent = `${Math.round(file.size / 1048576 * 10) / 10} MB · ${poster.w}×${poster.h} · ${state.clip.aspect} frame`;
+    if (!$('titleInput').value) $('titleInput').value = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').toLowerCase();
+  } catch (err) { $('clipMeta').textContent = 'Couldn’t read that video in this browser. MP4 (H.264) is the safe bet.'; }
+});
+
+function posterFrame(file) {
+  return new Promise((res, rej) => {
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto';
+    const url = URL.createObjectURL(file);
+    let done = false;
+    const finish = async () => {
+      if (done || !v.videoWidth) return;
+      done = true;
+      try { res(await shrinkImage(v, 1600, 0.84, v.videoWidth, v.videoHeight)); }
+      catch (e) { rej(e); }
+      finally { URL.revokeObjectURL(url); }
+    };
+    v.onerror = () => { if (!done) { done = true; URL.revokeObjectURL(url); rej(new Error('decode')); } };
+    v.onloadeddata = () => {
+      // aim a little way in for a better frame; if the clip can't seek
+      // (no index, e.g. straight off a recorder) settle for the first frame
+      const target = isFinite(v.duration) && v.duration > 0 ? Math.min(1, v.duration * 0.1) : 0.5;
+      const fallback = setTimeout(finish, 1500);
+      v.onseeked = () => { clearTimeout(fallback); finish(); };
+      try { v.currentTime = target; } catch (e) { clearTimeout(fallback); finish(); }
+    };
+    v.src = url;
+  });
+}
+
+/* ── Kind switch ────────────────────────────────────────────────────────── */
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+  state.kind = b.dataset.kind;
+  document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  $('photoPane').hidden = state.kind !== 'photo';
+  $('linkPane').hidden = state.kind !== 'link';
+  $('clipPane').hidden = state.kind !== 'clip';
+  $('catInput').value = state.kind === 'photo' ? 'photo' : 'video';
+}));
+
+/* ── Publish ────────────────────────────────────────────────────────────── */
+function progress(frac, text) {
+  $('progress').hidden = false; $('progress').firstElementChild.style.width = Math.round(frac * 100) + '%';
+  $('publishMsg').textContent = text; $('publishMsg').className = 'msg';
+}
+function parseVideoLink(src) {
+  if (/(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{6,})/.test(src)) return 'youtube';
+  if (/vimeo\.com\/(?:video\/)?\d+/.test(src)) return 'vimeo';
+  return null;
+}
+
+$('publishBtn').addEventListener('click', async () => {
+  const title = $('titleInput').value.trim();
+  const category = $('catInput').value;
+  const year = $('yearInput').value.trim() || String(new Date().getFullYear());
+  const blurb = $('blurbInput').value.trim();
+  const msg = $('publishMsg');
+  const fail = t => { msg.textContent = t; msg.className = 'msg bad'; $('progress').hidden = true; };
+
+  if (!title) return fail('Give it a title.');
+  const item = { title, category, year, blurb };
+  if (state.kind === 'photo' && !state.photo) return fail('Pick a photo first.');
+  if (state.kind === 'clip' && !state.clip) return fail('Pick a clip first.');
+  if (state.kind === 'link') {
+    const src = $('linkInput').value.trim();
+    const type = parseVideoLink(src);
+    if (!type) return fail('That doesn’t look like a YouTube or Vimeo link.');
+    item.aspect = 'video'; item.media = { type, src };
+  }
+
+  $('publishBtn').disabled = true;
+  try {
+    const slug = slugify(title);
+    if (state.kind === 'photo') {
+      progress(0.2, 'Uploading photo…');
+      await putFile(`${MEDIA_DIR}/${slug}.jpg`, await blobToB64(state.photo.blob), 'Add photo: ' + title);
+      item.aspect = state.photo.aspect; item.media = { type: 'image', src: `work/${slug}.jpg` };
+    } else if (state.kind === 'clip') {
+      progress(0.15, 'Uploading poster frame…');
+      await putFile(`${MEDIA_DIR}/${slug}.jpg`, await blobToB64(state.clip.poster), 'Add poster: ' + title);
+      progress(0.35, 'Uploading clip… (this is the slow part)');
+      await putFile(`${MEDIA_DIR}/${slug}.${state.clip.ext}`, await blobToB64(state.clip.file), 'Add clip: ' + title);
+      item.aspect = state.clip.aspect; item.media = { type: 'video', src: `work/${slug}.${state.clip.ext}`, poster: `work/${slug}.jpg` };
+    }
+    progress(0.8, 'Adding it to the site…');
+    await loadItems();
+    state.items.unshift(item);
+    await saveWork('Add work: ' + title);
+    renderItems();
+    progress(1, '');
+    msg.textContent = 'Published. It’s at the top of the site in about two minutes.'; msg.className = 'msg ok';
+    resetForm();
+  } catch (e) {
+    fail(e.message + (e.status === 409 ? ' (the site changed underneath us — just tap publish again)' : ''));
+    if (e.status === 409) { try { await loadItems(); } catch (x) {} }
+  } finally {
+    $('publishBtn').disabled = false;
+    setTimeout(() => { $('progress').hidden = true; }, 1500);
+  }
+});
+
+function resetForm() {
+  state.photo = null; state.clip = null;
+  ['titleInput', 'blurbInput', 'linkInput', 'photoInput', 'clipInput'].forEach(id => { $(id).value = ''; });
+  $('photoPreview').hidden = true; $('clipPreview').hidden = true;
+  $('photoMeta').textContent = ''; $('clipMeta').textContent = '';
+}
+
+/* ── Boot ───────────────────────────────────────────────────────────────── */
+$('yearInput').value = new Date().getFullYear();
+$('repoInput').value = localStorage.getItem('uploader.repo') || DEFAULT_REPO;
+if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) $('installHint').hidden = true;
+const savedToken = localStorage.getItem('uploader.token');
+if (savedToken) {
+  $('tokenInput').value = savedToken;
+  connect($('repoInput').value, savedToken, true).then(ok => { if (!ok) $('setupMsg').textContent = 'Saved token stopped working — make a new one.'; });
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('upload-sw.js').catch(() => {});
+</script>
+</body>
+</html>

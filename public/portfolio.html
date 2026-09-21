@@ -432,7 +432,7 @@
   }
   .lb-stage { position: relative; }
   .lb-media { position: relative; background: #000; }
-  .lb-media img { width: 100%; max-height: 68vh; max-height: 68dvh; object-fit: contain; }
+  .lb-media img, .lb-media video { width: 100%; max-height: 68vh; max-height: 68dvh; object-fit: contain; }
   .lb-media .embed { aspect-ratio: 16 / 9; }
   .lb-media iframe { width: 100%; height: 100%; border: 0; }
   .lb-meta { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 22px 26px 26px; flex-wrap: wrap; }
@@ -718,7 +718,12 @@ const SITE = {
 };
 
 /*
-  WORK — your portfolio pieces. For each item:
+  WORK — your portfolio pieces.
+
+  The live site reads public/work.json first (that is what the phone
+  uploader at /upload edits); this inline list is only the fallback when
+  that file can't be loaded (for example when the page is opened as a file).
+  Both use the same item shape:
     title     what it's called
     category  'video' | 'photo' | 'cinema'
     year      display year
@@ -728,6 +733,7 @@ const SITE = {
               { type: 'image',   src: 'photos/my-shot.jpg' }
               { type: 'youtube', src: 'https://www.youtube.com/watch?v=…' }
               { type: 'vimeo',   src: 'https://vimeo.com/…' }
+              { type: 'video',   src: 'work/clip.mp4', poster: 'work/clip.jpg' }
     scene / hues  only used by placeholders — scene is one of
               'ridge' | 'sea' | 'city' | 'portrait' | 'road' | 'dunes',
               hues is a pair of 0–360 color hues for the frame's palette.
@@ -870,6 +876,7 @@ function videoEmbedURL(src) {
 
 function cardImageSrc(item) {
   if (item.media && item.media.type === 'image' && item.media.src) return item.media.src;
+  if (item.media && item.media.type === 'video' && item.media.poster) return item.media.poster;
   return placeholderFrame(item.scene || 'ridge', item.hues || [32, 14], item.aspect);
 }
 
@@ -937,8 +944,12 @@ if (SITE.reelUrl) {
 
 const workGrid = document.getElementById('workGrid');
 const filtersBox = document.getElementById('filters');
+let ITEMS = WORK;
 
-WORK.forEach((item, i) => {
+function renderWork(items) {
+  ITEMS = items;
+  workGrid.querySelectorAll('.card').forEach(c => c.remove());
+  items.forEach((item, i) => {
   const card = document.createElement('button');
   card.className = 'card reveal';
   card.dataset.cat = item.category;
@@ -965,7 +976,22 @@ WORK.forEach((item, i) => {
   card.appendChild(frame);
   card.addEventListener('click', () => openLightbox(i));
   workGrid.appendChild(card);
-});
+  io.observe(card);
+  });
+  // re-apply whichever filter chip is pressed
+  const active = filtersBox.querySelector('.chip[aria-pressed="true"]');
+  if (active && active.dataset.filter !== 'all') active.click();
+}
+
+async function loadWork() {
+  try {
+    const r = await fetch('work.json', { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+    if (Array.isArray(data.items) && data.items.length) return data.items;
+  } catch (e) { /* no work.json here — use the inline list */ }
+  return WORK;
+}
 
 const FILTERS = [['all', 'everything'], ['video', 'video'], ['photo', 'photo'], ['cinema', 'film']];
 FILTERS.forEach(([key, label], idx) => {
@@ -997,7 +1023,7 @@ function visibleIndices() {
 
 function openLightbox(i) {
   lbIndex = i;
-  const item = WORK[i];
+  const item = ITEMS[i];
   const cat = (CATEGORIES[item.category] || item.category) + ' · ' + item.year;
   document.getElementById('lbTitle').textContent = item.title;
   document.getElementById('lbCat').textContent = cat;
@@ -1019,6 +1045,13 @@ function openLightbox(i) {
     iframe.allowFullscreen = true;
     wrap.appendChild(iframe);
     lbMedia.replaceChildren(wrap);
+  } else if (media.type === 'video' && media.src) {
+    const video = document.createElement('video');
+    video.src = media.src;
+    if (media.poster) video.poster = media.poster;
+    video.controls = true; video.autoplay = true; video.playsInline = true;
+    video.setAttribute('aria-label', item.title);
+    lbMedia.replaceChildren(video);
   } else {
     const img = document.createElement('img');
     img.src = cardImageSrc(item);
@@ -1097,6 +1130,8 @@ const io = new IntersectionObserver(entries => {
   });
 }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
 document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+loadWork().then(renderWork);
 </script>
 </body>
 </html>

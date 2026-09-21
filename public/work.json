@@ -1,0 +1,139 @@
+{
+  "items": [
+    {
+      "title": "golden hour",
+      "category": "cinema",
+      "year": "2026",
+      "aspect": "wide",
+      "blurb": "We hiked up in the dark for this one. Cold hands, one long unbroken take, completely worth it.",
+      "media": {
+        "type": "placeholder"
+      },
+      "scene": "ridge",
+      "hues": [
+        32,
+        14
+      ]
+    },
+    {
+      "title": "night drive",
+      "category": "video",
+      "year": "2026",
+      "aspect": "video",
+      "blurb": "Shot entirely after midnight with one synth track on repeat. Slept till two the next day.",
+      "media": {
+        "type": "placeholder"
+      },
+      "scene": "city",
+      "hues": [
+        200,
+        280
+      ]
+    },
+    {
+      "title": "portraits on film",
+      "category": "photo",
+      "year": "2025",
+      "aspect": "portrait",
+      "blurb": "A slow portrait series. Natural light, one roll each, no do-overs. That's the fun part.",
+      "media": {
+        "type": "placeholder"
+      },
+      "scene": "portrait",
+      "hues": [
+        22,
+        350
+      ]
+    },
+    {
+      "title": "the coast at dusk",
+      "category": "photo",
+      "year": "2025",
+      "aspect": "video",
+      "blurb": "Long exposures in the last twenty minutes of light. You get one window and that's it.",
+      "media": {
+        "type": "placeholder"
+      },
+      "scene": "sea",
+      "hues": [
+        190,
+        220
+      ]
+    },
+    {
+      "title": "the long way home",
+      "category": "cinema",
+      "year": "2025",
+      "aspect": "wide",
+      "blurb": "Two lanes, one summer. A little road documentary about everything in between.",
+      "media": {
+        "type": "placeholder"
+      },
+      "scene": "road",
+      "hues": [
+        38,
+        8
+      ]
+    },
+    {
+      "title": "first dance",
+      "category": "video",
+      "year": "2025",
+      "aspect": "portrait",
+      "blurb": "A wedding film that keeps the shaky, happy, real parts in. Those are the good bits.",
+      "media": {
+        "type": "placeholder"
+      },
+      "scene": "portrait",
+      "hues": [
+        45,
+        20
+      ]
+    },
+    {
+      "title": "dune lines",
+      "category": "photo",
+      "year": "2024",
+      "aspect": "square",
+      "blurb": "Wind-drawn geometry, about an hour after sunrise. The wind redraws it daily.",
+      "media": {
+        "type": "placeholder"
+      },
+      "scene": "dunes",
+      "hues": [
+        35,
+        55
+      ]
+    },
+    {
+      "title": "verse / chorus",
+      "category": "video",
+      "year": "2024",
+      "aspect": "video",
+      "blurb": "A one-location music video. Practical light and hard cuts right on the beat.",
+      "media": {
+        "type": "placeholder"
+      },
+      "scene": "city",
+      "hues": [
+        320,
+        260
+      ]
+    },
+    {
+      "title": "high country",
+      "category": "cinema",
+      "year": "2024",
+      "aspect": "video",
+      "blurb": "An alpine study. Cold hands again. I'm sensing a pattern.",
+      "media": {
+        "type": "placeholder"
+      },
+      "scene": "ridge",
+      "hues": [
+        210,
+        190
+      ]
+    }
+  ]
+}

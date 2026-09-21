@@ -1128,6 +1128,8 @@ app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', '
 // ── Portfolio ────────────────────────────────────────────────────────────────
 // Videography / photography / cinematography portfolio site.
 app.get('/portfolio', (req, res) => res.sendFile(path.join(__dirname, 'public', 'portfolio.html')));
+// Phone app that adds photos / videos to the portfolio (commits to the repo via GitHub's API).
+app.get('/upload', (req, res) => res.sendFile(path.join(__dirname, 'public', 'upload.html')));
 
 // ── Claude Design (Max ed.) ──────────────────────────────────────────────────
 //

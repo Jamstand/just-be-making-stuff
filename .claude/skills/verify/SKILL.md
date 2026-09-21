@@ -55,3 +55,25 @@ const browser = await puppeteer.launch({
 - Config-driven paths (`SITE.reelUrl`, `WORK[].media`) can only be exercised by
   serving a temporary copy of the page with the config edited — write it as
   `public/_verify-*.html`, drive it, delete it before committing.
+
+## Flows worth driving on `/upload` (the phone uploader)
+
+It commits through GitHub's REST API from the browser. Never test against the
+real repo — mock `https://api.github.com` with `page.setRequestInterception`:
+
+- Answer `OPTIONS` preflights with 204 + CORS headers, and put
+  `Access-Control-Allow-Origin: *` on every mocked response, or the page
+  just sees "Failed to fetch".
+- Call `page.setBypassServiceWorker(true)` before interception. Once
+  `upload-sw.js` controls a page, pass-through fetches are issued by the
+  worker and interception never sees them.
+- The status pill reads "not connected" / "connected" — wait with an exact
+  match, not `includes('connected')`.
+- A test clip can be made in-browser (canvas `captureStream` +
+  `MediaRecorder`); it has no seek index, which is exactly the case the
+  poster grab's first-frame fallback covers.
+- Flows: bad token → 401 message; connect lists `work.json`; photo → PUT
+  `public/work/<slug>.jpg` then GET/PUT `work.json` with the sha; link → only
+  `work.json`; clip → poster + clip + `work.json`; remove → `work.json` then
+  GET+DELETE each `work/` file; disconnect wipes the token; reload
+  reconnects from localStorage.
