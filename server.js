@@ -1125,6 +1125,10 @@ app.post('/ai/photo-edit', async (req, res) => {
 
 app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', 'photo-ai.html')));
 
+// ── Portfolio ────────────────────────────────────────────────────────────────
+// Videography / photography / cinematography portfolio site.
+app.get('/portfolio', (req, res) => res.sendFile(path.join(__dirname, 'public', 'portfolio.html')));
+
 // ── Claude Design (Max ed.) ──────────────────────────────────────────────────
 //
 // A small single-player clone of the iteration loop at claude.ai/design:
