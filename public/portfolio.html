@@ -202,6 +202,8 @@
   .hero-bg { position: absolute; inset: 0; z-index: -2; }
   .hero-bg img {
     width: 100%; height: 100%; object-fit: cover;
+    /* the photo's subject sits in its right half; keep it in frame as the viewport narrows */
+    object-position: 62% 50%;
     transform-origin: 60% 40%;
     animation: hero-pan 36s ease-in-out infinite alternate;
   }
@@ -212,8 +214,15 @@
   .hero::after {
     content: ""; position: absolute; inset: 0; z-index: -1;
     background:
+      linear-gradient(90deg, rgba(10,9,8,.5) 0%, rgba(10,9,8,.22) 40%, transparent 68%),
       linear-gradient(180deg, rgba(10,9,8,.55) 0%, rgba(10,9,8,.1) 34%, rgba(10,9,8,.32) 68%, var(--bg) 100%),
       radial-gradient(120% 90% at 50% 110%, rgba(10,9,8,.5), transparent 60%);
+  }
+  @media (max-width: 760px) {
+    .hero-bg img { object-position: 70% 50%; }
+    .hero::after { background:
+      linear-gradient(180deg, rgba(10,9,8,.6) 0%, rgba(10,9,8,.42) 45%, rgba(10,9,8,.3) 70%, var(--bg) 100%),
+      radial-gradient(120% 90% at 50% 110%, rgba(10,9,8,.5), transparent 60%); }
   }
   .letterbox { position: absolute; left: 0; right: 0; height: clamp(14px, 3vh, 30px); background: #050403; z-index: 2; }
   .letterbox.top { top: 0; } .letterbox.bottom { bottom: 0; }
