@@ -298,6 +298,8 @@
   @media (max-width: 1080px) { .work-grid { columns: 2; } }
   @media (max-width: 640px) { .work-grid { columns: 1; } }
 
+  .nojs-note { color: var(--muted); font-size: 15px; max-width: 52ch; }
+
   .card {
     display: block; width: 100%; text-align: left;
     break-inside: avoid; margin-bottom: 26px;
@@ -454,6 +456,10 @@
     * { transition-duration: .01s !important; }
   }
 </style>
+<noscript><style>
+  /* the reel player is injected by script — without it there is nothing to play */
+  #reel, .hero-ctas a[href="#reel"], .mobile-menu a[href="#reel"], .nav-links li:has(> a[href="#reel"]) { display: none; }
+</style></noscript>
 </head>
 <body>
 
@@ -544,7 +550,9 @@
       <p class="lede">Video, photos, and film projects, all mixed together. Filter by type if you want, and click anything for the story behind it.</p>
     </div>
     <div class="filters reveal" role="group" aria-label="Filter portfolio by discipline" id="filters"></div>
-    <div class="work-grid" id="workGrid"></div>
+    <div class="work-grid" id="workGrid">
+      <noscript><p class="nojs-note">This gallery is built in the browser, so it needs JavaScript turned on to load. Everything else on the page still works.</p></noscript>
+    </div>
   </section>
 
   <!-- ── About ────────────────────────────────────────────────────────── -->
@@ -1047,14 +1055,22 @@ function setMenu(open) {
   mobileMenu.classList.toggle('open', open);
   document.body.style.overflow = open ? 'hidden' : '';
   // keep keyboard focus inside the overlay while it is open
-  document.querySelectorAll('main, footer').forEach(el => { el.inert = open; });
+  document.querySelectorAll('main, footer, .brand, .skip-link').forEach(el => { el.inert = open; });
   if (open) mobileMenu.querySelector('a').focus();
   else if (document.activeElement === document.body || mobileMenu.contains(document.activeElement)) menuBtn.focus();
 }
 menuBtn.addEventListener('click', () => setMenu(menuBtn.getAttribute('aria-expanded') !== 'true'));
 mobileMenu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => setMenu(false)));
 addEventListener('keydown', e => {
-  if (e.key === 'Escape' && mobileMenu.classList.contains('open')) setMenu(false);
+  if (!mobileMenu.classList.contains('open')) return;
+  if (e.key === 'Escape') setMenu(false);
+  if (e.key === 'Tab') {
+    // the hamburger (the close control) plus the menu links are the whole tab ring
+    const ring = [menuBtn, ...mobileMenu.querySelectorAll('a')];
+    const i = ring.indexOf(document.activeElement);
+    if (e.shiftKey && i <= 0) { e.preventDefault(); ring[ring.length - 1].focus(); }
+    else if (!e.shiftKey && i === ring.length - 1) { e.preventDefault(); ring[0].focus(); }
+  }
 });
 // close the menu (and release the scroll lock) if the viewport grows past the breakpoint
 matchMedia('(min-width: 761px)').addEventListener('change', e => {
