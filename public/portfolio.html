@@ -693,6 +693,9 @@ const SITE = {
   location: 'will travel for good light',
   email: 'joshiott05@gmail.com',
 
+  // Photo behind the hero headline. Leave blank to use the generated frame.
+  heroImage: 'hero.jpg',
+
   // Paste a YouTube or Vimeo URL here and the showreel section goes live.
   // e.g. 'https://www.youtube.com/watch?v=XXXXXXXXXXX' or 'https://vimeo.com/123456789'
   reelUrl: '',
@@ -887,7 +890,7 @@ if (!socialsBox.children.length) socialsBox.remove();
 
 /* ── Hero + portrait backgrounds ─────────────────────────────────────────── */
 
-document.getElementById('heroBg').src = placeholderFrame('ridge', [30, 16], 'video');
+document.getElementById('heroBg').src = SITE.heroImage || placeholderFrame('ridge', [30, 16], 'video');
 document.getElementById('portraitImg').src = placeholderFrame('portrait', [28, 18], 'portrait');
 
 /* ── Showreel ────────────────────────────────────────────────────────────── */
