@@ -1,3 +1,7 @@
 node_modules/
 .env
 .tokens.json
+
+# Toolchain outputs (scripts/check.sh) - never commit these
+.lint/
+sourcemap.json

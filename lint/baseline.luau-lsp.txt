@@ -1,0 +1,58 @@
+src/client/CrackAGeodeClient/UI.luau | FunctionUnused | Function 'makePanel' is never used; prefix with '_' to silence
+src/client/CrackAGeodeClient/UI.luau | SameLineStatement | A new statement is on the same line; add semi-colon on previous statement to silence
+src/client/CrackAGeodeClient/UI.luau | TypeError | Argument count mismatch. Function 'SG.close' expects 2 arguments, but only 1 is specified
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key '_lastUpsell' not found in table 'UI'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'achRows' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'ascBtn' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'ascLabel' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'cells' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'collectHeader' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'collectRows' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'dailyBtn' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'dailyCells' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'dailyClaim' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'dailyNote' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'dailyQuests' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'indexHeader' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'luckBtn' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'luckLabel' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'luckSub' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'passBtns' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'perkBtns' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'perkHeader' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'petRows' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'petsHeader' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'powerBtn' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'powerLabel' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'powerSub' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'rebirthBtn' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'rebirthFill' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'rebirthLabel' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'shopBtn' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'starterCard' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'zonePctLabel' not found in table 'refs'
+src/client/CrackAGeodeClient/init.client.luau | LocalUnused | Variable 'state' is never used; prefix with '_' to silence
+src/server/CrackAGeodeServer/Achievements.luau | SameLineStatement | A new statement is on the same line; add semi-colon on previous statement to silence
+src/server/CrackAGeodeServer/Econ.luau | SameLineStatement | A new statement is on the same line; add semi-colon on previous statement to silence
+src/server/CrackAGeodeServer/Monetize.luau | SameLineStatement | A new statement is on the same line; add semi-colon on previous statement to silence
+src/server/CrackAGeodeServer/Pets.luau | LocalUnused | Variable 'Players' is never used; prefix with '_' to silence
+src/server/CrackAGeodeServer/Stations.luau | LocalUnused | Variable 'Config' is never used; prefix with '_' to silence
+src/shared/Config.luau | TypeError | Expected this to be '{| coins: number?, desc: string, icon: string, id: number, key: string, name: string, price: number, starter: boolean?, zone: string?, zone
+src/shared/Config.luau | TypeError | Expected this to be '{| desc: string, icon: string, id: number, key: string, name: string, price: number |}', but got 'nil'
+src/shared/Config.luau | TypeError | Expected this to be exactly
+src/shared/Config.luau | TypeError | Key 'unlockPrice' not found in table '{ center: Vector3, exclusivePet: { bonus: number, color: Color3, emoji: string, name: string }, geodes: {{ dropTable: { Am
+src/shared/Config.luau | TypeError | Key 'unlockProductId' not found in table '{ center: Vector3, exclusivePet: { bonus: number, color: Color3, emoji: string, name: string }, geodes: {{ dropTable: 
+src/shared/StyleGuide.luau | TypeError | Attempting a dynamic property access on type 'Instance' is unsafe and may cause exceptions at runtime
+src/shared/StyleGuide.luau | TypeError | Key 'MouseButton1Down' not found in external type 'Instance'
+src/shared/StyleGuide.luau | TypeError | Key 'MouseButton1Up' not found in external type 'Instance'
+src/shared/StyleGuide.luau | TypeError | Key 'MouseLeave' not found in external type 'Instance'
+src/shared/StyleGuide.luau | TypeError | Key 'Scale' not found in external type 'Instance'
+src/shared/StyleGuide.luau | TypeError | Key 'Visible' not found in external type 'Instance'
+src/shared/Zones.luau | TypeError | Expected this to be
+src/shared/Zones.luau | TypeError | Expected this to be 'nil', but got 'string'
+src/shared/Zones.luau | TypeError | Expected this to be 'number', but got 'nil'
+src/shared/Zones.luau | TypeError | Expected this to be 'number', but got 'string'
+src/shared/Zones.luau | TypeError | Expected this to be '{| center: Vector3, exclusivePet: {| bonus: number, color: Color3, emoji: string, name: string |}, geodes: {{| dropTable: {| Amethyst: numb
+src/shared/Zones.luau | TypeError | Expected this to be exactly
+src/shared/Zones.luau | TypeError | Table type '{| center: Vector3, exclusivePet: {| bonus: number, color: Color3, emoji: string, name: string |}, geodes: {{| dropTable: {| Amethyst: number, Emera
+src/shared/Zones.luau | TypeError | Unknown type used in .. operation; consider adding a type annotation to 'u'

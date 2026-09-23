@@ -1,0 +1,23 @@
+# selene configuration for "Crack a Geode!" (https://kampfkarren.github.io/selene/)
+#
+# How selene is used here (see scripts/check.sh):
+#   * It runs with --allow-warnings, so WARNINGS NEVER FAIL CI. Only ERROR-level lints
+#     (undefined_variable, duplicate_keys, incorrect_standard_library_use,
+#     roblox_incorrect_color3_new_bounds, constant_table_comparison, compare_nan,
+#     bad_string_escape, type_check_inside_call, parse errors) turn the check red.
+#   * "std = roblox" makes selene download the Roblox API dump the first time it runs.
+#     That works on GitHub Actions and on a normal PC. In a sandbox with no network the
+#     check script prints a SKIPPED notice instead of failing.
+#
+# The lints below are set to "allow" because they clash with Josh's style
+# (e.g. short `if x then return end` on one line, reusing names in nested scopes,
+# mixed array/dictionary tables, and intentional _G-style globals).
+# Everything not listed keeps selene's default level.
+
+std = "roblox"
+
+[lints]
+multiple_statements = "allow"
+shadowing = "allow"
+mixed_table = "allow"
+global_usage = "allow"

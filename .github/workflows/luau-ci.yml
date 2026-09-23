@@ -1,0 +1,61 @@
+# Luau CI for "Crack a Geode!" - runs scripts/check.sh (rojo build + ratcheted luau-lsp
+# analyze + selene) on pushes and PRs that touch game code, the toolchain, or the weekly
+# agent's files under automation/ (so every weekly PR - even a report-only one - gets a
+# run). The script exits 0 on branches that are not a Crack a Geode checkout. See docs/AUTOMATION.md.
+name: Luau CI
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "default.project.json"
+      - "rokit.toml"
+      - "selene.toml"
+      - ".luaurc"
+      - "scripts/check.sh"
+      - "lint/**"
+      - "automation/**"
+      - ".github/workflows/luau-ci.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "default.project.json"
+      - "rokit.toml"
+      - "selene.toml"
+      - ".luaurc"
+      - "scripts/check.sh"
+      - "lint/**"
+      - "automation/**"
+      - ".github/workflows/luau-ci.yml"
+
+permissions:
+  contents: read
+
+# A newer push to the same branch/PR cancels the run that is still going.
+concurrency:
+  group: luau-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: rojo build + luau-lsp + selene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Installs the exact tool versions pinned in rokit.toml and puts them on PATH.
+      - uses: CompeyDev/setup-rokit@v0.2.0
+        with:
+          cache: true
+
+      - name: Run scripts/check.sh
+        run: bash scripts/check.sh
+
+      # Raw tool output (.lint/) is kept so a red run can be inspected.
+      - name: Upload .lint outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-output
+          path: .lint/
+          if-no-files-found: ignore
