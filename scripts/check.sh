@@ -160,7 +160,8 @@ if [ -n "$MISSING" ]; then
 	echo "    rokit install"
 	echo "  and open a NEW terminal so ~/.rokit/bin is on your PATH."
 	echo ""
-	echo "Alternative: set LUAU_TOOLS_DIR to a folder that contains the rojo, luau-lsp and selene binaries."
+	echo "Alternative: set LUAU_TOOLS_DIR to a folder that contains the rojo, luau-lsp and selene binaries"
+	echo "(on Linux: bash scripts/get-tools.sh .lint/tools  then  LUAU_TOOLS_DIR=.lint/tools bash scripts/check.sh)."
 	exit 2
 fi
 

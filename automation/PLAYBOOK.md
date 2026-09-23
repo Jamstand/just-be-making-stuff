@@ -81,19 +81,15 @@ Run the commands one at a time in bash (not as one big script) so every failure 
    safe change (or none). Every proposal must say "verify against the current Studio scripts first".
 6. **Tools.** `command -v rojo luau-lsp selene`. If they are missing, do NOT use rokit in the cloud session: its
    installer and `rokit install` both talk to api.github.com, which the sandbox proxy blocks (rokit is for Josh's
-   machines and CI). Release downloads do work, so fetch the pinned binaries directly:
+   machines). Release downloads do work, so fetch the pinned binaries with the repo's own script (it reads the
+   versions from `rokit.toml`; CI uses the same script):
    ```bash
-   T=/tmp/luau-tools; mkdir -p "$T"
-   curl -sSfL -o "$T/rojo.zip"     https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-linux-x86_64.zip
-   curl -sSfL -o "$T/luau-lsp.zip" https://github.com/JohnnyMorganz/luau-lsp/releases/download/1.70.0/luau-lsp-linux-x86_64.zip
-   curl -sSfL -o "$T/selene.zip"   https://github.com/Kampfkarren/selene/releases/download/0.31.0/selene-0.31.0-linux.zip
-   unzip -qo "$T/rojo.zip" -d "$T" && unzip -qo "$T/luau-lsp.zip" -d "$T" && unzip -qo "$T/selene.zip" -d "$T"
-   chmod +x "$T/rojo" "$T/luau-lsp" "$T/selene" && ls -l "$T"
+   bash scripts/get-tools.sh /tmp/luau-tools
    ```
-   Each zip holds one file named after the tool; the versions must match `rokit.toml`. Shell variables may not
-   survive between tool calls, so prefix every check with the folder: `LUAU_TOOLS_DIR=/tmp/luau-tools bash scripts/check.sh`.
-   If a download fails, retry it once. If the tools still cannot be obtained, make NO code changes: open a
-   report-only PR whose Risks section quotes the error.
+   It prints each tool's version and ends with `get-tools: ready`. Shell variables may not survive between
+   tool calls, so prefix every check with the folder: `LUAU_TOOLS_DIR=/tmp/luau-tools bash scripts/check.sh`.
+   If a download fails, run the script once more (it skips what it already has). If the tools still cannot be
+   obtained, make NO code changes: open a report-only PR whose Risks section quotes the error.
    selene usually cannot download the Roblox API dump in the cloud sandbox; `check.sh` prints SKIPPED — that is expected.
 7. **Baseline before.** `LUAU_TOOLS_DIR=/tmp/luau-tools bash scripts/check.sh --report | tee /tmp/check-before.txt`
    (drop the prefix if the tools are on PATH). Note the line
@@ -142,6 +138,11 @@ Run the commands one at a time in bash (not as one big script) so every failure 
     title `Weekly improvements YYYY-MM-DD` (`Weekly improvements YYYY-MM-DD (2)` on a re-run), body = the full report
     file. If the repo shows the branch under a different
     default remote name, still target `$GAME`.
+    If the GitHub MCP tools are not available in this session (ToolSearch finds nothing named
+    `mcp__github__*`), do not look for another way to call the GitHub API: leave the branch pushed, skip
+    step 17, and put this one-click link in the 5-line summary so Josh can open the PR himself:
+    `https://github.com/Jamstand/just-be-making-stuff/compare/<game branch>...claude/auto-improve-YYYY-MM-DD?expand=1`
+    and say "PR not opened (no GitHub tools in this session)".
 17. **Wait for CI.** Workflow name `Luau CI`. Poll with `mcp__github__actions_list` (workflow runs for your branch)
     and `mcp__github__actions_get` (run status/conclusion); on failure read logs with `mcp__github__get_job_logs`
     (failed jobs only). `mcp__github__pull_request_read` (status/checks methods) also shows the check state. Load any
@@ -221,6 +222,8 @@ Paste into the local Claude session (Studio open, MCP on):
 - **CI still red after 2 fix rounds:** stop fixing. With `mcp__github__update_pull_request` prefix the title with
   `[CI RED] `, add a top section `## CI failure (needs Josh)` naming the failing stage and the key log lines, and (if
   the tool supports it) mark the PR `draft`. Say it plainly in the 5-line summary. Never disable or edit the workflow.
+- **No GitHub MCP tools in the session:** the branch is still pushed; give Josh the compare link (step 16) and say
+  "PR not opened (no GitHub tools in this session)". Do not install `gh` or use tokens.
 - **`git push` fails / no credentials:** commit locally anyway, write the report file, and end with the summary
   explaining that no PR exists, the branch name, and `git diff --stat origin/<game>..HEAD` so Josh can pull the work
   from the session transcript. Do not retry with other remotes or tokens.

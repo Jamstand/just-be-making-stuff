@@ -250,7 +250,8 @@ Reopen the terminal, then in the repo folder: `rokit install` (answer `y` to the
 Check it worked: `rojo --version`, `luau-lsp --version`, `selene --version`.
 
 **No rokit?** `scripts/check.sh` also accepts an environment variable `LUAU_TOOLS_DIR` pointing at a
-folder that contains the three binaries. If neither is found it prints these install instructions
+folder that contains the three binaries. On Linux (this is what CI and the weekly agent do)
+`bash scripts/get-tools.sh` downloads them at the pinned versions into `.lint/tools`. If neither is found it prints these install instructions
 and exits with code 2.
 
 ---
@@ -355,8 +356,8 @@ Most likely one of these, all normal:
   dump, which is the case in the agent's cloud sandbox). An error-level lint (undefined variable,
   duplicate table key, a parse error) that was invisible locally shows up red in CI first. Click
   *Details* on the failed job; the message names the file and line.
-- `.lint/` was accidentally committed, or `rokit.toml` wasn't merged so `setup-rokit` had nothing
-  to install. Check setup step 2.
+- `.lint/` was accidentally committed, or `rokit.toml` / `scripts/get-tools.sh` wasn't merged so CI
+  could not download the tools. Check setup step 2.
 
 **The report says the repo may be behind Studio. What now?**
 The last commit that touched `src/` on the game branch is older than 21 days (merging reports or

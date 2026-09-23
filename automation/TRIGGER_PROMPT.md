@@ -59,7 +59,10 @@ Deliverables:
    check, What I fixed, Metrics, Proposals for Studio, Ideas for next week, Risks/notes), and
    automation/IDEAS_BACKLOG.md updated.
 4. A pull request from your branch to the game branch (mcp__github__create_pull_request) titled
-   "Weekly improvements <YYYY-MM-DD>" with the report as its body.
+   "Weekly improvements <YYYY-MM-DD>" with the report as its body. If the GitHub MCP tools are not
+   available in your session, do not look for another way: leave the branch pushed and put this link
+   in your final summary instead:
+   https://github.com/Jamstand/just-be-making-stuff/compare/<game-branch>...<your-branch>?expand=1
 5. The "Luau CI" workflow green on that PR, or, after at most 2 fix rounds, the failure explained
    in the PR title ("[CI RED] ...") and body. If no run appears within 3 minutes that is not a
    failure: do not wait longer or push a change to trigger one; say "CI not triggered" instead.

@@ -2,6 +2,9 @@
 # analyze + selene) on pushes and PRs that touch game code, the toolchain, or the weekly
 # agent's files under automation/ (so every weekly PR - even a report-only one - gets a
 # run). The script exits 0 on branches that are not a Crack a Geode checkout. See docs/AUTOMATION.md.
+#
+# Tools are downloaded by scripts/get-tools.sh at the versions pinned in rokit.toml (no
+# third-party action involved) and cached between runs.
 name: Luau CI
 
 on:
@@ -13,6 +16,7 @@ on:
       - "selene.toml"
       - ".luaurc"
       - "scripts/check.sh"
+      - "scripts/get-tools.sh"
       - "lint/**"
       - "automation/**"
       - ".github/workflows/luau-ci.yml"
@@ -24,6 +28,7 @@ on:
       - "selene.toml"
       - ".luaurc"
       - "scripts/check.sh"
+      - "scripts/get-tools.sh"
       - "lint/**"
       - "automation/**"
       - ".github/workflows/luau-ci.yml"
@@ -43,13 +48,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Installs the exact tool versions pinned in rokit.toml and puts them on PATH.
-      - uses: CompeyDev/setup-rokit@v0.2.0
+      # Re-use the downloaded binaries while rokit.toml (the pinned versions) is unchanged.
+      - uses: actions/cache@v4
         with:
-          cache: true
+          path: ~/.luau-tools
+          key: luau-tools-${{ runner.os }}-${{ hashFiles('rokit.toml') }}
+
+      - name: Download pinned tools (rojo, luau-lsp, selene)
+        run: bash scripts/get-tools.sh "$HOME/.luau-tools"
 
       - name: Run scripts/check.sh
-        run: bash scripts/check.sh
+        run: LUAU_TOOLS_DIR="$HOME/.luau-tools" bash scripts/check.sh
 
       # Raw tool output (.lint/) is kept so a red run can be inspected.
       - name: Upload .lint outputs
