@@ -1,0 +1,13 @@
+# Rokit toolchain manifest - pins the exact tool versions used by scripts/check.sh,
+# GitHub Actions (.github/workflows/luau-ci.yml) and the weekly improvement agent.
+#
+# Install rokit once (see docs/AUTOMATION.md), then run "rokit install" inside this
+# repo folder. Rokit puts these binaries on your PATH (~/.rokit/bin).
+#
+# Bump a version here, run "rokit install" again, run "bash scripts/check.sh",
+# and commit the result (a new luau-lsp may change lint/baseline.luau-lsp.txt).
+
+[tools]
+rojo = "rojo-rbx/rojo@7.7.0"
+luau-lsp = "JohnnyMorganz/luau-lsp@1.70.0"
+selene = "Kampfkarren/selene@0.31.0"
