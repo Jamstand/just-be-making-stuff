@@ -25,12 +25,21 @@ local TIERS = {
 	{ starter = true, name = "Starter Sprite", emoji = "⭐", color = { 255, 225, 120 }, bonus = 0.15 },
 }
 
+-- Lifetime rebirths: Ascend resets p.rebirths to 0, but pets are sold as "+N% Gems
+-- forever", so an unlock must never re-lock. Econ owns the formula (incl. the
+-- pre-totalRebirths ascension migration); Pets.Bonus can be probed before Econ is
+-- wired in, hence the fallback.
+local function lifetimeRebirths(p)
+	if Econ and Econ.LifetimeRebirths then return Econ.LifetimeRebirths(p) end
+	return math.max(p.totalRebirths or 0, p.rebirths or 0)
+end
+
 local function tierUnlocked(player, p, t)
 	if t.starter then return p.starterPackBought == true end
 	if t.vip then
 		return S ~= nil and S.Monetize ~= nil and S.Monetize.Owns(player, "VIP")
 	end
-	return (p.rebirths or 0) >= (t.req or math.huge)
+	return lifetimeRebirths(p) >= (t.req or math.huge)
 end
 
 -- highest-bonus unlocked tier index (0 if none)
@@ -65,13 +74,14 @@ end
 function Pets.OnRebirth(player)
 	local p = Data.Cache[player]
 	if not p then return end
+	local lifetime = lifetimeRebirths(p) -- an ascended player re-climbing 1, 2, 3 never re-announces old tiers
 	for _, t in ipairs(TIERS) do
-		if t.req and p.rebirths == t.req then
-			Remotes.Announce:FireAllClients({
-				kind = "pet",
+		if t.req and lifetime == t.req then
+			S.Social.Broadcast("pet", {
 				text = "🐾 " .. player.DisplayName .. " unlocked the " .. t.emoji .. " " .. t.name
 					.. " pet!  (+" .. math.floor(t.bonus * 100) .. "% Gems forever)",
-				color = Color3.fromRGB(t.color[1], t.color[2], t.color[3]),
+				userId = player.UserId,
+				colorRGB = t.color,
 			})
 			return
 		end
@@ -92,16 +102,18 @@ function Pets.Snapshot(player)
 			bonusPct = math.floor(t.bonus * 100), unlocked = tierUnlocked(player, p, t), equipped = (i == eq),
 		}
 	end
-	-- next REBIRTH pet goal (VIP pet is a separate unlock); tiers are ascending by req
+	-- next REBIRTH pet goal (VIP pet is a separate unlock); tiers are ascending by req.
+	-- Uses lifetime rebirths so an ascended player is never told "you're at Rebirth 0".
+	local lifetime = lifetimeRebirths(p)
 	local nextReq, nextName
 	for _, t in ipairs(TIERS) do
-		if t.req and (p.rebirths or 0) < t.req then
+		if t.req and lifetime < t.req then
 			nextReq, nextName = t.req, t.name
 			break
 		end
 	end
 	return {
-		equipped = eq, best = best, rebirths = p.rebirths or 0,
+		equipped = eq, best = best, rebirths = p.rebirths or 0, lifetimeRebirths = lifetime,
 		nextReq = nextReq, nextName = nextName,
 		active = (eq > 0) and { name = TIERS[eq].name, emoji = TIERS[eq].emoji, color = TIERS[eq].color } or nil,
 		tiers = tiers,
@@ -111,7 +123,9 @@ end
 function Pets.Equip(player, i)
 	local p = Data.Cache[player]
 	if not p then return { ok = false, err = "Loading…" } end
-	if type(i) ~= "number" then return { ok = false, err = "Bad request" } end
+	-- NaN passes `type == "number"` and every range check; a fractional index would
+	-- read a nil tier — reject both before touching TIERS
+	if type(i) ~= "number" or i ~= i or math.floor(i) ~= i then return { ok = false, err = "Bad request" } end
 	if i < 1 or i > #TIERS or not tierUnlocked(player, p, TIERS[i]) then
 		return { ok = false, err = "Not unlocked yet" }
 	end
@@ -124,9 +138,14 @@ end
 function Pets.Init(services)
 	S = services
 	Config, Data, Econ, Remotes = S.Config, S.Data, S.Econ, S.Remotes
-	Remotes.EquipPet.OnServerInvoke = function(player, i)
-		return Pets.Equip(player, i)
-	end
+	-- S.Guard adds the (previously missing) Ready check, the integer arg check, a
+	-- 0.25 s gap and the pcall; Pets.Equip keeps its own checks for direct callers
+	S.Guard(Remotes.EquipPet, {
+		gap = 0.25, args = { "int" },
+		fn = function(player, i)
+			return Pets.Equip(player, i)
+		end,
+	})
 end
 
 return Pets

@@ -9,6 +9,7 @@ local Geodes = {}
 local S, Config, Remotes, Data, Econ
 local nodes = {}
 local lastCrack = {}
+local lastHint = {} -- [player] = os.clock() of the last Golden-Geode bystander hint (1 per 10 s)
 
 local ROCK_COLOR = Color3.fromRGB(58, 54, 78)
 local ROCK_VARIANT = "GeodeRockPBR" -- PBR MaterialVariant (base Slate); authored in MaterialService
@@ -40,6 +41,7 @@ local function playSound(id, parent, volume, speed)
 	s.Volume = volume or 0.7
 	s.PlaybackSpeed = speed or 1
 	s.RollOffMaxDistance = 150
+	if S and S.SFXGroup then s.SoundGroup = S.SFXGroup end -- each client's SFX slider scales this group
 	s.Parent = parent
 	s:Play()
 	Debris:AddItem(s, 5)
@@ -170,6 +172,10 @@ function Geodes.CrackFX(pos, size, rarityIdx, mutIdx)
 end
 
 function Geodes.TryCrack(player, id, opts)
+	-- node ClickDetectors are live from Geodes.Init, before later modules (CollectPets,
+	-- Dailies, ...) have Init'd: ignore taps until bootstrap finishes so a hook can never
+	-- index its unset module state and strand the node
+	if not (S and S.Ready) then return end
 	opts = opts or {}
 	local node = nodes[id]
 	if not (node and node.alive) then return end
@@ -191,12 +197,21 @@ function Geodes.TryCrack(player, id, opts)
 	local rarityIdx = opts.forceRarity or Econ.RollRarity(player, dropTable)
 	local mutIdx = opts.forceMutation or Econ.RollMutation(player)
 	local gained, newEntry = Econ.RegisterFind(player, rarityIdx, mutIdx, node.valueMult, node.regionKey)
-	if S.CollectPets then S.CollectPets.MaybeDrop(player, node.regionKey) end -- Phase 3: pet drop chance
-	if S.Dailies then
-		S.Dailies.Event(player, "crack", 1)
-		S.Dailies.Event(player, "earn", gained)
-		if rarityIdx >= Config.LuckyTierIndex then S.Dailies.Event(player, "rare", 1) end
-	end
+	-- sibling-system hooks are pcall'd: node.alive is already false and the respawn is only
+	-- scheduled below, so a hook error must never abort the crack (it would strand the node)
+	local okHooks, hookErr = pcall(function()
+		if S.ServerGoals and S.ServerGoals.Event then -- co-op server goals (luck-only reward)
+			S.ServerGoals.Event(player, "crack", 1)
+			if rarityIdx >= 5 then S.ServerGoals.Event(player, "rare", 1) end
+		end
+		if S.CollectPets then S.CollectPets.MaybeDrop(player, node.regionKey) end -- Phase 3: pet drop chance
+		if S.Dailies then
+			S.Dailies.Event(player, "crack", 1)
+			S.Dailies.Event(player, "earn", gained)
+			if rarityIdx >= Config.LuckyTierIndex then S.Dailies.Event(player, "rare", 1) end
+		end
+	end)
+	if not okHooks then warn("[Geodes] crack hook failed: " .. tostring(hookErr)) end
 
 	setNodeShown(node, false)
 	Geodes.CrackFX(node.pos, node.size, rarityIdx, mutIdx)
@@ -210,7 +225,8 @@ function Geodes.TryCrack(player, id, opts)
 	local rar = Config.Rarities[rarityIdx]
 	if rarityIdx >= 5 then
 		local mutTag = mutIdx > 1 and (Config.Mutations[mutIdx].key .. " ") or ""
-		Remotes.Announce:FireAllClients({ kind = "rare", text = "⭐ " .. player.DisplayName .. " found a " .. mutTag .. rar.name .. "!", color = rar.color })
+		-- token-bucketed (5 per 10 s, overflow coalesced) so a busy server never floods
+		S.Social.Broadcast("rare", { text = "⭐ " .. player.DisplayName .. " found a " .. mutTag .. rar.name .. "!", userId = player.UserId, colorRGB = rar.color })
 		S.Boards.Feed(player.DisplayName, rar.name, mutIdx > 1 and Config.Mutations[mutIdx].key or nil)
 	end
 
@@ -452,18 +468,34 @@ function Geodes.SpawnGolden(player, isFree)
 
 	local opened = false
 	local function openGolden(clicker)
-		if clicker ~= player or opened then return end
+		if opened then return end
+		if clicker ~= player then
+			-- bystander tap: a rate-limited nudge to cheer the owner on (1 per 10 s per
+			-- clicker; userId = the owner so the toast can offer a one-tap Cheer)
+			if typeof(clicker) == "Instance" and clicker.Parent == Players and player.Parent == Players then
+				local nowc = os.clock()
+				if not lastHint[clicker] or nowc - lastHint[clicker] >= 10 then
+					lastHint[clicker] = nowc
+					S.Social.Tell(clicker, "info", {
+						text = "That's " .. player.DisplayName .. "'s Golden Geode — cheer them on! 👏",
+						userId = player.UserId,
+					})
+				end
+			end
+			return
+		end
 		opened = true
 		local rarityIdx = (math.random() < 0.15) and 6 or 5
 		local mutIdx = (math.random() < 0.05) and 4 or Econ.RollMutation(player)
 		local gained, newEntry = Econ.RegisterFind(player, rarityIdx, mutIdx)
+		if S.ServerGoals and S.ServerGoals.Event then S.ServerGoals.Event(player, "rare", 1) end -- always Ruby+
 		Geodes.CrackFX(pos, size, rarityIdx, mutIdx)
 		Remotes.CrackFX:FireAllClients({
 			rarity = rarityIdx, mutation = mutIdx, gained = gained,
 			userId = player.UserId, name = player.DisplayName, pos = pos, newEntry = newEntry,
 		})
 		local rar = Config.Rarities[rarityIdx]
-		Remotes.Announce:FireAllClients({ kind = "rare", text = "🌟 " .. player.DisplayName .. " cracked their Golden Geode: " .. rar.name .. "!", color = rar.color })
+		S.Social.Broadcast("rare", { text = "🌟 " .. player.DisplayName .. " cracked their Golden Geode: " .. rar.name .. "!", userId = player.UserId, colorRGB = rar.color })
 		S.Boards.Feed(player.DisplayName, rar.name .. " (Golden)", mutIdx > 1 and Config.Mutations[mutIdx].key or nil)
 		Econ.Push(player)
 		model:Destroy()
@@ -484,11 +516,11 @@ function Geodes.SpawnGolden(player, isFree)
 			model:Destroy()
 		end
 	end)
-	Remotes.Announce:FireAllClients({
-		kind = "golden",
+	S.Social.Broadcast("golden", {
 		text = isFree and ("🌟 " .. player.DisplayName .. " earned a GOLDEN GEODE from their streak!")
 			or ("🌟 " .. player.DisplayName .. " bought a GOLDEN GEODE!"),
-		color = Color3.fromRGB(255, 210, 90),
+		userId = player.UserId,
+		colorRGB = { 255, 210, 90 },
 	})
 	return { model = model, Open = openGolden }
 end
@@ -509,6 +541,7 @@ function Geodes.Init(services)
 
 	Players.PlayerRemoving:Connect(function(player)
 		lastCrack[player] = nil
+		lastHint[player] = nil
 	end)
 
 	-- Mobile CRACK button: crack the nearest in-range live node. Routed through
@@ -516,6 +549,7 @@ function Geodes.Init(services)
 	-- grants no advantage a normal tap wouldn't. Lightly rate-limited.
 	local lastReq = {}
 	Remotes.CrackRequest.OnServerEvent:Connect(function(player)
+		if not S.Ready then return end -- bootstrap still running (same gate as TryCrack)
 		local nowc = os.clock()
 		if lastReq[player] and nowc - lastReq[player] < 0.05 then return end
 		lastReq[player] = nowc

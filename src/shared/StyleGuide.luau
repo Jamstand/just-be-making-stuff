@@ -27,6 +27,35 @@
 --                     that scale-punch on press, panels that pop open
 --                     with a Back ease and fade-scale closed. Mobile
 --                     buttons are >=60px tall (thumb-friendly).
+--
+--  SEMANTIC EXTENSION (Social Cavern pass) — additive names, all optional:
+--    Color.Warn / Info / GoldSoft        : toast + Announce accents (warn/info/soft gold)
+--    Color.OwnedFill / TodayFill         : "owned" row fill, Daily ladder "today" fill
+--    Color.GreenDim / Scrim              : past-day ladder green, panel scrim (= Bg0)
+--    Size.CloseBtnTouch = 48 (was 46), RowHDesk 56, ToastH 44 / ToastHTouch 48,
+--    Size.Badge 18, Size.Chip 26
+--    SG.KindColor[kind]                  : Announce/Feed kind -> Color3 (see table)
+--    SG.kindColor(kind, colorRGB?)       : colorRGB {r,g,b} wins, else KindColor, else Text
+--    SG.Type[role] / SG.text(role, props, parent)
+--                                        : type roles Display/Heading/Body/Caption/Number with
+--                                          font + min/max px (min +1 on touch) -> TextLabel.
+--                                          DEFAULT = one fixed line at the role's max px with
+--                                          TextTruncate AtEnd (ellipsis, never wrap/overflow);
+--                                          props.fit = true = TextScaled + UITextSizeConstraint
+--                                          (min..max) for boxes the text must fill / shrink to
+--    SG.button(...)                      : label TextScaled between 12 (13 touch) and 22 px
+--    SG.IsTouch                          : true on a touch-only client (drives the +1 min rule)
+--    SG.row(props, parent)               : Bg2 @0.1 rounded row frame, height Size.RowH
+--    SG.setRole(btn, role)               : retint an existing button to a Button role
+--    SG.setEnabled(btn, on)              : Active + dimmed look (transparency 0.5, TextDim,
+--                                          stroke/gloss hidden) — restores on re-enable
+--    SG.badge(parent, text)              : 18 px Red count pill, top-right, hidden when ""
+--    SG.chip(text, color, props, parent) : small pill label (status/count chips)
+--    SG.Tier(rebirths, ascensions)       : tier colour (asc>0 Gold; <5 Violet, <15 Cyan, else Gold)
+--    SG.TierHex(rebirths, ascensions)    : "#RRGGBB" of the same, for chat tags
+--    Icons.players / board / sprout = 0  : emoji fallbacks 👥 🏆 🌱 (no uploads yet)
+--  Every helper works with both branches of SG.icon (Image* and the emoji Text*
+--  fallback): text properties are only touched on Text* classes.
 -- ===================================================================
 
 local TweenService = game:GetService("TweenService")
@@ -49,11 +78,33 @@ local Color = {
 	TextDim = C(164, 160, 190),
 	TextInk = C(18, 16, 28),     -- dark text on bright fills
 	Outline = C(128, 100, 200),
+	-- semantic accents (toasts / Announce kinds / panel states)
+	Warn      = C(255, 180, 120),  -- caution: locked gates, meteor warning
+	Info      = C(150, 205, 255),  -- neutral information
+	GoldSoft  = C(255, 222, 130),  -- soft gold for secondary highlights
+	OwnedFill = C(60, 90, 70),     -- fill for an owned / completed row
+	TodayFill = C(58, 108, 78),    -- Daily ladder: today's cell
+	GreenDim  = C(60, 160, 90),    -- Daily ladder: past days, muted success
 }
+Color.Scrim = Color.Bg0            -- panel backdrop (rendered @0.45 transparency)
 
 local StyleGuide = {}
 StyleGuide.Name = "Geode Depths"
 StyleGuide.Color = Color
+
+-- true on a touch-only client (phones/tablets); false on desktop and on the server.
+-- Drives the "+1 px minimum text size on touch" rule in StyleGuide.text.
+do
+	local isTouch = false
+	local RunService = game:GetService("RunService")
+	if RunService:IsClient() then
+		local ok, UIS = pcall(game.GetService, game, "UserInputService")
+		if ok and UIS then
+			isTouch = UIS.TouchEnabled and not UIS.MouseEnabled
+		end
+	end
+	StyleGuide.IsTouch = isTouch
+end
 
 -- ---- shape ----
 StyleGuide.Radius = { sm = 8, md = 14, lg = 20, xl = 26, pill = "pill" }
@@ -71,8 +122,19 @@ StyleGuide.Font = {
 -- ---- sizes (mobile-first, thumb-friendly) ----
 StyleGuide.Size = {
 	BtnH = 52, BtnHTouch = 60, MinTouch = 48,
-	PanelW = 480, CloseBtn = 40, CloseBtnTouch = 46,
-	RowH = 64,
+	PanelW = 480, CloseBtn = 40, CloseBtnTouch = 48,
+	RowH = 64, RowHDesk = 56,
+	ToastH = 44, ToastHTouch = 48,
+	Badge = 18, Chip = 26,
+}
+
+-- ---- type roles (font + px range; StyleGuide.text adds +1 to min on touch) ----
+StyleGuide.Type = {
+	Display = { font = StyleGuide.Font.Display, min = 16, max = 28 },
+	Heading = { font = StyleGuide.Font.Heading, min = 13, max = 18 },
+	Body    = { font = StyleGuide.Font.Body,    min = 12, max = 14 },
+	Caption = { font = StyleGuide.Font.Body,    min = 11, max = 12 },
+	Number  = { font = StyleGuide.Font.Number,  min = 14, max = 26 },
 }
 
 -- ---- motion ----
@@ -91,6 +153,19 @@ StyleGuide.Button = {
 	premium = { fill = Color.Gold,   stroke = C(255, 226, 150),    text = Color.TextInk },
 	danger  = { fill = Color.Red,    stroke = C(255, 175, 185),    text = Color.Text },
 	ghost   = { fill = Color.Bg2,    stroke = Color.Violet,        text = Color.Text },
+}
+
+-- ---- Announce / Feed kind -> accent colour ----
+-- Broadcast + personal kinds share one table so toasts, banners and feed rows agree.
+StyleGuide.KindColor = {
+	warn = Color.Warn, meteor = Color.Warn, golden = Color.Gold, goal = Color.Green,
+	rare = Color.Text, rebirth = Color.Violet, ascend = Color.Gold, pet = Color.Cyan,
+	pass = Color.Gold, zone = Color.Cyan, zoneFirst = Color.Cyan, join = Color.TextDim, leave = Color.TextDim,
+	cheer = Color.Magenta, gift = Color.Green, giftReceived = Color.Green,
+	mvp = Color.Gold, ach = Color.Gold, vip = Color.Gold, onboard = Color.Green, daily = Color.Gold,
+	quest = Color.Info, region = Color.Cyan, locked = Color.Warn, meteorPayout = Color.Gold,
+	garden = Color.Green, shard = Color.Cyan, unlock = Color.Cyan, welcome = Color.Green,
+	info = Color.Info, error = Color.Red, ok = Color.Green,
 }
 
 -- ---- world (stylized realism) ----
@@ -147,12 +222,15 @@ StyleGuide.Icons = {
 	shop = 87230954989187, pickaxe = 140427653141147, gift = 107813403344843,
 	gear = 127172470376236, quest = 73915319787637, panelBg = 105278033775912,
 	trophy = 123461681611640, index = 96147210191570,
+	-- social pass: no uploads yet, emoji fallbacks render (see IconFallback)
+	players = 0, board = 0, sprout = 0,
 }
 StyleGuide.IconFallback = {
 	gem = "💎", geodeClosed = "🥚", geodeOpen = "💠", paw = "🐾",
 	rebirth = "🌌", shop = "🛒", pickaxe = "⛏️", gift = "🎁",
 	gear = "⚙️", quest = "📋", logo = "✨", panelBg = "",
 	trophy = "🏅", index = "📖",
+	players = "👥", board = "🏆", sprout = "🌱",
 }
 
 -- ===================================================================
@@ -279,7 +357,9 @@ function StyleGuide.button(text, role, props, parent)
 	StyleGuide.stroke(b, r.stroke, "bold", 0.05)
 	StyleGuide.shade(b)
 	StyleGuide.gloss(b, "sm", 0.8, 0.3)
-	new("UITextSizeConstraint", { MaxTextSize = 22 }, b)
+	-- floor the label so a narrow button (3-up modal row, toast action pill) never scales
+	-- its text below the 12 px (13 on touch) readability floor
+	new("UITextSizeConstraint", { MinTextSize = StyleGuide.IsTouch and 13 or 12, MaxTextSize = 22 }, b)
 	new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, b)
 	StyleGuide.pressFX(b)
 	return b
@@ -315,6 +395,218 @@ function StyleGuide.icon(key, props, parent, asButton)
 	}
 	if asButton then base.AutoButtonColor = false end
 	return new(asButton and "TextButton" or "TextLabel", merge(base, props), parent)
+end
+
+-- ===================================================================
+--  SEMANTIC HELPERS (Social Cavern pass)
+-- ===================================================================
+
+-- Text* classes carry Text/TextColor3; Image* classes (the icon path with an
+-- uploaded id) do not. Every helper below checks before touching text props.
+local function isTextClass(el)
+	return el:IsA("TextLabel") or el:IsA("TextButton") or el:IsA("TextBox")
+end
+
+local function isImageClass(el)
+	return el:IsA("ImageLabel") or el:IsA("ImageButton")
+end
+
+-- Announce/Feed colour precedence: explicit colorRGB ({r,g,b} keyed or array, or a
+-- Color3) > KindColor[kind] > Color.Text. Bad / partial tables fall through.
+function StyleGuide.kindColor(kind, colorRGB)
+	if typeof(colorRGB) == "Color3" then return colorRGB end
+	if type(colorRGB) == "table" then
+		local r = tonumber(colorRGB.r or colorRGB[1])
+		local g = tonumber(colorRGB.g or colorRGB[2])
+		local b = tonumber(colorRGB.b or colorRGB[3])
+		if r and g and b and r == r and g == g and b == b then
+			return C(math.clamp(r, 0, 255), math.clamp(g, 0, 255), math.clamp(b, 0, 255))
+		end
+	end
+	return (kind ~= nil and StyleGuide.KindColor[kind]) or Color.Text
+end
+
+-- A TextLabel in a type role (font + px range from StyleGuide.Type, min/max +1 on touch,
+-- 0.7 stroke). Two modes:
+--   default      ONE fixed line at the role's max px, TextTruncate AtEnd, no wrapping: a
+--                string that cannot fit ends in an ellipsis. (Roblox ignores TextTruncate
+--                while TextScaled is on — a scaled label wraps at MinTextSize and the extra
+--                lines draw past a 16-18 px row onto its neighbours.) Pass TextWrapped = true
+--                for a multi-line paragraph box; the ellipsis then lands on the last line.
+--   fit = true   TextScaled + UITextSizeConstraint(min, max): for a box the text must fill
+--                or shrink into (HUD numbers, emoji icon cells, rarity cells, banners, the
+--                meteor bar) — the caller keeps the string short enough not to wrap.
+-- props override any default (Size, TextXAlignment, TextColor3, TextWrapped, ...).
+function StyleGuide.text(role, props, parent)
+	local t = StyleGuide.Type[role] or StyleGuide.Type.Body
+	local bump = StyleGuide.IsTouch and 1 or 0
+	local fit = false
+	if type(props) == "table" and props.fit ~= nil then
+		fit = props.fit == true
+		local copy = {}
+		for k, v in pairs(props) do
+			if k ~= "fit" then copy[k] = v end
+		end
+		props = copy
+	end
+	local base = {
+		BackgroundTransparency = 1, BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, t.max + bump),
+		TextColor3 = Color.Text, Font = t.font,
+		TextStrokeTransparency = 0.7, TextTruncate = Enum.TextTruncate.AtEnd,
+	}
+	if fit then
+		base.TextScaled = true
+	else
+		base.TextScaled = false
+		base.TextSize = t.max + bump
+		base.TextWrapped = false
+	end
+	local l = new("TextLabel", merge(base, props), parent)
+	if fit then
+		new("UITextSizeConstraint", { MinTextSize = t.min + bump, MaxTextSize = t.max + bump }, l)
+	end
+	return l
+end
+
+-- A raised list row (Bg2 @0.1, md corners). Default height Size.RowH; pass
+-- Size = UDim2.new(1, 0, 0, SG.Size.RowHDesk) for the desktop height.
+function StyleGuide.row(props, parent)
+	local f = new("Frame", merge({
+		BackgroundColor3 = Color.Bg2, BackgroundTransparency = 0.1, BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, StyleGuide.Size.RowH),
+	}, props), parent)
+	StyleGuide.corner(f, "md")
+	return f
+end
+
+-- Retint an existing button (built by SG.button, SG.icon or by hand) to a role:
+-- fill, non-glow strokes and text colour follow SG.Button[role]; the gloss strip
+-- and shade gradient are re-shown if present. Safe on Image* buttons (no text).
+-- While the button is disabled (SG.setEnabled false) the text colour is stored and
+-- applied on re-enable, so setRole + setEnabled can be called in either order.
+function StyleGuide.setRole(btn, role)
+	local r = StyleGuide.Button[role] or StyleGuide.Button.primary
+	btn:SetAttribute("Role", StyleGuide.Button[role] and role or "primary")
+	btn.BackgroundColor3 = lighten(r.fill, 0.12)
+	local disabled = btn:GetAttribute("SGDisabled") == true
+	if isTextClass(btn) then
+		if disabled then btn:SetAttribute("SGTextC", r.text) else btn.TextColor3 = r.text end
+	end
+	for _, c in ipairs(btn:GetChildren()) do
+		if c:IsA("UIStroke") and c.Name ~= "GlowStroke" then
+			c.Color = r.stroke
+			if not disabled then c.Enabled = true end
+		elseif c.Name == "Gloss" and c:IsA("GuiObject") then
+			if not disabled then c.Visible = true end
+		elseif c:IsA("UIGradient") then
+			c.Enabled = true
+		end
+	end
+end
+
+-- Enable/disable look + hit-testing. Off: Active=false, BackgroundTransparency 0.5,
+-- TextDim text (Text* only) / half-faded image (Image* only), strokes + gloss hidden.
+-- On: restores the exact previous transparency, text/image state and strokes.
+-- Idempotent — repeated calls with the same value are no-ops.
+function StyleGuide.setEnabled(btn, on)
+	on = on and true or false
+	local wasDisabled = btn:GetAttribute("SGDisabled") == true
+	btn.Active = on
+	if btn:IsA("GuiButton") then btn.Selectable = on end
+	if on then
+		if not wasDisabled then return end
+		btn:SetAttribute("SGDisabled", nil)
+		btn.BackgroundTransparency = btn:GetAttribute("SGBgT") or 0
+		btn:SetAttribute("SGBgT", nil)
+		if isTextClass(btn) then
+			btn.TextColor3 = btn:GetAttribute("SGTextC") or Color.Text
+			btn:SetAttribute("SGTextC", nil)
+		end
+		if isImageClass(btn) then
+			btn.ImageTransparency = btn:GetAttribute("SGImgT") or 0
+			btn:SetAttribute("SGImgT", nil)
+		end
+		for _, c in ipairs(btn:GetChildren()) do
+			if c:IsA("UIStroke") and c.Name ~= "GlowStroke" then c.Enabled = true
+			elseif c.Name == "Gloss" and c:IsA("GuiObject") then c.Visible = true end
+		end
+	else
+		if wasDisabled then return end
+		btn:SetAttribute("SGDisabled", true)
+		btn:SetAttribute("SGBgT", btn.BackgroundTransparency)
+		btn.BackgroundTransparency = 0.5
+		if isTextClass(btn) then
+			btn:SetAttribute("SGTextC", btn.TextColor3)
+			btn.TextColor3 = Color.TextDim
+		end
+		if isImageClass(btn) then
+			btn:SetAttribute("SGImgT", btn.ImageTransparency)
+			btn.ImageTransparency = 0.5
+		end
+		for _, c in ipairs(btn:GetChildren()) do
+			if c:IsA("UIStroke") and c.Name ~= "GlowStroke" then c.Enabled = false
+			elseif c.Name == "Gloss" and c:IsA("GuiObject") then c.Visible = false end
+		end
+	end
+end
+
+-- Count pill pinned to a parent's top-right corner (rail buttons, tabs). One per
+-- parent (Name "Badge"); calling again updates it. Hidden when text == "".
+-- Fixed 11 px GothamBlack (not TextScaled) so "9+" stays legible; grows sideways.
+function StyleGuide.badge(parent, text)
+	local s = text == nil and "" or tostring(text)
+	local b = parent:FindFirstChild("Badge")
+	if not (b and b:IsA("TextLabel")) then
+		local sz = StyleGuide.Size.Badge
+		local z = (parent:IsA("GuiObject") and parent.ZIndex or 1) + 2
+		b = new("TextLabel", {
+			Name = "Badge", BackgroundColor3 = Color.Red, BorderSizePixel = 0,
+			AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 4, 0, -4),
+			Size = UDim2.new(0, sz, 0, sz), AutomaticSize = Enum.AutomaticSize.X,
+			Text = "", TextColor3 = Color.Text, Font = StyleGuide.Font.Number, TextSize = 11,
+			TextStrokeTransparency = 1, ZIndex = z,
+		}, parent)
+		StyleGuide.corner(b, "pill")
+		new("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4) }, b)
+		new("UISizeConstraint", { MinSize = Vector2.new(sz, sz) }, b)
+	end
+	b.Text = s
+	b.Visible = s ~= ""
+	return b
+end
+
+-- Small pill label for status / counts ("✅ OWNED", "Normal 0 · Golden 3").
+-- color = Color3 or a Color key; tints the text and hairline stroke on a Bg2 pill.
+-- Auto-sizes horizontally to its text; height Size.Chip; 13 px text (>= touch floor).
+function StyleGuide.chip(text, color, props, parent)
+	local c = (typeof(color) == "Color3" and color) or (type(color) == "string" and Color[color]) or Color.Cyan
+	local l = new("TextLabel", merge({
+		Name = "Chip", BackgroundColor3 = Color.Bg2, BackgroundTransparency = 0.1, BorderSizePixel = 0,
+		Size = UDim2.new(0, 0, 0, StyleGuide.Size.Chip), AutomaticSize = Enum.AutomaticSize.X,
+		Text = text or "", TextColor3 = c, Font = StyleGuide.Font.Heading, TextSize = 13,
+		TextStrokeTransparency = 0.8,
+	}, props), parent)
+	StyleGuide.corner(l, "pill")
+	StyleGuide.stroke(l, c, "hair", 0.4)
+	new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, l)
+	return l
+end
+
+-- Progression tier colour shared by nameplates, Players rows and chat tags.
+-- Any ascension -> Gold; otherwise rebirths < 5 Violet, < 15 Cyan, else Gold.
+function StyleGuide.Tier(rebirths, ascensions)
+	local a = tonumber(ascensions) or 0
+	if a == a and a > 0 then return Color.Gold end
+	local r = tonumber(rebirths) or 0
+	if r ~= r or r < 5 then return Color.Violet end
+	if r < 15 then return Color.Cyan end
+	return Color.Gold
+end
+
+-- "#RRGGBB" for rich-text chat tags (TextChatService wants a hex colour).
+function StyleGuide.TierHex(rebirths, ascensions)
+	return "#" .. string.upper(StyleGuide.Tier(rebirths, ascensions):ToHex())
 end
 
 -- pop-open / fade-close for a panel (adds a UIScale it animates). The panel's

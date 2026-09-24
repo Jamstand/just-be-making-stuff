@@ -27,7 +27,8 @@ local function buildSteps()
 		{ text = "Save Gems, then Recrystallize — your first Rebirth! 🔄",
 		  progress = function(p) return math.min(p.gems or 0, Config.RebirthCost(p.rebirths or 0)) end,
 		  target = function(p) return Config.RebirthCost(p.rebirths or 0) end,
-		  done = function(p) return (p.rebirths or 0) >= 1 end, reward = 0 },
+		  -- lifetime count: Ascend resets p.rebirths, and this step must never re-open
+		  done = function(p) return Econ.LifetimeRebirths(p) >= 1 end, reward = 0 },
 	}
 end
 
@@ -58,9 +59,9 @@ function Onboarding.Check(player)
 		if not step then
 			p.onboardDone = true
 			advanced = true
-			Remotes.Announce:FireClient(player, {
-				kind = "onboard", text = "🎉 You've got it! Keep cracking, rebirthing & ascending!",
-				color = Color3.fromRGB(255, 220, 120),
+			S.Social.Tell(player, "onboard", {
+				text = "🎉 You've got it! Keep cracking, rebirthing & ascending!",
+				colorRGB = { 255, 220, 120 },
 			})
 			break
 		end
@@ -68,9 +69,9 @@ function Onboarding.Check(player)
 			p.onboardStep = (p.onboardStep or 0) + 1
 			if step.reward and step.reward > 0 then
 				Econ.AwardRaw(player, step.reward)
-				Remotes.Announce:FireClient(player, {
-					kind = "onboard", text = "✅ Goal complete!  +" .. step.reward .. " 💎",
-					color = Color3.fromRGB(120, 255, 170),
+				S.Social.Tell(player, "onboard", {
+					text = "✅ Goal complete!  +" .. Config.Cur(step.reward),
+					colorRGB = { 120, 255, 170 },
 				})
 			end
 			advanced = true
@@ -139,6 +140,7 @@ local function spawnStarter(player)
 		opened = true
 		p.cracks = (p.cracks or 0) + 1
 		local gained, newEntry = Econ.RegisterFind(player, RARE_TIER, 1) -- guaranteed rare Emerald
+		if S.ServerGoals and S.ServerGoals.Event then S.ServerGoals.Event(player, "crack", 1) end -- counts toward the co-op goal too
 		-- mirror Geodes.TryCrack's quest tracking: the literal first crack should
 		-- count toward daily quests too (it previously bypassed Dailies.Event)
 		if S.Dailies then
@@ -151,10 +153,10 @@ local function spawnStarter(player)
 			rarity = RARE_TIER, mutation = 1, gained = gained,
 			userId = player.UserId, name = player.DisplayName, pos = pos, newEntry = newEntry,
 		})
-		Remotes.Announce:FireClient(player, {
-			kind = "rare",
+		-- personal (flag-routed to a toast); never dropped by the feed router
+		S.Social.Tell(player, "rare", {
 			text = "✨ Your first crystal — a RARE " .. Config.Rarities[RARE_TIER].name .. "!",
-			color = color,
+			colorRGB = color, -- Color3 -> {r,g,b} in Social
 		})
 		Econ.Push(player)
 		Onboarding.Check(player)

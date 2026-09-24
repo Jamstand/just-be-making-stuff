@@ -12,6 +12,7 @@ local usedStations = {}
 local clickConnOf = {}
 
 function Garden.PlotCount(player)
+	if not S then return 3 end -- Econ.Snapshot can probe before our Init sets S
 	local p = S.Data.Cache[player]
 	if not p then return 3 end
 	local n = 3 + (p.perks.ExtraPlot and 1 or 0)
@@ -25,6 +26,7 @@ function Garden.CapSeconds(player)
 end
 
 function Garden.Elapsed(player)
+	if not S then return 0 end -- (IsOvergrown / Value read this before Init too)
 	local p = S.Data.Cache[player]
 	if not p then return 0 end
 	if p.lastHarvest == 0 then
@@ -82,10 +84,9 @@ function Garden.Harvest(player)
 	p.lastHarvest = os.time()
 	Garden.Refresh(player)
 	S.Econ.Push(player)
-	S.Remotes.Announce:FireClient(player, {
-		kind = "garden",
-		text = (overgrown and "🌟 OVERGROWN harvest: +" or "🌱 Garden harvest: +") .. S.Config.Fmt(amount) .. " Gems!",
-		color = overgrown and Color3.fromRGB(255, 210, 90) or Color3.fromRGB(120, 255, 170),
+	S.Social.Tell(player, "garden", {
+		text = (overgrown and "🌟 OVERGROWN harvest: +" or "🌱 Garden harvest: +") .. S.Config.Cur(amount) .. "!",
+		colorRGB = overgrown and { 255, 210, 90 } or { 120, 255, 170 },
 	})
 	return { ok = true, amount = amount, overgrown = overgrown }
 end
@@ -170,19 +171,13 @@ function Garden.Init(services)
 		end
 	end)
 
-	local lastHarvestCall = {}
-	S.Remotes.HarvestGarden.OnServerInvoke = function(player)
-		if not S.Ready then return { ok = false, err = "Starting up…" } end
-		local now = os.clock()
-		if lastHarvestCall[player] and now - lastHarvestCall[player] < 0.3 then
-			return { ok = false, err = "Slow down!" }
-		end
-		lastHarvestCall[player] = now
-		return Garden.Harvest(player)
-	end
-	Players.PlayerRemoving:Connect(function(player)
-		lastHarvestCall[player] = nil
-	end)
+	-- S.Guard supplies the Ready check, the 0.3 s per-player gap and the pcall
+	S.Guard(S.Remotes.HarvestGarden, {
+		gap = 0.3,
+		fn = function(player)
+			return Garden.Harvest(player)
+		end,
+	})
 
 	task.spawn(function()
 		while true do

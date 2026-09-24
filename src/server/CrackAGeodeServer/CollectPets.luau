@@ -42,11 +42,10 @@ function CollectPets.Grant(player, zoneKey, forceVariant)
 	if S.Data.SaveSoon then S.Data.SaveSoon(player) end
 	S.Econ.Push(player)
 	local vlabel = CollectPets.VARIANTS[variant]
-	S.Remotes.Announce:FireClient(player, {
-		kind = "pet",
+	S.Social.Tell(player, "pet", {
 		text = (variant > 1 and ("✨ " .. vlabel .. " ") or "🐾 ") .. zone.exclusivePet.emoji .. " "
 			.. zone.exclusivePet.name .. " pet found!",
-		color = zone.exclusivePet.color,
+		colorRGB = zone.exclusivePet.color, -- Color3 -> {r,g,b} in Social
 	})
 	return variant
 end
@@ -54,6 +53,7 @@ end
 -- called on each crack; small chance to drop the current zone's exclusive pet,
 -- plus an independent roll for the zone's prestige VIP pet
 function CollectPets.MaybeDrop(player, zoneKey)
+	if not (S and S.Data and Zones) then return end -- Geodes can crack before our Init runs
 	if math.random() < DROP_CHANCE then
 		CollectPets.Grant(player, zoneKey)
 	end
@@ -72,16 +72,16 @@ function CollectPets.GrantVIP(player, zoneKey)
 	p.zoneVipPets[zoneKey] = true
 	if S.Data.SaveSoon then S.Data.SaveSoon(player) end
 	S.Econ.Push(player)
-	S.Remotes.Announce:FireClient(player, {
-		kind = "pet",
+	S.Social.Tell(player, "pet", {
 		text = "👑 VIP EXCLUSIVE! " .. zone.vipPet.emoji .. " " .. zone.vipPet.name .. " joined you!",
-		color = zone.vipPet.color,
+		colorRGB = zone.vipPet.color,
 	})
 	return true
 end
 
 -- per-crack VIP-pet roll: fast for VIP-pass owners, rare (but nonzero) for everyone
 function CollectPets.MaybeVIP(player, zoneKey)
+	if not (S and S.Data and Zones) then return end -- Geodes can crack before our Init runs
 	local p = S.Data.Cache[player]
 	if not p then return end
 	local zone = Zones.Get(zoneKey)
@@ -138,7 +138,11 @@ end
 function CollectPets.Fuse(player, zoneKey, variant)
 	local p = S.Data.Cache[player]
 	if not p then return { ok = false, err = "Loading…" } end
-	if type(variant) ~= "number" or variant < 1 or variant >= 3 then
+	-- integer 1..2 only: NaN / 1.5 would build a bogus inventory key
+	if type(variant) ~= "number" or variant ~= variant or math.floor(variant) ~= variant then
+		return { ok = false, err = "Bad request" }
+	end
+	if variant < 1 or variant >= 3 then
 		return { ok = false, err = "Can't fuse further" }
 	end
 	local zone = Zones.Get(zoneKey)
@@ -152,17 +156,18 @@ function CollectPets.Fuse(player, zoneKey, variant)
 	p.petInv[nk] = (p.petInv[nk] or 0) + 1
 	if S.Data.SaveSoon then S.Data.SaveSoon(player) end
 	S.Econ.Push(player)
-	S.Remotes.Announce:FireAllClients({
-		kind = "pet",
+	S.Social.Broadcast("pet", {
 		text = "✨ " .. player.DisplayName .. " fused a " .. CollectPets.VARIANTS[variant + 1] .. " "
 			.. zone.exclusivePet.emoji .. " " .. zone.exclusivePet.name .. "!",
-		color = Color3.fromRGB(255, 220, 120),
+		userId = player.UserId,
+		colorRGB = { 255, 220, 120 },
 	})
 	return { ok = true, variant = variant + 1 }
 end
 
 -- per-client snapshot: inventory + the active bonus + a compact per-pet summary
 function CollectPets.Snapshot(player)
+	if not (S and S.Data and Zones) then return nil end -- Econ.Snapshot can probe before our Init runs
 	local p = S.Data.Cache[player]
 	if not p then return nil end
 	local pets = {}
@@ -196,11 +201,12 @@ end
 function CollectPets.Init(services)
 	S = services
 	Zones = S.Config.Zones
-	S.Remotes.FusePet.OnServerInvoke = function(player, zoneKey, variant)
-		if not S.Ready then return { ok = false, err = "Starting up…" } end
-		if type(zoneKey) ~= "string" then return { ok = false, err = "Bad request" } end
-		return CollectPets.Fuse(player, zoneKey, variant)
-	end
+	S.Guard(S.Remotes.FusePet, {
+		gap = 0.25, args = { "string", "int" },
+		fn = function(player, zoneKey, variant)
+			return CollectPets.Fuse(player, zoneKey, variant)
+		end,
+	})
 end
 
 return CollectPets

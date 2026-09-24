@@ -29,6 +29,7 @@ local function tierFor(p)
 end
 
 function Pickaxe.Refresh(player)
+	if not template then return end -- no PickaxeTemplate this session (Init warned once)
 	task.spawn(function()
 		local p = S.Data.WaitFor(player, 10)
 		local char = player.Character
@@ -82,7 +83,13 @@ end
 
 function Pickaxe.Init(services)
 	S = services
-	template = ServerStorage:WaitForChild("PickaxeTemplate")
+	-- Timed: every Init runs synchronously from the bootstrap, so an untimed wait here
+	-- would park the whole server (S.Ready never set) if the template were missing.
+	template = ServerStorage:WaitForChild("PickaxeTemplate", 5)
+	if not template then
+		warn("[Pickaxe] ServerStorage.PickaxeTemplate not found — players get no pickaxe tool this session (CRACK button and taps still work)")
+		return
+	end
 	local function watch(player)
 		player.CharacterAdded:Connect(function()
 			task.wait(0.4)

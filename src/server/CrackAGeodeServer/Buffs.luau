@@ -9,6 +9,7 @@ local Buffs = {}
 local S
 local serverGifts = {}
 local goldenUntil = 0
+local nextGoldenAt = 0 -- os.time() the next Golden Hour starts (tracked by the cycle loop)
 
 function Buffs.ServerLuckPct()
 	local now, n = os.time(), 0
@@ -18,17 +19,56 @@ function Buffs.ServerLuckPct()
 	return math.min(S.Config.Balance.ServerLuckMax, n * S.Config.Balance.ServerLuckPerGift)
 end
 
-function Buffs.AddServerGift(byName)
-	table.insert(serverGifts, os.time() + S.Config.Balance.ServerLuckDuration)
-	S.Remotes.Announce:FireAllClients({
-		kind = "gift",
-		text = "🎁 +10% SERVER LUCK — thanks, " .. byName .. "!",
-		color = Color3.fromRGB(120, 255, 170),
-	})
-	-- everyone's HUD should reflect the new server luck
+-- ===== timers for the HUD chips (all server os.time(); 0 = inactive / unknown) =====
+
+-- When the last live server-luck stack expires (0 when none is active).
+function Buffs.ServerLuckUntil()
+	local now, best = os.time(), 0
+	for _, exp in ipairs(serverGifts) do
+		if exp > now and exp > best then best = exp end
+	end
+	return best
+end
+
+-- When the current Golden Hour ends (0 when inactive).
+function Buffs.GoldenUntil()
+	return (os.time() < goldenUntil) and goldenUntil or 0
+end
+
+-- When the next Golden Hour starts (0 while one is running).
+function Buffs.NextGoldenAt()
+	if os.time() < goldenUntil then return 0 end
+	return nextGoldenAt
+end
+
+local function goldenCycleLength()
+	local interval = workspace:GetAttribute("GoldenHourInterval") or S.Config.Balance.GoldenHourInterval
+	return math.max(35, (tonumber(interval) or 1800) - 30) + 30
+end
+
+local function pushAll()
 	for _, player in ipairs(Players:GetPlayers()) do
 		S.Econ.Push(player)
 	end
+end
+
+-- Stack one +10% server-luck gift. opts = { kind?, text? } lets ServerGoals reuse the
+-- buff under its own headline; either way exactly ONE broadcast goes out.
+function Buffs.AddServerGift(byName, opts)
+	local now = os.time()
+	for i = #serverGifts, 1, -1 do -- prune expired stacks so the list never grows
+		if serverGifts[i] <= now then table.remove(serverGifts, i) end
+	end
+	local duration = S.Config.Balance.ServerLuckDuration
+	table.insert(serverGifts, now + duration)
+	local kind = (type(opts) == "table" and type(opts.kind) == "string") and opts.kind or "gift"
+	local text = (type(opts) == "table" and type(opts.text) == "string") and opts.text
+		or ("🎁 +" .. math.floor(S.Config.Balance.ServerLuckPerGift * 100 + 0.5) .. "% SERVER LUCK — thanks, " .. tostring(byName) .. "!")
+	S.Social.Broadcast(kind, { text = text, colorRGB = { 120, 255, 170 } })
+	-- everyone's HUD should reflect the new server luck now AND its expiry (idle
+	-- clients otherwise keep a stale chip until their next crack)
+	pushAll()
+	task.delay(duration + 0.5, pushAll)
 end
 
 function Buffs.GoldenHourActive()
@@ -54,11 +94,10 @@ local function handleJoin(player)
 	if S.Monetize.Owns(player, "VIP") and p.lastVIPBoostDate ~= today then
 		p.lastVIPBoostDate = today
 		Buffs.GrantBoost(player, S.Config.Balance.BoostSeconds)
-		S.Econ.AwardRaw(player, 5000) -- VIP daily Coin bonus
-		S.Remotes.Announce:FireClient(player, {
-			kind = "vip",
-			text = "👑 VIP daily bonus: +5,000 Coins & a free Lucky Boost!",
-			color = Color3.fromRGB(255, 210, 90),
+		S.Econ.AwardRaw(player, 5000) -- VIP daily Gem bonus
+		S.Social.Tell(player, "vip", {
+			text = "👑 VIP daily bonus: +5,000 Gems & a free Lucky Boost!",
+			colorRGB = { 255, 210, 90 },
 		})
 	end
 
@@ -79,23 +118,23 @@ function Buffs.Init(services)
 	end)
 
 	-- Golden Hour cycle: warn 30s ahead, then a 2-minute +50% luck window with gold lighting
+	nextGoldenAt = os.time() + goldenCycleLength()
 	task.spawn(function()
 		while true do
-			local interval = workspace:GetAttribute("GoldenHourInterval") or S.Config.Balance.GoldenHourInterval
-			task.wait(math.max(35, interval - 30))
-			S.Remotes.Announce:FireAllClients({
-				kind = "warn",
+			local total = goldenCycleLength()
+			nextGoldenAt = os.time() + total -- the HUD "Golden Hour in M:SS" clock
+			task.wait(total - 30)
+			S.Social.Broadcast("warn", {
 				text = "🌤️ GOLDEN HOUR in 30 seconds — +50% Luck for everyone!",
-				color = Color3.fromRGB(255, 225, 140),
+				colorRGB = { 255, 225, 140 },
 			})
 			task.wait(30)
 			local duration = S.Config.Balance.GoldenHourDuration
 			goldenUntil = os.time() + duration
 			S.Remotes.GoldenHour:FireAllClients({ active = true, remaining = duration })
-			S.Remotes.Announce:FireAllClients({
-				kind = "golden",
+			S.Social.Broadcast("golden", {
 				text = "🌟 GOLDEN HOUR! +50% Luck for 2 minutes!",
-				color = Color3.fromRGB(255, 225, 140),
+				colorRGB = { 255, 225, 140 },
 			})
 			local cc = Lighting:FindFirstChild("GeodeColor")
 			if cc then

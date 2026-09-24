@@ -11,6 +11,7 @@ local Shards = {}
 local S
 local NEEDED = 5
 local TARGET = "Sunken"
+local CLICK_RANGE = 20 -- studs: server-side re-check of the 16-stud ClickDetector (+ bob + slack)
 local COLOR = Color3.fromRGB(90, 230, 210)
 
 -- hand-placed hidden spots (XZ); Y is raycast onto the terrain so they sit on the
@@ -43,16 +44,15 @@ function Shards.Collect(player, id)
 	p.zoneShards[TARGET] = n
 	if S.Data.SaveSoon then S.Data.SaveSoon(player) end
 	S.Econ.Push(player) -- refresh snapshot -> counter UI + Nexus progress
-	S.Remotes.Announce:FireClient(player, {
-		kind = "shard",
+	S.Social.Tell(player, "shard", {
 		text = "🔹 Hidden Shard found!  (" .. n .. "/" .. NEEDED .. ")",
-		color = COLOR,
+		colorRGB = COLOR, -- Color3 is converted to {r,g,b} on the way out
 	})
 	if n >= NEEDED then
-		S.Remotes.Announce:FireAllClients({
-			kind = "unlock",
+		S.Social.Broadcast("unlock", {
 			text = "🐚 " .. player.DisplayName .. " found all 5 shards — Sunken Grotto unlocked!",
-			color = COLOR,
+			userId = player.UserId,
+			colorRGB = COLOR,
 		})
 	end
 end
@@ -91,7 +91,15 @@ local function makeShard(id, xz, parent)
 	local click = Instance.new("ClickDetector")
 	click.MaxActivationDistance = 16
 	click.Parent = shard
-	click.MouseClick:Connect(function(plr) Shards.Collect(plr, id) end)
+	click.MouseClick:Connect(function(plr)
+		-- MaxActivationDistance is client-side only (fireclickdetector bypasses it), so the
+		-- server re-validates range exactly like Meteor / Geodes.TryCrack do — otherwise one
+		-- exploit loop from spawn collects all five shards and unlocks Sunken Grotto
+		local char = plr and plr.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if not hrp or (hrp.Position - shard.Position).Magnitude > CLICK_RANGE then return end
+		Shards.Collect(plr, id)
+	end)
 
 	model.Parent = parent
 end

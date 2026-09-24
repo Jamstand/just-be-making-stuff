@@ -1,5 +1,15 @@
 -- MeteorService: every ~10 minutes a Meteor Geode slams into the crater.
 -- Shared HP scales with players online; cracking it triggers the SUPERNOVA.
+--
+--   MeteorState (S->all):
+--     { phase = "warning", t = 30 }
+--     { phase = "impact" }
+--     { phase = "active", hp, maxHp, helpers:int, shares = { [tostring(userId)] = pct:int } }
+--        — Damage only mutates + sets `dirty`; the 0.25 s cycle loop flushes it (≤ 4 Hz)
+--     { phase = "boom", results = {{ userId, name, pct, gained }} (≤ 5, desc), mvpUserId }
+--     { phase = "dead", nextAt:int }
+--   Phase changes fire immediately. Meteor.NextAt() = os.time() of the next spawn
+--   (0 while a meteor is live) for the snapshot's nextMeteorAt.
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -10,9 +20,62 @@ local Meteor = {}
 local S
 local active = nil
 local lastTap = {}
+local nextAt = 0        -- os.time() of the next meteor spawn (0 = unknown)
+local recentStates = {} -- last 10 MeteorState payloads { phase, at = os.clock() } (TestHook `meteorState`)
 
 local function fireState(payload)
+	recentStates[#recentStates + 1] = { phase = payload.phase, at = os.clock() }
+	while #recentStates > 10 do table.remove(recentStates, 1) end
 	S.Remotes.MeteorState:FireAllClients(payload)
+end
+
+local function cycleLength()
+	local interval = workspace:GetAttribute("MeteorInterval") or S.Config.Balance.MeteorInterval
+	return math.max(35, tonumber(interval) or 600)
+end
+
+-- The next cycle's spawn time as predicted right now (the loop top re-derives it a
+-- beat later from the same numbers).
+local function predictNext()
+	return os.time() + cycleLength()
+end
+
+function Meteor.NextAt()
+	if active then return 0 end
+	return nextAt
+end
+
+-- helpers = online contributors; shares = each one's % of the damage dealt so far
+-- (floored, so the shares always sum to ≤ 100). Third value = total damage dealt.
+local function sharesOf(state)
+	local total, helpers = 0, 0
+	for _, dmg in pairs(state.contrib) do total += dmg end
+	local shares = {}
+	if total > 0 then
+		for pl, dmg in pairs(state.contrib) do
+			if pl.Parent == Players then
+				helpers += 1
+				shares[tostring(pl.UserId)] = math.floor(dmg / total * 100)
+			end
+		end
+	end
+	return helpers, shares, total
+end
+
+-- Dirty-flagged `active` flush, called from the 0.25 s cycle loop: ≤ 4 events/s no
+-- matter how many players tap how fast.
+local function flushActive()
+	if not (active and active.dirty) then return end
+	active.dirty = false
+	local helpers, shares = sharesOf(active)
+	fireState({ phase = "active", hp = math.max(0, active.hp), maxHp = active.maxHp, helpers = helpers, shares = shares })
+end
+
+-- Timestamps of the last 10 MeteorState broadcasts (rate verification in Studio).
+function Meteor.RecentStates()
+	local out = table.create(#recentStates)
+	for i, e in ipairs(recentStates) do out[i] = { phase = e.phase, at = e.at } end
+	return out
 end
 
 local function playSound(id, parent, volume)
@@ -20,6 +83,7 @@ local function playSound(id, parent, volume)
 	snd.SoundId = id
 	snd.Volume = volume or 1
 	snd.RollOffMaxDistance = 400
+	if S and S.SFXGroup then snd.SoundGroup = S.SFXGroup end -- each client's SFX slider scales this group
 	snd.Parent = parent
 	snd:Play()
 	Debris:AddItem(snd, 6)
@@ -29,9 +93,43 @@ local function supernova()
 	if not active then return end
 	local state = active
 	active = nil
+	nextAt = predictNext()
 	local pos = state.part.Position
 
-	fireState({ phase = "boom" })
+	-- contribution-scaled payouts FIRST (all synchronous) so the boom carries the
+	-- results card: top 5 by share, plus the MVP
+	local playerCount = #Players:GetPlayers()
+	local _, shares = sharesOf(state)
+	local results = {}
+	local best, bestDmg = nil, 0
+	for player, dmg in pairs(state.contrib) do
+		if player.Parent then
+			local share = dmg / state.maxHp
+			local scale = math.clamp(0.5 + share * playerCount, 0.5, 2)
+			local gained = S.Econ.AwardGems(player, S.Config.Balance.MeteorPayoutBase * scale)
+			if S.Dailies then
+				S.Dailies.Event(player, "earn", gained)
+				S.Dailies.Event(player, "meteor", 1)
+			end
+			S.Social.Tell(player, "meteorPayout", {
+				text = "💥 SUPERNOVA! +" .. S.Config.Cur(gained) .. "!",
+				colorRGB = { 255, 235, 160 },
+			})
+			S.Econ.Push(player)
+			results[#results + 1] = {
+				userId = player.UserId, name = player.DisplayName,
+				pct = shares[tostring(player.UserId)] or 0, gained = gained,
+			}
+			if dmg > bestDmg then best, bestDmg = player, dmg end
+		end
+	end
+	table.sort(results, function(a, b)
+		if a.pct ~= b.pct then return a.pct > b.pct end
+		return a.userId < b.userId
+	end)
+	while #results > 5 do table.remove(results) end
+
+	fireState({ phase = "boom", results = results, mvpUserId = best and best.UserId or nil })
 	playSound(S.Config.Sounds.Boom, workspace.CrackAGeode.FX:FindFirstChildOfClass("Part") or state.part, 1)
 
 	-- white-out flash
@@ -76,32 +174,11 @@ local function supernova()
 		Debris:AddItem(chunk, 4)
 	end
 
-	-- contribution-scaled payouts
-	local playerCount = #Players:GetPlayers()
-	local best, bestDmg = nil, 0
-	for player, dmg in pairs(state.contrib) do
-		if player.Parent then
-			local share = dmg / state.maxHp
-			local scale = math.clamp(0.5 + share * playerCount, 0.5, 2)
-			local gained = S.Econ.AwardGems(player, S.Config.Balance.MeteorPayoutBase * scale)
-			if S.Dailies then
-				S.Dailies.Event(player, "earn", gained)
-				S.Dailies.Event(player, "meteor", 1)
-			end
-			S.Remotes.Announce:FireClient(player, {
-				kind = "meteor",
-				text = "💥 SUPERNOVA! +" .. S.Config.Fmt(gained) .. " Gems!",
-				color = Color3.fromRGB(255, 235, 160),
-			})
-			S.Econ.Push(player)
-			if dmg > bestDmg then best, bestDmg = player, dmg end
-		end
-	end
 	if best then
-		S.Remotes.Announce:FireAllClients({
-			kind = "meteor",
+		S.Social.Broadcast("mvp", {
 			text = "💥 " .. best.DisplayName .. " led the Meteor crack!",
-			color = Color3.fromRGB(255, 235, 160),
+			userId = best.UserId,
+			colorRGB = { 255, 235, 160 },
 		})
 	end
 
@@ -148,8 +225,8 @@ function Meteor.Spawn()
 	trail.Rate = 12
 
 	local hp = S.Config.Balance.MeteorHPPerPlayer * math.max(1, #Players:GetPlayers())
-	active = { part = meteor, hp = hp, maxHp = hp, contrib = {} }
-	fireState({ phase = "active", hp = hp, maxHp = hp })
+	active = { part = meteor, hp = hp, maxHp = hp, contrib = {}, dirty = false }
+	fireState({ phase = "active", hp = hp, maxHp = hp, helpers = 0, shares = {} })
 
 	local click = Instance.new("ClickDetector")
 	click.MaxActivationDistance = 50
@@ -167,7 +244,8 @@ function Meteor.Spawn()
 	end)
 end
 
--- shared damage path (ClickDetector + test harness)
+-- shared damage path (ClickDetector + test harness): mutates hp/contrib and marks the
+-- state dirty; the cycle loop broadcasts (so N tapping players never mean N×10 Hz fan-out)
 function Meteor.Damage(player, taps)
 	for _ = 1, taps or 1 do
 		if not active then return end
@@ -176,7 +254,7 @@ function Meteor.Damage(player, taps)
 		local dmg = 1 + p.power
 		active.hp -= dmg
 		active.contrib[player] = (active.contrib[player] or 0) + dmg
-		fireState({ phase = "active", hp = math.max(0, active.hp), maxHp = active.maxHp })
+		active.dirty = true
 		if active.hp <= 0 then
 			supernova()
 			return
@@ -192,7 +270,8 @@ local function fizzle()
 	if not active then return end
 	local state = active
 	active = nil
-	fireState({ phase = "dead" })
+	nextAt = predictNext()
+	fireState({ phase = "dead", nextAt = nextAt })
 	TweenService:Create(state.part, TweenInfo.new(2), {
 		CFrame = state.part.CFrame * CFrame.new(0, -16, 0),
 		Transparency = 1,
@@ -205,15 +284,16 @@ function Meteor.Init(services)
 	Players.PlayerRemoving:Connect(function(player)
 		lastTap[player] = nil
 	end)
+	nextAt = os.time() + 20 + cycleLength() -- the first cycle starts after the settle wait
 	task.spawn(function()
 		task.wait(20) -- let the server settle before the first cycle
 		while true do
-			local interval = workspace:GetAttribute("MeteorInterval") or S.Config.Balance.MeteorInterval
-			task.wait(math.max(35, interval) - 30)
-			S.Remotes.Announce:FireAllClients({
-				kind = "warn",
+			local total = cycleLength()
+			nextAt = os.time() + total -- spawn time of this cycle (the HUD "Meteor in M:SS" clock)
+			task.wait(total - 30)
+			S.Social.Broadcast("warn", {
 				text = "☄️ METEOR GEODE incoming in 30 seconds — get to the crater!",
-				color = Color3.fromRGB(255, 160, 80),
+				colorRGB = { 255, 160, 80 },
 			})
 			fireState({ phase = "warning", t = 30 })
 			task.wait(30)
@@ -221,6 +301,7 @@ function Meteor.Init(services)
 			local t0 = os.clock()
 			while active and os.clock() - t0 < 60 do
 				task.wait(0.25)
+				flushActive() -- dirty-flagged: ≤ 4 `active` payloads/s
 			end
 			if active then fizzle() end
 		end

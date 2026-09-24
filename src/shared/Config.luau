@@ -13,10 +13,10 @@ Config.Version = 1
 -- Dashboard, then paste its numeric Pass ID here (see the walkthrough). The
 -- internal `key` is what the code uses — do not change it; only edit id/price/text.
 Config.GamePasses = {
-	{ key = "DoubleGems", id = 1947680333, price = 149, icon = "💰", name = "2× Coins",   desc = "Permanently DOUBLE all Coin income — every crack, garden harvest & meteor." },
+	{ key = "DoubleGems", id = 1947680333, price = 149, icon = "💰", name = "2× Gems",    desc = "Permanently DOUBLE all Gem income — every crack, garden harvest & meteor." },
 	{ key = "AutoCrack",  id = 1949360316, price = 49,  icon = "🤖", name = "Auto-Crack", desc = "Auto-cracks nearby geodes for you — hands-free, great for idle & mobile." },
 	{ key = "DoubleLuck", id = 1950950318, price = 199, icon = "🍀", name = "Lucky",      desc = "Permanently boosts your odds of Rare crystals (Emerald & up)." },
-	{ key = "VIP",        id = 1948736326, price = 399, icon = "👑", name = "VIP",        desc = "Daily Coin bonus + [VIP] chat tag + exclusive Royal pet + gold aura & +2 Garden plots." },
+	{ key = "VIP",        id = 1948736326, price = 399, icon = "👑", name = "VIP",        desc = "Daily Gem bonus + [VIP] chat tag + exclusive Royal pet + gold aura & +2 Garden plots." },
 }
 
 -- Developer products (consumable, re-buyable via ProcessReceipt). `id` stays 0
@@ -26,14 +26,14 @@ Config.DevProducts = {
 	{ key = "GiftBoost",     id = 3707941703, price = 25, icon = "🎁", name = "Gift a Boost",        desc = "Gift a Lucky Boost AND give the whole server +10% Luck!" },
 	{ key = "InstantRegrow", id = 3707941759, price = 29, icon = "🌱", name = "Instant Regrow",      desc = "Instantly matures ALL your Garden plots." },
 	{ key = "GoldenGeode",   id = 3707941808, price = 79, icon = "🌟", name = "Golden Geode",        desc = "Spawn a giant golden geode — guaranteed Ruby+ inside!" },
-	-- coin packs (3 price points; `coins` = amount granted)
-	{ key = "CoinsSmall",  id = 3707941838, price = 25,  icon = "💰", name = "Coin Pouch", desc = "+12,500 Coins instantly.",        coins = 12500 },
-	{ key = "CoinsMedium", id = 3707941875, price = 99,  icon = "💰", name = "Coin Sack",  desc = "+80,000 Coins — better value!",   coins = 80000 },
-	{ key = "CoinsLarge",  id = 3707941917, price = 399, icon = "💰", name = "Coin Vault", desc = "+600,000 Coins — best value!",     coins = 600000 },
+	-- gem packs (3 price points; `coins` = amount granted — internal field name, do not rename)
+	{ key = "CoinsSmall",  id = 3707941838, price = 25,  icon = "💰", name = "Gem Pouch", desc = "+12,500 Gems instantly.",        coins = 12500 },
+	{ key = "CoinsMedium", id = 3707941875, price = 99,  icon = "💰", name = "Gem Sack",  desc = "+80,000 Gems — better value!",   coins = 80000 },
+	{ key = "CoinsLarge",  id = 3707941917, price = 399, icon = "💰", name = "Gem Vault", desc = "+600,000 Gems — best value!",     coins = 600000 },
 	-- one-time discounted starter pack (offered only during a player's FIRST session).
 	-- starter=true hides it from the normal shop list; it renders as a special offer card.
 	{ key = "StarterPack", id = 3707941969, price = 49, icon = "⭐", name = "Starter Pack",
-		desc = "40,000 Coins + the exclusive Starter Sprite pet (+15% forever). One-time only!",
+		desc = "40,000 Gems + the exclusive Starter Sprite pet (+15% forever). One-time only!",
 		coins = 40000, starter = true },
 }
 
@@ -135,7 +135,7 @@ for _, z in ipairs(Zones.list) do
 		table.insert(Config.DevProducts, {
 			key = "Unlock_" .. z.key, id = z.unlockProductId or 0, price = z.unlockPrice, icon = z.icon,
 			name = "Unlock " .. z.name,
-			desc = "Open " .. z.name .. " instantly (×" .. z.multiplier .. " Coins). Or earn it free: " .. string.lower(Zones.UnlockText(z)) .. ".",
+			desc = "Open " .. z.name .. " instantly (×" .. z.multiplier .. " Gems). Or earn it free: " .. string.lower(Zones.UnlockText(z)) .. ".",
 			zone = z.key,        -- consumed by Monetize.GrantProduct
 			zoneUnlock = true,   -- lets the shop UI skip these; they surface on the zone gate instead
 		})
@@ -165,6 +165,48 @@ function Config.Fmt(n)
 	local i = math.clamp(math.floor(math.log(n, 1000)), 1, #suffix)
 	return string.format("%.1f%s", n / (1000 ^ i), suffix[i])
 end
+
+-- ===== Currency (player-facing) =====
+-- The currency is "Gems 💎" everywhere a player can read it. Internal keys
+-- (DoubleGems, CoinsSmall/Medium/Large, the `coins` field) never change.
+Config.Currency = { name = "Gems", icon = "💎" }
+
+-- "12.3K 💎" — the one way to print an amount with its icon.
+function Config.Cur(n)
+	return Config.Fmt(tonumber(n) or 0) .. " " .. Config.Currency.icon
+end
+
+-- ===== Social (presence, feed, cheers, server goals, settings) =====
+-- Single source for every social limit and route; server AND client read these
+-- (no duplicated literals). Cheer wire value = index into Reactions.
+Config.Social = {
+	Reactions = { "👏", "🔥", "💎", "🎉", "👋", "💜" },   -- Cheer idx 1..6 (wire value = index)
+	CheerGap = 2, CheerBurst = 6, CheerBurstWindow = 30,  -- per sender
+	CheerTargetCap = 3, CheerTargetWindow = 10,           -- per target (display cap)
+	FeedRing = 30, JoinCoalesce = 3, LeaveMinSession = 20,
+	ProfileGap = 1, ProfileCache = 5,
+	LeaderboardRefresh = 75, LeaderboardWriteGap = 60, LeaderboardTop = 50,
+	SettingsGap = 2,
+	SettingsDefault = { music = 22, sfx = 100, reduceFx = false, socialPings = true, hideFeed = false },
+	GifterTitleAt = 3,                                    -- giftsGiven >= 3 -> Title "Gifter"
+	Goals = {
+		{ key = "cracks",   icon = "⛏️", event = "crack",   goal = 500, goalMin = 150, label = "Crack %d geodes together" },
+		{ key = "rares",    icon = "⭐", event = "rare",    goal = 10,  goalMin = 3,   label = "Find %d Rare+ crystals together" },
+		{ key = "rebirths", icon = "🔄", event = "rebirth", goal = 3,   goalMin = 1,   label = "%d Rebirths together" },
+	},
+	GoalWindow = 900, GoalRest = 60,                      -- seconds
+	-- Announce routing for BROADCASTS (personal messages are flag-routed: personal=true -> toast)
+	KindRoute = {
+		warn = "headline", meteor = "headline", golden = "headline", goal = "headline",
+		rare = "feed", rebirth = "feed", ascend = "feed", pet = "feed", pass = "feed", zone = "feed",
+		zoneFirst = "feed", join = "feed", leave = "feed", cheer = "feed", gift = "feed", mvp = "feed",
+		unlock = "feed", quest = "feed",
+		-- personal-only kinds listed for colour lookup; they arrive with personal=true
+		vip = "toast", onboard = "toast", daily = "toast", ach = "toast", giftReceived = "toast",
+		region = "toast", locked = "toast", meteorPayout = "toast", garden = "toast", shard = "toast",
+		welcome = "toast", info = "toast", error = "toast", ok = "toast",
+	},
+}
 
 -- ===== Music playlist (licensed Creator Store tracks — swap IDs freely) =====
 Config.Music = {

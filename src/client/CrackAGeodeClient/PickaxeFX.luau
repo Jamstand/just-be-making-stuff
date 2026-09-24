@@ -1,14 +1,21 @@
--- PickaxeFX: client-side pickaxe FEEL. Plays the swing the instant any crack
--- input happens (mobile CRACK button, desktop node click, Auto-Crack), lands an
--- impact moment (sound + camera nudge) when the server confirms the crack,
--- keeps a subtle idle sway so the tool never looks frozen, and animates OTHER
--- players' swings from their confirmed cracks. Zero perceived input delay: the
--- swing never waits on the server; validation continues server-side as before.
+-- PickaxeFX: client-side pickaxe FEEL and the SINGLE owner of the RightGrip weld.
+-- Plays the swing the instant any crack input happens (mobile CRACK button,
+-- desktop node click, Tool.Activated, Auto-Crack), lands an impact moment
+-- (sound + camera nudge) when the server confirms the crack, keeps a subtle idle
+-- sway so the tool never looks frozen, and animates OTHER players' swings from
+-- their confirmed cracks. Zero perceived input delay: the swing never waits on
+-- the server; validation continues server-side as before.
+--
+-- Cooldown gate: PickaxeFX.SetCooldownSource(fn) takes UI.CrackReadyAt; a local
+-- INPUT swing early-returns while os.clock() < fn(), so a held CRACK button or
+-- click spam plays at most one swing + whoosh per real crack. A confirmed crack
+-- (CrackFX) bypasses the gate. The whoosh routes through Audio.Play (GeodeSFX).
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
+local SG = require(game:GetService("ReplicatedStorage"):WaitForChild("StyleGuide")) -- highlight colour token
 
 local PickaxeFX = {}
 local player = Players.LocalPlayer
@@ -19,6 +26,32 @@ local SWING_GAP = 0.14 -- min time between swing starts (hold-loop spam guard)
 local swings = {} -- [character] = { t0, base = grip C1 at rest, weld }
 local nudge = 0   -- camera impact nudge (decays fast)
 local idleBase, idleWeld = nil, nil
+local cooldownSource = nil -- function() -> os.clock() when the next crack is allowed
+
+-- audio routing (bounded wait: a missing Audio module must never park boot)
+local Audio = nil
+do
+	local m = script.Parent:FindFirstChild("Audio") or script.Parent:WaitForChild("Audio", 5)
+	if m then
+		local ok, mod = pcall(require, m)
+		if ok then Audio = mod end
+	end
+end
+local WHOOSH = "rbxasset://sounds/swordslash.wav" -- built-in asset, no upload needed
+local function whoosh(parent)
+	local speed = 1.25 + math.random() * 0.15
+	if Audio then
+		Audio.Play(WHOOSH, 0.3, speed, parent)
+		return
+	end
+	local snd = Instance.new("Sound")
+	snd.SoundId = WHOOSH
+	snd.Volume = 0.3
+	snd.PlaybackSpeed = speed
+	snd.Parent = parent or workspace
+	snd:Play()
+	Debris:AddItem(snd, 1.2)
+end
 
 local function gripWeld(char)
 	local hand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
@@ -39,8 +72,22 @@ local function swingAngle(s)
 	end
 end
 
-local function startSwing(char)
+-- The UI arms a 0.25 s provisional lock on every press (UI-6). If it does so
+-- BEFORE calling UI.OnCrackInput, a literal "os.clock() < readyAt" would swallow
+-- the legitimate press swing, so a remaining lock inside that window is let
+-- through; a real cooldown (>= CrackCooldownMin 0.4 s) still blocks.
+local PROVISIONAL_GRACE = 0.26
+local function cooldownBlocks()
+	if not cooldownSource then return false end
+	local ok, readyAt = pcall(cooldownSource)
+	if not (ok and type(readyAt) == "number" and readyAt == readyAt) then return false end
+	return (readyAt - os.clock()) > PROVISIONAL_GRACE
+end
+
+-- force = true bypasses the cooldown gate (confirmed cracks)
+local function startSwing(char, force)
 	if not char then return end
+	if char == player.Character and not force and cooldownBlocks() then return end
 	local weld = gripWeld(char)
 	if not weld then return end
 	local st = swings[char]
@@ -53,19 +100,18 @@ local function startSwing(char)
 	end
 	st.t0 = os.clock()
 	swings[char] = st
-	-- windup whoosh (built-in asset, no upload needed)
-	local snd = Instance.new("Sound")
-	snd.SoundId = "rbxasset://sounds/swordslash.wav"
-	snd.Volume = 0.3
-	snd.PlaybackSpeed = 1.25 + math.random() * 0.15
-	snd.Parent = char:FindFirstChild("HumanoidRootPart") or workspace
-	snd:Play()
-	Debris:AddItem(snd, 1.2)
+	whoosh(char:FindFirstChild("HumanoidRootPart"))
 end
 
--- public: local instant swing — call on any crack INPUT
+-- public: local instant swing — call on any crack INPUT (cooldown-gated)
 function PickaxeFX.Swing()
-	startSwing(player.Character)
+	startSwing(player.Character, false)
+end
+
+-- public: fn() -> os.clock() timestamp when the next crack is allowed (UI.CrackReadyAt).
+-- nil clears the gate.
+function PickaxeFX.SetCooldownSource(fn)
+	cooldownSource = (type(fn) == "function") and fn or nil
 end
 
 -- public: a confirmed crack (server CrackFX event)
@@ -75,13 +121,13 @@ function PickaxeFX.OnCrack(data, isMine)
 		-- the mouse hook missed), play one now so the hit still reads.
 		local st = swings[player.Character]
 		if not (st and os.clock() - st.t0 < SWING_DUR) then
-			startSwing(player.Character)
+			startSwing(player.Character, true)
 		end
 		nudge = 1
 	else
-		local other = data.userId and Players:GetPlayerByUserId(data.userId)
+		local other = type(data) == "table" and data.userId and Players:GetPlayerByUserId(data.userId)
 		if other and other ~= player and other.Character then
-			startSwing(other.Character)
+			startSwing(other.Character, true)
 		end
 	end
 end
@@ -113,7 +159,7 @@ function PickaxeFX.Init()
 		end
 		if nudge > 0.01 then
 			local cam = workspace.CurrentCamera
-			cam.CFrame = cam.CFrame * CFrame.Angles(-0.012 * nudge, 0.006 * nudge, 0)
+			if cam then cam.CFrame = cam.CFrame * CFrame.Angles(-0.012 * nudge, 0.006 * nudge, 0) end
 			nudge *= math.max(0, 1 - dt * 14)
 		else
 			nudge = 0
@@ -127,9 +173,9 @@ function PickaxeFX.Init()
 		local range = (Config.Balance and Config.Balance.ClickRange or 24) + 4
 		local hl = Instance.new("Highlight")
 		hl.Name = "NodeHint"
-		hl.FillColor = Color3.fromRGB(255, 206, 120)
+		hl.FillColor = SG.World.Station.crater -- same warm gold as the crater station
 		hl.FillTransparency = 0.92
-		hl.OutlineColor = Color3.fromRGB(255, 206, 120)
+		hl.OutlineColor = SG.World.Station.crater
 		hl.OutlineTransparency = 0.15
 		hl.DepthMode = Enum.HighlightDepthMode.Occluded
 		hl.Enabled = false

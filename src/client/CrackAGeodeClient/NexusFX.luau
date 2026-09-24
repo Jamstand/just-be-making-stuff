@@ -1,6 +1,6 @@
 -- NexusFX: the locked-zone teasing at the Warp Nexus. For each portal (tagged with
 -- a ZoneKey attribute), builds a floating card showing the zone's exclusive pet,
--- its coin multiplier, and a LIVE progress bar toward its exact unlock condition.
+-- its Gem multiplier, and a LIVE progress bar toward its exact unlock condition.
 -- Cards update per-player from the snapshot and flip to "UNLOCKED" once earned.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -13,6 +13,16 @@ local cards = {} -- [zoneKey] = refs
 local upsell = nil -- the hub 2×/Lucky pass upsell refs
 local lastSnap = nil -- cache so cards built after the first snapshot still populate
 
+-- UI.Toast(text, kind) — kind is "ok"|"err" on the new UI; the legacy UI wants a
+-- Color3 and errors on a string, so fall back to a plain toast in that case.
+local function toast(text, kind)
+	local m = script.Parent:FindFirstChild("UI")
+	if not m then return end
+	local ok, UI = pcall(require, m)
+	if not (ok and UI and UI.Toast) then return end
+	if not pcall(UI.Toast, text, kind) then pcall(UI.Toast, text) end
+end
+
 -- fire a purchase prompt (pass or product) without blocking the click handler,
 -- and surface the server's verdict like the shop panel does (was silent-fail)
 local function prompt(kind, key)
@@ -21,11 +31,10 @@ local function prompt(kind, key)
 	task.spawn(function()
 		local ok, res = pcall(function() return pf:InvokeServer(kind, key) end)
 		if not (ok and type(res) == "table") then return end
-		local UI = require(script.Parent:WaitForChild("UI"))
 		if res.ok and res.msg then
-			UI.Toast(res.msg, Color3.fromRGB(150, 230, 170))
+			toast(res.msg, "ok")
 		elseif res.ok == false then
-			UI.Toast(res.err or "Purchase failed", Color3.fromRGB(255, 120, 120))
+			if res.err ~= "Slow down!" then toast(res.err or "Purchase failed", "err") end
 		end
 	end)
 end
@@ -54,7 +63,7 @@ local function buildCard(pad, zone)
 
 	local pet = zone.exclusivePet
 	SG.label({ Size = UDim2.new(1, 0, 0, 18),
-		Text = (pet and (pet.emoji .. " " .. pet.name) or "") .. "   ×" .. zone.multiplier .. " Coins",
+		Text = (pet and (pet.emoji .. " " .. pet.name) or "") .. "   ×" .. zone.multiplier .. " Gems",
 		TextColor3 = SG.Color.Gold, Font = SG.Font.Heading, LayoutOrder = 2 }, card)
 
 	local barWrap = SG.new("Frame", { Size = UDim2.new(1, 0, 0, 20), BackgroundColor3 = SG.Color.Track,
@@ -79,7 +88,7 @@ local function buildCard(pad, zone)
 	-- bar above still earns it free — this is the shortcut, never the only path.
 	local buyBtn
 	if zone.unlockPrice then
-		buyBtn = SG.button("💎 Unlock now · " .. zone.unlockPrice .. " R$", "buy",
+		buyBtn = SG.button("🛒 Unlock now · R$ " .. zone.unlockPrice, "premium",
 			{ Size = UDim2.new(1, -18, 0, 30), LayoutOrder = 6 }, card)
 		buyBtn.Activated:Connect(function() prompt("product", "Unlock_" .. zone.key) end)
 	end
@@ -87,7 +96,7 @@ local function buildCard(pad, zone)
 	return { card = card, fill = fill, barLabel = barLabel, reqLabel = reqLabel, vipLabel = vipLabel, buyBtn = buyBtn }
 end
 
--- the hub-wide pass upsell: advertises 2× Coins & Lucky right at the Nexus; each
+-- the hub-wide pass upsell: advertises 2× Gems & Lucky right at the Nexus; each
 -- button hides once that pass is owned, and the whole card hides when both are.
 local function buildUpsell(centerPos)
 	local anchor = Instance.new("Part")
@@ -112,17 +121,17 @@ local function buildUpsell(centerPos)
 	local row = SG.new("Frame", { Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, LayoutOrder = 2 }, card)
 	SG.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8),
 		HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder }, row)
-	local coinsBtn = SG.button("💰 2× Coins", "premium", { Size = UDim2.new(0, 150, 1, 0), LayoutOrder = 1 }, row)
-	coinsBtn.Activated:Connect(function() prompt("pass", "DoubleGems") end)
+	local gemsBtn = SG.button("💰 2× Gems", "premium", { Size = UDim2.new(0, 150, 1, 0), LayoutOrder = 1 }, row)
+	gemsBtn.Activated:Connect(function() prompt("pass", "DoubleGems") end)
 	local luckBtn = SG.button("🍀 Lucky", "primary", { Size = UDim2.new(0, 150, 1, 0), LayoutOrder = 2 }, row)
 	luckBtn.Activated:Connect(function() prompt("pass", "DoubleLuck") end)
-	return { card = card, coinsBtn = coinsBtn, luckBtn = luckBtn }
+	return { card = card, gemsBtn = gemsBtn, luckBtn = luckBtn }
 end
 
 function NexusFX._updateUpsell()
 	if not (upsell and lastSnap) then return end
 	local passes = lastSnap.passes or {}
-	upsell.coinsBtn.Visible = not passes.DoubleGems
+	upsell.gemsBtn.Visible = not passes.DoubleGems
 	upsell.luckBtn.Visible = not passes.DoubleLuck
 	upsell.card.Visible = not (passes.DoubleGems and passes.DoubleLuck)
 end

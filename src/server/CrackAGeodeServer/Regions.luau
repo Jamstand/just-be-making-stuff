@@ -189,10 +189,9 @@ function Regions.Warp(player, key)
 	if not region.isHub and not Config.Zones.IsUnlocked(region, Config.Zones.StatsFor(p)) then
 		lastWarp[player] = os.clock()
 		local prog = Config.Zones.Progress(region, Config.Zones.StatsFor(p))
-		S.Remotes.Announce:FireClient(player, {
-			kind = "warn",
+		S.Social.Tell(player, "locked", {
 			text = "🔒 " .. region.icon .. " " .. region.name .. " — " .. prog.text .. " (" .. prog.label .. ")",
-			color = Color3.fromRGB(255, 180, 120),
+			colorRGB = { 255, 180, 120 },
 		})
 		return
 	end
@@ -200,11 +199,38 @@ function Regions.Warp(player, key)
 	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
 	lastWarp[player] = os.clock()
 	char:PivotTo(region.isHub and HUB_RETURN or region._arrival)
-	S.Remotes.Announce:FireClient(player, {
-		kind = "region",
+	S.Social.SetZone(player, region.key) -- immediate; the 1 Hz loop below keeps it current afterwards
+	-- first visit to a biome (not the hub everyone starts in): persist + one feed row
+	if p and not region.isHub then
+		p.zonesVisited = p.zonesVisited or {}
+		if not p.zonesVisited[region.key] then
+			p.zonesVisited[region.key] = true
+			if S.Data.SaveSoon then S.Data.SaveSoon(player) end
+			S.Social.Broadcast("zoneFirst", {
+				text = region.icon .. " " .. player.DisplayName .. " reached " .. region.name .. " for the first time!",
+				userId = player.UserId,
+				colorRGB = region.theme.accent, -- Color3 -> {r,g,b} in Social
+			})
+		end
+	end
+	S.Social.Tell(player, "region", {
 		text = region.icon .. " Welcome to " .. region.name .. "!",
-		color = region.theme.accent,
+		colorRGB = region.theme.accent,
 	})
+end
+
+-- Nearest region centre in XZ (the same rule the client's RegionFX uses).
+local function nearestZoneKey(pos)
+	local bestKey, bestD
+	for _, region in ipairs(Config.Regions) do
+		local c = region.center
+		if typeof(c) == "Vector3" then
+			local dx, dz = pos.X - c.X, pos.Z - c.Z
+			local d = dx * dx + dz * dz
+			if not bestD or d < bestD then bestKey, bestD = region.key, d end
+		end
+	end
+	return bestKey
 end
 
 local function buildArena(region)
@@ -302,14 +328,21 @@ function Regions.Init(services)
 
 	Players.PlayerRemoving:Connect(function(pl) lastWarp[pl] = nil end)
 
-	-- safety net: anything that falls into the void returns to the hub
+	-- 1 Hz loop: (a) safety net — anything that falls into the void returns to the hub;
+	-- (b) presence — the replicated Zone attribute follows the nearest biome centre
+	-- (SetZone writes only on change, so this is one compare per player per second).
 	task.spawn(function()
 		while true do
 			task.wait(1)
 			for _, pl in ipairs(Players:GetPlayers()) do
 				local hrp = pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
-				if hrp and hrp.Position.Y < -60 then
-					Regions.Warp(pl, "Cavern")
+				if hrp then
+					if hrp.Position.Y < -60 then
+						Regions.Warp(pl, "Cavern")
+					else
+						local key = nearestZoneKey(hrp.Position)
+						if key then S.Social.SetZone(pl, key) end
+					end
 				end
 			end
 		end

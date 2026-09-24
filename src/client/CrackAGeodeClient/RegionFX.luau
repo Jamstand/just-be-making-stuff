@@ -2,6 +2,9 @@
 -- and each warp biome, the client tweens Atmosphere / ColorCorrection / Bloom /
 -- sun angle to that region's palette. Lighting is per-client, so this is free and
 -- affects only this player. Palettes live in Config.Regions[i].light.
+-- RegionFX.OnChanged(zoneKey) (assigned by init.client → UI.SetZone) fires from
+-- Set() and from the 0.25 s position loop whenever the region key changes, plus
+-- once on the first tick so the HUD zone line starts populated.
 
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
@@ -9,9 +12,19 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local RegionFX = {}
+RegionFX.OnChanged = nil -- function(zoneKey) end
+
 local Config
 local player = Players.LocalPlayer
 local currentKey = nil
+
+local function announce(key)
+	local fn = RegionFX.OnChanged
+	if type(fn) == "function" and key then
+		local ok, err = pcall(fn, key)
+		if not ok then warn("[RegionFX] OnChanged: " .. tostring(err)) end
+	end
+end
 
 -- nearest region center in the XZ plane (arenas are 1000 studs apart, so the
 -- nearest center is always the one the player is standing in)
@@ -54,6 +67,7 @@ function RegionFX.Set(regionKey)
 	if region and region.key ~= currentKey then
 		currentKey = region.key
 		apply(region, false)
+		announce(region.key)
 	end
 end
 
@@ -64,6 +78,7 @@ function RegionFX.Init(config)
 	apply(hub, true)
 
 	local acc = 0
+	local announced = false
 	RunService.Heartbeat:Connect(function(dt)
 		acc += dt
 		if acc < 0.25 then return end
@@ -75,6 +90,12 @@ function RegionFX.Init(config)
 		if region and region.key ~= currentKey then
 			currentKey = region.key
 			apply(region, false)
+			announce(region.key)
+		elseif not announced then
+			-- first tick: tell the HUD which zone we started in (hooks are assigned
+			-- after Init, so the constructor could not announce)
+			announced = true
+			announce(currentKey)
 		end
 	end)
 end

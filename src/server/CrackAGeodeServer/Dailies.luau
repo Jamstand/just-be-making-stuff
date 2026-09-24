@@ -58,7 +58,7 @@ local function syncQuests(p)
 	if p.questDate ~= t then
 		p.questDate = t
 		p.questProgress = {}
-		p.questClaimed = {}   -- per-quest coin-reward-granted flags
+		p.questClaimed = {}   -- per-quest gem-reward-granted flags
 		p.questSetDone = false
 	end
 end
@@ -95,10 +95,9 @@ function Dailies.Claim(player)
 	if reward.golden and S.Geodes then
 		S.Geodes.SpawnGolden(player, true)
 	end
-	Remotes.Announce:FireClient(player, {
-		kind = "daily",
-		text = "🎁 Day " .. day .. " reward: +" .. Config.Fmt(reward.gems) .. " 💎" .. (reward.golden and "  + Golden Geode!" or ""),
-		color = Color3.fromRGB(255, 220, 120),
+	S.Social.Tell(player, "daily", {
+		text = "🎁 Day " .. day .. " reward: +" .. Config.Cur(reward.gems) .. (reward.golden and "  + Golden Geode!" or ""),
+		colorRGB = { 255, 220, 120 },
 	})
 	if Data.SaveSoon then Data.SaveSoon(player) end
 	-- streak celebration card (the client listener + UI.Streak existed but this
@@ -113,6 +112,7 @@ end
 -- ===== quest event tracking =====
 
 function Dailies.Event(player, etype, amount)
+	if not Data then return end -- Geodes / Econ can fire events before our Init runs
 	local p = Data.Cache[player]
 	if not p then return end
 	syncQuests(p)
@@ -128,10 +128,9 @@ function Dailies.Event(player, etype, amount)
 				p.questClaimed[q.id] = true
 				Econ.AwardRaw(player, q.gems)
 				completedSomething = true
-				Remotes.Announce:FireClient(player, {
-					kind = "quest",
-					text = "✅ Quest done: " .. questDesc(q) .. "  +" .. Config.Fmt(q.gems) .. " 💎",
-					color = Color3.fromRGB(150, 205, 255),
+				S.Social.Tell(player, "quest", {
+					text = "✅ Quest done: " .. questDesc(q) .. "  +" .. Config.Cur(q.gems),
+					colorRGB = { 150, 205, 255 },
 				})
 			end
 		end
@@ -141,10 +140,10 @@ function Dailies.Event(player, etype, amount)
 		p.questSetDone = true
 		completedSomething = true
 		if S.Geodes then S.Geodes.SpawnGolden(player, true) end -- the Rare Geode reward
-		Remotes.Announce:FireAllClients({
-			kind = "quest",
+		S.Social.Broadcast("quest", {
 			text = "🌟 " .. player.DisplayName .. " cleared all Daily Quests — Rare Geode earned!",
-			color = Color3.fromRGB(255, 210, 90),
+			userId = player.UserId,
+			colorRGB = { 255, 210, 90 },
 		})
 	end
 	if completedSomething then
@@ -189,10 +188,16 @@ function Dailies.Init(services)
 			Dailies.StreakOnJoin(p)
 			syncQuests(p)
 			Econ.Push(player)
-			if Dailies.RewardClaimable(p) then
-				task.wait(2) -- let the HUD build first
-				Remotes.DailyPopup:FireClient(player)
-			end
+			if not Dailies.RewardClaimable(p) then return end
+			-- First-run gating: a brand-new profile NEVER gets the popup before its first
+			-- crack (the client glows the Daily button from snap.daily.claimable instead,
+			-- so nothing stacks over the starter geode). Everyone else gets it 3 s after
+			-- join so the HUD is built; `returning` lets the client auto-open the panel
+			-- only for players who finished onboarding (lead decision B.1).
+			if not (p.onboardDone or (p.cracks or 0) > 0) then return end
+			task.wait(3)
+			if player.Parent ~= Players or not Dailies.RewardClaimable(p) then return end
+			Remotes.DailyPopup:FireClient(player, { returning = p.onboardDone == true, claimable = true })
 		end)
 	end
 	Players.PlayerAdded:Connect(onJoin)
@@ -200,9 +205,13 @@ function Dailies.Init(services)
 		for _, p in ipairs(Players:GetPlayers()) do onJoin(p) end
 	end)
 
-	Remotes.ClaimDaily.OnServerInvoke = function(player)
-		return Dailies.Claim(player)
-	end
+	-- S.Guard adds the (previously missing) Ready check, a 0.25 s gap and the pcall
+	S.Guard(Remotes.ClaimDaily, {
+		gap = 0.25,
+		fn = function(player)
+			return Dailies.Claim(player)
+		end,
+	})
 end
 
 return Dailies

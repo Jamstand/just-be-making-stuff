@@ -65,6 +65,8 @@ local DEFAULT = {
 	zonesPurchased = {}, zoneVipPets = {}, zoneCracked = {}, -- Phase 4: paid zone skip-unlocks / owned zone VIP pets / first-crack-per-zone tracking
 	firstJoinRecorded = false, starterPackBought = false,
 	onboardStep = 0, onboardDone = false,
+	-- social (SV-2): cosmetic counters, zoneFirst tracking, validated client settings
+	giftsGiven = 0, cheersGiven = 0, cheersReceived = 0, zonesVisited = {}, settings = {},
 	testPasses = {}, receipts = {},
 }
 

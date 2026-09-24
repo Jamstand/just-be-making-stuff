@@ -32,13 +32,15 @@ local function statsFor(p)
 	for _, c in pairs(p.petInv or {}) do petsOwned += c end
 	return {
 		-- lifetime rebirths (Ascend resets p.rebirths to 0; the Reborn achievement
-		-- must never regress) — max() covers profiles from before totalRebirths
-		cracks = p.cracks or 0, rebirths = math.max(p.totalRebirths or 0, p.rebirths or 0), shards = totalShards,
+		-- must never regress) — Econ.LifetimeRebirths also migrates pre-totalRebirths
+		-- profiles from their ascension count
+		cracks = p.cracks or 0, rebirths = S.Econ.LifetimeRebirths(p), shards = totalShards,
 		indexPct100 = math.floor(bits / 28 * 100), zonesUnlocked = zonesUnlocked, petsOwned = petsOwned,
 	}
 end
 
 function Achievements.State(player)
+	if not (S and S.Data and S.Econ and Zones) then return nil end -- Econ.Snapshot can probe before our Init
 	local p = S.Data.Cache[player]
 	if not p then return nil end
 	p.achClaimed = p.achClaimed or {}
@@ -75,10 +77,9 @@ function Achievements.Claim(player, key)
 	S.Econ.AwardRaw(player, t.gems)
 	if S.Data.SaveSoon then S.Data.SaveSoon(player) end
 	S.Econ.Push(player)
-	S.Remotes.Announce:FireClient(player, {
-		kind = "ach",
-		text = "🏅 " .. ach.name .. " — Tier " .. nextTier .. "!  +" .. S.Config.Fmt(t.gems) .. " 💎",
-		color = Color3.fromRGB(255, 210, 90),
+	S.Social.Tell(player, "ach", {
+		text = "🏅 " .. ach.name .. " — Tier " .. nextTier .. "!  +" .. S.Config.Cur(t.gems),
+		colorRGB = { 255, 210, 90 },
 	})
 	return { ok = true, gems = t.gems }
 end
@@ -86,11 +87,12 @@ end
 function Achievements.Init(services)
 	S = services
 	Zones = S.Config.Zones
-	S.Remotes.ClaimAchievement.OnServerInvoke = function(player, key)
-		if not S.Ready then return { ok = false, err = "Starting up…" } end
-		if type(key) ~= "string" then return { ok = false, err = "Bad request" } end
-		return Achievements.Claim(player, key)
-	end
+	S.Guard(S.Remotes.ClaimAchievement, {
+		gap = 0.25, args = { "string" },
+		fn = function(player, key)
+			return Achievements.Claim(player, key)
+		end,
+	})
 end
 
 return Achievements

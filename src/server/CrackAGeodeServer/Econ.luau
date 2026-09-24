@@ -29,6 +29,16 @@ function Econ.CompletedRows(p)
 	return rows
 end
 
+-- Lifetime rebirth count for PERMANENT unlocks (rebirth pets, the Reborn achievement,
+-- onboarding step 4). Econ.Buy("Ascend") resets p.rebirths to 0, so anything sold as
+-- "forever" must read this instead. The ascensions term migrates profiles that
+-- ascended before totalRebirths existed.
+function Econ.LifetimeRebirths(p)
+	if type(p) ~= "table" then return 0 end
+	local per = (Config and Config.Balance and Config.Balance.AscensionAtRebirth) or 15
+	return math.max(p.totalRebirths or 0, p.rebirths or 0, (p.ascensions or 0) * per)
+end
+
 function Econ.IncomeMult(player)
 	local p = Data.Cache[player]
 	if not p then return 1 end
@@ -189,11 +199,12 @@ function Econ.Buy(player, what)
 		if p.gems < cost then return { ok = false, err = "Not enough Gems" } end
 		p.gems, p.power, p.luck = 0, 0, 0
 		p.rebirths += 1
-		p.totalRebirths = (p.totalRebirths or 0) + 1 -- lifetime count; Ascend resets p.rebirths but achievements track this
-		Remotes.Announce:FireAllClients({ kind = "rebirth", text = "🔄 " .. player.DisplayName .. " Recrystallized! (Rebirth " .. p.rebirths .. ")", colorRGB = { 190, 130, 255 } })
+		p.totalRebirths = (p.totalRebirths or 0) + 1 -- lifetime count; Ascend resets p.rebirths but pets/achievements read Econ.LifetimeRebirths
+		S.Social.Broadcast("rebirth", { text = "🔄 " .. player.DisplayName .. " Recrystallized! (Rebirth " .. p.rebirths .. ")", userId = player.UserId, colorRGB = { 190, 130, 255 } })
 		if S.Pickaxe then S.Pickaxe.Refresh(player) end
 		if S.Pets then S.Pets.OnRebirth(player) end
 		if S.Dailies then S.Dailies.Event(player, "rebirth", 1) end
+		if S.ServerGoals and S.ServerGoals.Event then S.ServerGoals.Event(player, "rebirth", 1) end -- co-op goal
 		Data.SaveSoon(player) -- persist the milestone immediately, not on the next autosave
 	elseif what == "Ascend" then
 		if p.rebirths < Config.Balance.AscensionAtRebirth then
@@ -202,7 +213,7 @@ function Econ.Buy(player, what)
 		p.gems, p.power, p.luck, p.rebirths = 0, 0, 0, 0
 		p.ascensions += 1
 		p.shards += 1
-		Remotes.Announce:FireAllClients({ kind = "ascend", text = "🌌 " .. player.DisplayName .. " ASCENDED! Base multiplier x" .. Config.Fmt(Config.Balance.AscendMult ^ p.ascensions) .. " forever!", colorRGB = { 255, 210, 90 } })
+		S.Social.Broadcast("ascend", { text = "🌌 " .. player.DisplayName .. " ASCENDED! Base multiplier x" .. Config.Fmt(Config.Balance.AscendMult ^ p.ascensions) .. " forever!", userId = player.UserId, colorRGB = { 255, 210, 90 } })
 		if S.Pickaxe then S.Pickaxe.Refresh(player) end
 		Data.SaveSoon(player)
 	elseif string.sub(what, 1, 5) == "Perk:" then
@@ -268,7 +279,19 @@ function Econ.Snapshot(player)
 		collectPets = (S.CollectPets and S.CollectPets.Snapshot(player)) or nil,
 		achievements = (S.Achievements and S.Achievements.State(player)) or nil,
 		zoneIndexPct = Econ.ZoneIndexPct(p),
-		now = os.time(),
+		-- social spine (SV-2 / lead item A): tiny per-push additions, all optional to the client
+		online = #Players:GetPlayers(),
+		lifetimeRebirths = Econ.LifetimeRebirths(p),
+		social = { giftsGiven = p.giftsGiven or 0, cheersGiven = p.cheersGiven or 0, cheersReceived = p.cheersReceived or 0 },
+		-- co-op goal / event clocks (SV-5 / SV-6): plain ints, server os.time(), 0 = inactive
+		serverGoalMine = (S.ServerGoals and S.ServerGoals.Mine) and S.ServerGoals.Mine(player) or 0,
+		serverLuckUntil = S.Buffs.ServerLuckUntil and S.Buffs.ServerLuckUntil() or 0,
+		goldenUntil = S.Buffs.GoldenUntil and S.Buffs.GoldenUntil() or 0,
+		nextMeteorAt = (S.Meteor and S.Meteor.NextAt) and S.Meteor.NextAt() or 0,
+		nextGoldenAt = S.Buffs.NextGoldenAt and S.Buffs.NextGoldenAt() or 0,
+		-- global-board ranks (SV-4): a map lookup in Boards' cache, never I/O
+		myRank = (S.Boards and S.Boards.MyRank) and S.Boards.MyRank(player) or nil,
+		now = os.time(), -- server clock; the client derives clockOffset from it
 	}
 end
 
@@ -276,6 +299,8 @@ function Econ.Push(player)
 	local snap = Econ.Snapshot(player)
 	if snap then
 		Remotes.StatsChanged:FireClient(player, snap)
+		-- replicated presence attributes (compare-before-set, so this is 7 compares)
+		if S.Social and S.Social.SyncPresence then S.Social.SyncPresence(player, snap) end
 	end
 end
 
@@ -283,7 +308,7 @@ local function setup(player)
 	if player:FindFirstChild("leaderstats") then return end
 	task.spawn(function()
 		local p = Data.WaitFor(player)
-		if not p then return end
+		if not p or player.Parent ~= Players then return end
 		local ls = Instance.new("Folder")
 		ls.Name = "leaderstats"
 		local g = Instance.new("IntValue")
@@ -293,7 +318,20 @@ local function setup(player)
 		ls.Parent = player
 		Econ.RecomputeRate(player)
 		Econ.Push(player)
+		-- Everyone online learns this player's trophy ring the moment the profile is
+		-- ready (it used to fire only on a brand-new index entry, so veterans and late
+		-- joiners were ring-less to the rest of the server).
+		Remotes.OrbitSync:FireAllClients({ userId = player.UserId, mask = p.indexMask or 0, best = p.bestRarity or 0 })
+		if S.Social and S.Social.OnJoin then S.Social.OnJoin(player) end
 	end)
+end
+
+-- GetState-only extras: p.settings merged over the defaults (whitelisted keys only).
+local function settingsFor(player)
+	if S.Social and S.Social.SettingsFor then return S.Social.SettingsFor(player) end
+	local out = {}
+	for k, v in pairs((Config.Social and Config.Social.SettingsDefault) or {}) do out[k] = v end
+	return out
 end
 
 function Econ.Init(services)
@@ -307,41 +345,47 @@ function Econ.Init(services)
 
 	-- GetState is read-only; serve a short-lived cache so invocation-spam can't
 	-- burn frame time rebuilding snapshots or re-running the orbit fan-out.
-	local lastFullSync, lastState, cachedSnap, lastBuy = {}, {}, {}, {}
-	Remotes.GetState.OnServerInvoke = function(player)
-		if not S.Ready then return nil end -- server still booting; client falls back to StatsChanged push
-		local now = os.clock()
-		if lastState[player] and now - lastState[player] < 0.5 and cachedSnap[player] then
-			return cachedSnap[player]
-		end
-		lastState[player] = now
-		local snap = Econ.Snapshot(player)
-		cachedSnap[player] = snap
-		if not lastFullSync[player] or now - lastFullSync[player] > 2 then
-			lastFullSync[player] = now
-			for other, prof in pairs(Data.Cache) do
-				Remotes.OrbitSync:FireClient(player, { userId = other.UserId, mask = prof.indexMask, best = prof.bestRarity })
+	-- S.Guard adds the Ready check (reject="nil": the client retries) and the pcall;
+	-- gap stays 0 because the 0.5 s cache below is the real limiter.
+	local lastFullSync, lastState, cachedSnap = {}, {}, {}
+	S.Guard(Remotes.GetState, {
+		gap = 0, reject = "nil",
+		fn = function(player)
+			local now = os.clock()
+			if lastState[player] and now - lastState[player] < 0.5 and cachedSnap[player] then
+				return cachedSnap[player]
 			end
-		end
-		return snap
-	end
+			local snap = Econ.Snapshot(player)
+			if not snap then return nil end -- profile still loading; never a table without gems
+			lastState[player] = now
+			-- GetState-only fields (never in the per-crack push): feed history, settings,
+			-- the live server goal
+			if S.Social and S.Social.Recent then snap.feed = S.Social.Recent() end
+			snap.settings = settingsFor(player)
+			if S.ServerGoals and S.ServerGoals.State then snap.serverGoal = S.ServerGoals.State(player) end
+			cachedSnap[player] = snap
+			if not lastFullSync[player] or now - lastFullSync[player] > 2 then
+				lastFullSync[player] = now
+				for other, prof in pairs(Data.Cache) do
+					Remotes.OrbitSync:FireClient(player, { userId = other.UserId, mask = prof.indexMask or 0, best = prof.bestRarity or 0 })
+				end
+			end
+			return snap
+		end,
+	})
 
-	Remotes.Buy.OnServerInvoke = function(player, what)
-		if not S.Ready then return { ok = false, err = "Starting up…" } end
-		if type(what) ~= "string" then return { ok = false, err = "Bad request" } end
-		local now = os.clock()
-		if lastBuy[player] and now - lastBuy[player] < 0.1 then
-			return { ok = false, err = "Slow down!" }
-		end
-		lastBuy[player] = now
-		return Econ.Buy(player, what)
-	end
+	-- 0.1 s gap keeps the hold-to-buy feel; S.Guard does Ready + type + limiter + pcall
+	S.Guard(Remotes.Buy, {
+		gap = 0.1, args = { "string" },
+		fn = function(player, what)
+			return Econ.Buy(player, what)
+		end,
+	})
 
 	Players.PlayerRemoving:Connect(function(player)
 		lastFullSync[player] = nil
 		lastState[player] = nil
 		cachedSnap[player] = nil
-		lastBuy[player] = nil
 	end)
 end
 
