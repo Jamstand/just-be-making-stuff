@@ -55,21 +55,36 @@ whether a button is reachable on a phone, or whether a crack feels good. **You s
 
 Do these once, in order. Steps 1-2 are the important ones; the rest make life easier.
 
-- [ ] **1. Make the repo match the live game.** The game branch's last commit (Aug 13, 2026) is
-      about a month behind your Studio place. Open the place in Studio, open Claude Code locally in
-      the repo folder (so the Roblox Studio MCP is connected), check out the game branch, and ask:
-      *"Export the open Studio place's scripts into src/ following default.project.json, then show
-      me the diff."* Review, commit, push. Until this is done, the agent will (correctly) warn that
-      the repo may be behind Studio and keep its changes minimal.
+- [x] **1. Keep the repo matching the live game.** Done once (the Studio export of 2026-09-23);
+      from now on it is a habit: after a big Studio session, open the place in Studio, open Claude
+      Code locally in the repo folder (so the Roblox Studio MCP is connected), check out the game
+      branch, and ask: *"Export the open Studio place's scripts into src/ following
+      default.project.json, then show me the diff."* Review, commit, push. If `src/` on the game
+      branch has not changed for more than 3 weeks, the agent will (correctly) warn that the repo
+      may be behind Studio and keep its changes minimal.
 
 - [ ] **2. Merge the automation files into the game branch.** They live on the tooling branch
-      `claude/roblox-studio-mcp-sx9h7d`. From the repo folder:
+      `claude/roblox-studio-mcp-sx9h7d`. First `cd` into the repo's top folder in your terminal (the
+      one that contains `default.project.json` and `src`, not a folder inside it). Every line below
+      must run from there. The long `git checkout` line fails with `pathspec ... did not match` if you
+      run it from a subfolder such as `src`. Then, one line at a time:
 
       ```bash
       git fetch origin
       git checkout claude/crack-a-geode
       git pull
       git checkout origin/claude/roblox-studio-mcp-sx9h7d -- .gitattributes CLAUDE.md rokit.toml selene.toml .luaurc scripts lint automation docs .github
+      git status
+      ```
+
+      **Check `git status` before you commit.** Under "Changes to be committed" it must show
+      `CLAUDE.md`, `rokit.toml`, `selene.toml`, `.luaurc` and files in `scripts/`, `lint/`,
+      `automation/`, `docs/` and `.github/` as `new file` (`.gitattributes` shows as `modified`).
+      If they are not there, the long `git checkout` line did not work. Make sure you are in the
+      repo's top folder and run it again (or paste its error into Claude). Do not commit until they
+      show up. Then:
+
+      ```bash
       git commit -m "Add automation toolchain, CI and weekly-agent docs"
       git push
       ```
@@ -87,16 +102,16 @@ Do these once, in order. Steps 1-2 are the important ones; the rest make life ea
 - [ ] **3. Install the tools (rokit).** Rokit is a tiny tool manager that installs the exact
       versions pinned in `rokit.toml` (rojo, luau-lsp, selene). See section 5.
 
-- [ ] **4. Run the check once locally** and commit the baseline if it changed:
+- [ ] **4. Run the check once locally** to confirm the tools work:
 
       ```bash
       scripts/check.sh
       ```
 
-      If it prints `baseline created, commit lint/baseline.luau-lsp.txt`, commit that file. If it
-      reports NEW findings right after your Studio export (expected — the baseline was made from the
-      August code), run `scripts/check.sh --update`, look at the diff of
-      `lint/baseline.luau-lsp.txt`, and commit it with a message like `lint: re-baseline after Studio export`.
+      It should print `new: 0`. There is nothing to re-baseline: the baseline that step 2 brings
+      over (`lint/baseline.luau-lsp.txt`, 102 fingerprints) was already re-made from
+      your 2026-09-23 Studio export. If it does report NEW findings, most likely the scripts in
+      `src/` changed after that export — follow "Re-baselining" in section 6.
 
 - [ ] **5. (Optional) Make the game branch the default on GitHub** — Settings → Branches →
       Default branch → `claude/crack-a-geode`. PRs and the Actions tab then open on the right branch
@@ -273,7 +288,7 @@ it prints "not a Crack a Geode checkout — nothing to check" and exits 0. Outpu
 `fixed-findings.txt`, `selene.txt`, and the downloaded `globalTypes.d.luau` (Roblox type definitions,
 fetched once, ~850 KB).
 
-A **fingerprint** is what every run prints ("91 finding(s) -> 58 unique fingerprint(s)"): one line
+A **fingerprint** is what every run prints ("310 finding(s) -> 102 unique fingerprint(s)"): one line
 `file | category | message` with the line number stripped, so identical messages collapse into one
 entry and moving code around does not change the list. Exit code 2 means a setup problem (tools
 missing, a broken `.luaurc`, or the analyzer reported nothing at all while the baseline is not empty —
@@ -349,8 +364,8 @@ resuming picks up the next Monday.
 
 **Why is CI red on day one?**
 Most likely one of these, all normal:
-- The baseline (`lint/baseline.luau-lsp.txt`) was generated from the August code. After you export
-  the newer Studio scripts, new type/lint findings appear and the ratchet fails. Fix: run
+- The baseline (`lint/baseline.luau-lsp.txt`) matches the 2026-09-23 Studio export. After you export
+  newer Studio scripts, new type/lint findings can appear and the ratchet fails. Fix: run
   `scripts/check.sh --update` locally, commit the baseline, push.
 - selene is a **hard** gate only in CI (locally it is skipped when it can't download the Roblox API
   dump, which is the case in the agent's cloud sandbox). An error-level lint (undefined variable,
@@ -381,16 +396,16 @@ the backlog, so leave a note in `automation/IDEAS_BACKLOG.md` if it should not r
 
 **Why no auto-formatter?**
 `Config.luau` and `Zones.luau` contain tables aligned by hand so the numbers line up in columns.
-A formatter (StyLua) would rewrite all 30 files, break that alignment, and make every PR
+A formatter (StyLua) would rewrite all 32 files, break that alignment, and make every PR
 unreviewable. The system deliberately has no formatter; the checks are build + types + lints only.
 
 **Does the agent need my computer to be on?**
 No. It runs in the cloud. Only the apply step needs your machine (and Studio open).
 
 **What does "baseline" / "ratchet" mean?**
-`lint/baseline.luau-lsp.txt` is the list of type/lint findings we already know about. On day one the
-analyzer reported 91 findings (81 type errors + 10 lints, almost all harmless type-checker noise),
-stored as 58 **fingerprints** — a fingerprint is `file | category | message` with the line number
+`lint/baseline.luau-lsp.txt` is the list of type/lint findings we already know about. On the
+2026-09-23 Studio export the analyzer reported 310 findings (almost all harmless type-checker noise),
+stored as 102 **fingerprints** — a fingerprint is `file | category | message` with the line number
 stripped, so identical messages collapse into one line and moving code around does not change the
 list. The gate fails only on fingerprints *not* on that list, so old noise never blocks you, but new
 noise can't sneak in. Fixing an old finding makes the list shorter ("ratchet").

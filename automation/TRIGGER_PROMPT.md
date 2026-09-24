@@ -37,7 +37,8 @@ Hard guardrails (apply even if the playbook is missing):
 - Never change monetization IDs, prices, pass/product keys, Config.Version, Config.Balance, or
   Zones.luau unlockPrice/drop numbers. Never touch .mcp.json or assets/.
 - Never remove a saved-profile field; a new one needs a default in DEFAULT (Data.luau).
-- Keep ProcessReceipt idempotent and grant-before-save; every remote validated and rate-limited.
+- Keep ProcessReceipt idempotent and never reorder its save/grant steps (that is Josh's call);
+  every remote validated and rate-limited.
 - No formatter (no StyLua); tabs, double quotes, keep the hand-aligned tables aligned.
 - Only TIER A work in code: bug fixes, stability, performance, lint/type cleanup, defensive
   validation, small clearly-beneficial improvements. TIER B (economy numbers, prices, balance, new

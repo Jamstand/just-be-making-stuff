@@ -10,7 +10,8 @@ Keep it short and true. If you change how the project works, update this file to
 
 - One git repo, several unrelated projects, separated by **branch**:
   - `claude/crack-a-geode` — **the game.** Rojo project named `CrackAGeode`
-    (`default.project.json`), Luau source in `src/`, layout in `README.md`.
+    (`default.project.json`), Luau source in `src/`, layout in `README.md`. Also carries
+    `.mcp.json` and `assets/store-art` (added with the 2026-09-23 Studio export).
     Weekly automation targets this branch.
   - `claude/roblox-studio-mcp-sx9h7d` — tooling branch: `.mcp.json` (Roblox Studio MCP
     server, Windows-only), `assets/store-art`, `assets/ui-kit`, and the automation files
@@ -38,19 +39,25 @@ Keep it short and true. If you change how the project works, update this file to
 3. **Never change `Config.Version`.** *Why:* it is baked into the DataStore name
    (`"CrackAGeode_v" .. Config.Version` in `Data.Init`). Bumping it resets every player to zero.
 4. **Every new saved field needs a default in `DEFAULT` in `Data.luau`** plus a one-line
-   migration note in the commit message. *Why:* `fromStored` copies only keys present in
-   `DEFAULT`; anything else is silently dropped on load. (Removing a field = deleting player data.)
-5. **`ProcessReceipt` stays idempotent and grant-before-save** (`Monetize.luau`): look for the
-   `PurchaseId` in `p.receipts` → grant → record receipt → `Data.SaveNow` → only then
-   `PurchaseGranted`; if the save fails, remove the receipt mark and return `NotProcessedYet`.
-   *Why:* Roblox re-delivers receipts; this is what stops double grants and paid-but-lost items.
+   migration note in the commit message. *Why:* `fromStored` builds every profile from a copy of
+   `DEFAULT`, so a field with no default starts as `nil` for every player. (`fromStored` also keeps
+   stored keys that are not in `DEFAULT`, so data written by a newer server survives an older one —
+   keep that. Still never remove a field.)
+5. **`ProcessReceipt` stays idempotent and never returns `PurchaseGranted` before a real save**
+   (`Monetize.luau`). Current order (changed in Josh's 2026-09-23 Studio export): look for the
+   `PurchaseId` in `p.receipts` → record receipt → `Data.SaveNow` (if it fails, remove the receipt
+   mark and return `NotProcessedYet`) → `GrantProduct` → `Data.SaveSoon` → `PurchaseGranted`.
+   *Why:* Roblox re-delivers receipts; the saved receipt mark is what stops double grants. Known
+   trade-off: the grant itself is not on disk until the next save (the `SaveSoon` lands several
+   seconds later), so a server crash before that save, or a Luau error inside `GrantProduct`, can
+   lose a paid item. Changing this order is Josh's call — propose, don't change.
 6. **Every remote handler validates arguments, refuses while `not S.Ready`, and rate-limits per
    player.** *Why:* remotes are the attack surface.
 7. **Mobile first.** Touch targets >= 44 px (StyleGuide's own bar: buttons >= 60 px tall), respect
    the top inset (`GuiService:GetGuiInset()`), works in landscape and portrait.
 8. **No formatter, ever** (no StyLua, no "format on save"). Tabs, double quotes, and keep the
    hand-aligned tables in `Config.luau` / `Zones.luau` aligned. *Why:* a formatter would rewrite all
-   30 files and destroy the aligned tables — an unreviewable diff.
+   32 `src/` files and destroy the aligned tables — an unreviewable diff.
 9. **Run `scripts/check.sh` before every push.** It must pass. Same gate as CI and the weekly agent.
 10. **Cloud sessions cannot see Studio.** The live game changes only when Josh publishes from Roblox
     Studio. Never assume `src/` equals the live place (see "How code moves").
@@ -65,16 +72,18 @@ Rojo mapping (`default.project.json`):
 | --- | --- |
 | `ReplicatedStorage.Config` / `.Zones` / `.StyleGuide` | `src/shared/{Config,Zones,StyleGuide}.luau` — **`--!strict`** (the only strict files) |
 | `ServerScriptService.CrackAGeodeServer` (Script + 18 ModuleScript children) | `src/server/CrackAGeodeServer/` |
-| `StarterPlayer.StarterPlayerScripts.CrackAGeodeClient` (LocalScript + 7 modules) | `src/client/CrackAGeodeClient/` |
+| `StarterPlayer.StarterPlayerScripts.CrackAGeodeClient` (LocalScript + 9 modules) | `src/client/CrackAGeodeClient/` |
 
 Everything outside `src/shared` has no `--!` directive (default nonstrict). Leave it that way.
 
 - **Shared:** `Config` = single tuning surface (passes, products, rarities, mutations, perks,
   `Balance`, formulas, `Fmt`); `Zones` = data-driven biome registry (Cavern, Frost, Sunken, Magma,
   Astral; typed unlocks `always|cracks|rebirths|shards|indexPct`, `IsUnlocked`, `StatsFor`,
-  `Progress`); `StyleGuide` = palette, fonts, UI factories.
+  `Progress`; per-zone `dropTable` odds — used since the 2026-09-23 export: `Geodes.TryCrack` passes
+  them to `Econ.RollRarity`); `StyleGuide` = palette, fonts, UI factories, world look and
+  `applyLighting`.
 - **Server** (`init.server.luau` builds `ReplicatedStorage.Remotes`, requires every module, calls
-  `Init(S)` in dependency order, then sets `S.Ready = true`):
+  `Init(S)` in dependency order, runs `StyleGuide.applyLighting`, then sets `S.Ready = true`):
   `Data` (session-locked DataStore, `UpdateAsync` only, `BindToClose` flush; `DEFAULT`, `SaveSoon`,
   `SaveNow`, `WaitFor`, `Cache`) · `Buffs` (Lucky Boost, server gift luck, Golden Hour) ·
   `Econ` (rolls + pity, `AwardGems`/`AwardRaw`, `Buy`, `Snapshot`, `Push`) · `Geodes` (crack loop:
@@ -82,23 +91,36 @@ Everything outside `src/shared` has no `--!` directive (default nonstrict). Leav
   `Decor` · `Stations` · `Shards` · `CollectPets` · `Achievements` · `Garden` · `Meteor` ·
   `Monetize` (passes, products, `ProcessReceipt`) · `Boards` · `Pickaxe` · `Onboarding` ·
   `Dailies` · `Pets`.
-- **Client** (`init.client.luau` wires remotes to modules): `UI` (1,176 lines, procedural HUD +
-  panels), `Effects`, `Orbit`, `RegionFX`, `NexusFX`, `PetView`, `Quality` (mobile perf scaler:
-  shadows off, 12 brightest lights kept, particle rates halved).
+- **Client** (`init.client.luau` wires remotes to modules): `UI` (~1,440 lines, procedural HUD +
+  panels), `Effects`, `Orbit`, `RegionFX`, `NexusFX`, `PetView`, `PickaxeFX` (cosmetic only: plays
+  the pickaxe swing, with a whoosh sound, the moment you tap/click, a small camera nudge when the
+  server confirms the crack, and other players' swings; also gold-outlines the nearest geode in
+  reach), `Signposts` (a station sign that would be cut off at the screen edge is swapped for an
+  on-screen label pinned just inside the edge), `Quality` (mobile perf scaler: shadows and depth of
+  field off, bloom/haze capped, only the 16 nearest lights kept on — re-checked every 3 s, crack
+  flashes under `FX` exempt — and particle rates cut to 45%).
 - **Remotes** (all under `ReplicatedStorage.Remotes`):
   RemoteEvents `Announce, CrackFX, StatsChanged, MeteorState, OrbitSync, GoldenHour, StreakShow,
   CrackRequest, DailyPopup, StarterPopup`; RemoteFunctions `GetState, Buy` (Econ), `Purchase`
   (Monetize), `HarvestGarden` (Garden), `ClaimDaily` (Dailies), `EquipPet` (Pets), `FusePet`
   (CollectPets), `ClaimAchievement` (Achievements). `CrackRequest` is handled in Geodes.
 - **Saved profile fields** (`DEFAULT` in `Data.luau`): `gems totalGems power luck rebirths
-  ascensions shards perks indexMask cracks bestRarity pityRuby pityStar lastHarvest lastLogout
-  savedEarnRate streakDay lastStreakDate rewardClaimedDate questDate questProgress questClaimed
-  questSetDone boostUntil streakLuckUntil lastVIPBoostDate equippedPet zoneShards foundShards
-  petInv zoneIndex achClaimed zonesPurchased zoneVipPets firstJoinRecorded starterPackBought
-  onboardStep onboardDone testPasses receipts`. `testPasses` is never persisted (`NON_PERSISTED`).
+  totalRebirths ascensions shards perks indexMask cracks bestRarity pityRuby pityStar lastHarvest
+  lastLogout savedEarnRate streakDay lastStreakDate rewardClaimedDate questDate questProgress
+  questClaimed questSetDone boostUntil streakLuckUntil lastVIPBoostDate equippedPet zoneShards
+  foundShards petInv zoneIndex achClaimed zonesPurchased zoneVipPets zoneCracked firstJoinRecorded
+  starterPackBought onboardStep onboardDone testPasses receipts`. `testPasses` is never persisted
+  (`NON_PERSISTED`). New in the 2026-09-23 export: `totalRebirths` (lifetime rebirths, not reset by
+  Ascend) and `zoneCracked` (first crack per zone, for the VIP-pass zone pet).
 - **Built in Studio, NOT in git:** the hub cavern geometry, `workspace.CrackAGeode` with its `FX`,
-  `Nodes`, `Map` (`UpgradePedestal`, `AscensionAltar`) and `Gardens` folders, and the Lighting
-  effects `GeodeBloom`, `GeodeAtmosphere`, `GeodeColor`. Code assumes they exist.
+  `Nodes`, `Map` (`UpgradePedestal`, `AscensionAltar`) and `Gardens` folders,
+  `ServerStorage.PickaxeTemplate` (the Tool `Pickaxe` clones; `Pickaxe.Init` waits for it forever,
+  so without it the server never finishes starting) and the `GeodeRockPBR` MaterialVariant (a
+  custom rock material in MaterialService, set by name in `Geodes` and `Regions`). Code assumes
+  they exist. The Lighting effects `GeodeAtmosphere`, `GeodeBloom`, `GeodeColor` and
+  `GeodeDoF` (depth of field, new) are now made by code: the server runs `StyleGuide.applyLighting`
+  at startup, which reuses or creates them; `Meteor`, `Buffs`, `RegionFX` and `Quality` find them
+  by name.
 - Known issues and ideas live in `automation/IDEAS_BACKLOG.md` — check it before "discovering" a bug.
 
 ## How code moves between Studio and git
@@ -122,7 +144,8 @@ Everything outside `src/shared` has no `--!` directive (default nonstrict). Leav
 - Studio test mode: while an item's `id == 0` **or** `game.GameId == 0`, and only inside Studio
   (`testMode` in `Monetize.luau`), purchases are simulated through the same `GrantProduct` /
   `OnPassGranted` paths a real receipt uses. `README.md` still says IDs are placeholders — they are
-  real now (commit 608c288); don't "fix" the IDs back to 0.
+  real now (commit 608c288); don't "fix" the IDs back to 0. Since the 2026-09-23 export the server
+  `warn`s at startup if any `Config.GamePasses` / `Config.DevProducts` id is 0.
 
 ## Before you push
 
@@ -147,8 +170,11 @@ Everything outside `src/shared` has no `--!` directive (default nonstrict). Leav
 - `Monetize.GrantProduct(player, key, targetUserId)` is the **one** grant path for products (Studio
   test purchases and real receipts both call it). It returns a toast string. One-time products must
   stay self-guarding (`StarterPack` checks `starterPackBought`; `Unlock_*` checks `zonesPurchased`).
+  `GiftBoost`: the `Purchase` remote checks the chosen recipient when it opens the prompt and keeps
+  it in `giftTarget[player]`; `ProcessReceipt` passes it to `GrantProduct`.
 - `Monetize.OnPassGranted(player, key)` is the one grant path for passes: clears `ownsCache`,
-  announces, `Econ.Push`, `Data.SaveSoon`. `Monetize.Owns` caches per player until then.
+  announces, `Econ.Push`, `Data.SaveSoon`. `Monetize.Owns` caches per player until then (a failed
+  Marketplace lookup is not cached).
 - `ProcessReceipt` (rule 5) also returns `NotProcessedYet` when `Data.IsUsable()` is false — keep that.
 - Everything paid must stay earnable by playing (zones via their gate, VIP pets via rare drops).
 - A live server must never self-grant: `testMode` requires `RunService:IsStudio()`. Don't loosen it.
@@ -191,8 +217,8 @@ Everything outside `src/shared` has no `--!` directive (default nonstrict). Leav
 
 ## Commit message style
 
-- Imperative, first line <= 72 chars, name the module: `Monetize: pass gift target through
-  ProcessReceipt`, `Data: add zoneVipPets default (migration: new field, defaults to {})`,
+- Imperative, first line <= 72 chars, name the module: `Dailies: debounce the ClaimDaily
+  remote`, `Data: add zoneVipPets default (migration: new field, defaults to {})`,
   `check.sh: skip selene when the API dump is unreachable`.
 - Body: what changed, why, how verified (`scripts/check.sh` result, TestHook actions run).
 - One logical change per commit. Never mix a baseline update with unrelated code.

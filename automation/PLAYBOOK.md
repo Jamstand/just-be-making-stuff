@@ -19,7 +19,10 @@ Follow the steps below in order. Precision over speed. When unsure: propose, don
    strings, numbers and `id`s are not (keys are stored in player data and derive the `Unlock_*` product keys).
 4. Never touch `.mcp.json`, `assets/`, `README-CoinRush.md`, or anything outside the game + automation files.
 5. Never remove a saved-profile field; every new one needs a default in `DEFAULT` (`Data.luau`) + migration note.
-6. Keep `ProcessReceipt` idempotent and grant-before-save. Keep every remote validated, `S.Ready`-gated, rate-limited.
+6. Keep `ProcessReceipt` idempotent and in its current order: record the receipt id and `Data.SaveNow` first, grant
+   only after that save succeeded, `PurchaseGranted` last (see the comment inside `ProcessReceipt` in `Monetize.luau`).
+   Do not reorder it; if you think the order is wrong, propose it (TIER B). Keep every remote validated,
+   `S.Ready`-gated, rate-limited.
 7. No formatter (no StyLua). Tabs, double quotes, hand-aligned tables stay aligned. Match surrounding style.
 8. Never claim you tested gameplay. You ran `scripts/check.sh`; say exactly that.
 9. Budget: about 300 changed lines and 6 files per week (more only when ONE fix needs it). The budget counts
@@ -34,10 +37,10 @@ Follow the steps below in order. Precision over speed. When unsure: propose, don
 
 | | TIER A — you may do it | TIER B — propose only (Josh / Studio) |
 | --- | --- | --- |
-| Bugs | GiftBoost target ignored by `ProcessReceipt` (`Monetize.luau`) — plumb the target server-side | What should happen when the gift target left the server (refund? self-boost?) — Josh decides |
-| Data safety | Warn in `Data.fromStored` when a stored key is dropped; raise the 50-receipt cap defensively | Removing/renaming saved fields; changing `Config.Version`; preserving unknown keys by design |
+| Bugs | `ProcessReceipt` (`Monetize.luau`) forgets the GiftBoost recipient when another receipt lands first — clear `giftTarget` only for GiftBoost | What should happen when the gift target left the server (refund? self-boost?) — Josh decides |
+| Data safety | Raise the 50-receipt cap in `ProcessReceipt` defensively | Removing/renaming saved fields; changing `Config.Version`; changing the order in `ProcessReceipt` (the receipt is saved before the grant) |
 | Validation | Add missing `type()` checks / debounce to a remote handler, copying the `Purchase` pattern | New remotes for new features |
-| Lint / types | Remove dead `makePanel` (UI), unused locals (`Pets`, `Stations`, `init.client`), split same-line statements, add optional fields `isHub`/`prebuilt` to the Zones type | Rewriting `UI.luau`'s `refs` pattern wholesale (52 findings) — too big, needs eyes in Studio |
+| Lint / types | Remove dead `makePanel` (UI), unused locals (`Pets`, `Stations`, `init.client`), split same-line statements, add optional fields `isHub`/`prebuilt` to the Zones type | Rewriting `UI.luau`'s `refs` pattern wholesale (most of UI.luau's findings) — too big, needs eyes in Studio |
 | Performance | Cache a repeated `FindFirstChild`, avoid per-frame allocations in `Quality`/`Effects` when obviously safe | Changing `Quality.luau` thresholds that alter what mobile players see |
 | Docs | Fix stale text in `README.md` (IDs are real now), comments, this playbook | — |
 | Economy / monetization | — | Prices, IDs, drop rates, pity, multipliers, new passes/products, starter pack contents |
@@ -131,7 +134,7 @@ Run the commands one at a time in bash (not as one big script) so every failure 
     (keeping its date) once its report `automation/reports/<that date>.md` exists on `origin/$GAME` — that means
     Josh merged the PR. Do not delete Josh's items.
 14. **Commit.** Code commits first, then `automation: weekly report YYYY-MM-DD` (report + backlog together).
-    Style: imperative, module name first (`Monetize: pass gift target through ProcessReceipt`), body = what/why/how verified.
+    Style: imperative, module name first (`Dailies: debounce the ClaimDaily remote`), body = what/why/how verified.
 15. **Push.** `git push -u origin "claude/auto-improve-$TODAY"`. Never `--force`.
 16. **Open the PR.** Tool `mcp__github__create_pull_request` (load with ToolSearch `select:mcp__github__create_pull_request`
     if it is not listed): owner `jamstand`, repo `just-be-making-stuff`, head = your branch, base = `$GAME`,
