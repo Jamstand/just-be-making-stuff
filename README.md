@@ -39,11 +39,13 @@ src/
       Shards.luau               -- 5 hidden shards feeding the Sunken Grotto explorer gate
       CollectPets.luau          -- per-zone collectible pets: fusion, Golden/Rainbow variants, VIP pets
       Achievements.luau         -- tiered achievements board with reward claims
+      Social.luau               -- presence attributes, Broadcast/Tell + 30-row feed ring, cheers, profiles, settings
+      ServerGoals.luau          -- rotating co-op server goals (reward = the existing +10% server-luck buff)
       Garden.luau               -- offline-growth Geode Garden
       Buffs.luau                -- Lucky Boosts, server gift luck, Golden Hour, VIP daily
       Meteor.luau               -- server-wide Meteor Geode event + Supernova payout
       Monetize.luau             -- game passes + dev products (incl. zone skip-unlocks) via MarketplaceService
-      Boards.luau               -- rare-find feed / leaderboards
+      Boards.luau               -- global OrderedDataStore leaderboards (session fallback), physical walls, rarity feed
       Pickaxe.luau              -- rebirth-tier pickaxe tool
       Onboarding.luau           -- first-60-seconds guided flow
       Dailies.luau              -- login streak ladder + rotating daily quests
@@ -51,14 +53,32 @@ src/
   client/
     CrackAGeodeClient/
       init.client.luau          -- bootstrap: wires remotes to the UI / Effects / Orbit / FX modules
-      UI.luau                   -- procedural HUD + all panels (Upgrades/Shop/Index/Daily/Pets/Awards)
+      UI.luau                   -- procedural HUD + all panels (Upgrades/Shop/Index/Daily/Pets/Awards/Players/Settings),
+                                   toast lane, Announce router, modals, scrim/Escape close, objective tracker
       Effects.luau              -- crack juice, camera punch, pickaxe swing, music
       Orbit.luau                -- orbiting trophy shards from the collection bitmask
       RegionFX.luau             -- per-zone client lighting/atmosphere theming as you travel
       NexusFX.luau              -- Warp Nexus zone-teasing cards: progress, price, VIP pet, pass upsell
       PetView.luau              -- renders the equipped pet as a hovering companion
-      Quality.luau              -- mobile performance scaler
+      Quality.luau              -- device / quality / settings bus + mobile performance scaler
+      Audio.luau                -- SoundGroup routing so the Music / SFX sliders work
+      Nameplates.luau           -- overhead rebirth-tier / pet / VIP plates (server-set attributes)
+      Feed.luau                 -- live activity column, seeded from GetState, mirrored to chat
+      SocialFX.luau             -- cheer reactions over players
+      Signposts.luau            -- screen-clamped world signposts
+      PickaxeFX.luau            -- instant pickaxe swing + impact feel
 ```
+
+## Player-base interaction (social layer)
+
+Other players are visible and worth a tap: server-set Player attributes
+(`Rebirths`, `Ascensions`, `Zone`, `PetName/PetEmoji/PetColor`, `IsVIP`, `Title`)
+drive nameplates, replicated pets, chat tags and the Players panel; every server
+message goes through `Social.Tell` (personal) or `Social.Broadcast` (token-bucketed,
+ring-buffered) so joiners see the last 30 events; `Cheer`, `GetProfile`,
+`GetLeaderboard` and `SetSettings` are validated and rate-limited through `S.Guard`
+in `init.server.luau`. The currency is **Gems 💎** in every player-facing string
+(internal product keys such as `CoinsSmall` are unchanged).
 
 ## Zones (data-driven biomes)
 
