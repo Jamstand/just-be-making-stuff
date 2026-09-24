@@ -31,7 +31,7 @@ local function pointLight(parent, color, range, brightness)
 	return pl
 end
 
--- a 3-shard crystal cluster with a glowing core
+-- a 3-shard crystal cluster: Glass shards with real specular + one Neon core accent
 local function crystalCluster(center, colors, scale, parent)
 	for i = 1, 3 do
 		local col = colors[((i - 1) % #colors) + 1]
@@ -43,15 +43,15 @@ local function crystalCluster(center, colors, scale, parent)
 			Size = Vector3.new(w, h, w),
 			CFrame = CFrame.new(center + off + Vector3.new(0, h / 2 - 0.5, 0))
 				* CFrame.Angles(math.rad(math.random(-16, 16)), math.rad(math.random(0, 360)), math.rad(math.random(-16, 16))),
-			Material = Enum.Material.Neon, Color = col,
+			Material = Enum.Material.Glass, Color = col, Reflectance = 0.08, Transparency = 0.12,
 		}, parent)
 	end
 	local core = part({
 		Shape = Enum.PartType.Ball, Size = Vector3.new(2, 2, 2) * scale,
 		CFrame = CFrame.new(center + Vector3.new(0, 1.4 * scale, 0)),
-		Material = Enum.Material.Neon, Color = colors[1], Transparency = 0.15,
+		Material = Enum.Material.Neon, Color = colors[1], Transparency = 0.3,
 	}, parent)
-	pointLight(core, colors[1], 16 * scale, 1.6)
+	pointLight(core, colors[1], math.min(16 * scale, 28), 1.2)
 end
 
 local function themedParticles(kind, center, accent, parent)
@@ -139,21 +139,29 @@ local function sign(parent, pos, title, subtitle, color, scale, alwaysOnTop, max
 	return anchor
 end
 
--- glowing floor disc + light column + label; returns the touch pad
+-- glowing floor disc ringed by crystal shards + rising sparkles + label; returns
+-- the touch pad. (No light column: the crater beacon is the game's only shaft.)
 local function buildPortal(parent, pos, color, title, subtitle)
 	local pad = part({
 		Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.2, 13, 13),
 		CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.rad(90)),
-		Material = Enum.Material.Neon, Color = color, Transparency = 0.35,
+		Material = Enum.Material.Neon, Color = color, Transparency = 0.45,
 	}, parent)
-	pointLight(pad, color, 24, 2.4)
+	pointLight(pad, color, 18, 1.6)
 	TweenService:Create(pad, TweenInfo.new(1.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
 		{ Transparency = 0.7 }):Play()
-	local column = part({
-		Size = Vector3.new(7, 46, 7), CFrame = CFrame.new(pos + Vector3.new(0, 23, 0)),
-		Material = Enum.Material.Neon, Color = color, Transparency = 0.86,
-	}, parent)
-	local att = Instance.new("Attachment"); att.Parent = column
+	-- gate ring: 5 leaning crystal shards around the pad give it height without a shaft
+	for i = 1, 5 do
+		local a = (i / 5) * math.pi * 2
+		local h = 3.4 + math.random() * 1.8
+		part({
+			Size = Vector3.new(0.7, h, 0.7),
+			CFrame = CFrame.new(pos + Vector3.new(math.cos(a) * 6.4, h * 0.4, math.sin(a) * 6.4))
+				* CFrame.Angles(math.rad(math.random(-10, 10)), math.rad(math.random(0, 360)), math.rad(math.random(-16, -6))),
+			Material = Enum.Material.Glass, Color = color, Reflectance = 0.08, Transparency = 0.1,
+		}, parent)
+	end
+	local att = Instance.new("Attachment"); att.Position = Vector3.new(0, 0.8, 0); att.Parent = pad
 	local pe = Instance.new("ParticleEmitter")
 	pe.Color = ColorSequence.new(color); pe.LightEmission = 1
 	pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 0) })
@@ -209,6 +217,7 @@ local function buildArena(region)
 		Shape = Enum.PartType.Cylinder, Size = Vector3.new(2, R * 2, R * 2),
 		CFrame = CFrame.new(c + Vector3.new(0, -1, 0)) * CFrame.Angles(0, 0, math.rad(90)),
 		Material = theme.floorMaterial, Color = theme.floor, CanCollide = true,
+		MaterialVariant = (theme.floorMaterial == Enum.Material.Slate) and "GeodeRockPBR" or "",
 	}, root)
 
 	-- perimeter: themed lip wall (walkable barrier) + invisible tall fence (anti-void)
@@ -220,6 +229,7 @@ local function buildArena(region)
 			Size = Vector3.new(seg, 10, 3),
 			CFrame = CFrame.new(c + Vector3.new(math.cos(a) * R, 4, math.sin(a) * R)) * CFrame.Angles(0, -a + math.pi / 2, 0),
 			Material = theme.wallMaterial, Color = theme.rock, CanCollide = true,
+			MaterialVariant = (theme.wallMaterial == Enum.Material.Slate) and "GeodeRockPBR" or "",
 		}, root)
 		part({
 			Size = Vector3.new(seg, 40, 1),
@@ -240,7 +250,7 @@ local function buildArena(region)
 		local a = (i / 4) * math.pi * 2
 		local lp = part({ Transparency = 1, Size = Vector3.new(1, 1, 1),
 			CFrame = CFrame.new(c + Vector3.new(math.cos(a) * region.radius * 0.55, 12, math.sin(a) * region.radius * 0.55)) }, root)
-		pointLight(lp, theme.ambient, 42, 1.3)
+		pointLight(lp, theme.ambient, 32, 1.15)
 	end
 
 	themedParticles(theme.particle, c, theme.accent, root)
@@ -262,7 +272,7 @@ local function buildHubNexus()
 		Material = Enum.Material.Slate, Color = Color3.fromRGB(42, 38, 60), CanCollide = true,
 	}, root)
 	pointLight(part({ Transparency = 1, Size = Vector3.new(1, 1, 1), CFrame = CFrame.new(base + Vector3.new(0, 8, 0)) }, root),
-		Color3.fromRGB(180, 140, 255), 40, 1.4)
+		Color3.fromRGB(255, 190, 120), 28, 1.1)
 	sign(root, base + Vector3.new(0, 17, 0), "🌀 WARP NEXUS", "Travel to unlocked biomes", Color3.fromRGB(195, 155, 255), 20, false, 300)
 
 	local nonHub = {}

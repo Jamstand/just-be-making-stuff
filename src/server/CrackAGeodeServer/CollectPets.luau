@@ -89,6 +89,15 @@ function CollectPets.MaybeVIP(player, zoneKey)
 	p.zoneVipPets = p.zoneVipPets or {}
 	if p.zoneVipPets[zoneKey] then return end -- already owned
 	local isVIP = S.Monetize and S.Monetize.Owns(player, "VIP")
+	-- Zones documents: VIP-pass owners are GUARANTEED the zone VIP pet on their
+	-- first crack in that zone. Track first-crack per zone and honour it.
+	p.zoneCracked = p.zoneCracked or {}
+	local firstHere = not p.zoneCracked[zoneKey]
+	p.zoneCracked[zoneKey] = true
+	if isVIP and firstHere then
+		CollectPets.GrantVIP(player, zoneKey)
+		return
+	end
 	local chance = isVIP and VIP_PET_CHANCE_PASS or VIP_PET_CHANCE_FREE
 	if math.random() < chance then
 		CollectPets.GrantVIP(player, zoneKey)
@@ -97,6 +106,7 @@ end
 
 -- best-owned collectible pet bonus (base bonus × variant multiplier)
 function CollectPets.Bonus(player)
+	if not (S and S.Data) then return 0 end -- Econ can probe before our Init runs
 	local p = S.Data.Cache[player]
 	if not p then return 0 end
 	-- collectible layer: your single BEST owned collectible (base bonus × variant mult)

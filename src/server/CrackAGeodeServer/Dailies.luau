@@ -81,6 +81,9 @@ end
 function Dailies.Claim(player)
 	local p = Data.Cache[player]
 	if not p then return { ok = false, err = "Loading…" } end
+	-- handle a session that crossed UTC midnight: advance the streak day now, so
+	-- the claim can't repeat the same ladder day without the streak growing
+	Dailies.StreakOnJoin(p)
 	if not Dailies.RewardClaimable(p) then return { ok = false, err = "Already claimed today!" } end
 	local day = math.clamp(p.streakDay, 1, 7)
 	local reward = LADDER[day]
@@ -98,6 +101,11 @@ function Dailies.Claim(player)
 		color = Color3.fromRGB(255, 220, 120),
 	})
 	if Data.SaveSoon then Data.SaveSoon(player) end
+	-- streak celebration card (the client listener + UI.Streak existed but this
+	-- remote was never fired — found in the wiring audit)
+	Remotes.StreakShow:FireClient(player, {
+		day = day, golden = reward.golden or false, minutes = reward.luckMins,
+	})
 	Econ.Push(player)
 	return { ok = true, day = day, gems = reward.gems }
 end

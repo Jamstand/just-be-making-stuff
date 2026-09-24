@@ -51,7 +51,7 @@ Data.LoadTimeout = LOAD_BUDGET + 10
 
 local DEFAULT = {
 	gems = 0, totalGems = 0, power = 0, luck = 0,
-	rebirths = 0, ascensions = 0, shards = 0, perks = {},
+	rebirths = 0, totalRebirths = 0, ascensions = 0, shards = 0, perks = {},
 	indexMask = 0, cracks = 0, bestRarity = 0,
 	pityRuby = 0, pityStar = 0,
 	lastHarvest = 0, lastLogout = 0, savedEarnRate = 5,
@@ -62,7 +62,7 @@ local DEFAULT = {
 	equippedPet = 0,
 	zoneShards = {}, foundShards = {}, -- explorer-gate: Sunken Grotto shard progress
 	petInv = {}, zoneIndex = {}, achClaimed = {}, -- Phase 3: collectible pets / per-zone index / achievements
-	zonesPurchased = {}, zoneVipPets = {}, -- Phase 4: paid zone skip-unlocks / owned zone-exclusive VIP pets
+	zonesPurchased = {}, zoneVipPets = {}, zoneCracked = {}, -- Phase 4: paid zone skip-unlocks / owned zone VIP pets / first-crack-per-zone tracking
 	firstJoinRecorded = false, starterPackBought = false,
 	onboardStep = 0, onboardDone = false,
 	testPasses = {}, receipts = {},
@@ -139,8 +139,12 @@ local function fromStored(blob)
 	local profile = deepCopy(DEFAULT)
 	if type(blob) == "table" then
 		for k, v in pairs(blob) do
-			if DEFAULT[k] ~= nil and not NON_PERSISTED[k] then
-				profile[k] = v
+			-- Preserve UNKNOWN keys too (not just DEFAULT ones): a newer server may
+			-- have written fields this build doesn't know about, and toStored writes
+			-- back everything in the profile — dropping them here would destroy a
+			-- future schema's data the first time an old server touched it.
+			if not NON_PERSISTED[k] then
+				profile[k] = (type(v) == "table") and deepCopy(v) or v
 			end
 		end
 	end

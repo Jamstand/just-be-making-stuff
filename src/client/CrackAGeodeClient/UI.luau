@@ -74,7 +74,76 @@ function UI.Toast(text, color)
 	Debris:AddItem(t, 2.3)
 end
 
+-- Modal recipient picker for "Gift a Boost": lists the current players so the
+-- gift is always an explicit choice, never a silent random pick. onPick(userId).
+local function pickGiftTarget(others, onPick)
+	local dim = mk("TextButton", {
+		Name = "GiftPicker", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.45, Text = "", AutoButtonColor = false, ZIndex = 40,
+	}, gui)
+	local rowH = IS_TOUCH and 52 or 44
+	local card = mk("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(300, 96 + math.min(#others, 5) * (rowH + 6)),
+		BackgroundColor3 = BG, BackgroundTransparency = 0.03, Active = true, ZIndex = 41,
+	}, dim)
+	corner(card, 14)
+	stroke(card, SG.Color.Gold, 2)
+	label({
+		Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -24, 0, 26),
+		Text = "🎁 Gift a Boost to…", Font = Enum.Font.GothamBlack,
+		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 42,
+	}, card)
+	local list = mk("ScrollingFrame", {
+		Position = UDim2.fromOffset(10, 42), Size = UDim2.new(1, -20, 1, -92),
+		BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), ZIndex = 42,
+	}, card)
+	mk("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+	for i, other in ipairs(others) do
+		local row = mk("TextButton", {
+			Size = UDim2.new(1, -6, 0, rowH), BackgroundColor3 = BG2, LayoutOrder = i,
+			Text = other.DisplayName, TextColor3 = TEXT, Font = Enum.Font.GothamBold,
+			TextScaled = true, ZIndex = 42,
+		}, list)
+		corner(row, 10)
+		mk("UITextSizeConstraint", { MaxTextSize = 18 }, row)
+		row.MouseButton1Click:Connect(function()
+			local uid = other.UserId
+			dim:Destroy()
+			onPick(uid)
+		end)
+	end
+	local cancel = mk("TextButton", {
+		AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -8),
+		Size = UDim2.fromOffset(130, IS_TOUCH and 38 or 30), BackgroundColor3 = BG2, Text = "Cancel",
+		TextColor3 = MUTED, Font = Enum.Font.GothamBold, TextScaled = true, ZIndex = 42,
+	}, card)
+	corner(cancel, 8)
+	mk("UITextSizeConstraint", { MaxTextSize = 16 }, cancel)
+	cancel.MouseButton1Click:Connect(function() dim:Destroy() end)
+	dim.MouseButton1Click:Connect(function() dim:Destroy() end)
+end
+
 -- ===== panel scaffolding =====
+
+-- Panel titles: leading emoji are swapped for the real uploaded icon art when it
+-- exists (found in the wiring audit: headers still rendered emoji while their
+-- icons sat unused in StyleGuide.Icons).
+local HEADER_ICONS = {
+	["⛏️"] = "pickaxe", ["🛒"] = "shop", ["📖"] = "index", ["🎁"] = "gift",
+	["📋"] = "quest", ["🐾"] = "paw", ["🏆"] = "trophy", ["🏅"] = "trophy",
+	["🌌"] = "rebirth", ["💎"] = "gem",
+}
+local function headerParts(title)
+	for emoji, key in pairs(HEADER_ICONS) do
+		if title:sub(1, #emoji) == emoji and SG.Icons[key] and SG.Icons[key] ~= 0 then
+			return key, (title:sub(#emoji + 1):gsub("^%s+", ""))
+		end
+	end
+	return nil, title
+end
+
 local function makePanel(name, title, height)
 	-- Outer frame centres via plain anchor+Size (no UIScale) so it stays perfectly
 	-- centred; the inner content (fixed design size) is shrunk to fit by a UIScale.
@@ -97,21 +166,26 @@ local function makePanel(name, title, height)
 	corner(panel, 14)
 	stroke(panel)
 	local uiscale = mk("UIScale", {}, panel)
+	local iconKey, titleText = headerParts(title)
+	if iconKey then
+		SG.icon(iconKey, { Position = UDim2.fromOffset(16, 10), Size = UDim2.fromOffset(28, 28), ZIndex = 21 }, panel)
+	end
 	label({
-		Position = UDim2.fromOffset(18, 10), Size = UDim2.new(1, -80, 0, 30),
-		Text = title, TextXAlignment = Enum.TextXAlignment.Left,
+		Position = UDim2.fromOffset(iconKey and 50 or 18, 10), Size = UDim2.new(1, -110, 0, 30),
+		Text = titleText, TextXAlignment = Enum.TextXAlignment.Left,
 		Font = Enum.Font.GothamBlack, ZIndex = 21,
 	}, panel)
 	local closeSz = IS_TOUCH and 40 or 30
 	local close = mk("TextButton", {
 		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10),
-		Size = UDim2.fromOffset(closeSz, closeSz), BackgroundColor3 = BG2, Text = "✕",
+		Size = UDim2.fromOffset(closeSz, closeSz), BackgroundColor3 = BG2, Text = "×",
 		TextColor3 = MUTED, Font = Enum.Font.GothamBold, TextScaled = true, ZIndex = 21,
 	}, panel)
 	corner(close, 8)
 	close.MouseButton1Click:Connect(function() UI.TogglePanel(nil) end)
 	table.insert(responsivePanels, { outer = outer, scale = uiscale, w = 470, h = height, mode = "scale" })
 	panels[name] = outer
+	outer:GetPropertyChangedSignal("Visible"):Connect(function() UI._ApplyOpenState() end)
 	return panel
 end
 
@@ -147,24 +221,30 @@ local function makeScrollPanel(name, title, contentHeight)
 	local strip = mk("Frame", {
 		Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = BG, BackgroundTransparency = 0.05, ZIndex = 25,
 	}, outer)
+	local iconKey, titleText = headerParts(title)
+	if iconKey then
+		SG.icon(iconKey, { Position = UDim2.fromOffset(16, 8), Size = UDim2.fromOffset(28, 28), ZIndex = 26 }, strip)
+	end
 	label({
-		Position = UDim2.fromOffset(18, 8), Size = UDim2.new(1, -80, 0, 28),
-		Text = title, TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.GothamBlack, ZIndex = 26,
+		Position = UDim2.fromOffset(iconKey and 50 or 18, 8), Size = UDim2.new(1, -110, 0, 28),
+		Text = titleText, TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.GothamBlack, ZIndex = 26,
 	}, strip)
 	local closeSz = IS_TOUCH and 40 or 30
 	local close = mk("TextButton", {
 		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 5),
-		Size = UDim2.fromOffset(closeSz, closeSz), BackgroundColor3 = BG2, Text = "✕",
+		Size = UDim2.fromOffset(closeSz, closeSz), BackgroundColor3 = BG2, Text = "×",
 		TextColor3 = MUTED, Font = Enum.Font.GothamBold, TextScaled = true, ZIndex = 26,
 	}, strip)
 	corner(close, 8)
 	close.MouseButton1Click:Connect(function() UI.TogglePanel(nil) end)
 	table.insert(responsivePanels, { outer = outer, mode = "cap", w = 470, h = contentHeight, body = body })
 	panels[name] = outer
+	outer:GetPropertyChangedSignal("Visible"):Connect(function() UI._ApplyOpenState() end)
 	return body
 end
 
 function UI.TogglePanel(name)
+	UI._RefreshPanels() -- fresh fit for the current screen before opening
 	for n, panel in pairs(panels) do
 		if n == name then
 			if panel.Visible then SG.close(panel) else SG.open(panel) end
@@ -175,6 +255,7 @@ function UI.TogglePanel(name)
 end
 
 function UI.ShowPanel(name)
+	UI._RefreshPanels() -- fresh fit for the current screen before opening
 	for n, panel in pairs(panels) do
 		if n == name then
 			if not panel.Visible then SG.open(panel) end
@@ -184,24 +265,88 @@ function UI.ShowPanel(name)
 	end
 end
 
--- Scale every centered panel to fit the current viewport (shrinks on small
--- screens, grows a little on big ones). Contents scale with the frame so touch
--- targets stay proportional and nothing overflows a phone screen.
+-- Responsive layout for panels + the side menu. Panels are capped to ~85% of
+-- the usable height, shrink (never below 85% scale, so text stays readable) on
+-- short screens and scroll the rest, and are centred in the region LEFT of the
+-- side menu so an open panel never covers it. On screens too narrow for that
+-- region the panel takes the full width instead and the side menu slides away
+-- while one is open (see _ApplyOpenState). gui.AbsoluteSize is already
+-- inset-adjusted — only the raw-camera fallback subtracts the top bar.
+local MIN_SIDE_BY_SIDE = 380 -- free px needed to keep the menu beside a panel
 function UI._RefreshPanels()
-	local vp = viewport()
-	local inset = game:GetService("GuiService"):GetGuiInset()
-	local availW = vp.X
-	local availH = math.max(160, vp.Y - inset.Y) -- usable height below the top bar
+	local availW, availH
+	if gui and gui.AbsoluteSize.Y > 1 then
+		availW, availH = gui.AbsoluteSize.X, gui.AbsoluteSize.Y
+	else
+		local vp = viewport()
+		local inset = game:GetService("GuiService"):GetGuiInset()
+		availW, availH = vp.X, math.max(160, vp.Y - inset.Y)
+	end
+
+	-- side menu first: wrap to two columns if one won't fit the height, then
+	-- scale the grid down until it does (its width feeds the panel region)
+	local menuW = 0
+	if refs.sideMenu and refs.sideMenuScale and refs.sideMenuDims then
+		local dm = refs.sideMenuDims
+		local function gridSize(cols)
+			local rows = math.ceil(dm.count / cols)
+			return dm.btnW * cols + dm.pad * (cols - 1), dm.btnH * rows + dm.pad * (rows - 1)
+		end
+		local w, h = gridSize(dm.cols)
+		if dm.cols == 1 and h > availH - 20 then w, h = gridSize(2) end
+		refs.sideMenu.Size = UDim2.fromOffset(w, h)
+		local ms = math.clamp((availH - 20) / h, 0.55, 1)
+		refs.sideMenuScale.Scale = ms
+		menuW = w * ms + 20 -- rendered width + its screen-edge margin
+	end
+
+	-- panel region: beside the menu when there's room, else full-width overlay
+	local freeW = availW - menuW - 12
+	UI._menuOverlay = freeW < MIN_SIDE_BY_SIDE
+	local regionW = UI._menuOverlay and availW or freeW
+	local capH = availH * 0.85
 	for _, p in ipairs(responsivePanels) do
 		if p.mode == "cap" then
-			-- scroll panel: cap the frame to the viewport; content scrolls, buttons stay full-size
-			p.outer.Size = UDim2.fromOffset(math.min(p.w, availW * 0.94), math.min(p.h, availH * 0.96))
+			-- rendered size = local size × FitScale; height beyond the cap scrolls
+			local s = math.clamp(math.min(capH / p.h, (regionW - 16) / p.w), 0.85, 1)
+			p.outer:SetAttribute("FitScale", s)
+			local fit = p.outer:FindFirstChildOfClass("UIScale") or mk("UIScale", {}, p.outer)
+			if p.outer.Visible then fit.Scale = s end
+			p.outer.Size = UDim2.fromOffset(
+				math.min(p.w, (regionW - 16) / s),
+				math.min(p.h, capH / s))
 		else
-			-- scaled panel: shrink the fixed-size content to fit
-			local s = math.clamp(math.min(availW * 0.92 / p.w, availH * 0.92 / p.h), 0.45, 1.1)
+			local s = math.clamp(math.min((regionW - 16) / p.w, capH / p.h), 0.45, 1.1)
 			p.scale.Scale = s
 			p.outer.Size = UDim2.fromOffset(p.w * s, p.h * s)
 		end
+		p.outer.Position = UDim2.fromOffset(regionW / 2, availH / 2)
+	end
+	UI._ApplyOpenState()
+end
+
+-- While any panel is open: hide the HUD stack and the CRACK button (panels
+-- would cover the card anyway, and buttons behind a panel could still catch
+-- taps), hide the backpack hotbar so no tool slot floats over the panel, and
+-- in overlay mode (narrow screens) slide the side menu off the edge so the
+-- panel never overlaps it. Everything restores when the last panel closes.
+function UI._ApplyOpenState()
+	local anyOpen = false
+	for _, panel in pairs(panels) do
+		if panel.Visible then anyOpen = true break end
+	end
+	if refs.leftStack then refs.leftStack.Visible = not anyOpen end
+	local crack = gui and gui:FindFirstChild("CrackWrap")
+	if crack then crack.Visible = not anyOpen end
+	pcall(function()
+		game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, not anyOpen)
+	end)
+	if refs.sideMenu then
+		local hideMenu = anyOpen and UI._menuOverlay == true
+		local target = hideMenu
+			and UDim2.new(1, refs.sideMenu.AbsoluteSize.X + 30, 0.5, 0)
+			or UDim2.new(1, -10, 0.5, 0)
+		TweenService:Create(refs.sideMenu, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = target }):Play()
 	end
 end
 
@@ -249,7 +394,7 @@ local function buildUpgrades()
 	}, rb)
 	refs.rebirthSub = label({
 		Position = UDim2.fromOffset(12, 27), Size = UDim2.new(0.6, 0, 0, 16),
-		Text = "×1.5 income, compounding! • resets upgrades", TextColor3 = MUTED, Font = Enum.Font.Gotham,
+		Text = "×" .. tostring(Config.Balance.RebirthMultBase) .. " income, compounding! • resets upgrades", TextColor3 = MUTED, Font = Enum.Font.Gotham,
 		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 22,
 	}, rb)
 	local barBG = mk("Frame", {
@@ -277,7 +422,7 @@ local function buildUpgrades()
 	}, asc)
 	refs.ascSub = label({
 		Position = UDim2.fromOffset(12, 28), Size = UDim2.new(0.6, 0, 0, 18),
-		Text = "At Rebirth 15: x2 base forever, +1 Shard", TextColor3 = MUTED, Font = Enum.Font.Gotham,
+		Text = "At Rebirth " .. tostring(Config.Balance.AscensionAtRebirth) .. ": x" .. tostring(Config.Balance.AscendMult or 2.5) .. " base forever, +1 Shard", TextColor3 = MUTED, Font = Enum.Font.Gotham,
 		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 22,
 	}, asc)
 	local ascBtn = mk("TextButton", {
@@ -419,16 +564,26 @@ local function buildShop()
 			refs.passBtns = refs.passBtns or {}
 			refs.passBtns[entry.key] = btn
 		end
-		btn.MouseButton1Click:Connect(function()
-			local targetUserId = nil
-			if entry.key == "GiftBoost" then
-				for _, other in ipairs(Players:GetPlayers()) do
-					if other ~= player then targetUserId = other.UserId break end
-				end
-			end
+		local function invokePurchase(targetUserId)
 			local res = Remotes.Purchase:InvokeServer(kind, entry.key, targetUserId)
 			if res.ok and res.msg then UI.Toast(res.msg, GOOD)
 			elseif not res.ok then UI.Toast(res.err or "Failed", Color3.fromRGB(255, 120, 120)) end
+		end
+		btn.MouseButton1Click:Connect(function()
+			if entry.key == "GiftBoost" then
+				-- explicit recipient choice — the server stores it for ProcessReceipt
+				local others = {}
+				for _, other in ipairs(Players:GetPlayers()) do
+					if other ~= player then others[#others + 1] = other end
+				end
+				if #others == 0 then
+					UI.Toast("No one else is here to gift right now!", Color3.fromRGB(255, 190, 120))
+					return
+				end
+				pickGiftTarget(others, invokePurchase)
+				return
+			end
+			invokePurchase(nil)
 		end)
 	end
 	section("GAME PASSES — permanent")
@@ -438,7 +593,7 @@ local function buildShop()
 		if not prod.starter then item(prod, "product") end
 	end
 	refs.shopNote = label({ Size = UDim2.new(1, -12, 0, 30),
-		Text = "🧪 Studio test mode — publish & set IDs in Config for real Robux",
+		Text = "💳 Purchases are live — buttons open real Robux prompts",
 		TextColor3 = MUTED, Font = Enum.Font.Gotham, TextWrapped = true, LayoutOrder = nextOrder(), ZIndex = 22 }, panel)
 end
 
@@ -454,7 +609,7 @@ local function refreshShop()
 	end
 	if refs.starterCard then refs.starterCard.Visible = (snap.starterOffered == true) end
 	if refs.shopBtn then
-		refs.shopBtn.BackgroundColor3 = (snap.starterOffered == true) and Color3.fromRGB(72, 56, 22) or BG
+		SG.setGlow(refs.shopBtn, snap.starterOffered == true)
 	end
 end
 
@@ -606,12 +761,11 @@ local function refreshDaily()
 	if d.claimable then
 		refs.dailyClaim.Text = "CLAIM DAY " .. d.streakDay
 		refs.dailyClaim.BackgroundColor3 = GOOD
-		refs.dailyClaim.AutoButtonColor = true
 	else
 		refs.dailyClaim.Text = "✅ Claimed — back tomorrow!"
 		refs.dailyClaim.BackgroundColor3 = BG2
-		refs.dailyClaim.AutoButtonColor = false
 	end
+	SG.setGlow(refs.dailyClaim, d.claimable == true)
 	for i = 1, 3 do
 		local q = d.quests[i]
 		local row = refs.dailyQuests[i]
@@ -625,8 +779,7 @@ local function refreshDaily()
 	end
 	refs.dailyNote.Text = d.setDone and "🌟 All quests done — Rare Geode earned!" or "Complete all 3 → 🌟 Rare Geode!"
 	if refs.dailyBtn then
-		local attention = d.claimable
-		refs.dailyBtn.BackgroundColor3 = attention and Color3.fromRGB(46, 92, 62) or BG
+		SG.setGlow(refs.dailyBtn, d.claimable == true)
 	end
 end
 
@@ -735,8 +888,10 @@ local function refreshPets()
 				rr.name.Text = cpp.name
 				rr.name.TextColor3 = Color3.fromRGB(cpp.color[1], cpp.color[2], cpp.color[3])
 				rr.counts.Text = "N×" .. cpp.counts[1] .. "  ✨G×" .. cpp.counts[2] .. "  🌈R×" .. cpp.counts[3]
+				-- prefer the HIGHEST fusable variant: a player holding 3+ Normals AND
+				-- 3+ Goldens should be offered Golden→Rainbow, not be stuck on Normal
 				local fv = nil
-				if cpp.counts[1] >= 3 then fv = 1 elseif cpp.counts[2] >= 3 then fv = 2 end
+				if cpp.counts[2] >= 3 then fv = 2 elseif cpp.counts[1] >= 3 then fv = 1 end
 				rr.fuseVariant = fv
 				if fv then
 					rr.btn.Text = fv == 1 and "FUSE→G" or "FUSE→R"; rr.btn.BackgroundColor3 = GOOD; rr.btn.AutoButtonColor = true
@@ -785,6 +940,11 @@ end
 local function refreshAchievements()
 	local list = snap and snap.achievements
 	if not (list and refs.achRows) then return end
+	local anyClaimable = false
+	for _, a in ipairs(list) do
+		if a.claimable then anyClaimable = true; break end
+	end
+	if refs.achBtn then SG.setGlow(refs.achBtn, anyClaimable) end
 	for i, rowRef in ipairs(refs.achRows) do
 		local a = list[i]
 		if a then
@@ -799,10 +959,11 @@ local function refreshAchievements()
 				rowRef.prog.Text = a.cur .. " / " .. nextTier.goal .. "   →  +" .. Config.Fmt(nextTier.gems) .. " 💎   (Tier " .. (done + 1) .. "/" .. #a.tiers .. ")"
 				rowRef.fill.Size = UDim2.fromScale(math.clamp(a.cur / math.max(1, nextTier.goal), 0, 1), 1)
 				if a.claimable then
-					rowRef.btn.Text = "CLAIM"; rowRef.btn.BackgroundColor3 = GOOD; rowRef.btn.AutoButtonColor = true
+					rowRef.btn.Text = "CLAIM"; rowRef.btn.BackgroundColor3 = GOOD
 				else
-					rowRef.btn.Text = "Tier " .. (done + 1); rowRef.btn.BackgroundColor3 = BG; rowRef.btn.AutoButtonColor = false
+					rowRef.btn.Text = "Tier " .. (done + 1); rowRef.btn.BackgroundColor3 = BG
 				end
+				SG.setGlow(rowRef.btn, a.claimable == true)
 			else
 				rowRef.prog.Text = "✅ All tiers complete!"
 				rowRef.fill.Size = UDim2.fromScale(1, 1)
@@ -818,15 +979,27 @@ end
 -- ===== HUD =====
 local function buildHUD()
 	local cardW, cardH = (IS_TOUCH and 300 or 240), (IS_TOUCH and 104 or 86)
-	local card = mk("Frame", {
-		Position = UDim2.fromOffset(12, 14), Size = UDim2.fromOffset(cardW, cardH),
-		BackgroundColor3 = BG, BackgroundTransparency = 0.15,
+	-- left stack: HUD card, NEXT GOAL card and buff chips flow top-to-bottom in a
+	-- UIListLayout so they can never overlap each other on narrow screens
+	local leftStack = mk("Frame", {
+		Name = "LeftStack", Position = UDim2.fromOffset(12, 12),
+		Size = UDim2.fromOffset(cardW, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
 	}, gui)
+	mk("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Left }, leftStack)
+	refs.leftStack = leftStack
+	local card = mk("Frame", {
+		LayoutOrder = 1, Size = UDim2.fromOffset(cardW, cardH),
+		BackgroundColor3 = BG, BackgroundTransparency = 0.15,
+	}, leftStack)
 	corner(card, 12)
 	stroke(card)
+	SG.icon("gem", {
+		Name = "GemIcon", Position = UDim2.fromOffset(10, 8), Size = UDim2.fromOffset(36, 36), ZIndex = 2,
+	}, card)
 	refs.gems = label({
-		Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -24, 0, 40),
-		Text = "💎 0", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Left,
+		Position = UDim2.fromOffset(52, 6), Size = UDim2.new(1, -64, 0, 40),
+		Text = "0", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Left,
 	}, card)
 	mk("UIScale", { Name = "Pulse" }, refs.gems)
 	refs.rate = label({
@@ -840,9 +1013,9 @@ local function buildHUD()
 
 	-- buff chips
 	local chips = mk("Frame", {
-		Position = UDim2.fromOffset(12, 106), Size = UDim2.fromOffset(240, 96),
+		LayoutOrder = 3, Size = UDim2.fromOffset(240, 96),
 		BackgroundTransparency = 1,
-	}, gui)
+	}, leftStack)
 	mk("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, chips)
 	local function chip(name, color)
 		local c = label({
@@ -862,33 +1035,70 @@ local function buildHUD()
 
 	-- right-side menu buttons (thumb-reachable on the right edge). Compact on touch
 	-- so the 4-button column fits a short landscape phone without clipping the top.
-	local btnW = IS_TOUCH and 64 or 74
-	local btnH = IS_TOUCH and 50 or 62
+	-- Chunky icon buttons: 2×4 grid on touch (buttons stay big on short phone
+	-- screens), single column on desktop. Icon art + label + gloss + drop shadow.
+	local cols = IS_TOUCH and 2 or 1
+	local btnW = IS_TOUCH and 62 or 74
+	local btnH = IS_TOUCH and 56 or 64
 	local pad = IS_TOUCH and 5 or 7
+	local rows = math.ceil(7 / cols)
+	local colW = btnW * cols + pad * (cols - 1)
+	local colH = btnH * rows + pad * (rows - 1)
 	local col = mk("Frame", {
-		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -6, 0.5, 0),
-		Size = UDim2.fromOffset(btnW, (btnH + pad) * 7), BackgroundTransparency = 1,
+		Name = "SideMenu", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.fromOffset(colW, colH), BackgroundTransparency = 1,
 	}, gui)
-	mk("UIListLayout", { Padding = UDim.new(0, pad), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Right }, col)
-	local function sideBtn(icon, text, cb)
-		local b = mk("TextButton", {
-			Size = UDim2.fromOffset(btnW, btnH), BackgroundColor3 = BG, BackgroundTransparency = 0.12,
-			Text = icon .. "\n" .. text, TextColor3 = TEXT, Font = Enum.Font.GothamBold,
-			TextScaled = true, AutoButtonColor = true,
+	refs.sideMenu = col
+	refs.sideMenuDims = { btnW = btnW, btnH = btnH, pad = pad, count = 7, cols = cols }
+	-- scale the whole grid down when the (safe-area) screen is shorter than it,
+	-- so every button always fits fully on a phone with breathing room
+	refs.sideMenuScale = mk("UIScale", { Name = "Fit" }, col)
+	mk("UIGridLayout", {
+		CellSize = UDim2.fromOffset(btnW, btnH), CellPadding = UDim2.fromOffset(pad, pad),
+		SortOrder = Enum.SortOrder.LayoutOrder, FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center,
+	}, col)
+	local sideOrder = 0
+	local function sideBtn(iconKey, text, cb)
+		sideOrder += 1
+		local item = mk("Frame", {
+			Name = text, LayoutOrder = sideOrder, Size = UDim2.fromOffset(btnW, btnH),
+			BackgroundTransparency = 1,
 		}, col)
+		local shadow = mk("Frame", {
+			Name = "Shadow", BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.55,
+			Position = UDim2.fromOffset(2, 4), Size = UDim2.fromScale(1, 1), BorderSizePixel = 0,
+		}, item)
+		corner(shadow, 12)
+		local b = mk("TextButton", {
+			Name = "Btn", Size = UDim2.fromScale(1, 1), Text = "",
+			BackgroundColor3 = SG.lighten(ACCENT, 0.12), AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 2,
+		}, item)
 		corner(b, 12)
-		stroke(b, ACCENT, 1.2)
-		mk("UITextSizeConstraint", { MaxTextSize = 19 }, b)
+		SG.stroke(b, SG.Color.Cyan, "bold", 0.08)
+		SG.shade(b)
+		SG.gloss(b, "sm")
+		SG.icon(iconKey, {
+			Name = "Icon", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 3),
+			Size = UDim2.fromOffset(btnH - 22, btnH - 22), ZIndex = 4,
+		}, b)
+		local lbl = label({
+			Name = "Label", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -2),
+			Size = UDim2.new(1, -4, 0, 14), Text = text, Font = SG.Font.Display, ZIndex = 4,
+			TextStrokeTransparency = 0.4,
+		}, b)
+		mk("UITextSizeConstraint", { MaxTextSize = 12 }, lbl)
+		-- (press-down punch comes from UI.Init's global button pass — SG.pressFX there)
 		b.MouseButton1Click:Connect(cb)
 		return b
 	end
-	refs.dailyBtn = sideBtn("📅", "Daily", function() UI.TogglePanel("Daily") end)
-	refs.petsBtn = sideBtn("🐾", "Pets", function() UI.TogglePanel("Pets") end)
-	refs.shopBtn = sideBtn("🛒", "Shop", function() UI.TogglePanel("Shop") end)
-	sideBtn("⛏️", "Upgrades", function() UI.TogglePanel("Upgrades") end)
-	sideBtn("📖", "Index", function() UI.TogglePanel("Index") end)
-	refs.achBtn = sideBtn("🏅", "Awards", function() UI.TogglePanel("Achievements") end)
-	refs.harvestBtn = sideBtn("🌱", "Garden", function()
+	refs.dailyBtn = sideBtn("gift", "Daily", function() UI.TogglePanel("Daily") end)
+	refs.petsBtn = sideBtn("paw", "Pets", function() UI.TogglePanel("Pets") end)
+	refs.shopBtn = sideBtn("shop", "Shop", function() UI.TogglePanel("Shop") end)
+	sideBtn("pickaxe", "Upgrades", function() UI.TogglePanel("Upgrades") end)
+	sideBtn("index", "Index", function() UI.TogglePanel("Index") end)
+	refs.achBtn = sideBtn("trophy", "Awards", function() UI.TogglePanel("Achievements") end)
+	refs.harvestBtn = sideBtn("gem", "Garden", function()
 		local res = Remotes.HarvestGarden:InvokeServer()
 		if not res.ok then UI.Toast(res.err or "Nothing to harvest", MUTED) end
 	end)
@@ -896,24 +1106,58 @@ local function buildHUD()
 	-- Big thumb-reachable CRACK button (touch only): hold to crack the nearest
 	-- in-range geode. Placed above the default jump button in the lower-right.
 	if IS_TOUCH then
-		local crackBtn = mk("TextButton", {
-			-- center-bottom-right: right-thumb reachable, clear of the menu column,
-			-- the left joystick, and the default jump button
-			AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 78, 1, -14),
-			Size = UDim2.fromOffset(116, 116), BackgroundColor3 = Color3.fromRGB(150, 92, 236),
-			Text = "⛏️\nCRACK", TextColor3 = TEXT, Font = Enum.Font.GothamBlack,
-			TextScaled = true, AutoButtonColor = true, ZIndex = 6,
+		-- center-bottom-right: right-thumb reachable, clear of the menu column,
+		-- the left joystick, and the default jump button
+		local crackWrap = mk("Frame", {
+			Name = "CrackWrap", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 78, 1, -14),
+			Size = UDim2.fromOffset(118, 118), BackgroundTransparency = 1, ZIndex = 5,
 		}, gui)
+		local crackShadow = mk("Frame", {
+			Name = "Shadow", BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.5,
+			Position = UDim2.fromOffset(3, 6), Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, ZIndex = 5,
+		}, crackWrap)
+		mk("UICorner", { CornerRadius = UDim.new(1, 0) }, crackShadow)
+		local crackBtn = mk("TextButton", {
+			Name = "CrackBtn", Size = UDim2.fromScale(1, 1), Text = "",
+			BackgroundColor3 = SG.lighten(ACCENT, 0.15), AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 6,
+		}, crackWrap)
 		mk("UICorner", { CornerRadius = UDim.new(1, 0) }, crackBtn)
-		stroke(crackBtn, Color3.fromRGB(210, 170, 255), 2.5)
-		mk("UITextSizeConstraint", { MaxTextSize = 26 }, crackBtn)
+		SG.stroke(crackBtn, SG.Color.Cyan, "chunk", 0.05)
+		SG.shade(crackBtn)
+		local crackGloss = mk("Frame", {
+			Name = "Gloss", BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+			AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 8),
+			Size = UDim2.new(0.66, 0, 0.3, 0), ZIndex = 7,
+		}, crackBtn)
+		mk("UICorner", { CornerRadius = UDim.new(1, 0) }, crackGloss)
+		mk("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 1) }) }, crackGloss)
+		SG.icon("geodeClosed", {
+			Name = "Icon", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14),
+			Size = UDim2.fromOffset(58, 58), ZIndex = 8,
+		}, crackBtn)
+		local crackLbl = label({
+			Name = "Label", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16),
+			Size = UDim2.new(1, -16, 0, 22), Text = "CRACK", Font = SG.Font.Display, ZIndex = 8,
+			TextStrokeTransparency = 0.3,
+		}, crackBtn)
+		mk("UITextSizeConstraint", { MaxTextSize = 20 }, crackLbl)
+		-- fire once immediately on press so a quick tap still cracks (the 0.12s
+		-- hold loop below can miss a sub-tick tap entirely); server rate-limits.
 		local held = false
-		crackBtn.MouseButton1Down:Connect(function() held = true end)
+		crackBtn.MouseButton1Down:Connect(function()
+			held = true
+			if UI.OnCrackInput then UI.OnCrackInput() end -- instant swing feedback
+			Remotes.CrackRequest:FireServer()
+		end)
 		crackBtn.MouseButton1Up:Connect(function() held = false end)
 		crackBtn.MouseLeave:Connect(function() held = false end)
 		task.spawn(function()
 			while crackBtn.Parent do
-				if held then Remotes.CrackRequest:FireServer() end
+				if held then
+					if UI.OnCrackInput then UI.OnCrackInput() end -- PickaxeFX self-limits
+					Remotes.CrackRequest:FireServer()
+				end
 				task.wait(0.12)
 			end
 		end)
@@ -931,13 +1175,12 @@ local function buildHUD()
 	-- onboarding "NEXT GOAL" card (top-centre, shown only during the first-run flow)
 	local GREEN = Color3.fromRGB(120, 255, 170)
 	local goal = mk("Frame", {
-		Name = "GoalCard", AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 60), Size = UDim2.new(0.92, 0, 0, 56),
+		Name = "GoalCard", LayoutOrder = 2,
+		Size = UDim2.fromOffset(IS_TOUCH and cardW or 340, 58),
 		BackgroundColor3 = BG, BackgroundTransparency = 0.1, Visible = false, ZIndex = 8,
-	}, gui)
+	}, leftStack)
 	corner(goal, 12)
 	stroke(goal, GREEN, 1.8)
-	mk("UISizeConstraint", { MaxSize = Vector2.new(430, 56) }, goal)
 	label({
 		Position = UDim2.fromOffset(14, 5), Size = UDim2.new(1, -28, 0, 15),
 		Text = "🎯 NEXT GOAL", TextColor3 = GREEN, Font = Enum.Font.GothamBlack,
@@ -1007,8 +1250,9 @@ function UI.Update(newSnap)
 	refs.rate.Text = "×" .. multStr .. " mult • ~" .. Config.Fmt(snap.rate) .. "/s"
 	refs.luckLine.Text = string.format("🍀 luck x%.2f • ⛏️ %.2fs", snap.luckFactor, snap.cooldown)
 	local overgrown = snap.gardenOvergrown
-	refs.harvestBtn.Text = "🌱\n" .. (overgrown and "OVERGROWN!" or Config.Fmt(snap.gardenValue))
-	refs.harvestBtn.TextColor3 = overgrown and Color3.fromRGB(255, 220, 100) or TEXT
+	refs.harvestBtn.Label.Text = overgrown and "FULL!" or Config.Fmt(snap.gardenValue)
+	refs.harvestBtn.Label.TextColor3 = overgrown and Color3.fromRGB(255, 220, 100) or TEXT
+	SG.setGlow(refs.harvestBtn, overgrown == true)
 
 	-- onboarding goal card
 	local ob = snap.onboard
@@ -1144,8 +1388,14 @@ function UI.Init(config, remotes)
 		if d:IsA("TextButton") then
 			d.AutoButtonColor = false
 			if not d:FindFirstChildOfClass("UICorner") then SG.corner(d, "md") end
-			if d.BackgroundTransparency < 0.6 and not d:FindFirstChildOfClass("UIGradient") then
-				SG.gradient(d, SG.lighten(d.BackgroundColor3, 0.2), d.BackgroundColor3, 90)
+			if d.BackgroundTransparency < 0.6 then
+				if not d:FindFirstChildOfClass("UIGradient") then
+					SG.shade(d)
+				end
+				if not d:FindFirstChildOfClass("UIStroke") then
+					SG.stroke(d, SG.lighten(d.BackgroundColor3, 0.45), "bold", 0.25)
+				end
+				if not d:FindFirstChild("Gloss") then SG.gloss(d, "sm", 0.8, 0.3) end
 			end
 			SG.pressFX(d)
 		end
@@ -1153,6 +1403,17 @@ function UI.Init(config, remotes)
 
 	UI._RefreshPanels()
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(UI._RefreshPanels)
+	-- the camera often reports 1×1 during boot and settles AFTER the gui does,
+	-- so re-layout on viewport changes too (rotation, window resize, boot race)
+	local function watchCamera()
+		local cam = workspace.CurrentCamera
+		if cam then cam:GetPropertyChangedSignal("ViewportSize"):Connect(UI._RefreshPanels) end
+	end
+	watchCamera()
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		watchCamera()
+		UI._RefreshPanels()
+	end)
 	task.defer(UI._RefreshPanels) -- re-run once AbsoluteSize settles after first render
 
 	-- heartbeat: gem count-up + live buff chips
@@ -1160,7 +1421,7 @@ function UI.Init(config, remotes)
 		if not snap then return end
 		displayGems += (snap.gems - displayGems) * 0.18
 		if math.abs(snap.gems - displayGems) < 1 then displayGems = snap.gems end
-		refs.gems.Text = "💎 " .. Config.Fmt(math.floor(displayGems + 0.5))
+		refs.gems.Text = Config.Fmt(math.floor(displayGems + 0.5))
 		local now = os.time()
 		local function setChip(chip, active, text)
 			refs[chip].Visible = active

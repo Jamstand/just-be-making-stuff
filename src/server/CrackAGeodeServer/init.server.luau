@@ -48,11 +48,32 @@ S.Shards.Init(S) -- explorer-gate hidden shards in Zone 1
 S.CollectPets.Init(S) -- Phase 3: collectible pets (fusion + variants)
 S.Achievements.Init(S) -- Phase 3: achievements board
 
+-- Base world lighting: push the shared StyleGuide mood onto the Lighting service
+-- once at startup (Brightness / Exposure / Bloom threshold + creates the Geode
+-- atmosphere/bloom/color-correction effects). Per-zone atmosphere/color/bloom is
+-- then themed per-client by RegionFX as players travel between biomes.
+local StyleGuide = require(ReplicatedStorage:WaitForChild("StyleGuide"))
+StyleGuide.applyLighting(game:GetService("Lighting"))
+
 -- All modules initialized: only now may client-facing remote handlers run, so a
 -- request that arrives mid-bootstrap can't call into a module before its Init.
 S.Ready = true
 
-print("[CrackAGeode] Server started — StudioTestMode purchases active until real product IDs are set in ReplicatedStorage.Config")
+do
+	local placeholders = 0
+	for _, item in ipairs(S.Config.GamePasses) do
+		if item.id == 0 then placeholders += 1 end
+	end
+	for _, item in ipairs(S.Config.DevProducts) do
+		if item.id == 0 then placeholders += 1 end
+	end
+	if placeholders > 0 then
+		-- All ids should be live; a zero id here means a catalog regression.
+		warn(("[CrackAGeode] Server started — %d catalog item(s) unexpectedly have id=0 (StudioTestMode fallback in effect for those)"):format(placeholders))
+	else
+		print("[CrackAGeode] Server started — all catalog ids live; real purchase prompts active")
+	end
+end
 
 -- Studio-only test/debug hook: lets the command bar (a separate Luau VM) drive the
 -- live services. Never active outside Studio.

@@ -139,6 +139,13 @@ local function spawnStarter(player)
 		opened = true
 		p.cracks = (p.cracks or 0) + 1
 		local gained, newEntry = Econ.RegisterFind(player, RARE_TIER, 1) -- guaranteed rare Emerald
+		-- mirror Geodes.TryCrack's quest tracking: the literal first crack should
+		-- count toward daily quests too (it previously bypassed Dailies.Event)
+		if S.Dailies then
+			S.Dailies.Event(player, "crack", 1)
+			S.Dailies.Event(player, "earn", gained)
+			if RARE_TIER >= Config.LuckyTierIndex then S.Dailies.Event(player, "rare", 1) end
+		end
 		if S.Geodes and S.Geodes.CrackFX then S.Geodes.CrackFX(pos, size, RARE_TIER, 1) end
 		Remotes.CrackFX:FireAllClients({
 			rarity = RARE_TIER, mutation = 1, gained = gained,

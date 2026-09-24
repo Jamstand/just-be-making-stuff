@@ -38,15 +38,24 @@ local function swing()
 end
 Effects.Swing = swing
 
+-- An equipped Tool captures left-click before any ClickDetector, so node
+-- clicks never reach Geodes' detectors while the pickaxe is out. Route the
+-- activation through CrackRequest instead — the server already range-gates it.
+local Remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
+local function swingAndCrack()
+	swing()
+	Remotes.CrackRequest:FireServer()
+end
+
 local function watchPickaxe()
 	local function hookChar(char)
 		char.ChildAdded:Connect(function(child)
 			if child:IsA("Tool") and child.Name == "Pickaxe" then
-				child.Activated:Connect(swing)
+				child.Activated:Connect(swingAndCrack)
 			end
 		end)
 		local existing = char:FindFirstChild("Pickaxe")
-		if existing then existing.Activated:Connect(swing) end
+		if existing then existing.Activated:Connect(swingAndCrack) end
 	end
 	player.CharacterAdded:Connect(hookChar)
 	if player.Character then hookChar(player.Character) end
@@ -200,8 +209,8 @@ function Effects.Crack(data, isMine)
 		local beam = Instance.new("Part")
 		beam.Anchored = true
 		beam.CanCollide = false
-		beam.Material = Enum.Material.Neon
-		beam.Color = Color3.fromRGB(255, 115, 230)
+		beam.Material = Enum.Material.Neon -- transient light-shaft FX: an intentional emissive
+		beam.Color = rar and rar.color or Color3.fromRGB(255, 115, 230)
 		beam.Size = Vector3.new(2.4, 70, 2.4)
 		beam.CFrame = CFrame.new(data.pos + Vector3.new(0, 35, 0))
 		beam.Parent = workspace.CurrentCamera
@@ -217,7 +226,7 @@ end
 function Effects.Meteor(data)
 	if data.phase == "impact" then
 		shake(1.4, 0.7)
-		flash(Color3.fromRGB(255, 170, 90), 0.55, 0.5)
+		flash(Color3.fromRGB(255, 196, 96), 0.55, 0.5)
 	elseif data.phase == "boom" then
 		shake(2.2, 1.1)
 		flash(Color3.fromRGB(255, 255, 255), 0.15, 1.2)

@@ -1,6 +1,7 @@
--- MonetizationService: 4 game passes + 4 dev products through MarketplaceService.
--- While IDs are placeholders (0) or the place is unpublished, purchases run in
--- StudioTestMode: simulated through the SAME grant functions ProcessReceipt uses.
+-- MonetizationService: 4 game passes + dev products through MarketplaceService.
+-- All catalog ids are LIVE — real purchase prompts are the normal path.
+-- StudioTestMode survives only as the Studio fallback for id=0 / unpublished
+-- testing, simulated through the SAME grant functions ProcessReceipt uses.
 
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
@@ -10,6 +11,7 @@ local Monetize = {}
 local S
 local ownsCache = {}
 local lastPurchase = {}
+local giftTarget = {} -- [player] = validated GiftBoost recipient userId, stored when the prompt opens
 local firstSession = {} -- [player] = true if this is their first-ever session
 
 -- The one-time Starter Pack is offered ONLY during a player's first session and
@@ -38,7 +40,12 @@ function Monetize.Owns(player, key)
 	local cached = ownsCache[player][key]
 	if cached ~= nil then return cached end
 	local ok, owns = pcall(MarketplaceService.UserOwnsGamePassAsync, MarketplaceService, player.UserId, item.id)
-	owns = (ok and owns) == true
+	if not ok then
+		-- transient Marketplace failure: do NOT cache the miss, or a real owner
+		-- would lose their pass benefits for the whole session
+		return false
+	end
+	owns = owns == true
 	ownsCache[player][key] = owns
 	return owns
 end
@@ -52,8 +59,8 @@ local function applyVIPVisuals(player)
 	if not head or head:FindFirstChild("VIPTag") then return end
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "VIPTag"
-	bb.Size = UDim2.fromScale(5, 1.2)
-	bb.StudsOffset = Vector3.new(0, 2.2, 0)
+	bb.Size = UDim2.fromScale(2.4, 0.6) -- name-tag sized (QA: was enormous)
+	bb.StudsOffset = Vector3.new(0, 1.9, 0)
 	bb.AlwaysOnTop = true
 	bb.MaxDistance = 120
 	bb.Parent = head
@@ -199,8 +206,18 @@ function Monetize.Init(services)
 			if key == "StarterPack" and not Monetize.StarterOffered(player) then
 				return { ok = false, err = "Offer expired" }
 			end
+			-- GiftBoost: validate + remember the chosen recipient NOW, because the
+			-- ProcessReceipt callback only receives a receipt (no target argument).
+			if key == "GiftBoost" then
+				local tgt = nil
+				if type(targetUserId) == "number" then
+					local found = Players:GetPlayerByUserId(targetUserId)
+					if found and found ~= player then tgt = targetUserId end
+				end
+				giftTarget[player] = tgt
+			end
 			if testMode(item) then
-				local msg = Monetize.GrantProduct(player, key, targetUserId)
+				local msg = Monetize.GrantProduct(player, key, giftTarget[player] or targetUserId)
 				return { ok = true, test = true, msg = (msg or "Purchased!") .. " (Studio test)" }
 			elseif item.id == 0 then
 				return { ok = false, err = "Purchases aren't live yet — coming soon!" }
@@ -240,19 +257,23 @@ function Monetize.Init(services)
 			if prod.id == receipt.ProductId then key = prod.key end
 		end
 		if not key then return Enum.ProductPurchaseDecision.NotProcessedYet end
-		Monetize.GrantProduct(player, key)
+		-- Persist the receipt id BEFORE applying the grant. If the grant ran first
+		-- and the save failed, we'd return NotProcessedYet, Roblox would re-deliver,
+		-- and the grant would apply twice. With the receipt durably on disk first, a
+		-- re-delivery hits the dedupe check above instead. Never-acknowledge-without-
+		-- persist still holds: PurchaseGranted is only returned after a real save.
 		table.insert(p.receipts, rid)
 		if #p.receipts > 50 then table.remove(p.receipts, 1) end
-		-- Only report PurchaseGranted after the receipt id + granted effect are
-		-- confirmed on disk. Otherwise roll back the receipt mark and let Roblox retry.
-		if S.Data.SaveNow(player) then
-			return Enum.ProductPurchaseDecision.PurchaseGranted
-		else
+		if not S.Data.SaveNow(player) then
 			for i = #p.receipts, 1, -1 do
 				if p.receipts[i] == rid then table.remove(p.receipts, i) break end
 			end
 			return Enum.ProductPurchaseDecision.NotProcessedYet
 		end
+		Monetize.GrantProduct(player, key, giftTarget[player])
+		giftTarget[player] = nil
+		S.Data.SaveSoon(player) -- the grant's own effects ride the next save
+		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 
 	-- VIP visuals on spawn + owns prefetch
@@ -297,6 +318,7 @@ function Monetize.Init(services)
 		ownsCache[player] = nil
 		lastPurchase[player] = nil
 		firstSession[player] = nil
+		giftTarget[player] = nil
 	end)
 end
 

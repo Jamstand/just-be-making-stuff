@@ -66,7 +66,8 @@ local function supernova()
 		local s = 0.6 + math.random() * 1.2
 		chunk.Size = Vector3.new(s, s, s)
 		chunk.CFrame = CFrame.new(pos + Vector3.new(math.random(-4, 4), 3, math.random(-4, 4)))
-		chunk.Material = Enum.Material.Neon
+		chunk.Material = Enum.Material.Glass -- loot gems glint under Future lighting
+		chunk.Reflectance = 0.1
 		chunk.Color = S.Config.Rarities[math.random(2, 5)].color
 		chunk.CanCollide = true
 		chunk.Parent = workspace.CrackAGeode.FX

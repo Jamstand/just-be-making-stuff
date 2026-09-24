@@ -31,7 +31,9 @@ local function statsFor(p)
 	local petsOwned = 0
 	for _, c in pairs(p.petInv or {}) do petsOwned += c end
 	return {
-		cracks = p.cracks or 0, rebirths = p.rebirths or 0, shards = totalShards,
+		-- lifetime rebirths (Ascend resets p.rebirths to 0; the Reborn achievement
+		-- must never regress) — max() covers profiles from before totalRebirths
+		cracks = p.cracks or 0, rebirths = math.max(p.totalRebirths or 0, p.rebirths or 0), shards = totalShards,
 		indexPct100 = math.floor(bits / 28 * 100), zonesUnlocked = zonesUnlocked, petsOwned = petsOwned,
 	}
 end

@@ -53,12 +53,15 @@ function Econ.LuckFactor(player)
 	return f
 end
 
-function Econ.RollRarity(player)
+-- dropTable (optional): a zone's { [rarityName] = weight } override, so deeper
+-- biomes really do give better odds (the per-zone tables in Zones were
+-- previously dead data — every zone rolled the global weights).
+function Econ.RollRarity(player, dropTable)
 	local p = Data.Cache[player]
 	local f = Econ.LuckFactor(player)
 	local weights, total = {}, 0
 	for i, r in ipairs(Config.Rarities) do
-		local w = r.weight
+		local w = (dropTable and dropTable[r.name]) or r.weight
 		if i >= Config.LuckyTierIndex then w *= f end
 		weights[i] = w
 		total += w
@@ -174,6 +177,7 @@ function Econ.Buy(player, what)
 		p.gems -= cost
 		p.power += 1
 		if S.Dailies then S.Dailies.Event(player, "upgrade", 1) end
+		if S.Pickaxe then S.Pickaxe.Refresh(player) end -- pickaxe tiers follow Power
 	elseif what == "Luck" then
 		local cost = Config.LuckCost(p.luck)
 		if p.gems < cost then return { ok = false, err = "Not enough Gems" } end
@@ -185,6 +189,7 @@ function Econ.Buy(player, what)
 		if p.gems < cost then return { ok = false, err = "Not enough Gems" } end
 		p.gems, p.power, p.luck = 0, 0, 0
 		p.rebirths += 1
+		p.totalRebirths = (p.totalRebirths or 0) + 1 -- lifetime count; Ascend resets p.rebirths but achievements track this
 		Remotes.Announce:FireAllClients({ kind = "rebirth", text = "🔄 " .. player.DisplayName .. " Recrystallized! (Rebirth " .. p.rebirths .. ")", colorRGB = { 190, 130, 255 } })
 		if S.Pickaxe then S.Pickaxe.Refresh(player) end
 		if S.Pets then S.Pets.OnRebirth(player) end

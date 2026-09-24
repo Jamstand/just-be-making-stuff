@@ -56,9 +56,10 @@ function Garden.Refresh(player)
 		local scale = 0.7 + 1.6 * frac
 		TweenService:Create(mound, TweenInfo.new(0.6), {
 			Size = Vector3.new(2.4 * scale, 1.6 * scale, 2.4 * scale),
-			Color = overgrown and Color3.fromRGB(255, 205, 80) or Color3.fromRGB(120, 190, 140),
+			Color = overgrown and Color3.fromRGB(255, 206, 120) or Color3.fromRGB(96, 172, 118),
 		}):Play()
-		mound.Material = overgrown and Enum.Material.Neon or Enum.Material.Slate
+		-- overgrown jackpot stays a true emissive (warm gold); growing mounds are mossy
+		mound.Material = overgrown and Enum.Material.Neon or Enum.Material.Grass
 	end
 end
 
@@ -112,8 +113,8 @@ local function claimStation(player)
 				mound.CFrame = CFrame.new(center + Vector3.new(math.cos(a) * 4.4, 0.9, math.sin(a) * 4.4))
 				mound.Anchored = true
 				mound.CanCollide = false
-				mound.Material = Enum.Material.Slate
-				mound.Color = Color3.fromRGB(120, 190, 140)
+				mound.Material = Enum.Material.Grass
+				mound.Color = Color3.fromRGB(96, 172, 118)
 				mound.Parent = station
 				local mesh = Instance.new("SpecialMesh")
 				mesh.MeshType = Enum.MeshType.Sphere

@@ -13,6 +13,8 @@ local Quality = require(script:WaitForChild("Quality"))
 local PetView = require(script:WaitForChild("PetView"))
 local RegionFX = require(script:WaitForChild("RegionFX"))
 local NexusFX = require(script:WaitForChild("NexusFX"))
+local Signposts = require(script:WaitForChild("Signposts"))
+local PickaxeFX = require(script:WaitForChild("PickaxeFX"))
 
 local player = Players.LocalPlayer
 local state = nil
@@ -23,6 +25,9 @@ Orbit.Init(Config)
 PetView.Init()
 RegionFX.Init(Config)
 NexusFX.Init()
+Signposts.Init()
+PickaxeFX.Init()
+UI.OnCrackInput = PickaxeFX.Swing -- CRACK button plays the swing instantly
 task.spawn(Quality.Init)
 
 -- VIP chat tag: prepend a gold [VIP] to messages from players who own the VIP pass
@@ -54,7 +59,9 @@ Remotes.Announce.OnClientEvent:Connect(function(data)
 end)
 
 Remotes.CrackFX.OnClientEvent:Connect(function(data)
-	Effects.Crack(data, data.userId == player.UserId)
+	local isMine = data.userId == player.UserId
+	Effects.Crack(data, isMine)
+	PickaxeFX.OnCrack(data, isMine) -- impact moment / other players' swings
 	UI.OnCrack(data)
 end)
 

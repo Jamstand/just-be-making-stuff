@@ -13,10 +13,21 @@ local cards = {} -- [zoneKey] = refs
 local upsell = nil -- the hub 2×/Lucky pass upsell refs
 local lastSnap = nil -- cache so cards built after the first snapshot still populate
 
--- fire a purchase prompt (pass or product) without blocking the click handler
+-- fire a purchase prompt (pass or product) without blocking the click handler,
+-- and surface the server's verdict like the shop panel does (was silent-fail)
 local function prompt(kind, key)
 	local pf = Remotes:FindFirstChild("Purchase")
-	if pf then task.spawn(function() pcall(function() pf:InvokeServer(kind, key) end) end) end
+	if not pf then return end
+	task.spawn(function()
+		local ok, res = pcall(function() return pf:InvokeServer(kind, key) end)
+		if not (ok and type(res) == "table") then return end
+		local UI = require(script.Parent:WaitForChild("UI"))
+		if res.ok and res.msg then
+			UI.Toast(res.msg, Color3.fromRGB(150, 230, 170))
+		elseif res.ok == false then
+			UI.Toast(res.err or "Purchase failed", Color3.fromRGB(255, 120, 120))
+		end
+	end)
 end
 
 local function buildCard(pad, zone)

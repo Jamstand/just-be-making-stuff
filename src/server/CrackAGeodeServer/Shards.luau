@@ -69,9 +69,10 @@ local function makeShard(id, xz, parent)
 	shard.Anchored = true
 	shard.CanCollide = false
 	shard.CanQuery = true
-	shard.Material = Enum.Material.Neon
+	shard.Material = Enum.Material.Glass -- glints; the PointLight + sparkles keep it findable
+	shard.Reflectance = 0.12
 	shard.Color = COLOR
-	shard.Transparency = 0.12
+	shard.Transparency = 0.08
 	shard:SetAttribute("ShardId", id)
 	shard.Parent = model
 

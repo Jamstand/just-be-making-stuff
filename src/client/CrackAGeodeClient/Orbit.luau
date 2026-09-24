@@ -51,7 +51,8 @@ local function rebuild(userId)
 		p.CanQuery = false
 		p.CanTouch = false
 		p.CastShadow = false
-		p.Material = Enum.Material.Neon
+		p.Material = Enum.Material.Glass -- gem trophies glint instead of glowing flatly
+		p.Reflectance = 0.1
 		p.Color = (e.mutation > 1 and mut.color) or rar.color
 		p.Parent = workspace.CurrentCamera
 		table.insert(parts, p)
@@ -88,11 +89,13 @@ function Orbit.Init(config)
 					local n = #ring.parts
 					for i, part in ipairs(ring.parts) do
 						local a = t * 0.9 + (i / n) * math.pi * 2
+						-- diamond-orient + slow tumble so the gems read as crystals,
+						-- not flat floating quads (QA)
 						part.CFrame = CFrame.new(hrp.Position + Vector3.new(
 							math.cos(a) * 2.7,
 							0.4 + math.sin(t * 2 + i) * 0.35,
 							math.sin(a) * 2.7
-						)) * CFrame.Angles(0, a, math.rad(20))
+						)) * CFrame.Angles(t * 1.4 + i * 2, a, math.rad(45))
 					end
 				else
 					for _, part in ipairs(ring.parts) do
