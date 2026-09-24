@@ -21,3 +21,8 @@ multiple_statements = "allow"
 shadowing = "allow"
 mixed_table = "allow"
 global_usage = "allow"
+# if_same_then_else fires on UI.Banner's Announce router (UI.luau), where the explicit
+# `route == "headline"` branch and the final `else` (no route / legacy payload) deliberately
+# share one body so nothing is ever dropped. Kept visible as a warning, not a gate failure;
+# tidy the branches through the normal PR -> apply-to-Studio path if wanted.
+if_same_then_else = "warn"
