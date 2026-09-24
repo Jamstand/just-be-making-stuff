@@ -1,10 +1,16 @@
 src/client/CrackAGeodeClient/UI.luau | FunctionUnused | Function 'makePanel' is never used; prefix with '_' to silence
 src/client/CrackAGeodeClient/UI.luau | SameLineStatement | A new statement is on the same line; add semi-colon on previous statement to silence
 src/client/CrackAGeodeClient/UI.luau | TypeError | Argument count mismatch. Function 'SG.close' expects 2 arguments, but only 1 is specified
+src/client/CrackAGeodeClient/UI.luau | TypeError | Argument count mismatch. Function 'SG.gloss' expects 4 arguments, but only 2 are specified
+src/client/CrackAGeodeClient/UI.luau | TypeError | Argument count mismatch. Function 'SG.icon' expects 4 arguments, but only 3 are specified
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'OnCrackInput' not found in table 'UI'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key '_lastUpsell' not found in table 'UI'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key '_menuOverlay' not found in table 'UI'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'achBtn' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'achRows' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'ascBtn' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'ascLabel' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'banners' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'cells' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'collectHeader' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'collectRows' not found in table 'refs'
@@ -13,10 +19,21 @@ src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'dailyCells' not found in
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'dailyClaim' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'dailyNote' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'dailyQuests' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'gems' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'goalBar' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'goalCard' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'goalFill' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'goalText' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'harvestBtn' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'indexHeader' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'leftStack' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'luckBtn' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'luckLabel' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'luckLine' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'luckSub' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'meteorFill' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'meteorFrame' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'meteorText' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'passBtns' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'perkBtns' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'perkHeader' not found in table 'refs'
@@ -25,13 +42,19 @@ src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'petsHeader' not found in
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'powerBtn' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'powerLabel' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'powerSub' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'rate' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'rebirthBtn' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'rebirthFill' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'rebirthLabel' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'shardChip' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'shopBtn' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'sideMenu' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'sideMenuDims' not found in table 'refs'
+src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'sideMenuScale' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'starterCard' not found in table 'refs'
 src/client/CrackAGeodeClient/UI.luau | TypeError | Key 'zonePctLabel' not found in table 'refs'
 src/client/CrackAGeodeClient/init.client.luau | LocalUnused | Variable 'state' is never used; prefix with '_' to silence
+src/client/CrackAGeodeClient/init.client.luau | TypeError | Cannot add property 'OnCrackInput' to table 'UI'
 src/server/CrackAGeodeServer/Achievements.luau | SameLineStatement | A new statement is on the same line; add semi-colon on previous statement to silence
 src/server/CrackAGeodeServer/Econ.luau | SameLineStatement | A new statement is on the same line; add semi-colon on previous statement to silence
 src/server/CrackAGeodeServer/Monetize.luau | SameLineStatement | A new statement is on the same line; add semi-colon on previous statement to silence
@@ -43,11 +66,32 @@ src/shared/Config.luau | TypeError | Expected this to be exactly
 src/shared/Config.luau | TypeError | Key 'unlockPrice' not found in table '{ center: Vector3, exclusivePet: { bonus: number, color: Color3, emoji: string, name: string }, geodes: {{ dropTable: { Am
 src/shared/Config.luau | TypeError | Key 'unlockProductId' not found in table '{ center: Vector3, exclusivePet: { bonus: number, color: Color3, emoji: string, name: string }, geodes: {{ dropTable: 
 src/shared/StyleGuide.luau | TypeError | Attempting a dynamic property access on type 'Instance' is unsafe and may cause exceptions at runtime
+src/shared/StyleGuide.luau | TypeError | Expected this to be 'Atmosphere', but got 'BloomEffect'
+src/shared/StyleGuide.luau | TypeError | Expected this to be 'Atmosphere', but got 'ColorCorrectionEffect'
+src/shared/StyleGuide.luau | TypeError | Expected this to be 'Atmosphere', but got 'DepthOfFieldEffect'
+src/shared/StyleGuide.luau | TypeError | Expected this to be 'Instance?', but got '{+ ZIndex: T +}'
+src/shared/StyleGuide.luau | TypeError | Expected this to be 'number', but got 'number | unknown'
+src/shared/StyleGuide.luau | TypeError | Expected type table, got 'nil' instead
+src/shared/StyleGuide.luau | TypeError | Key 'Brightness' not found in external type 'Atmosphere'
+src/shared/StyleGuide.luau | TypeError | Key 'Contrast' not found in external type 'Atmosphere'
+src/shared/StyleGuide.luau | TypeError | Key 'Enabled' not found in external type 'Instance'
+src/shared/StyleGuide.luau | TypeError | Key 'FarIntensity' not found in external type 'Atmosphere'
+src/shared/StyleGuide.luau | TypeError | Key 'FocusDistance' not found in external type 'Atmosphere'
+src/shared/StyleGuide.luau | TypeError | Key 'InFocusRadius' not found in external type 'Atmosphere'
+src/shared/StyleGuide.luau | TypeError | Key 'Intensity' not found in external type 'Atmosphere'
 src/shared/StyleGuide.luau | TypeError | Key 'MouseButton1Down' not found in external type 'Instance'
 src/shared/StyleGuide.luau | TypeError | Key 'MouseButton1Up' not found in external type 'Instance'
 src/shared/StyleGuide.luau | TypeError | Key 'MouseLeave' not found in external type 'Instance'
+src/shared/StyleGuide.luau | TypeError | Key 'NearIntensity' not found in external type 'Atmosphere'
+src/shared/StyleGuide.luau | TypeError | Key 'Saturation' not found in external type 'Atmosphere'
 src/shared/StyleGuide.luau | TypeError | Key 'Scale' not found in external type 'Instance'
+src/shared/StyleGuide.luau | TypeError | Key 'Size' not found in external type 'Atmosphere'
+src/shared/StyleGuide.luau | TypeError | Key 'Threshold' not found in external type 'Atmosphere'
+src/shared/StyleGuide.luau | TypeError | Key 'TintColor' not found in external type 'Atmosphere'
 src/shared/StyleGuide.luau | TypeError | Key 'Visible' not found in external type 'Instance'
+src/shared/StyleGuide.luau | TypeError | Key 'ZIndex' not found in external type 'Instance'
+src/shared/StyleGuide.luau | TypeError | Unknown type used in + operation; consider adding a type annotation to 'el'
+src/shared/StyleGuide.luau | TypeError | Value of type 'Instance?' could be nil
 src/shared/Zones.luau | TypeError | Expected this to be
 src/shared/Zones.luau | TypeError | Expected this to be 'nil', but got 'string'
 src/shared/Zones.luau | TypeError | Expected this to be 'number', but got 'nil'
