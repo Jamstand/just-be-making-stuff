@@ -59,10 +59,21 @@ import queue as _queue
 # ----------------------------------------------------------------------------
 
 APP_NAME = "Claude Assistant"
-DEFAULT_MODEL = "claude-opus-5"
+# Every current Claude model by full id, newest first within each family;
+# the picker lists them in this order. Full ids, never aliases, so a pick
+# means the same model tomorrow. Default Opus 5.5 — what Claude Code itself
+# now defaults to, and cheaper than Opus 5. Haiku rejects effort and is
+# skipped by model_supports_effort; every other model here accepts all five
+# levels, which is why Opus 4.6 / Sonnet 4.6 (no xhigh) are left out.
+# The API backend keys refusal fallbacks on the opus-5 / fable-5 prefixes,
+# which cover 5.5 and 5.1 too.
+DEFAULT_MODEL = "claude-opus-5-5"
 MODEL_CHOICES = [
-    "claude-opus-5",      # most capable of the standard tier (default)
-    "claude-fable-5",     # Anthropic's most capable model; costs more than Opus
+    "claude-fable-5-1",   # Anthropic's most capable model; costs more than Opus
+    "claude-fable-5",
+    "claude-opus-5-5",    # default: recommended for most work
+    "claude-opus-5",
+    "claude-opus-4-8",
     "claude-sonnet-5",    # fast + very capable
     "claude-haiku-4-5",   # fastest / cheapest
 ]

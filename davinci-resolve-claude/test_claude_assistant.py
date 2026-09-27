@@ -1008,7 +1008,23 @@ check("fable never sends budget_tokens", "budget_tokens" not in json.dumps(p))
 check("fable fallbacks", p.get("fallbacks") == "default" and
       "server-side-fallback-2026-07-01" in betas, str(betas))
 check("fable in the model picker", "claude-fable-5" in mod.MODEL_CHOICES)
-check("default stays opus-5", mod.DEFAULT_MODEL == "claude-opus-5")
+check("the picker lists every current model by full id, newest first per family",
+      mod.MODEL_CHOICES == ["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5",
+                            "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"], str(mod.MODEL_CHOICES))
+check("default is Opus 5.5, listed, and not the top entry",
+      mod.DEFAULT_MODEL == "claude-opus-5-5" and mod.DEFAULT_MODEL in mod.MODEL_CHOICES
+      and mod.MODEL_CHOICES[0] != mod.DEFAULT_MODEL)
+check("every listed model takes effort (all five levels) or is haiku",
+      all("haiku" in m or m in ("claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5",
+                                 "claude-opus-4-8", "claude-sonnet-5") for m in mod.MODEL_CHOICES))
+# Fable 5.1 and Opus 5.5: thinking always on (adaptive), refusal fallbacks on.
+for newer in ("claude-fable-5-1", "claude-opus-5-5"):
+    p, betas = mod._build_payload(newer, [])
+    check(newer + " thinking adaptive, no budget_tokens", p.get("thinking") == {"type": "adaptive"} and "budget_tokens" not in json.dumps(p), str(p.get("thinking")))
+    check(newer + " fallbacks", p.get("fallbacks") == "default" and "server-side-fallback-2026-07-01" in betas, str(betas))
+    check(newer + " no forced tool_choice or sampling params", not any(k in p for k in ("tool_choice", "temperature", "top_p", "top_k")), str(p.keys()))
+p, betas = mod._build_payload("claude-opus-4-8", [])
+check("opus 4.8 thinking adaptive, no fallbacks", p.get("thinking") == {"type": "adaptive"} and "fallbacks" not in p and not betas, str(betas))
 
 # Effort: sent to every model that accepts it, never to Haiku.
 mod.STATE["effort"] = "xhigh"

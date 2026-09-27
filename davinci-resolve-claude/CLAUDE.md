@@ -799,11 +799,15 @@ ffmpeg on PATH at all, driving /train end to end.
 
 ## Model menu (2026-09-27, harness-verified, not yet live)
 
-Both panels keep the list in one place: `MODELS` + `DEFAULT_MODEL` at the
-top of `after-effects-claude/.../html/panel.js` (Claude Music shares it)
-and `davinci-resolve-claude/.../main.js` — claude-fable-5-1, claude-fable-5,
-claude-opus-5-5, claude-opus-5, claude-opus-4-8, claude-sonnet-5,
-claude-haiku-4-5. Full ids only: aliases move (Claude Code's `opus` became
+Three surfaces keep the list, each in one place: `MODELS` + `DEFAULT_MODEL`
+at the top of `after-effects-claude/.../html/panel.js` (Claude Music shares
+it) and `davinci-resolve-claude/.../main.js`, and `MODEL_CHOICES` +
+`DEFAULT_MODEL` in the Python `Claude Assistant.py` (Scripts-menu panel; its
+API backend keys refusal fallbacks on the opus-5 / fable-5 prefixes, which
+cover 5.5 and 5.1; `test_claude_assistant.py` pins all of it) —
+claude-fable-5-1, claude-fable-5, claude-opus-5-5, claude-opus-5,
+claude-opus-4-8, claude-sonnet-5, claude-haiku-4-5. The review caught the
+Python panel being left out while the top-level Resolve README described it. Full ids only: aliases move (Claude Code's `opus` became
 Opus 5.5 in v2.1.280). Default Opus 5.5 — Claude Code's own default on
 Pro/Max/API since v2.1.280, $4/$20 against Opus 5's $5/$25 — and it is NOT
 the first entry: config() returns `default_model`, both renderers use it,
