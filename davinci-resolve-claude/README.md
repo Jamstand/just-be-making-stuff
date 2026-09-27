@@ -106,9 +106,10 @@ avoid that.
 
 ## Using it
 
-- **Model picker** — defaults to `claude-opus-5`. `claude-fable-5` is the most
-  capable (and priciest on the API backend); `claude-sonnet-5` is faster/cheaper
-  and `claude-haiku-4-5` is for quick lookups.
+- **Model picker** — every current Claude model by full id, defaulting to
+  `claude-opus-5-5` (Claude Code's own default). `claude-fable-5-1` is the most
+  capable (and priciest); `claude-sonnet-5` is faster/cheaper and
+  `claude-haiku-4-5` is for quick lookups. Your pick is remembered.
 - **Effort** — how hard Claude thinks before acting: `low`/`medium`/`high`
   (default)/`xhigh`/`max`. Lower is faster and cheaper; raise it for complex
   multi-step jobs. Ignored on Haiku, which doesn't take an effort setting.

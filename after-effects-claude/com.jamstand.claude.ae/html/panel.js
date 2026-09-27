@@ -2046,7 +2046,7 @@ function handleCliEvent(event) {
 function modelHint(detail) {
   const d = String(detail || "");
   // The API says not_found_error + "model: x"; Claude Code may reword it.
-  if (!/not_found_error[\s\S]{0,200}model|model[^\n]{0,40}(not found|does not exist|not available|is unavailable|not supported)|unknown model|invalid model/i.test(d)) return "";
+  if (!/not_found_error[\s\S]{0,200}model|model[^\n]{0,40}(not found|does not exist|not available|is unavailable|not supported)|unknown model|invalid model|not a recognized model/i.test(d)) return "";
   return "Claude Code could not use " + currentModel + " on this account — pick another model in the Model menu.\n\n";
 }
 
@@ -2107,13 +2107,14 @@ window.assistant = {
     if (busy || !text || !String(text).trim()) return false;
     if (PERMISSION_MODES.includes(permissionMode))
       state.permissionMode = permissionMode;
-    currentModel = model;
+    // The model the turn really runs on — the fallback included — so the
+    // hint and the autosave name it, not whatever the page sent.
+    currentModel = MODELS.includes(model) ? model : DEFAULT_MODEL;
     const route = slashlib.slashRoute(text, PANEL);
     sendUI("you", String(text).trim());
     if (route.kind === "unknown") { sendUI("notice", route.note); sendUI("done", {}); return true; }
     busy = true;
-    runTurn(MODELS.includes(model) ? model : DEFAULT_MODEL,
-            EFFORTS.includes(effort) ? effort : "medium",
+    runTurn(currentModel, EFFORTS.includes(effort) ? effort : "medium",
             route.prompt);
     return true;
   },
