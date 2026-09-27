@@ -26,8 +26,19 @@ const tools = require("./tools");
 const historyLib = require("./history");
 
 const PLUGIN_ID = "com.jamstand.claude.assistant";
-const MODELS = ["claude-opus-5", "claude-fable-5", "claude-sonnet-5",
+// Every current Claude model, passed to Claude Code verbatim on --model
+// (full ids, never aliases, so the panel means the same model tomorrow).
+// Newest first within each family; the dropdown keeps this order. A fresh
+// install starts on DEFAULT_MODEL — Opus 5.5, what Claude Code itself now
+// defaults to — and the panel remembers what the user picks.
+// Haiku takes no --effort (the API rejects it); every other model here
+// accepts all five levels, which is why Opus 4.6 and Sonnet 4.6 (no xhigh)
+// are left out rather than gated.
+const MODELS = ["claude-fable-5-1", "claude-fable-5",
+                "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8",
+                "claude-sonnet-5",
                 "claude-haiku-4-5"];
+const DEFAULT_MODEL = "claude-opus-5-5";
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
 let win = null;
@@ -240,7 +251,7 @@ function handleCliEvent(event) {
         sessionId = null;
         sendUI("notice", "That session no longer exists — send again to continue fresh.");
       } else {
-        sendUI("error", detail || "Claude Code reported an error.");
+        sendUI("error", modelHint(detail) + (detail || "Claude Code reported an error."));
       }
     }
   }
@@ -253,6 +264,16 @@ function shutdown() {
   try { if (wi) wi.CleanUp(); } catch (e) {}
   try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
   app.quit();
+}
+
+// An API not_found_error naming a model means this account cannot use
+// the one the dropdown is set to — a model the plan has not reached, or a
+// retired one. Say so above the raw text, so the fix is obvious.
+function modelHint(detail) {
+  const d = String(detail || "");
+  // The API says not_found_error + "model: x"; Claude Code may reword it.
+  if (!/not_found_error[\s\S]{0,200}model|model[^\n]{0,40}(not found|does not exist|not available|is unavailable|not supported)|unknown model|invalid model/i.test(d)) return "";
+  return "Claude Code could not use " + currentModel + " on this account — pick another model in the Model menu.\n\n";
 }
 
 // ---------------------------------------------------------- self-update
@@ -392,7 +413,7 @@ ipcMain.handle("send", (evt, { text, model, effort, permissionMode }) => {
   sendUI("you", String(text).trim());
   if (route.kind === "unknown") { sendUI("notice", route.note); sendUI("done", {}); return true; }
   busy = true;
-  runTurn(MODELS.includes(model) ? model : MODELS[0],
+  runTurn(MODELS.includes(model) ? model : DEFAULT_MODEL,
           EFFORTS.includes(effort) ? effort : "medium", route.prompt);
   return true;
 });
@@ -439,7 +460,7 @@ ipcMain.handle("history", (evt, { action, id }) => {
   return null;
 });
 
-ipcMain.handle("config", () => ({ models: MODELS, efforts: EFFORTS,
+ipcMain.handle("config", () => ({ models: MODELS, default_model: DEFAULT_MODEL, efforts: EFFORTS,
                                   modes: tools.PERMISSION_MODES,
                                   commands: tools.SLASH_COMMANDS }));
 

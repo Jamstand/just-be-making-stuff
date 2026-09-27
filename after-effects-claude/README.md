@@ -180,6 +180,22 @@ mix), no key detection, no API-key field (the panel runs your Claude Code
 subscription), and "Bake keyframes instead" and "Markers on the audio
 layer" are shown disabled until they exist.
 
+## Models
+
+The Model menu lists every current Claude model by its full id — Fable 5.1
+and Fable 5, Opus 5.5, Opus 5 and Opus 4.8, Sonnet 5, Haiku 4.5 — newest
+first within each family, and hands it to Claude Code verbatim (full ids,
+not aliases, so the menu means the same model tomorrow). A fresh install
+starts on Opus 5.5, which is what Claude Code itself defaults to; both
+panels remember whatever you pick. Effort applies to every model except
+Haiku 4.5, which the API refuses it for, so the panel omits it there. If
+your account cannot use a model yet, the reply says which one and to pick
+another; the raw error stays underneath. Two things Anthropic's docs say
+that the panel cannot check for you: Opus 5.5 wants Claude Code 2.1.280 or
+newer and Fable 5.1 wants 2.1.257 or newer (`claude update`), and on some
+plans Fable usage bills to usage credits — the panel runs Claude Code
+non-interactively, so it will not ask first.
+
 ## Slash commands
 
 Type `/` in either panel's chat box and a menu opens, like Claude's:

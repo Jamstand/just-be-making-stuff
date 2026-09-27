@@ -446,7 +446,7 @@ document.getElementById("historybtn").onclick = () => {
 };
 document.getElementById("histclose").onclick = () => { histPanel.hidden = true; };
 
-assistant.config().then(({ models, efforts, modes, commands }) => {
+assistant.config().then(({ models, efforts, modes, commands, default_model }) => {
   COMMANDS = commands || [];
   const fill = (id, values, chosen) => {
     const select = document.getElementById(id);
@@ -459,7 +459,9 @@ assistant.config().then(({ models, efforts, modes, commands }) => {
     select.value = values.includes(saved) ? saved : chosen;
     select.onchange = () => localStorage.setItem("ca-" + id, select.value);
   };
-  fill("model", models, models[0]);
+  // The dropdown lists every model newest first; a fresh install starts on
+  // the panel's default, not the top entry, and remembers what is picked.
+  fill("model", models, models.includes(default_model) ? default_model : models[0]);
   fill("effort", efforts, "medium");
   fill("mode", modes, "Ask before edits");
   card("notice", "NOTE", "Connected. Ask me anything — e.g. \"add a red " +

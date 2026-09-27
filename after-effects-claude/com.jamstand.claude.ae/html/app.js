@@ -462,7 +462,7 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
 };
-assistant.config().then(({ models, efforts, modes, commands }) => {
+assistant.config().then(({ models, efforts, modes, commands, default_model }) => {
   COMMANDS = commands || [];
   const fill = (id, values, chosen) => {
     const select = document.getElementById(id);
@@ -475,7 +475,9 @@ assistant.config().then(({ models, efforts, modes, commands }) => {
     select.value = values.includes(saved) ? saved : chosen;
     select.onchange = () => store.set("ca-" + id, select.value);
   };
-  fill("model", models, models[0]);
+  // The dropdown lists every model newest first; a fresh install starts on
+  // the panel's default, not the top entry, and remembers what is picked.
+  fill("model", models, models.includes(default_model) ? default_model : models[0]);
   fill("effort", efforts, "medium");
   fill("mode", modes, "Ask before edits");
   if (window.CLAUDE_PANEL === "music")

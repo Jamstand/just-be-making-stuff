@@ -33,6 +33,14 @@ process.stdin.on("end", async () => {
     out({ type: "assistant", message: { content: [{ type: "tool_use", name: "mcp__ae__" + name, input }] } });
     const r = await rpc({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name, arguments: input } });
     return r.result; };
+  // A model this account cannot use: the API answers 404, Claude Code
+  // relays it as an error result and exits 1 with nothing on stderr.
+  if (/model404/i.test(prompt)) {
+    const model = args[args.indexOf("--model") + 1];
+    out({ type: "result", subtype: "error_during_execution", is_error: true, session_id: "sess-fake-1",
+          result: "API Error: 404 {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"model: " + model + "\"}}" });
+    process.exit(1);
+  }
   if (/hello/i.test(prompt)) {
     const ov = await call("get_project_overview", {});
     out({ type: "assistant", message: { content: [{ type: "text", text: "Connected. Overview: " + ov.content[0].text }] } });

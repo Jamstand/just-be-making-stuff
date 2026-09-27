@@ -90,6 +90,19 @@ invisible). It is the tool's pipeline model, not a live Resolve grab.
   overrides subscription auth), and the CLI's working directory is pinned so
   sessions survive Resolve restarts.
 
+## Models
+
+The Model menu lists every current Claude model by its full id — Fable 5.1
+and Fable 5, Opus 5.5, Opus 5 and Opus 4.8, Sonnet 5, Haiku 4.5 — newest
+first within each family, and hands it to Claude Code verbatim. A fresh
+install starts on Opus 5.5 (Claude Code's own default); the panel remembers
+whatever you pick. Effort is passed for every model except Haiku 4.5, which
+the API refuses it for. If your account cannot use a model yet, the reply
+says which one and to pick another; the raw error stays underneath. Opus
+5.5 wants Claude Code 2.1.280 or newer, Fable 5.1 2.1.257 or newer
+(`claude update`); on some plans Fable usage bills to usage credits, and
+the panel runs Claude Code non-interactively, so it will not ask first.
+
 ## Slash commands
 
 Type `/` in the chat box and a menu opens, like Claude's: arrow keys to

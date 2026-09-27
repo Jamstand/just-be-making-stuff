@@ -796,3 +796,30 @@ downloadTo cannot leave its promise unsettled. Harness: 6c starts from a
 new chat so the approval assertions can fail, and proves a real write
 tool still asks in the same chat; 6e is a whole Electron instance with no
 ffmpeg on PATH at all, driving /train end to end.
+
+## Model menu (2026-09-27, harness-verified, not yet live)
+
+Both panels keep the list in one place: `MODELS` + `DEFAULT_MODEL` at the
+top of `after-effects-claude/.../html/panel.js` (Claude Music shares it)
+and `davinci-resolve-claude/.../main.js` — claude-fable-5-1, claude-fable-5,
+claude-opus-5-5, claude-opus-5, claude-opus-4-8, claude-sonnet-5,
+claude-haiku-4-5. Full ids only: aliases move (Claude Code's `opus` became
+Opus 5.5 in v2.1.280). Default Opus 5.5 — Claude Code's own default on
+Pro/Max/API since v2.1.280, $4/$20 against Opus 5's $5/$25 — and it is NOT
+the first entry: config() returns `default_model`, both renderers use it,
+and a saved pick (`ca-model` in localStorage) wins when it is still in the
+list. Rule for adding a model: it must accept all five --effort levels
+(Opus 4.6 / Sonnet 4.6 have no xhigh, Opus 4.5 stops at high, Sonnet 4.5
+and Haiku take none) — Haiku is the one exception, skipped by the existing
+`indexOf("haiku")` gate. Mythos is invite-only, so it is out.
+`modelHint()` in both panels prefixes an API not_found_error that names a
+model with "could not use <model> on this account — pick another", raw
+text kept underneath (a real CLI exits 1 with nothing on stderr there, so
+no second card). Verified: Electron harness step 1 (dropdown == config,
+starts on default) and 3g (pick Fable 5.1, send `model404` → fakebin/claude
+answers the 404 for whatever --model it was given → hint names it; argv
+carried --model claude-fable-5-1), verify-ui case A, a vm load of the
+real main.js (scratch), and a Chromium drive of the real Resolve renderer
+(default, pick survives reload, a retired saved id falls back). Sources
+read 2026-09-27: platform.claude.com models overview + deprecations +
+effort page, code.claude.com model-config + cli-reference.

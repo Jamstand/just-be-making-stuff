@@ -36,6 +36,13 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
   console.log(JSON.stringify({ model: await page.$eval("#model", (s) => [...s.options].map((o) => o.value)),
     effort: await page.$eval("#effort", (s) => s.value), mode: await page.$eval("#mode", (s) => s.value),
     cards: await cards(page), status: await status(page) }, null, 1));
+  // The dropdown must hold exactly what the panel offers, and start on the
+  // panel's default — which is deliberately not the top entry.
+  const cfg = await page.evaluate(() => window.assistant.config());
+  const dd = await page.$eval("#model", (s) => ({ options: [...s.options].map((o) => o.value), value: s.value }));
+  if (JSON.stringify(dd.options) !== JSON.stringify(cfg.models) || dd.value !== cfg.default_model || !cfg.models.includes(cfg.default_model))
+    throw new Error("step 1: model dropdown disagrees with config " + JSON.stringify({ dd, models: cfg.models, default_model: cfg.default_model }));
+  console.log("  model dropdown = config list, starts on " + dd.value);
   await shot(page, "1-connected");
 
   console.log("### 1b. 🔍 can this renderer spawn a child at all?");
@@ -99,6 +106,19 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
     electron_clipboard: await app.evaluate(({ clipboard }) => clipboard.readText()) }, null, 1));
   await page.evaluate(() => { window.assistant.clipboard.write = window.__origClipWrite; });
   await page.waitForTimeout(1600);
+
+  console.log("### 3g. 🔍 the chosen model reaches the CLI; a model this account cannot use is named in the error");
+  await page.selectOption("#model", "claude-fable-5-1");
+  await page.fill("#input", "model404");
+  await page.press("#input", "Enter");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 8000 });
+  const argv404 = JSON.parse(fs.readFileSync(path.join(HOME, "last-turn.json"), "utf8")).argv;
+  const err404 = ((await fullCards(page)).slice(-1)[0] || {}).text || "";   // full text — cards() clips at 120
+  console.log(JSON.stringify({ model_argv: argv404[argv404.indexOf("--model") + 1], effort_argv: argv404[argv404.indexOf("--effort") + 1], card: err404 }, null, 1));
+  if (argv404[argv404.indexOf("--model") + 1] !== "claude-fable-5-1" || !/could not use claude-fable-5-1 on this account/.test(err404) || !/not_found_error/.test(err404))
+    throw new Error("step 3g: model choice or 404 hint wrong " + JSON.stringify({ argv404, err404 }));
+  await page.selectOption("#model", (await page.evaluate(() => window.assistant.config())).default_model);
+  await page.waitForTimeout(300);
 
   console.log("### 4. 🔍 second turn, DECLINE via Escape");
   await page.fill("#input", "make another one");
