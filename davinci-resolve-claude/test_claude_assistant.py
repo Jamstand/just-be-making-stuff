@@ -1026,6 +1026,37 @@ for newer in ("claude-fable-5-1", "claude-opus-5-5"):
 p, betas = mod._build_payload("claude-opus-4-8", [])
 check("opus 4.8 thinking adaptive, no fallbacks", p.get("thinking") == {"type": "adaptive"} and "fallbacks" not in p and not betas, str(betas))
 
+print("== Claude Code version gate (live: 2.1.267 refused Opus 5.5) ==")
+check("version tuple", mod._version_tuple("2.1.267 (Claude Code)") == (2, 1, 267) and mod._version_tuple("") is None)
+check("a 2.1.267 CLI gates Opus 5.5 only (Fable 5.1 needs 2.1.257, which it has)",
+      mod.models_needing_update("2.1.267") == ["claude-opus-5-5"], str(mod.models_needing_update("2.1.267")))
+check("a 2.1.250 CLI gates Fable 5.1 as well",
+      mod.models_needing_update("2.1.250") == ["claude-fable-5-1", "claude-opus-5-5"], str(mod.models_needing_update("2.1.250")))
+check("a current CLI gates nothing; an unknown version gates nothing",
+      mod.models_needing_update("2.1.283") == [] and mod.models_needing_update("") == [])
+_real_ver, _real_backend = mod.claude_code_version, mod.get_backend
+mod.claude_code_version = lambda cfg=None, refresh=False: "2.1.267"
+mod.get_backend = lambda cfg: mod.BACKEND_CLAUDE_CODE
+check("the picker starts on Opus 5 when the CLI is too old for Opus 5.5", mod.default_model_for_cli({}) == "claude-opus-5")
+mod.get_backend = lambda cfg: mod.BACKEND_API
+check("...but the API backend keeps Opus 5.5", mod.default_model_for_cli({}) == "claude-opus-5-5")
+mod.get_backend = _real_backend
+_real_find, _real_popen = mod.find_claude_binary, mod.subprocess.Popen
+mod.find_claude_binary = lambda cfg=None: "/usr/bin/true"
+def _no_spawn(*a, **k):
+    raise AssertionError("the CLI must not be spawned for a model it is too old for")
+mod.subprocess.Popen = _no_spawn
+_ev = []
+mod.run_agent_turn_claude_code({}, "claude-opus-5-5", "hi", lambda k, t: _ev.append((k, t)))
+check("a too-old CLI is refused before spawning, naming claude update and both versions",
+      bool(_ev) and _ev[-1][0] == "error" and "claude update" in _ev[-1][1] and "2.1.280" in _ev[-1][1] and "2.1.267" in _ev[-1][1], str(_ev))
+_ev = []
+mod.run_agent_turn_claude_code({}, "claude-opus-4-8", "hi", lambda k, t: _ev.append((k, t)))
+check("an ungated model is not refused by the version check (fails later, at the spawn stub)",
+      not any("claude update" in t for k, t in _ev), str(_ev))
+mod.find_claude_binary, mod.subprocess.Popen, mod.claude_code_version = _real_find, _real_popen, _real_ver
+mod._cli_version_cache.clear()
+
 # Effort: sent to every model that accepts it, never to Haiku.
 mod.STATE["effort"] = "xhigh"
 p, _ = mod._build_payload("claude-opus-5", [])

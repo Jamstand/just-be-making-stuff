@@ -18,7 +18,7 @@
 
 "use strict";
 const { app, BrowserWindow, ipcMain, clipboard } = require("electron");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -39,6 +39,50 @@ const MODELS = ["claude-fable-5-1", "claude-fable-5",
                 "claude-sonnet-5",
                 "claude-haiku-4-5"];
 const DEFAULT_MODEL = "claude-opus-5-5";
+
+// Claude Code refuses a model newer than itself — live, in After Effects:
+// "Claude Code 2.1.267 does not support this model; version 2.1.280 or
+// newer is required" — --model included, whatever the docs say. So the
+// panel asks the CLI its version, starts on the newest model that CLI
+// takes, marks the rest "needs claude update" in the menu, and says so
+// itself instead of spawning a turn that will 400. Gates are from
+// Anthropic's model-config docs; an unknown version gates nothing.
+const MODEL_MIN_CLI = { "claude-opus-5-5": "2.1.280", "claude-fable-5-1": "2.1.257",
+                        "claude-opus-5": "2.1.219", "claude-sonnet-5": "2.1.197" };
+const DEFAULT_FALLBACKS = ["claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"];
+let cliVersionSeen = null;                       // "2.1.267", or null = unknown
+function cliVersion() {
+  const binary = findClaudeBinary();
+  if (!binary) return (cliVersionSeen = null);
+  try {
+    const r = spawnSync(binary, ["--version"], { env: cliEnv(), encoding: "utf8", timeout: 20000, windowsHide: true });
+    const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(r.stdout || "") + String(r.stderr || ""));
+    cliVersionSeen = m ? m[1] + "." + m[2] + "." + m[3] : null;
+  } catch (e) { cliVersionSeen = null; }
+  return cliVersionSeen;
+}
+function versionAtLeast(v, min) {
+  const a = String(v).split(".").map(Number), b = String(min).split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  return true;
+}
+function modelsNeedingUpdate(version) {
+  if (!version) return [];
+  return MODELS.filter((m) => MODEL_MIN_CLI[m] && !versionAtLeast(version, MODEL_MIN_CLI[m]));
+}
+function defaultModelFor(version) {
+  const bad = modelsNeedingUpdate(version);
+  return [DEFAULT_MODEL].concat(DEFAULT_FALLBACKS).find((m) => MODELS.includes(m) && !bad.includes(m)) || DEFAULT_MODEL;
+}
+// Before a turn: is this CLI too old for the chosen model? Re-asks only
+// when the last answer said so, since `claude update` may just have run.
+function tooOldFor(model) {
+  const need = MODEL_MIN_CLI[model];
+  if (!need) return null;
+  if (cliVersionSeen && versionAtLeast(cliVersionSeen, need)) return null;
+  const v = cliVersion();
+  return v && !versionAtLeast(v, need) ? v : null;
+}
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
 let win = null;
@@ -51,7 +95,7 @@ let history = null;            // historyLib.makeHistory(userData/chats)
 let chatId = historyLib.newChatId();
 let msgLog = [];               // persisted {kind, payload} transcript events
 let pendingRecap = "";         // injected once when a saved session is gone
-let currentModel = "";
+let currentModel = "", turnErrorShown = false;
 const PERSISTED_KINDS = new Set(["you", "assistant", "error", "notice",
                                  "toolcall", "toolresult"]);
 
@@ -163,6 +207,7 @@ function buildTurn(workdir, model, effort, prompt) {
 }
 
 function runTurn(model, effort, text) {
+  turnErrorShown = false;
   const binary = findClaudeBinary();
   if (!binary) {
     sendUI("error", "Claude Code CLI not found. Install it with: npm install -g @anthropic-ai/claude-code");
@@ -204,7 +249,7 @@ function runTurn(model, effort, text) {
   child.stderr.on("data", (d) => { stderrText += d.toString("utf8"); });
   child.on("close", (code) => {
     try { fs.rmSync(workdir, { recursive: true, force: true }); } catch (e) {}
-    if (code !== 0 && stderrText) {
+    if (code !== 0 && stderrText && !turnErrorShown) {   // an error result already said it
       const low = (stderrText + stray.join("\n")).toLowerCase();
       if (low.includes("no conversation found")) {
         sessionId = null;
@@ -244,6 +289,7 @@ function handleCliEvent(event) {
     if (!event.is_error && String(event.subtype || "").indexOf("error") !== 0)
       pendingRecap = "";                 // context re-established server-side
     if (event.is_error || String(event.subtype || "").indexOf("error") === 0) {
+      turnErrorShown = true;
       let detail = String(event.result || "").trim();
       if (!detail) detail = (event.errors || []).map(String).join("\n");
       const low = detail.toLowerCase();
@@ -271,6 +317,8 @@ function shutdown() {
 // retired one. Say so above the raw text, so the fix is obvious.
 function modelHint(detail) {
   const d = String(detail || "");
+  if (/does not support this model|unrecognized_model/i.test(d))
+    return "Claude Code on this Mac is too old for " + currentModel + " — run `claude update` in Terminal, then send again, or pick another model in the Model menu.\n\n";
   // The API says not_found_error + "model: x"; Claude Code may reword it.
   if (!/not_found_error[\s\S]{0,200}model|model[^\n]{0,40}(not found|does not exist|not available|is unavailable|not supported)|unknown model|invalid model|not a recognized model/i.test(d)) return "";
   return "Claude Code could not use " + currentModel + " on this account — pick another model in the Model menu.\n\n";
@@ -414,6 +462,13 @@ ipcMain.handle("send", (evt, { text, model, effort, permissionMode }) => {
   const route = tools.slashRoute(text);
   sendUI("you", String(text).trim());
   if (route.kind === "unknown") { sendUI("notice", route.note); sendUI("done", {}); return true; }
+  // A model this CLI is too old for: say so now rather than spawn a 400.
+  const old = tooOldFor(currentModel);
+  if (old) {
+    sendUI("notice", currentModel + " needs Claude Code " + MODEL_MIN_CLI[currentModel] + " or newer; this Mac has " + old
+      + ". Run `claude update` in Terminal, then send again — or pick another model in the Model menu.");
+    sendUI("done", {}); return true;
+  }
   busy = true;
   runTurn(currentModel, EFFORTS.includes(effort) ? effort : "medium", route.prompt);
   return true;
@@ -461,9 +516,12 @@ ipcMain.handle("history", (evt, { action, id }) => {
   return null;
 });
 
-ipcMain.handle("config", () => ({ models: MODELS, default_model: DEFAULT_MODEL, efforts: EFFORTS,
-                                  modes: tools.PERMISSION_MODES,
-                                  commands: tools.SLASH_COMMANDS }));
+ipcMain.handle("config", () => {
+  const version = cliVersion();
+  return { models: MODELS, default_model: defaultModelFor(version),
+           needs_update: modelsNeedingUpdate(version), cli_version: version,
+           efforts: EFFORTS, modes: tools.PERMISSION_MODES, commands: tools.SLASH_COMMANDS };
+});
 
 // The renderer is sandboxed, so the system clipboard lives here.
 ipcMain.handle("clipboard", (evt, { op, text }) => {

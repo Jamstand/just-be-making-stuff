@@ -190,11 +190,14 @@ starts on Opus 5.5, which is what Claude Code itself defaults to; both
 panels remember whatever you pick. Effort applies to every model except
 Haiku 4.5, which the API refuses it for, so the panel omits it there. If
 your account cannot use a model yet, the reply says which one and to pick
-another; the raw error stays underneath. Two things Anthropic's docs say
-that the panel cannot check for you: Opus 5.5 wants Claude Code 2.1.280 or
-newer and Fable 5.1 wants 2.1.257 or newer (`claude update`), and on some
-plans Fable usage bills to usage credits — the panel runs Claude Code
-non-interactively, so it will not ask first.
+another; the raw error stays underneath. Claude Code refuses a model newer
+than itself (Opus 5.5 needs 2.1.280, Fable 5.1 2.1.257), so the panel asks
+it its version when it opens: a model it is too old for is marked "needs
+claude update" in the menu, the panel starts on the newest one it takes,
+and picking a marked one is answered by the panel itself — run
+`claude update` in Terminal, then send again. One thing it cannot check:
+on some plans Fable usage bills to usage credits, and the panel runs
+Claude Code non-interactively, so it will not ask first.
 
 ## Slash commands
 

@@ -9,7 +9,7 @@ const HTML = "file://" + path.join(__dirname, "com.jamstand.claude.ae", "html", 
 const OUT = __dirname;
 const FAKE_ASSISTANT = `
   window.assistant = {
-    config() { return Promise.resolve({ models: ["claude-fable-5-1","claude-fable-5","claude-opus-5-5","claude-opus-5","claude-opus-4-8","claude-sonnet-5","claude-haiku-4-5"], default_model: "claude-opus-5-5",
+    config() { return Promise.resolve({ models: ["claude-fable-5-1","claude-fable-5","claude-opus-5-5","claude-opus-5","claude-opus-4-8","claude-sonnet-5","claude-haiku-4-5"], default_model: "claude-opus-5-5", needs_update: [], cli_version: "2.1.283",
                efforts: ["low","medium","high","xhigh","max"],
                modes: ["Ask before edits","Always ask","Never ask"] }); },
     onEvent() {}, history() { return Promise.resolve([]); },

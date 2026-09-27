@@ -827,3 +827,30 @@ real main.js (scratch), and a Chromium drive of the real Resolve renderer
 (default, pick survives reload, a retired saved id falls back). Sources
 read 2026-09-27: platform.claude.com models overview + deprecations +
 effort page, code.claude.com model-config + cli-reference.
+
+LIVE (first thing to run inside real After Effects on this branch): josh's
+Claude Code 2.1.267 answered the new default with `API Error: 400 Claude
+Code 2.1.267 does not support this model; version 2.1.280 or newer is
+required` plus a stderr tag `[claude-code:unrecognized_model]
+{"model":"claude-opus-5-5","query_source":"sdk"}` — so the CLI DOES gate
+--model (the docs' "the check doesn't cover --model" is wrong for -p), and
+the panel showed two cards (the result error, then "exited with status 1"
+from the stderr line). Fix, all three surfaces: MODEL_MIN_CLI (opus-5-5
+2.1.280, fable-5-1 2.1.257, opus-5 2.1.219, sonnet-5 2.1.197), cliVersion()
+= `claude --version` once at config()/startup (cached; re-asked only when
+the cached answer says too old, so `claude update` is noticed on the next
+send), default_model = newest listed model the CLI takes (DEFAULT_MODEL,
+then opus-5, sonnet-5, opus-4-8), config().needs_update → the renderer
+labels those entries "— needs claude update" and drops a saved pick that
+is marked; send() answers a marked pick with a notice naming both versions
+and `claude update` without spawning; modelHint also reads "does not
+support this model"; an error result sets turnErrorShown so a non-zero
+exit with stderr adds no second card. Python: claude_code_version /
+models_needing_update / default_model_for_cli / cli_too_old_for, checked
+in run_agent_turn_claude_code before the spawn. Verified: Electron step 6f
+(fakebin/claude answers --version from HOME/claude-version.txt: 2.1.267 →
+menu starts on opus-5, only opus-5-5 marked — 2.1.267 already satisfies
+Fable 5.1 — the pick is refused without a spawn; file rewritten to 2.1.283
+→ the same pick runs), step 3g now also proves the single card (the fake
+writes the stderr tag), and the Python gate tests with the spawn stubbed
+to throw.

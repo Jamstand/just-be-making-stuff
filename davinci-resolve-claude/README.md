@@ -109,7 +109,11 @@ avoid that.
 - **Model picker** — every current Claude model by full id, defaulting to
   `claude-opus-5-5` (Claude Code's own default). `claude-fable-5-1` is the most
   capable (and priciest); `claude-sonnet-5` is faster/cheaper and
-  `claude-haiku-4-5` is for quick lookups. Your pick is remembered.
+  `claude-haiku-4-5` is for quick lookups. Your pick is remembered. On the
+  Claude Code backend the panel checks the CLI's version: a model it is too
+  old for (Opus 5.5 needs 2.1.280) is refused with a `claude update` pointer
+  before anything runs, and a fresh install starts on the newest model the
+  CLI takes.
 - **Effort** — how hard Claude thinks before acting: `low`/`medium`/`high`
   (default)/`xhigh`/`max`. Lower is faster and cheaper; raise it for complex
   multi-step jobs. Ignored on Haiku, which doesn't take an effort setting.

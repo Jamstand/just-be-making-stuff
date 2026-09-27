@@ -414,6 +414,73 @@ def model_supports_effort(model):
     return "haiku" not in model
 
 
+# Claude Code refuses a model newer than itself (live, in After Effects:
+# "Claude Code 2.1.267 does not support this model; version 2.1.280 or newer
+# is required") — --model included. So the Claude Code backend asks the CLI
+# its version, starts on the newest model it takes, and refuses the rest
+# itself with a `claude update` pointer instead of spawning a turn that will
+# 400. Gates are from Anthropic's model-config docs; an unknown version
+# gates nothing.
+MODEL_MIN_CLI = {"claude-opus-5-5": "2.1.280", "claude-fable-5-1": "2.1.257",
+                 "claude-opus-5": "2.1.219", "claude-sonnet-5": "2.1.197"}
+DEFAULT_FALLBACKS = ["claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"]
+_cli_version_cache = {}
+
+
+def _version_tuple(v):
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", str(v or ""))
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def claude_code_version(cfg=None, refresh=False):
+    """'2.1.267' from `claude --version`; "" when there is no CLI or no answer."""
+    if not refresh and "v" in _cli_version_cache:
+        return _cli_version_cache["v"]
+    binary = find_claude_binary(cfg)
+    version = ""
+    if binary:
+        try:
+            out = subprocess.run([binary, "--version"], capture_output=True, text=True,
+                                 timeout=20, env=claude_code_env())
+            m = re.search(r"(\d+)\.(\d+)\.(\d+)", (out.stdout or "") + (out.stderr or ""))
+            version = m.group(0) if m else ""
+        except Exception:
+            version = ""
+    _cli_version_cache["v"] = version
+    return version
+
+
+def models_needing_update(version):
+    have = _version_tuple(version)
+    if not have:
+        return []
+    return [m for m in MODEL_CHOICES
+            if m in MODEL_MIN_CLI and have < _version_tuple(MODEL_MIN_CLI[m])]
+
+
+def default_model_for_cli(cfg):
+    """DEFAULT_MODEL, unless the Claude Code backend is too old for it."""
+    if get_backend(cfg) != BACKEND_CLAUDE_CODE:
+        return DEFAULT_MODEL
+    bad = models_needing_update(claude_code_version(cfg))
+    for m in [DEFAULT_MODEL] + DEFAULT_FALLBACKS:
+        if m in MODEL_CHOICES and m not in bad:
+            return m
+    return DEFAULT_MODEL
+
+
+def cli_too_old_for(cfg, model):
+    """The CLI version if it cannot run `model`, else "". Re-asks the CLI when
+    the cached answer says too old, since `claude update` may just have run."""
+    need = _version_tuple(MODEL_MIN_CLI.get(model))
+    if not need:
+        return ""
+    have = claude_code_version(cfg)
+    if _version_tuple(have) and _version_tuple(have) < need:
+        have = claude_code_version(cfg, refresh=True)
+    return have if _version_tuple(have) and _version_tuple(have) < need else ""
+
+
 def get_backend(cfg):
     """Which brain the panel talks to: BACKEND_CLAUDE_CODE or BACKEND_API."""
     choice = (os.environ.get("CLAUDE_RESOLVE_BACKEND") or cfg.get("backend") or "").strip().lower()
@@ -5090,6 +5157,12 @@ def run_agent_turn_claude_code(cfg, model, user_text, emit):
         emit("error", "Claude Code CLI not found. Install it with "
                       "`npm install -g @anthropic-ai/claude-code`.")
         return
+    old = cli_too_old_for(cfg, model)
+    if old:
+        emit("error", "%s needs Claude Code %s or newer; this machine has %s. Run "
+                      "`claude update` in Terminal, then send again — or pick another "
+                      "model." % (model, MODEL_MIN_CLI[model], old))
+        return
 
     prompt = "%s\n\n%s" % (user_text, resolve_context_block())
     resume_id = STATE.get("cc_session_id")
@@ -6025,7 +6098,7 @@ class ChatWindow(object):
             if saved in choices:
                 combo.CurrentIndex = choices.index(saved)
 
-        fill("ModelCombo", MODEL_CHOICES, cfg.get("model", DEFAULT_MODEL))
+        fill("ModelCombo", MODEL_CHOICES, cfg.get("model") or default_model_for_cli(cfg))
         fill("EffortCombo", EFFORT_CHOICES, cfg.get("effort", DEFAULT_EFFORT))
 
         self.win.On.SendBtn.Clicked = self.on_send

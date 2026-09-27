@@ -574,6 +574,42 @@ const fullCards = (page) => page.evaluate(() => [...document.querySelectorAll("#
     "the whole /train flow ran with no ffmpeg: After Effects read 135x240 frames and the measurements came out right", e5);
   await app5.close();
 
+  console.log("### 6f. 🔍 an old Claude Code (2.1.267, the live case): the menu starts on Opus 5, says which models need claude update, refuses them itself — and notices the update");
+  const HOME6 = fs.mkdtempSync(path.join(os.tmpdir(), "ae-oldcli-home-"));
+  fs.writeFileSync(path.join(HOME6, "claude-version.txt"), "2.1.267");
+  const app6 = await _electron.launch({ executablePath: require("electron"),
+    args: ["--no-sandbox", "--no-zygote", path.join(__dirname, "main.js")],
+    env: Object.assign({}, process.env, { AE_EXT: EXT, HOME: HOME6, PATH: path.join(__dirname, "fakebin") + ":" + process.env.PATH }) });
+  const page6 = await app6.firstWindow();
+  page6.on("pageerror", (e) => console.log("  [pageerror old-cli] " + e.message));
+  await page6.waitForFunction(() => document.getElementById("status") && document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 20000 });
+  const cfg6 = await page6.evaluate(() => window.assistant.config());
+  const dd6 = await page6.$eval("#model", (s) => ({ value: s.value, labels: [...s.options].map((o) => o.textContent) }));
+  console.log(JSON.stringify({ cli_version: cfg6.cli_version, default_model: cfg6.default_model, needs_update: cfg6.needs_update, dropdown: dd6 }));
+  smExpect(cfg6.cli_version === "2.1.267" && cfg6.default_model === "claude-opus-5" && dd6.value === "claude-opus-5"
+    && JSON.stringify(cfg6.needs_update) === JSON.stringify(["claude-opus-5-5"])          // Fable 5.1 needs 2.1.257, which 2.1.267 has
+    && dd6.labels.includes("claude-opus-5-5 — needs claude update") && dd6.labels.includes("claude-opus-5") && dd6.labels.includes("claude-fable-5-1")
+    && !dd6.labels.some((l) => /claude-opus-5 —|claude-fable-5-1 —/.test(l)),
+    "old CLI: default falls back to Opus 5 and only Opus 5.5 is marked", { cfg6, dd6 });
+  await page6.selectOption("#model", "claude-opus-5-5");
+  await page6.fill("#input", "hello");
+  await page6.press("#input", "Enter");
+  await page6.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 8000 });
+  const note6 = ((await fullCards(page6)).slice(-1)[0] || {});
+  console.log(JSON.stringify({ card: note6, cli_ran: fs.existsSync(path.join(HOME6, "last-turn.json")) }));
+  smExpect(note6.cls === "notice" && /claude-opus-5-5 needs Claude Code 2\.1\.280 or newer; this Mac has 2\.1\.267/.test(note6.text) && /claude update/.test(note6.text)
+    && !fs.existsSync(path.join(HOME6, "last-turn.json")), "old CLI: the panel refuses the newer model itself, without spawning", note6);
+  fs.writeFileSync(path.join(HOME6, "claude-version.txt"), "2.1.283");     // the user ran claude update
+  await page6.fill("#input", "hello");
+  await page6.press("#input", "Enter");
+  await page6.waitForFunction(() => !document.getElementById("approval").hidden, null, { timeout: 8000 });
+  const argv6 = JSON.parse(fs.readFileSync(path.join(HOME6, "last-turn.json"), "utf8")).argv;
+  console.log(JSON.stringify({ after_update_model_argv: argv6[argv6.indexOf("--model") + 1] }));
+  smExpect(argv6[argv6.indexOf("--model") + 1] === "claude-opus-5-5", "after claude update the same pick runs, on the newer model", argv6);
+  await page6.keyboard.press("Escape");
+  await page6.waitForFunction(() => document.getElementById("status").textContent.startsWith("Ready"), null, { timeout: 8000 });
+  await app6.close();
+
   console.log("### 7. 🔍 resize narrow — layout survives?");
   for (const w of [420, 320]) {
     await page.setViewportSize({ width: w, height: 560 });

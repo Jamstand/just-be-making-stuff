@@ -446,22 +446,26 @@ document.getElementById("historybtn").onclick = () => {
 };
 document.getElementById("histclose").onclick = () => { histPanel.hidden = true; };
 
-assistant.config().then(({ models, efforts, modes, commands, default_model }) => {
+assistant.config().then(({ models, efforts, modes, commands, default_model, needs_update }) => {
   COMMANDS = commands || [];
-  const fill = (id, values, chosen) => {
+  const stale = new Set(needs_update || []);
+  const fill = (id, values, chosen, label) => {
     const select = document.getElementById(id);
     for (const value of values) {
-      const opt = el("option", "", value);
+      const opt = el("option", "", label ? label(value) : value);
       opt.value = value;
       select.appendChild(opt);
     }
     const saved = localStorage.getItem("ca-" + id);
-    select.value = values.includes(saved) ? saved : chosen;
+    select.value = values.includes(saved) && !stale.has(saved) ? saved : chosen;
     select.onchange = () => localStorage.setItem("ca-" + id, select.value);
   };
   // The dropdown lists every model newest first; a fresh install starts on
-  // the panel's default, not the top entry, and remembers what is picked.
-  fill("model", models, models.includes(default_model) ? default_model : models[0]);
+  // the panel's default, not the top entry, and remembers what is picked —
+  // unless the pick is one this Claude Code is too old for, which is said
+  // in the menu itself.
+  fill("model", models, models.includes(default_model) ? default_model : models[0],
+       (m) => (stale.has(m) ? m + " — needs claude update" : m));
   fill("effort", efforts, "medium");
   fill("mode", modes, "Ask before edits");
   card("notice", "NOTE", "Connected. Ask me anything — e.g. \"add a red " +
