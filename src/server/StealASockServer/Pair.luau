@@ -163,6 +163,12 @@ function Pair.Recompute(record, quiet: boolean?)
 			local t = S.Registry.Type(l)
 			local tier = S.Registry.Tier(l)
 			local what = (if l.perfect then "PERFECT " else "") .. t.name .. " pair"
+			local other = l.pairWith and S.Registry.Get(l.pairWith)
+			for _, half in ipairs({ l, other }) do
+				if half and half.model and half.model.PrimaryPart then
+					S.FX(if l.perfect then "perfect" else "pair", half.model.PrimaryPart.Position, tier.color)
+				end
+			end
 			S.Toast(record.player, "PAIRED! " .. what .. " (x" .. (if l.perfect then S.Config.Economy.PairBonus * S.Config.Economy.PerfectPairBonus else S.Config.Economy.PairBonus) .. " income)", "good")
 			if tier.rank >= S.Config.Rarity.AnnounceFromRank then
 				S.Announce(record.player.DisplayName .. " completed a " .. what .. "! 🧦🧦", tier.color)

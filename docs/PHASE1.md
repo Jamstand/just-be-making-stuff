@@ -1,8 +1,11 @@
-# Phase 1 — Core loop
+# Phase 1 — Core loop (+ the "Giant's Bedroom at night" look)
 
-Map blockout, drawer assignment, Dryer + Clothesline, buy, income/collect, steal/carry/claim,
-Towel Snap, drawer lock, saving, basic Pairs (bonus + thread beam). Built and linted in the cloud
-(`rojo build` ok, `luau-lsp` clean on our code); **not playtested** — that is your job below.
+Drawer assignment, Dryer + Clothesline, buy, income/collect, steal/carry/claim, Towel Snap, drawer
+lock, saving, basic Pairs (bonus + thread beam) — plus the look-and-feel pass: a code-built
+bedroom (bed, nightstand lamp, moon window, toy blocks, crayons, duck, teddy, door), night lighting
+with bloom, 21 sock designs with signature features, rarity glows, mutation looks, idle motions,
+line sway and one-shot effects. Built and linted in the cloud (`rojo build` ok, `luau-lsp` clean on
+our code); **not playtested** — that is your job below.
 
 ## Explorer hierarchy (what the local Claude creates in a blank place)
 
@@ -20,23 +23,30 @@ ReplicatedStorage
    └─ RemoteNames              (ModuleScript)  src/shared/RemoteNames.luau
 ServerScriptService
 └─ StealASockServer            (Script)        src/server/StealASockServer/init.server.luau
-   ├─ RateLimit  Data  Map  Registry  Factory  Base  Pair  Income
+   ├─ RateLimit  Data  Lighting  Map  Registry  Factory  Base  Pair  Income
    │  Clothesline  Purchase  Steal  Towel      (ModuleScripts, one per .luau file)
    └─ ProfileStore             (ModuleScript)  vendored, MIT
 StarterPlayer
 └─ StarterPlayerScripts
    └─ StealASockClient         (LocalScript)   src/client/StealASockClient/init.client.luau
-      └─ HUD                   (ModuleScript)  src/client/StealASockClient/HUD.luau
+      ├─ HUD                   (ModuleScript)  src/client/StealASockClient/HUD.luau
+      └─ SockFX                (ModuleScript)  src/client/StealASockClient/SockFX.luau
 ```
 
-Created at runtime by the server: `ReplicatedStorage.Remotes` (State, Toast, Announce, Carry) and
+Created at runtime by the server: `ReplicatedStorage.Remotes` (State, Toast, Announce, Carry, FX) and
 `workspace.StealASock` (Map, Bases, Line, Drawer, Carried folders). Nothing else is needed in the
 place — delete the default Baseplate and SpawnLocation.
 
 ## Loading it into Studio (paste into your local Claude, Studio open, MCP on)
 
 ```text
-Read CLAUDE.md. I have a NEW blank place open in Studio called "Steal a Sock" with the MCP toggle on. Load the Phase 1 code into it: in this repo folder run `git fetch origin` then `git checkout claude/steal-a-sock`, then recreate the tree from docs/PHASE1.md in the open place EXACTLY: ReplicatedStorage.Shared (Folder) with a Config Folder holding ModuleScripts EconomyConfig, RarityConfig, MutationConfig, SockConfig, EventConfig (from src/shared/Config/*.luau) plus ModuleScripts Types, Util, RemoteNames; ServerScriptService.StealASockServer as a Script whose Source is src/server/StealASockServer/init.server.luau, with one child ModuleScript per other .luau file in that folder (named after the file: RateLimit, Data, Map, Registry, Factory, Base, Pair, Income, Clothesline, Purchase, Steal, Towel, ProfileStore); StarterPlayer.StarterPlayerScripts.StealASockClient as a LocalScript from init.client.luau with the child ModuleScript HUD. Copy every file's contents into Source unchanged (keep tabs; when setting Source from Luau wrap the text in a long-bracket level the file doesn't contain). Delete the default Baseplate part and SpawnLocation. Then read back each Source and compare its length to the file; fix any mismatch. Don't publish. Finally list what you created and tell me to press Play.
+Read CLAUDE.md. I have a NEW blank place open in Studio called "Steal a Sock" with the MCP toggle on. Load the Phase 1 code into it: in this repo folder run `git fetch origin` then `git checkout claude/steal-a-sock`, then recreate the tree from docs/PHASE1.md in the open place EXACTLY: ReplicatedStorage.Shared (Folder) with a Config Folder holding ModuleScripts EconomyConfig, RarityConfig, MutationConfig, SockConfig, EventConfig (from src/shared/Config/*.luau) plus ModuleScripts Types, Util, RemoteNames; ServerScriptService.StealASockServer as a Script whose Source is src/server/StealASockServer/init.server.luau, with one child ModuleScript per other .luau file in that folder (named after the file: RateLimit, Data, Lighting, Map, Registry, Factory, Base, Pair, Income, Clothesline, Purchase, Steal, Towel, ProfileStore); StarterPlayer.StarterPlayerScripts.StealASockClient as a LocalScript from init.client.luau with the child ModuleScripts HUD and SockFX. Copy every file's contents into Source unchanged (keep tabs; when setting Source from Luau wrap the text in a long-bracket level the file doesn't contain). Delete the default Baseplate part and SpawnLocation. Then read back each Source and compare its length to the file; fix any mismatch. Don't publish. Finally list what you created and tell me to press Play.
+```
+
+## Updating a place that already has Phase 1 (paste into your local Claude)
+
+```text
+Read CLAUDE.md. The "Steal a Sock" place is open in Studio with the MCP toggle on and already holds the Phase 1 scripts. Update it to the latest code: run `git fetch origin` and `git checkout claude/steal-a-sock` then `git pull`. For every .luau file under src/ (see the tree in docs/PHASE1.md), compare the file's contents with the matching instance's Source in the open place; replace the Source where it differs, and CREATE any instance that is missing (new this round: ModuleScript Lighting under ServerScriptService.StealASockServer, and ModuleScript SockFX under StarterPlayer.StarterPlayerScripts.StealASockClient). Keep tabs, wrap Source text in a long-bracket level the file doesn't contain. Then read back every Source and compare lengths; fix mismatches. List what changed. Don't publish. Tell me to press Play.
 ```
 
 ## How to test
@@ -94,15 +104,19 @@ banner bottom-centre; nothing sits under the jump button. Prompts show as tap bu
 3. **Not playtested by me.** The cloud session can only build and lint. Expect small tuning on
    positions (sock height on slots, clothesline height, prompt distances) — all in `Map.Layout` /
    `EconomyConfig`.
-4. **Knockback** uses a `LinearVelocity` on a client-owned character; if a client ignores it the stun
+4. **Lights:** the lamp SpotLight, moon, dryer, 8 drawer lamps and Legendary+ socks are real lights.
+   If a low-end phone stutters, lower `Lighting.Technology` to ShadowMap (or delete the drawer lamps
+   in `Map.buildBase`) — a Quality scaler like Crack a Geode's is on the Phase 4 list.
+5. **Knockback** uses a `LinearVelocity` on a client-owned character; if a client ignores it the stun
    and the sock return still happen (those are server-side).
-5. **No anti-cheat for WalkSpeed.** Carry slowdown is a server-set WalkSpeed; an exploiter can reset
+6. **No anti-cheat for WalkSpeed.** Carry slowdown is a server-set WalkSpeed; an exploiter can reset
    it. Phase 4 can add a server speed sanity check.
-6. **Mutations** are rolled and priced (x1.25 … x10) with a colour/material look only; particle looks,
-   Stink accrual, Match Radar, RIVAL tags and the Sockdex are Phase 2.
-7. **Sounds** are silent (`SockConfig.sound = ""`) until asset ids are added in Phase 4.
-8. If a victim fills their drawer while a thief carries their sock and the steal then fails, the sock
+7. **Mutation looks are in** (fuzz balls, static sparks, neon glow, a real hole + halo, gold thread,
+   client-side rainbow hue cycling, Lint Galaxy stars); Stink accrual, Match Radar, RIVAL tags and the
+   Sockdex are Phase 2.
+8. **Sounds** are silent (`SockConfig.sound = ""`) until asset ids are added in Phase 4.
+9. If a victim fills their drawer while a thief carries their sock and the steal then fails, the sock
    has no slot to return to: it stays in the victim's save and reappears next join.
-9. The Steal prompt exists on every drawer sock; it is hidden locally for the owner and the server
+10. The Steal prompt exists on every drawer sock; it is hidden locally for the owner and the server
    rejects owner steals — so it is safe, just visible to exploiters.
-10. Socks bought while your drawer is slammed hop in through the shutter (intended).
+11. Socks bought while your drawer is slammed hop in through the shutter (intended).

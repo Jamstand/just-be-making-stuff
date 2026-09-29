@@ -77,6 +77,7 @@ local function attach(player: Player, sock)
 	weld.Part1 = leg
 	weld.Parent = leg
 	model:SetAttribute("CarrierId", player.UserId)
+	model:SetAttribute("State", "carried")
 	model.Parent = S.Map.Folders.Carried
 	return true
 end
@@ -157,6 +158,7 @@ function Steal.TryPickup(player: Player, sock)
 
 	local name = S.Registry.DisplayName(sock)
 	local tier = S.Registry.Tier(sock)
+	S.FX("steal", leg.Position, tier.color)
 	S.Toast(player, "Grabbed " .. name .. "! Run home! 🏃", "good")
 	S.Toast(victim, player.DisplayName .. " is stealing your " .. name .. "! Snap them with your towel!", "bad")
 	if wasPaired and tier.rank >= S.Config.Rarity.AnnounceFromRank then
@@ -223,6 +225,7 @@ function Steal.Claim(player: Player)
 	S.Remotes.Carry:FireClient(player, nil)
 	local name = S.Registry.DisplayName(sock)
 	local tier = S.Registry.Tier(sock)
+	S.FX("claim", S.Base.SlotCFrame(myBase, slot).Position, tier.color)
 	S.Toast(player, "Kept " .. name .. "! It's yours now. 🧦", "good")
 	if victim then
 		S.Toast(victim, player.DisplayName .. " got away with your " .. name .. "!", "bad")

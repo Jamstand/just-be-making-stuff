@@ -20,7 +20,9 @@ local IS_TOUCH = UserInputService.TouchEnabled and not UserInputService.MouseEna
 
 local FONT = Enum.Font.FredokaOne
 local FONT_BODY = Enum.Font.GothamBold
-local COLOR_PANEL = Color3.fromRGB(28, 26, 40)
+local COLOR_PANEL = Color3.fromRGB(38, 30, 62)
+local COLOR_PANEL2 = Color3.fromRGB(22, 18, 40)
+local COLOR_STROKE = Color3.fromRGB(150, 110, 255)
 local COLOR_CASH = Color3.fromRGB(120, 255, 150)
 
 local gui
@@ -48,6 +50,19 @@ local function corner(inst: Instance, radius: number)
 	c.Parent = inst
 end
 
+-- candy look: thick coloured outline + vertical gradient
+local function candy(inst: GuiObject, strokeColor: Color3?, top: Color3?, bottom: Color3?)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = strokeColor or COLOR_STROKE
+	stroke.Thickness = 3
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = inst
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new(top or COLOR_PANEL, bottom or COLOR_PANEL2)
+	grad.Parent = inst
+end
+
 local function label(parent: Instance, text: string, size: number, color: Color3?, font: Enum.Font?): TextLabel
 	local t = Instance.new("TextLabel")
 	t.BackgroundTransparency = 1
@@ -73,10 +88,11 @@ function HUD.Init()
 	top.Name = "Top"
 	top.Size = UDim2.fromOffset(300, 132)
 	top.Position = UDim2.fromOffset(12, 8)
-	top.BackgroundColor3 = COLOR_PANEL
-	top.BackgroundTransparency = 0.25
+	top.BackgroundColor3 = Color3.new(1, 1, 1)
+	top.BackgroundTransparency = 0.05
 	top.Parent = gui
-	corner(top, 14)
+	corner(top, 16)
+	candy(top)
 	local pad = Instance.new("UIPadding")
 	pad.PaddingLeft = UDim.new(0, 12)
 	pad.PaddingTop = UDim.new(0, 6)
@@ -98,25 +114,27 @@ function HUD.Init()
 	toggle.Name = "DrawerToggle"
 	toggle.Size = UDim2.fromOffset(150, 56)
 	toggle.Position = UDim2.fromOffset(12, 150) -- under the cash panel; the top-right belongs to Roblox's player list
-	toggle.BackgroundColor3 = Color3.fromRGB(255, 190, 60)
+	toggle.BackgroundColor3 = Color3.new(1, 1, 1)
 	toggle.Font = FONT
 	toggle.TextSize = 22
-	toggle.TextColor3 = Color3.fromRGB(40, 30, 10)
+	toggle.TextColor3 = Color3.fromRGB(60, 40, 10)
 	toggle.Text = "🧦 DRAWER"
 	toggle.AutoButtonColor = true
 	toggle.Parent = gui
-	corner(toggle, 12)
+	corner(toggle, 14)
+	candy(toggle, Color3.fromRGB(200, 130, 30), Color3.fromRGB(255, 215, 90), Color3.fromRGB(255, 170, 50))
 	refs.toggle = toggle
 
 	local panel = Instance.new("Frame")
 	panel.Name = "Drawer"
 	panel.Size = UDim2.new(0, 300, 1, -230) -- fills down to just above the bottom edge on any screen
 	panel.Position = UDim2.fromOffset(12, 214)
-	panel.BackgroundColor3 = COLOR_PANEL
-	panel.BackgroundTransparency = 0.2
+	panel.BackgroundColor3 = Color3.new(1, 1, 1)
+	panel.BackgroundTransparency = 0.05
 	panel.Visible = drawerOpen
 	panel.Parent = gui
-	corner(panel, 14)
+	corner(panel, 16)
+	candy(panel)
 	refs.drawerPanel = panel
 	refs.drawerTitle = label(panel, "YOUR DRAWER 0/8", 20)
 	refs.drawerTitle.Position = UDim2.fromOffset(12, 6)
@@ -150,7 +168,11 @@ function HUD.Init()
 	carryFrame.BackgroundColor3 = Color3.fromRGB(200, 60, 80)
 	carryFrame.Visible = false
 	carryFrame.Parent = gui
-	corner(carryFrame, 12)
+	corner(carryFrame, 14)
+	local carryStroke = Instance.new("UIStroke")
+	carryStroke.Color = Color3.new(1, 1, 1)
+	carryStroke.Thickness = 3
+	carryStroke.Parent = carryFrame
 	refs.carryFrame = carryFrame
 	refs.carry = label(carryFrame, "", 20)
 	refs.carry.Size = UDim2.fromScale(1, 1)
@@ -181,10 +203,11 @@ function HUD.Init()
 	announceFrame.Size = UDim2.fromOffset(560, 52)
 	announceFrame.AnchorPoint = Vector2.new(0.5, 0)
 	announceFrame.Position = UDim2.new(0.5, 0, 0, 12)
-	announceFrame.BackgroundColor3 = Color3.fromRGB(40, 30, 70)
+	announceFrame.BackgroundColor3 = Color3.new(1, 1, 1)
 	announceFrame.Visible = false
 	announceFrame.Parent = gui
-	corner(announceFrame, 12)
+	corner(announceFrame, 14)
+	candy(announceFrame, Color3.fromRGB(255, 220, 90), Color3.fromRGB(70, 40, 120), Color3.fromRGB(40, 20, 70))
 	refs.announceFrame = announceFrame
 	refs.announce = label(announceFrame, "", 22)
 	refs.announce.Size = UDim2.fromScale(1, 1)
@@ -221,17 +244,25 @@ local function slotRow(index: number, view)
 	local row = Instance.new("Frame")
 	row.Name = "Slot" .. index
 	row.Size = UDim2.new(1, 0, 0, 44)
-	row.BackgroundColor3 = Color3.fromRGB(45, 42, 62)
+	row.BackgroundColor3 = Color3.fromRGB(55, 46, 84)
 	row.LayoutOrder = index
-	corner(row, 8)
-	local num = label(row, tostring(index), 16, Color3.fromRGB(150, 150, 170), FONT_BODY)
-	num.Position = UDim2.fromOffset(8, 0)
+	corner(row, 10)
+	local bar = Instance.new("Frame")
+	bar.Name = "RarityBar"
+	bar.Size = UDim2.new(0, 5, 1, -10)
+	bar.Position = UDim2.fromOffset(4, 5)
+	bar.BorderSizePixel = 0
+	bar.BackgroundColor3 = if view and RarityConfig.Tiers[view.rarity] then RarityConfig.Tiers[view.rarity].color else Color3.fromRGB(90, 80, 120)
+	bar.Parent = row
+	corner(bar, 3)
+	local num = label(row, tostring(index), 16, Color3.fromRGB(170, 160, 200), FONT_BODY)
+	num.Position = UDim2.fromOffset(14, 0)
 	num.Size = UDim2.fromOffset(22, 44)
 	if view then
 		local tier = RarityConfig.Tiers[view.rarity]
 		local m = MutationConfig.Table[view.mutation]
 		local name = label(row, view.name, 16, tier and tier.color or Color3.new(1, 1, 1))
-		name.Position = UDim2.fromOffset(32, 2)
+		name.Position = UDim2.fromOffset(38, 2)
 		name.Size = UDim2.new(1, -110, 0, 22)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		local subText = Util.SideLabel(view.side)
@@ -244,7 +275,7 @@ local function slotRow(index: number, view)
 			subText ..= " • PAIRED"
 		end
 		local sub = label(row, subText, 13, if view.paired then Color3.fromRGB(120, 255, 160) else Color3.fromRGB(190, 190, 210), FONT_BODY)
-		sub.Position = UDim2.fromOffset(32, 24)
+		sub.Position = UDim2.fromOffset(38, 24)
 		sub.Size = UDim2.new(1, -110, 0, 18)
 		sub.TextTruncate = Enum.TextTruncate.AtEnd
 		local income = label(row, "$" .. Util.FormatRate(view.income) .. "/s", 15, COLOR_CASH, FONT_BODY)
@@ -254,7 +285,7 @@ local function slotRow(index: number, view)
 		income.TextXAlignment = Enum.TextXAlignment.Right
 	else
 		local empty = label(row, "empty", 15, Color3.fromRGB(120, 120, 140), FONT_BODY)
-		empty.Position = UDim2.fromOffset(32, 0)
+		empty.Position = UDim2.fromOffset(38, 0)
 		empty.Size = UDim2.new(1, -40, 1, 0)
 	end
 	return row
@@ -314,9 +345,14 @@ function HUD.Toast(text: string, kind: string?)
 	frame.Size = UDim2.fromOffset(440, 40)
 	frame.AutomaticSize = Enum.AutomaticSize.Y
 	frame.BackgroundColor3 = colors[kind or "info"] or colors.info
-	frame.BackgroundTransparency = 0.1
+	frame.BackgroundTransparency = 0.05
 	frame.LayoutOrder = math.floor(os.clock() * 1000)
-	corner(frame, 10)
+	corner(frame, 12)
+	local toastStroke = Instance.new("UIStroke")
+	toastStroke.Color = Color3.new(1, 1, 1)
+	toastStroke.Thickness = 2
+	toastStroke.Transparency = 0.5
+	toastStroke.Parent = frame
 	local t = label(frame, text, 18, nil, FONT_BODY)
 	t.Size = UDim2.new(1, -20, 0, 40)
 	t.Position = UDim2.fromOffset(10, 0)

@@ -9,5 +9,6 @@ return {
 		"Toast", -- server -> client: short message for one player {text, kind}
 		"Announce", -- server -> all: banner text + color
 		"Carry", -- server -> client: carry started/ended {name, side, rarity} or nil
+		"FX", -- server -> all: one-shot effect {kind, position, color} (buy, pair, steal, claim, snap)
 	},
 }

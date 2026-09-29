@@ -1,22 +1,25 @@
--- Clothesline: The Great Dryer spawns a sock every few seconds; each sock rides the line on one
--- linear Tween (no per-sock loops) and falls into the Lint Trap if nobody buys it.
+-- Clothesline: The Great Dryer spawns a sock every few seconds. Each line sock's position is a pure
+-- function of server time (LineStart/LineDuration attributes): every client moves it locally and
+-- smoothly (see StealASockClient.SockFX), the server only computes the same position when it
+-- needs to validate a purchase. Unbought socks fall into the Lint Trap.
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 
 local Clothesline = {}
 local S
 
-local onLine = {} -- uid -> { sock = Sock, tween = Tween, prompt = ProximityPrompt }
+local onLine = {} -- uid -> { sock = Sock, prompt = ProximityPrompt, token = number }
 local lineCount = 0
 
 function Clothesline.Init(s)
 	S = s
-	-- Spin the dryer drum (one loop for decor)
+	-- Spin the dryer drum and the cosmic swirl (one loop for decor)
 	local drum = S.Map.Dryer.Drum
 	local swirl = S.Map.Dryer.Swirl
+	local core = S.Map.Dryer.Core
 	RunService.Heartbeat:Connect(function(dt)
 		drum.CFrame = drum.CFrame * CFrame.Angles(dt * 2.5, 0, 0)
 		swirl.CFrame = swirl.CFrame * CFrame.Angles(dt * 1.5, dt * 2, 0)
+		core.CFrame = core.CFrame * CFrame.Angles(-dt * 3, dt, 0)
 	end)
 	task.spawn(function()
 		while true do
@@ -69,15 +72,17 @@ function Clothesline.SpawnOne()
 	end)
 
 	local duration = S.Map.LineLength() / S.Config.Economy.ClotheslineSpeed
-	local tween = TweenService:Create(leg, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = S.Map.LinePoint(S.Map.LineLength()) })
-	tween.Completed:Connect(function(playbackState)
-		if playbackState == Enum.PlaybackState.Completed and sock.state == "line" then
+	model:SetAttribute("State", "line")
+	model:SetAttribute("LineStart", workspace:GetServerTimeNow())
+	model:SetAttribute("LineDuration", duration)
+	local entry = { sock = sock, prompt = prompt, token = 0 }
+	onLine[sock.uid] = entry
+	lineCount += 1
+	task.delay(duration + 0.6, function()
+		if onLine[sock.uid] == entry and sock.state == "line" then
 			Clothesline.Despawn(sock)
 		end
 	end)
-	onLine[sock.uid] = { sock = sock, tween = tween, prompt = prompt }
-	lineCount += 1
-	tween:Play()
 
 	local t = S.Registry.Type(sock)
 	if t.announceSpawn then
@@ -91,10 +96,25 @@ function Clothesline.Remove(sock)
 	if not entry then
 		return
 	end
-	entry.tween:Cancel()
 	entry.prompt:Destroy()
 	onLine[sock.uid] = nil
 	lineCount -= 1
+	-- park the server-side model where every client currently sees it, so the buy hop starts there
+	if sock.model then
+		sock.model:PivotTo(CFrame.new(Clothesline.PositionOf(sock)))
+	end
+end
+
+-- Where the sock is right now on the line (same formula the clients use).
+function Clothesline.PositionOf(sock): Vector3
+	local model = sock.model
+	local t0 = model and model:GetAttribute("LineStart")
+	local dur = model and model:GetAttribute("LineDuration")
+	if not t0 or not dur then
+		return if model then model:GetPivot().Position else Vector3.zero
+	end
+	local progress = math.clamp((workspace:GetServerTimeNow() - t0) / dur, 0, 1)
+	return S.Map.LinePoint(progress * S.Map.LineLength()).Position
 end
 
 -- Fell into the Lint Trap.

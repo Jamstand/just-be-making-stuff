@@ -7,8 +7,10 @@ local CollectionService = game:GetService("CollectionService")
 local player = Players.LocalPlayer
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local HUD = require(script:WaitForChild("HUD"))
+local SockFX = require(script:WaitForChild("SockFX"))
 
 HUD.Init()
+SockFX.Init()
 
 Remotes:WaitForChild("State").OnClientEvent:Connect(function(state)
 	HUD.SetState(state)
@@ -21,6 +23,11 @@ Remotes:WaitForChild("Announce").OnClientEvent:Connect(function(text, color)
 end)
 Remotes:WaitForChild("Carry").OnClientEvent:Connect(function(view)
 	HUD.SetCarry(view)
+end)
+Remotes:WaitForChild("FX").OnClientEvent:Connect(function(kind, position, color)
+	if typeof(position) == "Vector3" then
+		SockFX.Burst(kind, position, color)
+	end
 end)
 
 -- Own-sock prompt hiding. The server toggles prompt.Enabled too, so re-apply on every change.

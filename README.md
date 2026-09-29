@@ -16,9 +16,9 @@ theme and one new core mechanic: **Pairs**.
 | --- | --- |
 | `ReplicatedStorage.Shared` (Folder) | `src/shared/` — `Config/` (5 config ModuleScripts), `Types`, `Util`, `RemoteNames` |
 | `ServerScriptService.StealASockServer` (Script + modules) | `src/server/StealASockServer/` |
-| `StarterPlayer.StarterPlayerScripts.StealASockClient` (LocalScript + `HUD`) | `src/client/StealASockClient/` |
+| `StarterPlayer.StarterPlayerScripts.StealASockClient` (LocalScript + `HUD`, `SockFX`) | `src/client/StealASockClient/` |
 
-The map (floor, Great Dryer, clothesline, Lint Trap, 8 drawers) is **built by code at startup**
+The map (a giant's bedroom at night: bed, nightstand lamp, toys, the Great Dryer, clothesline, Lint Trap basket, 8 drawers) is **built by code at startup**
 (`Map.luau`), so a blank baseplate is all Studio needs. Every placeholder piece is tagged with
 CollectionService (`Sock`, `Base`, `SockSlot`, `CollectPad`, `SlamButton`, `Dryer`, `Clothesline`,
 `LintTrap`, `MapFloor`, `MapWall`, `DustBunny`) so real models can replace it later.
@@ -29,9 +29,10 @@ CollectionService (`Sock`, `Base`, `SockSlot`, `CollectPad`, `SlamButton`, `Drye
 | --- | --- |
 | `RateLimit` | per-player minimum gap between actions |
 | `Data` | ProfileStore (session-locked) profiles + leaderstats |
-| `Map` | builds the laundromat blockout; `Map.Layout` holds every position |
+| `Lighting` | night bedroom lighting: atmosphere, bloom, colour grade |
+| `Map` | builds the Giant's Bedroom (bed, lamp, toys, dryer, clothesline, basket, 8 drawers); `Map.Layout` holds every position |
 | `Registry` | live socks by uid; rolls rarity/type/side/mutation; income + price formulas |
-| `Factory` | placeholder sock models from Parts (L-shaped body, googly eyes) |
+| `Factory` | sock models from Parts: body + googly eyes + each type's signature features, rarity glows, mutation looks |
 | `Base` | drawer assignment, slots, Collect pad, Slam Drawer lock + shutter, profile sync |
 | `Pair` | THE HOOK: auto-pairing, Perfect Pairs, thread Beam + PAIRED badge |
 | `Income` | the one per-second loop that pays drawers and pushes state to clients |

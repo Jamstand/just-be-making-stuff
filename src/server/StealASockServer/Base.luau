@@ -107,9 +107,11 @@ function Base.FirstEmptySlot(record): number?
 	return nil
 end
 
-function Base.SlotCFrame(record, slotIndex: number): CFrame
+function Base.SlotCFrame(record, slotIndex: number, model: Model?): CFrame
 	local slotPart = record.slotParts[slotIndex]
-	return slotPart.CFrame * CFrame.new(0, 0.3 + 1.6, 0)
+	local leg = model and model.PrimaryPart
+	local halfHeight = if leg then leg.Size.Y / 2 else 1.6
+	return slotPart.CFrame * CFrame.new(0, 0.3 + halfHeight + 0.45, 0)
 end
 
 -- Drawer volume (walls included). Used for ejecting on slam.
@@ -178,7 +180,11 @@ function Base.PlaceInSlot(record, sock, slotIndex: number, animate: boolean)
 		S.Factory.SetLabelDistance(model, 60)
 		model:SetAttribute("OwnerId", record.ownerId or 0)
 		model.Parent = S.Map.Folders.Drawer
-		local target = Base.SlotCFrame(record, slotIndex)
+		local target = Base.SlotCFrame(record, slotIndex, model)
+		-- the client idles the sock around RestCFrame once PlacedAt is ~0.8 s old (see SockFX)
+		model:SetAttribute("State", "drawer")
+		model:SetAttribute("RestCFrame", target)
+		model:SetAttribute("PlacedAt", workspace:GetServerTimeNow())
 		if animate and model.PrimaryPart then
 			local leg = model.PrimaryPart
 			local hop = TweenService:Create(leg, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { CFrame = target })

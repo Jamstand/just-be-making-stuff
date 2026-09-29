@@ -103,6 +103,9 @@ function Towel.Snap(player: Player)
 	local theirRoot = best.Character:FindFirstChild("HumanoidRootPart")
 	local theirHumanoid = best.Character:FindFirstChildOfClass("Humanoid")
 	local Eco = S.Config.Economy
+	if theirRoot then
+		S.FX("snap", theirRoot.Position, Color3.fromRGB(255, 255, 255))
+	end
 	S.Steal.Return(best, "snapped")
 	if theirRoot and theirHumanoid then
 		local away = (theirRoot.Position - myRoot.Position) * Vector3.new(1, 0, 1)

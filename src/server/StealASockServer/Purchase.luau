@@ -7,14 +7,13 @@ function Purchase.Init(s)
 	S = s
 end
 
-local function distanceTo(player: Player, model: Model?): number
+local function distanceTo(player: Player, sock): number
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
-	local leg = model and model.PrimaryPart
-	if not root or not leg then
+	if not root or not sock.model then
 		return math.huge
 	end
-	return (root.Position - leg.Position).Magnitude
+	return (root.Position - S.Clothesline.PositionOf(sock)).Magnitude
 end
 
 function Purchase.TryBuy(player: Player, sock)
@@ -24,7 +23,7 @@ function Purchase.TryBuy(player: Player, sock)
 	if sock.state ~= "line" then
 		return -- already bought or fell in the trap
 	end
-	if distanceTo(player, sock.model) > S.Config.Economy.BuyRange then
+	if distanceTo(player, sock) > S.Config.Economy.BuyRange then
 		return
 	end
 	local record = S.Base.Get(player)
@@ -44,6 +43,7 @@ function Purchase.TryBuy(player: Player, sock)
 		return
 	end
 	S.Clothesline.Remove(sock)
+	S.FX("buy", S.Clothesline.PositionOf(sock), S.Registry.Tier(sock).color)
 	S.Base.PlaceInSlot(record, sock, slot, true)
 	S.Base.SyncToProfile(record)
 	S.Pair.Recompute(record)

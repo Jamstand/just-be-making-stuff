@@ -44,9 +44,14 @@ function S.Announce(text: string, color: Color3?)
 	remotes.Announce:FireAllClients(text, color)
 end
 
+-- One-shot particle effect at a world position, played by every client (see StealASockClient.SockFX).
+function S.FX(kind: string, position: Vector3, color: Color3?)
+	remotes.FX:FireAllClients(kind, position, color)
+end
+
 -- Init order matters: each module may use the ones before it.
 local ORDER = {
-	"RateLimit", "Data", "Map", "Registry", "Factory", "Base", "Pair",
+	"RateLimit", "Data", "Lighting", "Map", "Registry", "Factory", "Base", "Pair",
 	"Income", "Clothesline", "Purchase", "Steal", "Towel",
 }
 for _, name in ipairs(ORDER) do
