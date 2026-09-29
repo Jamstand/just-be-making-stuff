@@ -1,0 +1,16 @@
+# Line endings. This file is a SUPERSET of the game branch's .gitattributes (which pins only
+# .luau / .json / .md), so copying it over the game branch's copy changes nothing there.
+#
+# Why: with Git for Windows' default core.autocrlf=true, files without a rule are checked out
+# with CRLF endings. A CRLF bash script dies immediately in Git Bash ("$'\r': command not found"),
+# so the bash scripts and the tool config files are pinned to LF. Rojo round-trips Luau/JSON
+# byte-for-byte when they are LF. PowerShell is happiest with CRLF.
+*.sh        text eol=lf
+*.luau      text eol=lf
+*.lua       text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.toml      text eol=lf
+.luaurc     text eol=lf
+lint/*.txt  text eol=lf
+*.ps1       text eol=crlf

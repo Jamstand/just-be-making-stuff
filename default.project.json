@@ -1,0 +1,27 @@
+{
+  "name": "StealASock",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": {
+        "$path": "src/shared"
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "StealASockServer": {
+        "$path": "src/server/StealASockServer"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "StealASockClient": {
+          "$path": "src/client/StealASockClient"
+        }
+      }
+    }
+  }
+}

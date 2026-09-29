@@ -1,0 +1,14 @@
+src/server/StealASockServer/ProfileStore.luau | LocalShadow | Variable 'success' shadows previous declaration at line 518
+src/server/StealASockServer/ProfileStore.luau | LocalUnused | Variable 'error_message' is never used; prefix with '_' to silence
+src/server/StealASockServer/ProfileStore.luau | LocalUnused | Variable 'success' is never used; prefix with '_' to silence
+src/server/StealASockServer/ProfileStore.luau | TypeError | Cannot add property 'GetAsync' to table 'ProfileStoreModule'
+src/server/StealASockServer/ProfileStore.luau | TypeError | Cannot add property 'MessageAsync' to table 'ProfileStoreModule'
+src/server/StealASockServer/ProfileStore.luau | TypeError | Cannot add property 'RemoveAsync' to table 'ProfileStoreModule'
+src/server/StealASockServer/ProfileStore.luau | TypeError | Cannot add property 'StartSessionAsync' to table 'ProfileStoreModule'
+src/server/StealASockServer/ProfileStore.luau | TypeError | Cannot add property 'Test' to table 'ProfileStoreModule'
+src/server/StealASockServer/ProfileStore.luau | TypeError | Cannot add property 'VersionQuery' to table 'ProfileStoreModule'
+src/server/StealASockServer/ProfileStore.luau | TypeError | Cannot add property '__index' to table 'ProfileStoreModule'
+src/server/StealASockServer/ProfileStore.luau | TypeError | Key 'Fire' not found in table '{ Connect: (any, (boolean) -> ()) -> { Disconnect: (any) -> () } }'
+src/server/StealASockServer/ProfileStore.luau | TypeError | Table type 'ProfileStore' not compatible with type 'ProfileStoreModule' because the former is missing fields 'New', and 'SetConstant'
+src/server/StealASockServer/ProfileStore.luau | TypeError | Type "NotReady" cannot be compared with "Access"
+src/server/StealASockServer/ProfileStore.luau | TypeError | Type false cannot be compared with true
