@@ -40,31 +40,33 @@ Map.Folders = {} :: { [string]: Folder }
 Map.Dryer = {} :: { [string]: BasePart }
 Map.Bases = {} :: { Model }
 
--- Palette (night bedroom: warm wood + cream rug + dusty rose, cool blue walls)
+-- Palette sampled from docs/concept/bedroom_keyframe.png. Flat colours on SmoothPlastic: the
+-- concept has no surface texture, so Wood/Fabric materials (which add realistic grain) are out.
 local C = {
-	Plank1 = Color3.fromRGB(122, 84, 52),
-	Plank2 = Color3.fromRGB(138, 96, 60),
-	RugA = Color3.fromRGB(236, 222, 200),
-	RugB = Color3.fromRGB(204, 122, 112),
-	RugEdge = Color3.fromRGB(120, 60, 60),
-	Wall = Color3.fromRGB(96, 116, 168),
-	WallStripe = Color3.fromRGB(86, 104, 152),
-	Baseboard = Color3.fromRGB(236, 236, 240),
-	Wood = Color3.fromRGB(150, 104, 66),
-	WoodDark = Color3.fromRGB(110, 74, 44),
-	Felt = Color3.fromRGB(120, 52, 62),
-	Knob = Color3.fromRGB(230, 200, 90),
-	Mattress = Color3.fromRGB(245, 245, 250),
-	Blanket = Color3.fromRGB(64, 92, 190),
-	BlanketStripe = Color3.fromRGB(230, 80, 90),
+	Plank1 = Color3.fromRGB(176, 118, 68),
+	Plank2 = Color3.fromRGB(190, 130, 78),
+	RugA = Color3.fromRGB(245, 231, 206),
+	RugB = Color3.fromRGB(227, 154, 136),
+	RugEdge = Color3.fromRGB(150, 84, 70),
+	Wall = Color3.fromRGB(82, 68, 130),
+	WallStripe = Color3.fromRGB(72, 58, 116),
+	Baseboard = Color3.fromRGB(120, 92, 60),
+	Wood = Color3.fromRGB(183, 122, 69),
+	WoodDark = Color3.fromRGB(138, 90, 48),
+	Felt = Color3.fromRGB(150, 70, 80),
+	Knob = Color3.fromRGB(240, 200, 90),
+	Mattress = Color3.fromRGB(248, 246, 240),
+	Blanket = Color3.fromRGB(92, 127, 200),
+	BlanketStripe = Color3.fromRGB(214, 79, 79),
 	Pillow = Color3.fromRGB(255, 255, 255),
-	Lamp = Color3.fromRGB(255, 226, 170),
-	Moon = Color3.fromRGB(170, 200, 255),
-	Metal = Color3.fromRGB(216, 220, 230),
-	MetalDark = Color3.fromRGB(46, 48, 60),
-	Swirl = Color3.fromRGB(170, 90, 255),
-	Lint = Color3.fromRGB(150, 150, 158),
-	Basket = Color3.fromRGB(196, 160, 96),
+	Lamp = Color3.fromRGB(255, 229, 138),
+	Moon = Color3.fromRGB(190, 210, 255),
+	Metal = Color3.fromRGB(233, 238, 245),
+	MetalDark = Color3.fromRGB(70, 90, 130),
+	Swirl = Color3.fromRGB(123, 63, 224),
+	Lint = Color3.fromRGB(165, 165, 172),
+	Basket = Color3.fromRGB(200, 160, 100),
+	DryerBlue = Color3.fromRGB(109, 165, 227),
 }
 
 local function part(name: string, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?, parent: Instance, tag: string?): Part
@@ -205,21 +207,20 @@ local function buildFloor(folder: Folder)
 	local nx = L.FloorX / plankW
 	for ix = 0, nx - 1 do
 		local x = -L.FloorX / 2 + plankW / 2 + ix * plankW
-		local p = part("Plank", Vector3.new(plankW - 0.4, 1, L.FloorZ), CFrame.new(x, -0.5, 0), if ix % 2 == 0 then C.Plank1 else C.Plank2, Enum.Material.Wood, planks, "MapFloor")
-		p.Material = Enum.Material.WoodPlanks
+		part("Plank", Vector3.new(plankW - 0.4, 1, L.FloorZ), CFrame.new(x, -0.5, 0), if ix % 2 == 0 then C.Plank1 else C.Plank2, Enum.Material.SmoothPlastic, planks, "MapFloor")
 	end
 	-- checkered rug over the play area (spec: checkered floor) with a dark border
 	local rug = Instance.new("Folder")
 	rug.Name = "Rug"
 	rug.Parent = folder
-	local edge = part("RugEdge", Vector3.new(L.RugX + 8, 0.3, L.RugZ + 8), CFrame.new(0, 0.05, 0), C.RugEdge, Enum.Material.Fabric, rug, "MapFloor")
+	local edge = part("RugEdge", Vector3.new(L.RugX + 8, 0.3, L.RugZ + 8), CFrame.new(0, 0.05, 0), C.RugEdge, Enum.Material.SmoothPlastic, rug, "MapFloor")
 	edge.CanCollide = false
 	local cx, cz = L.RugX / L.Tile, L.RugZ / L.Tile
 	for ix = 0, cx - 1 do
 		for iz = 0, cz - 1 do
 			local x = -L.RugX / 2 + L.Tile / 2 + ix * L.Tile
 			local z = -L.RugZ / 2 + L.Tile / 2 + iz * L.Tile
-			local t = part("Tile", Vector3.new(L.Tile, 0.4, L.Tile), CFrame.new(x, 0.2, z), if (ix + iz) % 2 == 0 then C.RugA else C.RugB, Enum.Material.Fabric, rug, "MapFloor")
+			local t = part("Tile", Vector3.new(L.Tile, 0.4, L.Tile), CFrame.new(x, 0.2, z), if (ix + iz) % 2 == 0 then C.RugA else C.RugB, Enum.Material.SmoothPlastic, rug, "MapFloor")
 			t.CanCollide = false
 		end
 	end
@@ -261,35 +262,44 @@ local function buildBed(folder: Folder)
 		return
 	end
 	local frameH = 26
-	part("BedFrame", Vector3.new(width, frameH, depth), CFrame.new(0, frameH / 2, zc), C.WoodDark, Enum.Material.Wood, folder, "Furniture")
+	part("BedFrame", Vector3.new(width, frameH, depth), CFrame.new(0, frameH / 2, zc), C.WoodDark, Enum.Material.SmoothPlastic, folder, "Furniture")
 	for _, x in ipairs({ -width / 2 + 6, width / 2 - 6 }) do
 		for _, z in ipairs({ zc - depth / 2 + 6, zc + depth / 2 - 6 }) do
-			part("BedLeg", Vector3.new(10, 8, 10), CFrame.new(x, 4, z), C.WoodDark, Enum.Material.Wood, folder, "Furniture")
+			local postH = if z < zc then 82 else 58
+			column("BedPost", 6, postH, CFrame.new(x, postH / 2, z), C.Wood, Enum.Material.SmoothPlastic, folder, "Furniture")
+			ball("BedFinial", 16, CFrame.new(x, postH + 6, z), C.Wood, Enum.Material.SmoothPlastic, folder, "Furniture")
 		end
 	end
 	local mattressH = 18
-	part("Mattress", Vector3.new(width - 8, mattressH, depth - 6), CFrame.new(0, frameH + mattressH / 2, zc), C.Mattress, Enum.Material.Fabric, folder, "Furniture")
+	part("Mattress", Vector3.new(width - 8, mattressH, depth - 6), CFrame.new(0, frameH + mattressH / 2, zc), C.Mattress, Enum.Material.SmoothPlastic, folder, "Furniture")
 	local blanketTop = frameH + mattressH
-	local blanket = part("Blanket", Vector3.new(width - 16, 5, depth - 30), CFrame.new(0, blanketTop + 2.5, zc + 12), C.Blanket, Enum.Material.Fabric, folder, "Furniture")
+	local blanket = part("Blanket", Vector3.new(width - 16, 5, depth - 30), CFrame.new(0, blanketTop + 2.5, zc + 12), C.Blanket, Enum.Material.SmoothPlastic, folder, "Furniture")
 	for i = 0, 5 do
-		part("BlanketStripe", Vector3.new(12, 5.2, depth - 30), blanket.CFrame * CFrame.new(-width / 2 + 30 + i * 44, 0, 0), C.BlanketStripe, Enum.Material.Fabric, folder, "Furniture")
+		part("BlanketStripe", Vector3.new(12, 5.2, depth - 30), blanket.CFrame * CFrame.new(-width / 2 + 30 + i * 44, 0, 0), C.BlanketStripe, Enum.Material.SmoothPlastic, folder, "Furniture")
 	end
 	-- blanket hanging off the front edge (the part players see)
-	part("BlanketDrape", Vector3.new(width - 16, 22, 4), CFrame.new(0, blanketTop - 6, zc + depth / 2 - 1), C.Blanket, Enum.Material.Fabric, folder, "Furniture")
+	part("BlanketDrape", Vector3.new(width - 16, 22, 4), CFrame.new(0, blanketTop - 6, zc + depth / 2 - 1), C.Blanket, Enum.Material.SmoothPlastic, folder, "Furniture")
 	for _, x in ipairs({ -60, 60 }) do
-		local pillow = part("Pillow", Vector3.new(70, 12, 30), CFrame.new(x, blanketTop + 6, zc - depth / 2 + 24), C.Pillow, Enum.Material.Fabric, folder, "Furniture")
+		local pillow = part("Pillow", Vector3.new(70, 12, 30), CFrame.new(x, blanketTop + 6, zc - depth / 2 + 24), C.Pillow, Enum.Material.SmoothPlastic, folder, "Furniture")
 		pillow.CFrame = pillow.CFrame * CFrame.Angles(0, 0, if x < 0 then 0.06 else -0.06)
 	end
-	part("Headboard", Vector3.new(width + 6, 70, 6), CFrame.new(0, 35, z0 + 4), C.Wood, Enum.Material.Wood, folder, "Furniture")
-	part("HeadboardTop", Vector3.new(width + 6, 8, 10), CFrame.new(0, 72, z0 + 5), C.WoodDark, Enum.Material.Wood, folder, "Furniture")
-	-- moon window on the wall, right of the bed
-	local win = part("Window", Vector3.new(70, 56, 1.5), CFrame.new(190, 78, z0 + 2), C.Moon, Enum.Material.Neon, folder, "Furniture")
-	win.Transparency = 0.15
-	part("WindowFrame", Vector3.new(76, 62, 1), CFrame.new(190, 78, z0 + 2.4), C.Baseboard, Enum.Material.SmoothPlastic, folder, "Furniture")
-	part("WindowBarV", Vector3.new(3, 56, 2), CFrame.new(190, 78, z0 + 2.6), C.Baseboard, Enum.Material.SmoothPlastic, folder, "Furniture")
-	part("WindowBarH", Vector3.new(70, 3, 2), CFrame.new(190, 78, z0 + 2.6), C.Baseboard, Enum.Material.SmoothPlastic, folder, "Furniture")
+	part("Headboard", Vector3.new(width - 20, 60, 6), CFrame.new(0, 30, z0 + 4), C.Wood, Enum.Material.SmoothPlastic, folder, "Furniture")
+	for i = 0, 4 do
+		column("HeadboardSlat", 3, 40, CFrame.new(-width / 2 + 40 + i * (width - 80) / 4, 60, z0 + 4), C.WoodDark, Enum.Material.SmoothPlastic, folder, "Furniture")
+	end
+	-- round moon window above the bed, like the concept: a porthole with a crescent moon
+	local wx, wy = 40, 92
+	local ring = part("WindowRing", Vector3.new(2, 64, 64), CFrame.new(wx, wy, z0 + 2.2) * CFrame.Angles(0, math.pi / 2, 0), C.WoodDark, Enum.Material.SmoothPlastic, folder, "Furniture")
+	ring.Shape = Enum.PartType.Cylinder
+	local win = part("Window", Vector3.new(1.4, 56, 56), CFrame.new(wx, wy, z0 + 2.6) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(46, 58, 120), Enum.Material.Neon, folder, "Furniture")
+	win.Shape = Enum.PartType.Cylinder
+	win.Transparency = 0.1
 	pointLight(win, C.Moon, 240, 1.0)
-	ball("Moon", 26, CFrame.new(205, 92, z0 + 1.2), Color3.fromRGB(235, 240, 255), Enum.Material.Neon, folder, "Furniture").Transparency = 0.05
+	local moon = ball("Moon", 30, CFrame.new(wx + 2, wy + 2, z0 + 3.4), Color3.fromRGB(240, 242, 255), Enum.Material.Neon, folder, "Furniture")
+	moon.Transparency = 0.05
+	moon.CanCollide = false
+	local bite = ball("MoonBite", 26, CFrame.new(wx + 12, wy + 8, z0 + 3.2), Color3.fromRGB(46, 58, 120), Enum.Material.Neon, folder, "Furniture")
+	bite.CanCollide = false
 end
 
 local function buildNightstand(folder: Folder)
@@ -321,9 +331,9 @@ local function buildNightstand(folder: Folder)
 		pointLight(fill, Color3.fromRGB(255, 236, 214), 320, 0.55)
 		return
 	end
-	part("Nightstand", Vector3.new(76, h, 70), CFrame.new(x, h / 2, z), C.Wood, Enum.Material.Wood, folder, "Furniture")
-	part("NightstandTop", Vector3.new(82, 5, 76), CFrame.new(x, h + 2.5, z), C.WoodDark, Enum.Material.Wood, folder, "Furniture")
-	part("NightstandDrawer", Vector3.new(60, 24, 2), CFrame.new(x, 58, z + 36), C.WoodDark, Enum.Material.Wood, folder, "Furniture")
+	part("Nightstand", Vector3.new(76, h, 70), CFrame.new(x, h / 2, z), C.Wood, Enum.Material.SmoothPlastic, folder, "Furniture")
+	part("NightstandTop", Vector3.new(82, 5, 76), CFrame.new(x, h + 2.5, z), C.WoodDark, Enum.Material.SmoothPlastic, folder, "Furniture")
+	part("NightstandDrawer", Vector3.new(60, 24, 2), CFrame.new(x, 58, z + 36), C.WoodDark, Enum.Material.SmoothPlastic, folder, "Furniture")
 	part("NightstandKnob", Vector3.new(8, 8, 3), CFrame.new(x, 58, z + 38), C.Knob, Enum.Material.Metal, folder, "Furniture")
 	-- lamp: base, stem, shade, and the main light of the room
 	column("LampBase", 12, 4, CFrame.new(x, h + 7, z), C.MetalDark, Enum.Material.Metal, folder, "Furniture")
@@ -409,16 +419,16 @@ local function buildToys(folder: Folder)
 	local tx, tz = -half + 46, 60
 	local fur = Color3.fromRGB(160, 110, 70)
 	if not placeTemplate("Teddy", CFrame.new(tx, 0, tz) * CFrame.Angles(0, -math.pi / 2, 0), Vector3.new(48, 60, 48), folder, "Toy") then
-	ball("BearBody", 34, CFrame.new(tx, 15, tz), fur, Enum.Material.Fabric, folder, "Toy")
-	ball("BearHead", 24, CFrame.new(tx + 4, 40, tz + 4), fur, Enum.Material.Fabric, folder, "Toy")
-	ball("BearEar", 9, CFrame.new(tx - 4, 50, tz + 2), fur, Enum.Material.Fabric, folder, "Toy")
-	ball("BearEar", 9, CFrame.new(tx + 12, 50, tz + 2), fur, Enum.Material.Fabric, folder, "Toy")
-	ball("BearSnout", 11, CFrame.new(tx + 8, 37, tz + 14), Color3.fromRGB(220, 190, 150), Enum.Material.Fabric, folder, "Toy")
+	ball("BearBody", 34, CFrame.new(tx, 15, tz), fur, Enum.Material.SmoothPlastic, folder, "Toy")
+	ball("BearHead", 24, CFrame.new(tx + 4, 40, tz + 4), fur, Enum.Material.SmoothPlastic, folder, "Toy")
+	ball("BearEar", 9, CFrame.new(tx - 4, 50, tz + 2), fur, Enum.Material.SmoothPlastic, folder, "Toy")
+	ball("BearEar", 9, CFrame.new(tx + 12, 50, tz + 2), fur, Enum.Material.SmoothPlastic, folder, "Toy")
+	ball("BearSnout", 11, CFrame.new(tx + 8, 37, tz + 14), Color3.fromRGB(220, 190, 150), Enum.Material.SmoothPlastic, folder, "Toy")
 	ball("BearNose", 4, CFrame.new(tx + 9, 39, tz + 19), Color3.new(0, 0, 0), Enum.Material.SmoothPlastic, folder, "Toy")
 	ball("BearEye", 3, CFrame.new(tx + 1, 44, tz + 14), Color3.new(0, 0, 0), Enum.Material.SmoothPlastic, folder, "Toy")
 	ball("BearEye", 3, CFrame.new(tx + 13, 44, tz + 13), Color3.new(0, 0, 0), Enum.Material.SmoothPlastic, folder, "Toy")
-	ball("BearArm", 14, CFrame.new(tx - 16, 14, tz + 8), fur, Enum.Material.Fabric, folder, "Toy")
-	ball("BearArm", 14, CFrame.new(tx + 20, 14, tz + 8), fur, Enum.Material.Fabric, folder, "Toy")
+	ball("BearArm", 14, CFrame.new(tx - 16, 14, tz + 8), fur, Enum.Material.SmoothPlastic, folder, "Toy")
+	ball("BearArm", 14, CFrame.new(tx + 20, 14, tz + 8), fur, Enum.Material.SmoothPlastic, folder, "Toy")
 	end
 	-- a bedroom door on the south wall
 	local sz = L.FloorZ / 2
@@ -432,11 +442,11 @@ local function buildDustBunnies(folder: Folder)
 	local spots = { { -90, -30 }, { 60, -40 }, { 180, 60 }, { -180, 40 }, { 0, -120 }, { 100, 120 }, { -60, 130 }, { 210, -60 }, { -220, -150 }, { 150, -150 } }
 	for i, s in ipairs(spots) do
 		local size = 4 + (i % 3) * 1.5
-		local b = ball("DustBunny", size, CFrame.new(s[1], size / 2, s[2]), C.Lint, Enum.Material.Fabric, folder, "DustBunny")
+		local b = ball("DustBunny", size, CFrame.new(s[1], size / 2, s[2]), C.Lint, Enum.Material.SmoothPlastic, folder, "DustBunny")
 		b.CanCollide = false
 		for j = 1, 3 do
 			local a = j * 2.1 + i
-			local puff = ball("DustPuff", size * 0.45, CFrame.new(s[1] + math.cos(a) * size * 0.45, size * 0.55, s[2] + math.sin(a) * size * 0.45), C.Lint, Enum.Material.Fabric, folder, "DustBunny")
+			local puff = ball("DustPuff", size * 0.45, CFrame.new(s[1] + math.cos(a) * size * 0.45, size * 0.55, s[2] + math.sin(a) * size * 0.45), C.Lint, Enum.Material.SmoothPlastic, folder, "DustBunny")
 			puff.CanCollide = false
 		end
 	end
@@ -471,11 +481,12 @@ local function buildDryer(folder: Folder)
 		Map.Dryer.Core = core
 		return
 	end
-	local body = part("DryerBody", Vector3.new(24, 26, 26), CFrame.new(x, 13, 0), C.Metal, Enum.Material.Metal, folder, "Dryer")
-	part("DryerTop", Vector3.new(24.4, 2, 26.4), CFrame.new(x, 25, 0), C.MetalDark, Enum.Material.Metal, folder, "Dryer")
-	part("DryerFoot", Vector3.new(22, 2, 24), CFrame.new(x, 1, 0), C.MetalDark, Enum.Material.Metal, folder, "Dryer")
+	local body = part("DryerBody", Vector3.new(24, 26, 26), CFrame.new(x, 13, 0), C.Metal, Enum.Material.SmoothPlastic, folder, "Dryer")
+	part("DryerTop", Vector3.new(24.4, 3, 26.4), CFrame.new(x, 25.5, 0), C.DryerBlue, Enum.Material.SmoothPlastic, folder, "Dryer")
+	part("DryerFace", Vector3.new(1, 24, 24), CFrame.new(x + 12.3, 13, 0), C.DryerBlue, Enum.Material.SmoothPlastic, folder, "Dryer")
+	part("DryerFoot", Vector3.new(22, 2, 24), CFrame.new(x, 1, 0), C.MetalDark, Enum.Material.SmoothPlastic, folder, "Dryer")
 	-- porthole: dark ring, glass, and the cosmic swirl inside
-	local ring = part("DryerRim", Vector3.new(1.4, 18, 18), CFrame.new(x + 12.4, 13, 0), C.MetalDark, Enum.Material.Metal, folder, "Dryer")
+	local ring = part("DryerRim", Vector3.new(1.6, 18, 18), CFrame.new(x + 12.6, 13, 0), Color3.fromRGB(233, 238, 245), Enum.Material.SmoothPlastic, folder, "Dryer")
 	ring.Shape = Enum.PartType.Cylinder
 	local drum = part("DryerDrum", Vector3.new(0.8, 15, 15), CFrame.new(x + 13.1, 13, 0), Color3.fromRGB(150, 110, 240), Enum.Material.Glass, folder, "Dryer")
 	drum.Shape = Enum.PartType.Cylinder
@@ -533,13 +544,13 @@ local function buildClothesline(folder: Folder)
 		local y0 = L.LineY + 0.3 - sag * math.sin(t0 * math.pi)
 		local y1 = L.LineY + 0.3 - sag * math.sin(t1 * math.pi)
 		local p0, p1 = Vector3.new(x0, y0, 0), Vector3.new(x1, y1, 0)
-		local seg = part("Rope", Vector3.new((p1 - p0).Magnitude + 0.3, 0.4, 0.4), CFrame.lookAt((p0 + p1) / 2, p1) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(235, 225, 205), Enum.Material.Fabric, folder, "Clothesline")
+		local seg = part("Rope", Vector3.new((p1 - p0).Magnitude + 0.3, 0.4, 0.4), CFrame.lookAt((p0 + p1) / 2, p1) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(235, 225, 205), Enum.Material.SmoothPlastic, folder, "Clothesline")
 		seg.Shape = Enum.PartType.Cylinder
 		seg.CanCollide = false
 	end
-	column("PostWest", 1.1, L.LineY + 4, CFrame.new(L.LineStartX + 6, (L.LineY + 4) / 2, 3), C.Wood, Enum.Material.Wood, folder, "Clothesline")
-	column("PostEast", 1.1, L.LineY + 4, CFrame.new(L.LineEndX, (L.LineY + 4) / 2, 0), C.Wood, Enum.Material.Wood, folder, "Clothesline")
-	ball("PostCapE", 3, CFrame.new(L.LineEndX, L.LineY + 4.5, 0), C.WoodDark, Enum.Material.Wood, folder, "Clothesline")
+	column("PostWest", 1.1, L.LineY + 4, CFrame.new(L.LineStartX + 6, (L.LineY + 4) / 2, 3), C.Wood, Enum.Material.SmoothPlastic, folder, "Clothesline")
+	column("PostEast", 1.1, L.LineY + 4, CFrame.new(L.LineEndX, (L.LineY + 4) / 2, 0), C.Wood, Enum.Material.SmoothPlastic, folder, "Clothesline")
+	ball("PostCapE", 3, CFrame.new(L.LineEndX, L.LineY + 4.5, 0), C.WoodDark, Enum.Material.SmoothPlastic, folder, "Clothesline")
 	-- Lint Trap: a giant laundry basket overflowing with lint
 	local bx = L.LintX
 	local basketModel = placeTemplate("Basket", CFrame.new(bx, 0, 0), Vector3.new(34, 30, 34), folder, "LintTrap")
@@ -550,19 +561,19 @@ local function buildClothesline(folder: Folder)
 		end
 		return
 	end
-	local basket = column("LintTrap", 13, 18, CFrame.new(bx, 9, 0), C.Basket, Enum.Material.Wood, folder, "LintTrap")
+	local basket = column("LintTrap", 13, 18, CFrame.new(bx, 9, 0), C.Basket, Enum.Material.SmoothPlastic, folder, "LintTrap")
 	basket.CanCollide = true
 	for i = 0, 13 do
 		local a = i / 14 * math.pi * 2
-		local slat = part("BasketSlat", Vector3.new(2.2, 19, 1), CFrame.new(bx + math.cos(a) * 13.2, 9.5, math.sin(a) * 13.2) * CFrame.Angles(0, -a, 0), C.WoodDark, Enum.Material.Wood, folder, "LintTrap")
+		local slat = part("BasketSlat", Vector3.new(2.2, 19, 1), CFrame.new(bx + math.cos(a) * 13.2, 9.5, math.sin(a) * 13.2) * CFrame.Angles(0, -a, 0), C.WoodDark, Enum.Material.SmoothPlastic, folder, "LintTrap")
 		slat.CanCollide = false
 	end
-	column("BasketRim", 14, 1.6, CFrame.new(bx, 18.8, 0), C.WoodDark, Enum.Material.Wood, folder, "LintTrap")
-	local lint = ball("LintPile", 22, CFrame.new(bx, 17, 0), C.Lint, Enum.Material.Fabric, folder, "LintTrap")
+	column("BasketRim", 14, 1.6, CFrame.new(bx, 18.8, 0), C.WoodDark, Enum.Material.SmoothPlastic, folder, "LintTrap")
+	local lint = ball("LintPile", 22, CFrame.new(bx, 17, 0), C.Lint, Enum.Material.SmoothPlastic, folder, "LintTrap")
 	lint.CanCollide = false
 	for i = 1, 5 do
 		local a = i * 1.3
-		local puff = ball("LintPuff", 6 + i % 2 * 2, CFrame.new(bx + math.cos(a) * 10, 22 + i % 3, math.sin(a) * 10), C.Lint, Enum.Material.Fabric, folder, "LintTrap")
+		local puff = ball("LintPuff", 6 + i % 2 * 2, CFrame.new(bx + math.cos(a) * 10, 22 + i % 3, math.sin(a) * 10), C.Lint, Enum.Material.SmoothPlastic, folder, "LintTrap")
 		puff.CanCollide = false
 	end
 	label(basket, "LINT TRAP", 28, 20, Color3.fromRGB(200, 200, 210))
@@ -580,18 +591,18 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 	model:SetAttribute("Index", index)
 	CollectionService:AddTag(model, "Base")
 
-	local floor = part("Floor", Vector3.new(L.BaseW, 1, L.BaseD), cf * CFrame.new(0, 0.5, 0), C.Wood, Enum.Material.Wood, model)
+	local floor = part("Floor", Vector3.new(L.BaseW, 1, L.BaseD), cf * CFrame.new(0, 0.5, 0), C.Wood, Enum.Material.SmoothPlastic, model)
 	model.PrimaryPart = floor
 	-- optional real drawer shell: the Part walls stay for collision but turn invisible
 	local shell = placeTemplate("Drawer", cf * CFrame.new(0, 0, 0), Vector3.new(L.BaseW + 6, L.WallH + 6, L.BaseD + 6), model)
 	local wallT = if shell then 1 else 0
-	local felt = part("Felt", Vector3.new(L.BaseW - 2, 0.3, L.BaseD - 2), cf * CFrame.new(0, 1.15, 0), C.Felt, Enum.Material.Fabric, model)
+	local felt = part("Felt", Vector3.new(L.BaseW - 2, 0.3, L.BaseD - 2), cf * CFrame.new(0, 1.15, 0), C.Felt, Enum.Material.SmoothPlastic, model)
 	felt.CanCollide = false
-	part("BackWall", Vector3.new(L.BaseW, L.WallH, 1), cf * CFrame.new(0, 1 + L.WallH / 2, -L.BaseD / 2 + 0.5), C.Wood, Enum.Material.Wood, model).Transparency = wallT
-	part("LeftWall", Vector3.new(1, L.WallH, L.BaseD), cf * CFrame.new(-L.BaseW / 2 + 0.5, 1 + L.WallH / 2, 0), C.Wood, Enum.Material.Wood, model).Transparency = wallT
-	part("RightWall", Vector3.new(1, L.WallH, L.BaseD), cf * CFrame.new(L.BaseW / 2 - 0.5, 1 + L.WallH / 2, 0), C.Wood, Enum.Material.Wood, model).Transparency = wallT
+	part("BackWall", Vector3.new(L.BaseW, L.WallH, 1), cf * CFrame.new(0, 1 + L.WallH / 2, -L.BaseD / 2 + 0.5), C.Wood, Enum.Material.SmoothPlastic, model).Transparency = wallT
+	part("LeftWall", Vector3.new(1, L.WallH, L.BaseD), cf * CFrame.new(-L.BaseW / 2 + 0.5, 1 + L.WallH / 2, 0), C.Wood, Enum.Material.SmoothPlastic, model).Transparency = wallT
+	part("RightWall", Vector3.new(1, L.WallH, L.BaseD), cf * CFrame.new(L.BaseW / 2 - 0.5, 1 + L.WallH / 2, 0), C.Wood, Enum.Material.SmoothPlastic, model).Transparency = wallT
 	-- the drawer front: chunky, rounded-looking, with a big brass knob
-	part("FrontLip", Vector3.new(L.BaseW + 2, 2.5, 2), cf * CFrame.new(0, 2.25, L.BaseD / 2), C.WoodDark, Enum.Material.Wood, model).Transparency = wallT
+	part("FrontLip", Vector3.new(L.BaseW + 2, 2.5, 2), cf * CFrame.new(0, 2.25, L.BaseD / 2), C.WoodDark, Enum.Material.SmoothPlastic, model).Transparency = wallT
 	part("FrontTrim", Vector3.new(L.BaseW + 2, 0.8, 2.4), cf * CFrame.new(0, 3.5, L.BaseD / 2), C.Knob, Enum.Material.Metal, model).Transparency = wallT
 	local knob = ball("Handle", 3, cf * CFrame.new(0, 2.4, L.BaseD / 2 + 1.6), C.Knob, Enum.Material.Metal, model)
 	knob.CanCollide = false
@@ -602,7 +613,7 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 	pointLight(lamp, C.Lamp, 34, 0.55)
 
 	-- Shutter: rises out of the floor when the drawer is slammed (Base moves it).
-	local shutter = part("Shutter", Vector3.new(L.BaseW, L.WallH, 1), cf * CFrame.new(0, 1 + L.WallH / 2, L.BaseD / 2 - 0.5), C.WoodDark, Enum.Material.Wood, model)
+	local shutter = part("Shutter", Vector3.new(L.BaseW, L.WallH, 1), cf * CFrame.new(0, 1 + L.WallH / 2, L.BaseD / 2 - 0.5), C.WoodDark, Enum.Material.SmoothPlastic, model)
 	shutter:SetAttribute("ClosedY", shutter.Position.Y)
 	shutter.CFrame = shutter.CFrame - Vector3.new(0, L.WallH + 2, 0)
 	shutter.Transparency = 1
@@ -618,7 +629,7 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 		local col = (i - 1) % L.SlotCols + 1
 		local sx = (col - (L.SlotCols + 1) / 2) * L.SlotSpacingX
 		local sz = L.SlotRowZ[row] or (L.SlotRowZ[#L.SlotRowZ] - (row - #L.SlotRowZ) * 10)
-		local slot = part("Slot_" .. i, Vector3.new(L.SlotSize, 0.6, L.SlotSize), cf * CFrame.new(sx, 1.5, sz), Color3.fromRGB(240, 200, 150), Enum.Material.Fabric, slots, "SockSlot")
+		local slot = part("Slot_" .. i, Vector3.new(L.SlotSize, 0.6, L.SlotSize), cf * CFrame.new(sx, 1.5, sz), Color3.fromRGB(240, 200, 150), Enum.Material.SmoothPlastic, slots, "SockSlot")
 		slot:SetAttribute("Index", i)
 	end
 
@@ -659,7 +670,7 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 end
 
 local function buildSpawn(folder: Folder)
-	local mat = part("WelcomeMat", Vector3.new(16, 0.5, 12), CFrame.new(0, 0.45, LAYOUT.SpawnZ), Color3.fromRGB(180, 60, 60), Enum.Material.Fabric, folder, "MapFloor")
+	local mat = part("WelcomeMat", Vector3.new(16, 0.5, 12), CFrame.new(0, 0.45, LAYOUT.SpawnZ), Color3.fromRGB(180, 60, 60), Enum.Material.SmoothPlastic, folder, "MapFloor")
 	mat.CanCollide = false
 	local spawn = Instance.new("SpawnLocation")
 	spawn.Name = "Spawn"

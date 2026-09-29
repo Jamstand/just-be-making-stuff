@@ -9,15 +9,17 @@ function Lighting.Init(_S)
 	pcall(function()
 		L.Technology = Enum.Technology.Future
 	end)
+	-- Target: docs/concept/bedroom_keyframe.png - warm lamp key light, cool purple shadows,
+	-- saturated flat colours, and nothing ever black.
 	L.ClockTime = 0.4 -- deep night: the default skybox shows stars and a moon
-	L.Brightness = 2
-	L.Ambient = Color3.fromRGB(70, 68, 96) -- bright enough to read the room; lamp/moon add the mood
-	L.OutdoorAmbient = Color3.fromRGB(80, 82, 120)
-	L.ExposureCompensation = 0.5
-	L.EnvironmentDiffuseScale = 0.6
-	L.EnvironmentSpecularScale = 0.6
+	L.Brightness = 2.4
+	L.Ambient = Color3.fromRGB(98, 92, 132) -- lifts the shadows to purple instead of black
+	L.OutdoorAmbient = Color3.fromRGB(112, 106, 152)
+	L.ExposureCompensation = 0.55
+	L.EnvironmentDiffuseScale = 0.5
+	L.EnvironmentSpecularScale = 0.25 -- flat, toy-like surfaces (less shine)
 	L.GlobalShadows = true
-	L.ShadowSoftness = 0.4
+	L.ShadowSoftness = 0.55
 	L.FogEnd = 100000
 
 	for _, child in ipairs(L:GetChildren()) do
@@ -28,27 +30,27 @@ function Lighting.Init(_S)
 
 	local atmo = Instance.new("Atmosphere")
 	atmo.Name = "BedroomAtmosphere"
-	atmo.Density = 0.16
+	atmo.Density = 0.12
 	atmo.Offset = 0.1
-	atmo.Color = Color3.fromRGB(120, 110, 160)
-	atmo.Decay = Color3.fromRGB(70, 60, 120)
-	atmo.Glare = 0.15
-	atmo.Haze = 0.8
+	atmo.Color = Color3.fromRGB(135, 115, 185)
+	atmo.Decay = Color3.fromRGB(80, 60, 130)
+	atmo.Glare = 0.1
+	atmo.Haze = 0.6
 	atmo.Parent = L
 
 	local bloom = Instance.new("BloomEffect")
 	bloom.Name = "BedroomBloom"
-	bloom.Intensity = 0.4
-	bloom.Threshold = 1.5
-	bloom.Size = 20
+	bloom.Intensity = 0.5
+	bloom.Threshold = 1.4
+	bloom.Size = 22
 	bloom.Parent = L
 
 	local cc = Instance.new("ColorCorrectionEffect")
 	cc.Name = "BedroomColor"
-	cc.Brightness = 0.02
-	cc.Contrast = 0.12
-	cc.Saturation = 0.18
-	cc.TintColor = Color3.fromRGB(255, 244, 232)
+	cc.Brightness = 0.03
+	cc.Contrast = 0.18
+	cc.Saturation = 0.38 -- the concept art is very saturated
+	cc.TintColor = Color3.fromRGB(255, 242, 228)
 	cc.Parent = L
 end
 

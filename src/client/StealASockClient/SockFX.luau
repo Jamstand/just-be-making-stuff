@@ -17,6 +17,50 @@ local lineStartX, lineEndX, lineY, pinOffset = 0, 0, 0, 2.4
 local active = {} :: { [Model]: boolean }
 local rainbowParts = {} :: { [Model]: { BasePart } }
 
+-- Toon outlines: Roblox renders at most 31 Highlights at once, so only the socks nearest the
+-- camera (plus the dryer) get the thick dark outline from the concept art.
+local MAX_OUTLINES = 22
+local OUTLINE_COLOR = Color3.fromRGB(34, 22, 48)
+local highlights = {} :: { [Model]: Highlight }
+
+local function outline(model: Model): Highlight
+	local h = highlights[model]
+	if not h then
+		h = Instance.new("Highlight")
+		h.Name = "ToonOutline"
+		h.OutlineColor = OUTLINE_COLOR
+		h.OutlineTransparency = 0
+		h.FillTransparency = 1
+		h.DepthMode = Enum.HighlightDepthMode.Occluded
+		h.Enabled = false
+		h.Adornee = model
+		h.Parent = model
+		highlights[model] = h
+	end
+	return h
+end
+
+local function refreshOutlines()
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	local camPos = cam.CFrame.Position
+	local list = {}
+	for model in pairs(active) do
+		local leg = model.PrimaryPart
+		if leg then
+			table.insert(list, { model = model, d = (leg.Position - camPos).Magnitude })
+		end
+	end
+	table.sort(list, function(a, b)
+		return a.d < b.d
+	end)
+	for i, entry in ipairs(list) do
+		outline(entry.model).Enabled = i <= MAX_OUTLINES and entry.d < 140
+	end
+end
+
 local function pivotOffset(dy: number, roll: number, pitch: number?): CFrame
 	return CFrame.new(0, dy, 0) * CFrame.Angles(pitch or 0, 0, roll)
 end
@@ -88,6 +132,7 @@ local function track(model: Instance)
 		if parent == nil then
 			active[model] = nil
 			rainbowParts[model] = nil
+			highlights[model] = nil
 		end
 	end)
 end
@@ -105,6 +150,24 @@ function SockFX.Init()
 		track(model)
 	end
 	CollectionService:GetInstanceAddedSignal("Sock"):Connect(track)
+
+	-- the Great Dryer always gets an outline; socks are re-ranked by distance twice a second
+	task.spawn(function()
+		local mapFolder = root and root:WaitForChild("Map", 10)
+		local dryerBody = mapFolder and (mapFolder:FindFirstChild("DryerBody") or mapFolder:FindFirstChild("Dryer"))
+		if dryerBody then
+			local h = Instance.new("Highlight")
+			h.Name = "ToonOutline"
+			h.OutlineColor = OUTLINE_COLOR
+			h.FillTransparency = 1
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Parent = dryerBody
+		end
+		while true do
+			refreshOutlines()
+			task.wait(0.5)
+		end
+	end)
 
 	RunService.Heartbeat:Connect(function()
 		local now = workspace:GetServerTimeNow()
