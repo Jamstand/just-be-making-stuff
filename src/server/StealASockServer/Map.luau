@@ -168,6 +168,24 @@ local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent
 	end
 	local scale = math.min(fit.X / size.X, fit.Y / size.Y, fit.Z / size.Z)
 	model:ScaleTo(scale)
+	-- Style pass on whatever came from the Creator Store / a generator: flat toy materials only,
+	-- no glowing slabs (a Neon lampshade becomes a blob under bloom), no leftover lights/sounds/scripts.
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local mat = d.Material
+			if mat == Enum.Material.Neon then
+				local biggest = math.max(d.Size.X, d.Size.Y, d.Size.Z)
+				if biggest > 6 then
+					d.Material = Enum.Material.SmoothPlastic
+				end
+			elseif mat ~= Enum.Material.Glass and mat ~= Enum.Material.ForceField then
+				d.Material = Enum.Material.SmoothPlastic
+			end
+			d.Reflectance = 0
+		elseif d:IsA("Light") or d:IsA("Sound") or d:IsA("Script") or d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("ClickDetector") or d:IsA("ProximityPrompt") then
+			d:Destroy()
+		end
+	end
 	local bbCF, bbSize = model:GetBoundingBox()
 	-- move so the bounding box's bottom centre sits on floorCF (keep floorCF's rotation)
 	local bottomOffset = bbCF.Position - model:GetPivot().Position - Vector3.new(0, bbSize.Y / 2, 0)
@@ -306,11 +324,11 @@ local function buildNightstand(folder: Folder)
 	local L = LAYOUT
 	local x, z = -L.FloorX / 2 + 52, -118
 	local h = 92
-	local stand = placeTemplate("Nightstand", CFrame.new(x, 0, z), Vector3.new(90, 110, 90), folder, "Furniture")
+	local stand = placeTemplate("Nightstand", CFrame.new(x, 0, z), Vector3.new(70, 78, 70), folder, "Furniture")
 	if stand then
 		local _, standSize = stand:GetBoundingBox()
 		local lampTop = standSize.Y + 50
-		local lamp = placeTemplate("Lamp", CFrame.new(x, standSize.Y, z), Vector3.new(60, 70, 60), folder, "Furniture")
+		local lamp = placeTemplate("Lamp", CFrame.new(x, standSize.Y, z), Vector3.new(36, 44, 36), folder, "Furniture")
 		local bulbY = if lamp then standSize.Y + select(2, lamp:GetBoundingBox()).Y * 0.75 else lampTop
 		local bulb = ball("LampBulb", 6, CFrame.new(x, bulbY, z), Color3.fromRGB(255, 240, 200), Enum.Material.Neon, folder, "Furniture")
 		bulb.Transparency = if lamp then 1 else 0
@@ -319,11 +337,11 @@ local function buildNightstand(folder: Folder)
 		spot.Color = C.Lamp
 		spot.Range = 420
 		spot.Angle = 150
-		spot.Brightness = 1.4
+		spot.Brightness = 1.0
 		spot.Face = Enum.NormalId.Bottom
 		spot.Shadows = true
 		spot.Parent = bulb
-		pointLight(bulb, C.Lamp, 260, 0.8)
+		pointLight(bulb, C.Lamp, 260, 0.6)
 		local fill = part("RoomFill", Vector3.new(1, 1, 1), CFrame.new(0, 70, 0), C.Lamp, Enum.Material.SmoothPlastic, folder, "Furniture")
 		fill.Transparency = 1
 		fill.CanCollide = false
@@ -418,7 +436,7 @@ local function buildToys(folder: Folder)
 	-- teddy bear slumped in the west corner
 	local tx, tz = -half + 46, 60
 	local fur = Color3.fromRGB(160, 110, 70)
-	if not placeTemplate("Teddy", CFrame.new(tx, 0, tz) * CFrame.Angles(0, -math.pi / 2, 0), Vector3.new(48, 60, 48), folder, "Toy") then
+	if not placeTemplate("Teddy", CFrame.new(tx, 0, tz) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(48, 60, 48), folder, "Toy") then
 	ball("BearBody", 34, CFrame.new(tx, 15, tz), fur, Enum.Material.SmoothPlastic, folder, "Toy")
 	ball("BearHead", 24, CFrame.new(tx + 4, 40, tz + 4), fur, Enum.Material.SmoothPlastic, folder, "Toy")
 	ball("BearEar", 9, CFrame.new(tx - 4, 50, tz + 2), fur, Enum.Material.SmoothPlastic, folder, "Toy")
@@ -457,7 +475,7 @@ end
 local function buildDryer(folder: Folder)
 	local L = LAYOUT
 	local x = L.DryerX
-	local dryerModel = placeTemplate("Dryer", CFrame.new(x, 0, 0) * CFrame.Angles(0, -math.pi / 2, 0), Vector3.new(34, 40, 34), folder, "Dryer")
+	local dryerModel = placeTemplate("Dryer", CFrame.new(x, 0, 0) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(34, 40, 34), folder, "Dryer")
 	if dryerModel then
 		-- keep the spinning portal + light + steam so the Clothesline loop and the mood still work
 		local _, dsize = dryerModel:GetBoundingBox()

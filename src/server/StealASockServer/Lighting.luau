@@ -49,7 +49,7 @@ function Lighting.Init(_S)
 	cc.Name = "BedroomColor"
 	cc.Brightness = 0.03
 	cc.Contrast = 0.18
-	cc.Saturation = 0.38 -- the concept art is very saturated
+	cc.Saturation = 0.26 -- saturated like the concept, but not an orange wash
 	cc.TintColor = Color3.fromRGB(255, 242, 228)
 	cc.Parent = L
 end

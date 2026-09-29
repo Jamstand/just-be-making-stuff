@@ -12,6 +12,10 @@ real mesh **without touching the code**: drop a model into one of two folders in
 | `ReplicatedStorage.MapMeshes` | `Bed`, `Nightstand`, `Lamp`, `Dryer`, `Basket`, `Duck`, `Teddy`, `Blocks`, `Crayons`, `Drawer` | `Map` places it instead of the Part version, scaled to fit its slot, bottom on the floor. `Dryer` keeps the spinning portal light; `Drawer` becomes the shell of all 8 bases (walls stay for collision, invisible). |
 
 Both folders are created empty on the first Play. A model can be a `Model` or a single `MeshPart`.
+Whatever you drop in is **style-normalised on placement**: every part becomes SmoothPlastic (flat
+toy look; Glass stays), Neon parts bigger than 6 studs are toned down (a neon lampshade would bloom
+into a blob), and any leftover Light, Sound, Script, ClickDetector or ProximityPrompt is removed.
+Keep colours — that is what survives.
 Face direction: socks face **+Z** (the eyes); the dryer's porthole faces the clothesline, which the
 builder handles by rotating the template so its **front (+Z)** points down the line.
 
