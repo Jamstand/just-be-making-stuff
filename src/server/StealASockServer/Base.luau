@@ -175,6 +175,7 @@ function Base.PlaceInSlot(record, sock, slotIndex: number, animate: boolean)
 	if model then
 		S.Factory.Ground(model)
 		S.Factory.SetClothespin(model, false)
+		S.Factory.SetLabelDistance(model, 60)
 		model:SetAttribute("OwnerId", record.ownerId or 0)
 		model.Parent = S.Map.Folders.Drawer
 		local target = Base.SlotCFrame(record, slotIndex)
@@ -339,10 +340,10 @@ end
 -- ---------- collect pad ----------
 
 function Base.UpdatePad(record)
-	local gui = record.pad:FindFirstChild("Label")
-	local text = gui and gui:FindFirstChildOfClass("TextLabel")
+	local gui = record.pad:FindFirstChild("PadGui")
+	local text = gui and gui:FindFirstChild("PadText")
 	if text then
-		text.Text = "$" .. S.Util.FormatCash(math.floor(record.uncollected))
+		text.Text = "COLLECT $" .. S.Util.FormatCash(math.floor(record.uncollected))
 	end
 end
 

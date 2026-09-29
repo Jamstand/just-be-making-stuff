@@ -122,7 +122,7 @@ local function buildDryer(folder: Folder)
 	swirl.Shape = Enum.PartType.Ball
 	swirl.Transparency = 0.2
 	local knob = part("DryerKnob", Vector3.new(2, 2, 1), CFrame.new(L.DryerX + 8.5, 16, -5), Color3.fromRGB(255, 80, 80), Enum.Material.SmoothPlastic, folder, "Dryer")
-	label(body, "THE GREAT DRYER", 34, 12, Color3.fromRGB(255, 240, 120))
+	label(body, "THE GREAT DRYER", 34, 15, Color3.fromRGB(255, 240, 120))
 	Map.Dryer.Body = body
 	Map.Dryer.Drum = drum
 	Map.Dryer.Swirl = swirl
@@ -197,7 +197,24 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 
 	-- Collect pad (inside, near the front)
 	local pad = part("CollectPad", Vector3.new(10, 0.3, 5), cf * CFrame.new(0, 1.15, 11), Color3.fromRGB(80, 230, 120), Enum.Material.Neon, model, "CollectPad")
-	label(pad, "$0", 26, 3, Color3.fromRGB(130, 255, 160))
+	local padGui = Instance.new("SurfaceGui")
+	padGui.Name = "PadGui"
+	padGui.Face = Enum.NormalId.Top
+	padGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	padGui.PixelsPerStud = 40
+	padGui.LightInfluence = 0
+	padGui.Adornee = pad
+	local padText = Instance.new("TextLabel")
+	padText.Name = "PadText"
+	padText.Size = UDim2.fromScale(1, 1)
+	padText.BackgroundTransparency = 1
+	padText.Font = Enum.Font.FredokaOne
+	padText.TextScaled = true
+	padText.TextColor3 = Color3.fromRGB(20, 60, 30)
+	padText.Text = "COLLECT $0"
+	padText.Rotation = if z > 0 then 0 else 180
+	padText.Parent = padGui
+	padGui.Parent = pad
 
 	-- Slam Drawer button (back-left corner; only reachable in person)
 	part("ButtonBase", Vector3.new(3, 2, 3), cf * CFrame.new(-19, 2, -12), Color3.fromRGB(60, 60, 70), Enum.Material.Metal, model)
@@ -206,8 +223,8 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 	label(button, "SLAM", 20, 2, Color3.fromRGB(255, 120, 120))
 
 	-- Sign above the back wall
-	local signPart = part("Sign", Vector3.new(14, 3, 0.5), cf * CFrame.new(0, L.WallH + 3.5, -L.BaseD / 2 + 0.5), Color3.fromRGB(255, 255, 255), Enum.Material.SmoothPlastic, model)
-	local signText = label(signPart, "Drawer " .. index .. " - FREE", 30, 0, Color3.fromRGB(40, 40, 60))
+	local signPart = part("Sign", Vector3.new(14, 3, 0.5), cf * CFrame.new(0, L.WallH + 6, -L.BaseD / 2 + 0.5), Color3.fromRGB(255, 255, 255), Enum.Material.SmoothPlastic, model)
+	local signText = label(signPart, "Drawer " .. index .. " - FREE", 34, 0, Color3.fromRGB(40, 40, 60))
 	signText.Parent.Name = "SignGui"
 
 	model.Parent = folder

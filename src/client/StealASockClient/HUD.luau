@@ -97,8 +97,7 @@ function HUD.Init()
 	local toggle = Instance.new("TextButton")
 	toggle.Name = "DrawerToggle"
 	toggle.Size = UDim2.fromOffset(150, 56)
-	toggle.AnchorPoint = Vector2.new(1, 0)
-	toggle.Position = UDim2.new(1, -12, 0, 8)
+	toggle.Position = UDim2.fromOffset(12, 150) -- under the cash panel; the top-right belongs to Roblox's player list
 	toggle.BackgroundColor3 = Color3.fromRGB(255, 190, 60)
 	toggle.Font = FONT
 	toggle.TextSize = 22
@@ -111,9 +110,8 @@ function HUD.Init()
 
 	local panel = Instance.new("Frame")
 	panel.Name = "Drawer"
-	panel.Size = UDim2.fromOffset(300, 330)
-	panel.AnchorPoint = Vector2.new(1, 0)
-	panel.Position = UDim2.new(1, -12, 0, 72)
+	panel.Size = UDim2.new(0, 300, 1, -230) -- fills down to just above the bottom edge on any screen
+	panel.Position = UDim2.fromOffset(12, 214)
 	panel.BackgroundColor3 = COLOR_PANEL
 	panel.BackgroundTransparency = 0.2
 	panel.Visible = drawerOpen

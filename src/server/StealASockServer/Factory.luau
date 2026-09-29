@@ -41,9 +41,9 @@ local function buildLabel(sock, leg: BasePart)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "NameLabel"
 	gui.Adornee = leg
-	gui.Size = UDim2.fromOffset(180, 46)
+	gui.Size = UDim2.fromOffset(150, 40)
 	gui.StudsOffset = Vector3.new(0, 3.2, 0)
-	gui.MaxDistance = 70
+	gui.MaxDistance = 30 -- line socks: the buy prompt already names them; Base widens this in a drawer
 	gui.LightInfluence = 0
 	local name = Instance.new("TextLabel")
 	name.Name = "Name"
@@ -131,6 +131,15 @@ function Factory.Build(sock): Model
 	buildLabel(sock, leg)
 	sock.model = model
 	return model
+end
+
+-- How far away the floating name can be read (line socks stay short so the line isn't a wall of text).
+function Factory.SetLabelDistance(model: Model, distance: number)
+	local leg = model.PrimaryPart
+	local gui = leg and leg:FindFirstChild("NameLabel")
+	if gui and gui:IsA("BillboardGui") then
+		gui.MaxDistance = distance
+	end
 end
 
 function Factory.SetClothespin(model: Model, visible: boolean)
