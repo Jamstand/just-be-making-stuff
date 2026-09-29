@@ -13,7 +13,7 @@ local RunService = game:GetService("RunService")
 
 local SockFX = {}
 
-local lineStartX, lineEndX, lineY = 0, 0, 0
+local lineStartX, lineEndX, lineY, pinOffset = 0, 0, 0, 2.4
 local active = {} :: { [Model]: boolean }
 local rainbowParts = {} :: { [Model]: { BasePart } }
 
@@ -66,7 +66,7 @@ local function lineCFrame(model: Model, now: number, phase: number): CFrame?
 	local sway = math.sin(now * 2.2 + phase) * 0.1
 	local drop = if progress > 0.965 then ((progress - 0.965) / 0.035) ^ 2 * 9 else 0
 	-- rotate around the clothespin (top of the sock) so it swings, not slides
-	return CFrame.new(x, lineY - drop, 0) * CFrame.new(0, 2.4, 0) * CFrame.Angles(0, 0, sway) * CFrame.new(0, -2.4, 0)
+	return CFrame.new(x, lineY - drop, 0) * CFrame.new(0, pinOffset, 0) * CFrame.Angles(0, 0, sway) * CFrame.new(0, -pinOffset, 0)
 end
 
 local function track(model: Instance)
@@ -98,7 +98,8 @@ function SockFX.Init()
 	if line then
 		lineStartX = line:GetAttribute("StartX") or -160
 		lineEndX = line:GetAttribute("EndX") or 150
-		lineY = line:GetAttribute("Y") or 7
+		lineY = line:GetAttribute("Y") or 10
+		pinOffset = line:GetAttribute("PinOffset") or 4.3
 	end
 	for _, model in ipairs(CollectionService:GetTagged("Sock")) do
 		track(model)

@@ -25,7 +25,8 @@ local EconomyConfig = {
 	-- Stealing
 	StealHoldSeconds = 1.5,
 	StealRange = 12, -- studs; server re-checks the ProximityPrompt distance
-	CarryHeightOffset = 2.6, -- how high the sock rides above the head
+	CarryHeightOffset = 4.6, -- how high the sock rides above the head (socks are 2x scale)
+	SockScale = 2, -- chunky units, bigger than the player, like the games this loop comes from
 	BaseWalkSpeed = 16,
 	ClaimFullToastGap = 3, -- seconds between "drawer full" toasts while carrying
 

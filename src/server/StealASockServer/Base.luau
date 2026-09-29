@@ -155,7 +155,7 @@ local function ensureStealPrompt(sock)
 		prompt.Name = "StealPrompt"
 		prompt.ActionText = "Steal"
 		prompt.HoldDuration = S.Config.Economy.StealHoldSeconds
-		prompt.MaxActivationDistance = S.Config.Economy.StealRange - 2
+		prompt.MaxActivationDistance = S.Config.Economy.StealRange
 		prompt.RequiresLineOfSight = false
 		prompt.Parent = leg
 		prompt.Triggered:Connect(function(player)

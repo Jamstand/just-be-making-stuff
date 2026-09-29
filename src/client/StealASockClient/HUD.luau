@@ -135,6 +135,9 @@ function HUD.Init()
 	panel.Parent = gui
 	corner(panel, 16)
 	candy(panel)
+	local panelMax = Instance.new("UISizeConstraint")
+	panelMax.MaxSize = Vector2.new(300, 470) -- 8 rows; taller screens don't stretch it
+	panelMax.Parent = panel
 	refs.drawerPanel = panel
 	refs.drawerTitle = label(panel, "YOUR DRAWER 0/8", 20)
 	refs.drawerTitle.Position = UDim2.fromOffset(12, 6)

@@ -10,10 +10,10 @@ function Lighting.Init(_S)
 		L.Technology = Enum.Technology.Future
 	end)
 	L.ClockTime = 0.4 -- deep night: the default skybox shows stars and a moon
-	L.Brightness = 1.4
-	L.Ambient = Color3.fromRGB(28, 30, 52)
-	L.OutdoorAmbient = Color3.fromRGB(38, 40, 70)
-	L.ExposureCompensation = 0.35
+	L.Brightness = 2
+	L.Ambient = Color3.fromRGB(70, 68, 96) -- bright enough to read the room; lamp/moon add the mood
+	L.OutdoorAmbient = Color3.fromRGB(80, 82, 120)
+	L.ExposureCompensation = 0.5
 	L.EnvironmentDiffuseScale = 0.6
 	L.EnvironmentSpecularScale = 0.6
 	L.GlobalShadows = true
@@ -28,19 +28,19 @@ function Lighting.Init(_S)
 
 	local atmo = Instance.new("Atmosphere")
 	atmo.Name = "BedroomAtmosphere"
-	atmo.Density = 0.32
-	atmo.Offset = 0.2
-	atmo.Color = Color3.fromRGB(110, 100, 150)
-	atmo.Decay = Color3.fromRGB(60, 50, 110)
-	atmo.Glare = 0.25
-	atmo.Haze = 1.6
+	atmo.Density = 0.16
+	atmo.Offset = 0.1
+	atmo.Color = Color3.fromRGB(120, 110, 160)
+	atmo.Decay = Color3.fromRGB(70, 60, 120)
+	atmo.Glare = 0.15
+	atmo.Haze = 0.8
 	atmo.Parent = L
 
 	local bloom = Instance.new("BloomEffect")
 	bloom.Name = "BedroomBloom"
-	bloom.Intensity = 0.65
-	bloom.Threshold = 1.1
-	bloom.Size = 28
+	bloom.Intensity = 0.4
+	bloom.Threshold = 1.5
+	bloom.Size = 20
 	bloom.Parent = L
 
 	local cc = Instance.new("ColorCorrectionEffect")

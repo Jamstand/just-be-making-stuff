@@ -384,9 +384,9 @@ local function buildLabel(sock, leg: BasePart)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "NameLabel"
 	gui.Adornee = leg
-	gui.Size = UDim2.fromOffset(150, 40)
-	gui.StudsOffset = Vector3.new(0, 3.2, 0)
-	gui.MaxDistance = 30 -- line socks: the buy prompt already names them; Base widens this in a drawer
+	gui.Size = UDim2.fromOffset(170, 44)
+	gui.StudsOffset = Vector3.new(0, leg.Size.Y / 2 + 2.2, 0)
+	gui.MaxDistance = 40 -- line socks: the buy prompt already names them; Base widens this in a drawer
 	gui.LightInfluence = 0
 	local name = Instance.new("TextLabel")
 	name.Name = "Name"
@@ -495,6 +495,7 @@ function Factory.Build(sock): Model
 	end
 	applyRarity(ctx)
 	applyMutation(ctx)
+	model:ScaleTo(S.Config.Economy.SockScale)
 
 	model:SetAttribute("Uid", sock.uid)
 	model:SetAttribute("TypeId", sock.typeId)

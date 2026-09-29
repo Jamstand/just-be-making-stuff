@@ -16,10 +16,10 @@ local LAYOUT = {
 	RugZ = 260,
 	Tile = 20,
 	WallHeight = 110,
-	LineY = 10, -- clothesline rail height
+	LineY = 15, -- clothesline rail height
 	LineStartX = -160, -- inside the dryer drum: socks slide out of it
 	LineEndX = 150,
-	HangDrop = 2.9, -- sock pivot sits this far under the rail
+	HangDrop = 4.6, -- sock pivot (Leg centre) sits this far under the rail; socks are 2x scale
 	DryerX = -172,
 	LintX = 174,
 	BaseXs = { -126, -42, 42, 126 },
@@ -220,33 +220,39 @@ local function buildBed(folder: Folder)
 	part("WindowFrame", Vector3.new(76, 62, 1), CFrame.new(190, 78, z0 + 2.4), C.Baseboard, Enum.Material.SmoothPlastic, folder, "Furniture")
 	part("WindowBarV", Vector3.new(3, 56, 2), CFrame.new(190, 78, z0 + 2.6), C.Baseboard, Enum.Material.SmoothPlastic, folder, "Furniture")
 	part("WindowBarH", Vector3.new(70, 3, 2), CFrame.new(190, 78, z0 + 2.6), C.Baseboard, Enum.Material.SmoothPlastic, folder, "Furniture")
-	pointLight(win, C.Moon, 170, 0.7)
+	pointLight(win, C.Moon, 240, 1.0)
 	ball("Moon", 26, CFrame.new(205, 92, z0 + 1.2), Color3.fromRGB(235, 240, 255), Enum.Material.Neon, folder, "Furniture").Transparency = 0.05
 end
 
 local function buildNightstand(folder: Folder)
 	local L = LAYOUT
-	local x, z = -L.FloorX / 2 + 42, -110
-	local h = 64
-	part("Nightstand", Vector3.new(56, h, 52), CFrame.new(x, h / 2, z), C.Wood, Enum.Material.Wood, folder, "Furniture")
-	part("NightstandTop", Vector3.new(60, 4, 56), CFrame.new(x, h + 2, z), C.WoodDark, Enum.Material.Wood, folder, "Furniture")
-	part("NightstandDrawer", Vector3.new(44, 18, 2), CFrame.new(x, 40, z + 27), C.WoodDark, Enum.Material.Wood, folder, "Furniture")
-	part("NightstandKnob", Vector3.new(6, 6, 3), CFrame.new(x, 40, z + 29), C.Knob, Enum.Material.Metal, folder, "Furniture")
+	local x, z = -L.FloorX / 2 + 52, -118
+	local h = 92
+	part("Nightstand", Vector3.new(76, h, 70), CFrame.new(x, h / 2, z), C.Wood, Enum.Material.Wood, folder, "Furniture")
+	part("NightstandTop", Vector3.new(82, 5, 76), CFrame.new(x, h + 2.5, z), C.WoodDark, Enum.Material.Wood, folder, "Furniture")
+	part("NightstandDrawer", Vector3.new(60, 24, 2), CFrame.new(x, 58, z + 36), C.WoodDark, Enum.Material.Wood, folder, "Furniture")
+	part("NightstandKnob", Vector3.new(8, 8, 3), CFrame.new(x, 58, z + 38), C.Knob, Enum.Material.Metal, folder, "Furniture")
 	-- lamp: base, stem, shade, and the main light of the room
-	column("LampBase", 9, 3, CFrame.new(x, h + 5.5, z), C.MetalDark, Enum.Material.Metal, folder, "Furniture")
-	column("LampStem", 1.6, 30, CFrame.new(x, h + 22, z), C.Metal, Enum.Material.Metal, folder, "Furniture")
-	local shade = column("LampShade", 16, 20, CFrame.new(x, h + 44, z), C.Lamp, Enum.Material.SmoothPlastic, folder, "Furniture")
+	column("LampBase", 12, 4, CFrame.new(x, h + 7, z), C.MetalDark, Enum.Material.Metal, folder, "Furniture")
+	column("LampStem", 2, 40, CFrame.new(x, h + 29, z), C.Metal, Enum.Material.Metal, folder, "Furniture")
+	local shade = column("LampShade", 24, 28, CFrame.new(x, h + 60, z), C.Lamp, Enum.Material.SmoothPlastic, folder, "Furniture")
 	shade.Transparency = 0.1
-	local bulb = ball("LampBulb", 8, CFrame.new(x, h + 44, z), Color3.fromRGB(255, 240, 200), Enum.Material.Neon, folder, "Furniture")
+	local bulb = ball("LampBulb", 12, CFrame.new(x, h + 60, z), Color3.fromRGB(255, 240, 200), Enum.Material.Neon, folder, "Furniture")
 	local spot = Instance.new("SpotLight")
 	spot.Color = C.Lamp
-	spot.Range = 300
-	spot.Angle = 140
-	spot.Brightness = 1.6
+	spot.Range = 420
+	spot.Angle = 150
+	spot.Brightness = 1.4
 	spot.Face = Enum.NormalId.Bottom
 	spot.Shadows = true
 	spot.Parent = bulb
-	pointLight(bulb, C.Lamp, 150, 0.9)
+	pointLight(bulb, C.Lamp, 260, 0.8)
+	-- soft warm fill over the play area so the socks and drawers always read
+	local fill = part("RoomFill", Vector3.new(1, 1, 1), CFrame.new(0, 70, 0), C.Lamp, Enum.Material.SmoothPlastic, folder, "Furniture")
+	fill.Transparency = 1
+	fill.CanCollide = false
+	fill.CanQuery = false
+	pointLight(fill, Color3.fromRGB(255, 236, 214), 320, 0.55)
 end
 
 local function buildToys(folder: Folder)
@@ -357,7 +363,7 @@ local function buildDryer(folder: Folder)
 	swirl.CanCollide = false
 	local core = ball("DryerCore", 5, CFrame.new(x + 6, 13, 0), Color3.fromRGB(255, 220, 255), Enum.Material.Neon, folder, "Dryer")
 	core.CanCollide = false
-	pointLight(swirl, C.Swirl, 60, 2)
+	pointLight(swirl, C.Swirl, 34, 0.7)
 	-- control panel with knobs
 	part("DryerPanel", Vector3.new(24, 6, 8), CFrame.new(x, 29, -9), C.MetalDark, Enum.Material.Metal, folder, "Dryer")
 	for i, kc in ipairs({ Color3.fromRGB(255, 80, 80), Color3.fromRGB(80, 220, 120), Color3.fromRGB(255, 220, 80) }) do
@@ -547,6 +553,7 @@ function Map.Init(s)
 	line:SetAttribute("StartX", LAYOUT.LineStartX)
 	line:SetAttribute("EndX", LAYOUT.LineEndX)
 	line:SetAttribute("Y", LAYOUT.LineY - LAYOUT.HangDrop)
+	line:SetAttribute("PinOffset", 4.3) -- Leg centre -> clothespin, at sock scale
 
 	local mapFolder = Map.Folders.Map
 	buildFloor(mapFolder)
