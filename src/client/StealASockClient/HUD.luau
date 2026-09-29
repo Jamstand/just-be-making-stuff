@@ -20,10 +20,15 @@ local IS_TOUCH = UserInputService.TouchEnabled and not UserInputService.MouseEna
 
 local FONT = Enum.Font.FredokaOne
 local FONT_BODY = Enum.Font.GothamBold
-local COLOR_PANEL = Color3.fromRGB(38, 30, 62)
-local COLOR_PANEL2 = Color3.fromRGB(22, 18, 40)
-local COLOR_STROKE = Color3.fromRGB(150, 110, 255)
-local COLOR_CASH = Color3.fromRGB(120, 255, 150)
+-- palette from docs/concept/ui_style.png: cream panels, plum outlines, coral titles, gold cash pill
+local COLOR_PANEL = Color3.fromRGB(246, 233, 210)
+local COLOR_PANEL2 = Color3.fromRGB(236, 214, 180)
+local COLOR_STROKE = Color3.fromRGB(74, 42, 94)
+local COLOR_CASH = Color3.fromRGB(255, 255, 255)
+local COLOR_TEXT = Color3.fromRGB(70, 44, 30)
+local COLOR_TITLE = Color3.fromRGB(232, 112, 90)
+local COLOR_GOLD = Color3.fromRGB(240, 192, 96)
+local COLOR_GOLD2 = Color3.fromRGB(216, 154, 58)
 
 local gui
 local refs = {
@@ -92,20 +97,21 @@ function HUD.Init()
 	top.BackgroundTransparency = 0.05
 	top.Parent = gui
 	corner(top, 16)
-	candy(top)
+	candy(top, COLOR_STROKE, COLOR_GOLD, COLOR_GOLD2)
 	local pad = Instance.new("UIPadding")
 	pad.PaddingLeft = UDim.new(0, 12)
 	pad.PaddingTop = UDim.new(0, 6)
 	pad.Parent = top
-	refs.cash = label(top, "$0", 36, COLOR_CASH)
+	refs.cash = label(top, "🪙 $0", 36, COLOR_CASH)
 	refs.cash.Size = UDim2.new(1, 0, 0, 40)
-	refs.rate = label(top, "+$0/s", 20, Color3.fromRGB(200, 255, 210), FONT_BODY)
+	refs.cash.TextStrokeTransparency = 0.2
+	refs.rate = label(top, "+$0/s", 20, Color3.fromRGB(255, 250, 235), FONT_BODY)
 	refs.rate.Position = UDim2.fromOffset(0, 42)
 	refs.rate.Size = UDim2.new(1, 0, 0, 24)
-	refs.waiting = label(top, "$0 waiting on your Collect pad", 16, Color3.fromRGB(255, 230, 150), FONT_BODY)
+	refs.waiting = label(top, "$0 waiting on your Collect pad", 16, Color3.fromRGB(255, 245, 220), FONT_BODY)
 	refs.waiting.Position = UDim2.fromOffset(0, 68)
 	refs.waiting.Size = UDim2.new(1, 0, 0, 22)
-	refs.lock = label(top, "Drawer open", 16, Color3.fromRGB(180, 190, 220), FONT_BODY)
+	refs.lock = label(top, "Drawer open", 16, Color3.fromRGB(255, 245, 220), FONT_BODY)
 	refs.lock.Position = UDim2.fromOffset(0, 94)
 	refs.lock.Size = UDim2.new(1, 0, 0, 22)
 
@@ -139,9 +145,11 @@ function HUD.Init()
 	panelMax.MaxSize = Vector2.new(300, 470) -- 8 rows; taller screens don't stretch it
 	panelMax.Parent = panel
 	refs.drawerPanel = panel
-	refs.drawerTitle = label(panel, "YOUR DRAWER 0/8", 20)
+	refs.drawerTitle = label(panel, "YOUR DRAWER 0/8", 22, COLOR_TITLE)
 	refs.drawerTitle.Position = UDim2.fromOffset(12, 6)
 	refs.drawerTitle.Size = UDim2.new(1, -24, 0, 28)
+	refs.drawerTitle.TextXAlignment = Enum.TextXAlignment.Center
+	refs.drawerTitle.TextStrokeTransparency = 1
 	local list = Instance.new("ScrollingFrame")
 	list.Name = "List"
 	list.Position = UDim2.fromOffset(8, 40)
@@ -247,9 +255,14 @@ local function slotRow(index: number, view)
 	local row = Instance.new("Frame")
 	row.Name = "Slot" .. index
 	row.Size = UDim2.new(1, 0, 0, 44)
-	row.BackgroundColor3 = Color3.fromRGB(55, 46, 84)
+	row.BackgroundColor3 = Color3.fromRGB(255, 248, 236)
 	row.LayoutOrder = index
 	corner(row, 10)
+	local rowStroke = Instance.new("UIStroke")
+	rowStroke.Color = COLOR_STROKE
+	rowStroke.Thickness = 2
+	rowStroke.Transparency = 0.35
+	rowStroke.Parent = row
 	local bar = Instance.new("Frame")
 	bar.Name = "RarityBar"
 	bar.Size = UDim2.new(0, 5, 1, -10)
@@ -258,13 +271,14 @@ local function slotRow(index: number, view)
 	bar.BackgroundColor3 = if view and RarityConfig.Tiers[view.rarity] then RarityConfig.Tiers[view.rarity].color else Color3.fromRGB(90, 80, 120)
 	bar.Parent = row
 	corner(bar, 3)
-	local num = label(row, tostring(index), 16, Color3.fromRGB(170, 160, 200), FONT_BODY)
+	local num = label(row, tostring(index), 16, Color3.fromRGB(150, 130, 120), FONT_BODY)
+	num.TextStrokeTransparency = 1
 	num.Position = UDim2.fromOffset(14, 0)
 	num.Size = UDim2.fromOffset(22, 44)
 	if view then
-		local tier = RarityConfig.Tiers[view.rarity]
 		local m = MutationConfig.Table[view.mutation]
-		local name = label(row, view.name, 16, tier and tier.color or Color3.new(1, 1, 1))
+		local name = label(row, view.name, 16, COLOR_TEXT)
+		name.TextStrokeTransparency = 1
 		name.Position = UDim2.fromOffset(38, 2)
 		name.Size = UDim2.new(1, -110, 0, 22)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
@@ -277,17 +291,20 @@ local function slotRow(index: number, view)
 		elseif view.paired then
 			subText ..= " • PAIRED"
 		end
-		local sub = label(row, subText, 13, if view.paired then Color3.fromRGB(120, 255, 160) else Color3.fromRGB(190, 190, 210), FONT_BODY)
+		local sub = label(row, subText, 13, if view.paired then Color3.fromRGB(40, 150, 80) else Color3.fromRGB(140, 120, 110), FONT_BODY)
+		sub.TextStrokeTransparency = 1
 		sub.Position = UDim2.fromOffset(38, 24)
 		sub.Size = UDim2.new(1, -110, 0, 18)
 		sub.TextTruncate = Enum.TextTruncate.AtEnd
-		local income = label(row, "$" .. Util.FormatRate(view.income) .. "/s", 15, COLOR_CASH, FONT_BODY)
+		local income = label(row, "$" .. Util.FormatRate(view.income) .. "/s", 15, Color3.fromRGB(40, 150, 80), FONT_BODY)
+		income.TextStrokeTransparency = 1
 		income.AnchorPoint = Vector2.new(1, 0)
 		income.Position = UDim2.new(1, -8, 0, 0)
 		income.Size = UDim2.fromOffset(76, 44)
 		income.TextXAlignment = Enum.TextXAlignment.Right
 	else
-		local empty = label(row, "empty", 15, Color3.fromRGB(120, 120, 140), FONT_BODY)
+		local empty = label(row, "empty", 15, Color3.fromRGB(170, 150, 140), FONT_BODY)
+		empty.TextStrokeTransparency = 1
 		empty.Position = UDim2.fromOffset(38, 0)
 		empty.Size = UDim2.new(1, -40, 1, 0)
 	end

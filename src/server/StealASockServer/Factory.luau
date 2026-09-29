@@ -419,10 +419,102 @@ local function buildLabel(sock, leg: BasePart)
 	gui.Parent = leg
 end
 
+-- ---------- real meshes (optional) ----------
+-- Put a Model or MeshPart named after the type id (e.g. "Argylo", or "Argylo_L" / "Argylo_R" for
+-- different halves) into ReplicatedStorage.SockMeshes and the Factory uses it as the body instead
+-- of the Part build. Features are skipped (the mesh already has them); rarity glow, mutation
+-- looks, the label and every game hook still apply. See docs/ART_PIPELINE.md.
+local meshFolder: Folder? = nil
+
+local function findMeshTemplate(sock): Instance?
+	if not meshFolder then
+		return nil
+	end
+	local sided = meshFolder:FindFirstChild(sock.typeId .. "_" .. sock.side)
+	return sided or meshFolder:FindFirstChild(sock.typeId)
+end
+
+-- Clones the template, normalises it to the Part body's height (3.2 studs before SockScale),
+-- welds it to an invisible Leg root and returns the Leg. Returns nil if the template is unusable.
+local function buildFromMesh(template: Instance, model: Model, sock): (BasePart?, BasePart?)
+	local clone = template:Clone()
+	local holder: Model
+	if clone:IsA("Model") then
+		holder = clone
+	elseif clone:IsA("BasePart") then
+		holder = Instance.new("Model")
+		clone.Parent = holder
+		holder.PrimaryPart = clone
+	else
+		clone:Destroy()
+		return nil, nil
+	end
+	local cf, size = holder:GetBoundingBox()
+	if size.Y <= 0 then
+		holder:Destroy()
+		return nil, nil
+	end
+	local targetHeight = 3.2 + 1.3 -- leg + foot of the Part body
+	holder:ScaleTo(targetHeight / size.Y)
+	cf, size = holder:GetBoundingBox()
+	-- invisible root the prompts/welds/pivots use; sized like the mesh so labels sit right
+	local leg = newPart("Leg", Vector3.new(math.max(size.X, 1), size.Y, math.max(size.Z, 1)), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic, model)
+	leg.Transparency = 1
+	leg.Anchored = true
+	leg.CanQuery = true
+	leg.CFrame = cf
+	model.PrimaryPart = leg
+	for _, d in ipairs(holder:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored = false
+			d.CanCollide = false
+			d.CanQuery = false
+			d.CanTouch = false
+			d.Massless = true
+			weld(leg, d)
+		end
+	end
+	holder.Name = "Mesh"
+	holder.Parent = model
+	-- side marker so L/R still read at a glance when the same mesh serves both halves
+	if sock.side ~= "S" then
+		local tag = newPart("SideTag", Vector3.new(0.9, 0.9, 0.1), Color3.new(1, 1, 1), Enum.Material.Neon, model)
+		tag.CFrame = cf * CFrame.new(if sock.side == "L" then -size.X / 2 - 0.3 else size.X / 2 + 0.3, -size.Y / 2 + 0.6, 0)
+		weld(leg, tag)
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = Enum.NormalId.Front
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 60
+		gui.LightInfluence = 0
+		local t = Instance.new("TextLabel")
+		t.Size = UDim2.fromScale(1, 1)
+		t.BackgroundTransparency = 1
+		t.Font = Enum.Font.FredokaOne
+		t.TextScaled = true
+		t.TextColor3 = Color3.fromRGB(40, 30, 60)
+		t.Text = sock.side
+		t.Parent = gui
+		gui.Parent = tag
+	end
+	return leg, leg
+end
+
 -- ---------- build ----------
 
 function Factory.Init(s)
 	S = s
+	local rs = game:GetService("ReplicatedStorage")
+	local folder = rs:FindFirstChild("SockMeshes")
+	if not (folder and folder:IsA("Folder")) then
+		folder = Instance.new("Folder")
+		folder.Name = "SockMeshes"
+		folder.Parent = rs
+	end
+	meshFolder = folder :: Folder
+	local count = #folder:GetChildren()
+	if count > 0 then
+		print("[Factory] " .. count .. " sock mesh template(s) found in ReplicatedStorage.SockMeshes")
+	end
 end
 
 local function has(list: { string }?, name: string): boolean
@@ -442,6 +534,36 @@ function Factory.Build(sock): Model
 
 	local model = Instance.new("Model")
 	model.Name = "Sock_" .. sock.uid
+
+	-- Real mesh available? Use it and skip the Part body + features.
+	local template = findMeshTemplate(sock)
+	if template then
+		local meshLeg, meshFoot = buildFromMesh(template, model, sock)
+		if meshLeg and meshFoot then
+			local ctx: Ctx = { model = model, leg = meshLeg, foot = meshFoot, color = color, accent = t.accent, material = material, dir = dir, scale = 1, sock = sock }
+			local pin = attach(ctx, "Clothespin", Vector3.new(0.6, 1.5, 0.45), CFrame.new(0, meshLeg.Size.Y / 2 + 0.55, 0), Color3.fromRGB(196, 146, 92), Enum.Material.Wood)
+			pin.Name = "Clothespin"
+			applyRarity(ctx)
+			applyMutation(ctx)
+			model:ScaleTo(S.Config.Economy.SockScale)
+			model:SetAttribute("Uid", sock.uid)
+			model:SetAttribute("TypeId", sock.typeId)
+			model:SetAttribute("SockName", t.name)
+			model:SetAttribute("Side", sock.side)
+			model:SetAttribute("Rarity", t.rarity)
+			model:SetAttribute("RarityRank", S.Config.Rarity.Tiers[t.rarity].rank)
+			model:SetAttribute("Mutation", sock.mutation)
+			model:SetAttribute("Stink", sock.stink)
+			model:SetAttribute("OwnerId", 0)
+			model:SetAttribute("Motion", t.motion or "bob")
+			model:SetAttribute("State", "gone")
+			model:SetAttribute("FromMesh", true)
+			CollectionService:AddTag(model, "Sock")
+			buildLabel(sock, meshLeg)
+			sock.model = model
+			return model
+		end
+	end
 
 	-- Leg: root, anchored, the part prompts attach to
 	local legH = if has(look, "tall") then 5.2 else (if has(look, "small") then 2.4 else 3.2)
