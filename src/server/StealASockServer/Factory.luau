@@ -506,6 +506,44 @@ local function buildFromMesh(template: Instance, model: Model, sock): (BasePart?
 	return leg, leg
 end
 
+local function isMarker(name: string): boolean
+	local tail = string.match(name, "_%a+$")
+	return tail == "_Base" or tail == "_Unit" or tail == "_Pin"
+end
+
+-- Clothespin (only shown while hanging on the line). `cuffY` = the top of the sock in the Leg's local
+-- space. Uses ReplicatedStorage.SockMeshes.Clothespin (tools/blender/props/clothespin.py: 1 unit =
+-- 1 stud, origin at the jaw tips) when it is there, else a wooden block. Always named "Clothespin".
+local function addClothespin(ctx: Ctx, cuffY: number)
+	local template = meshFolder and meshFolder:FindFirstChild("Clothespin")
+	if template then
+		local holder, info = MeshTemplate.Prepare(template, true)
+		if holder and info.hasMarkers and info.base then
+			-- jaw tips overlap the cuff a little; the front of the pin faces the sock's front (+Z)
+			local rel = CFrame.new(info.base :: Vector3):ToObjectSpace(holder:GetPivot())
+			holder:PivotTo(ctx.leg.CFrame * CFrame.new(0, cuffY - 0.3, 0) * rel)
+			for _, d in ipairs(holder:GetDescendants()) do
+				if d:IsA("BasePart") then
+					d.Anchored = false
+					d.CanCollide = false
+					d.CanQuery = false
+					d.CanTouch = false
+					d.Massless = true
+					d.CastShadow = false
+					weld(ctx.leg, d)
+				end
+			end
+			holder.Name = "Clothespin"
+			holder.Parent = ctx.model
+			return
+		elseif holder then
+			holder:Destroy()
+		end
+	end
+	local pin = attach(ctx, "Clothespin", Vector3.new(0.6, 1.5, 0.45), CFrame.new(0, cuffY + 0.5, 0), Color3.fromRGB(196, 146, 92), Enum.Material.Wood)
+	pin.Name = "Clothespin"
+end
+
 -- ---------- build ----------
 
 function Factory.Init(s)
@@ -548,8 +586,8 @@ function Factory.Build(sock): Model
 		local meshLeg, meshFoot = buildFromMesh(template, model, sock)
 		if meshLeg and meshFoot then
 			local ctx: Ctx = { model = model, leg = meshLeg, foot = meshFoot, color = color, accent = t.accent, material = material, dir = dir, scale = 1, sock = sock }
-			local pin = attach(ctx, "Clothespin", Vector3.new(0.6, 1.5, 0.45), CFrame.new(0, meshLeg.Size.Y / 2 + 0.55, 0), Color3.fromRGB(196, 146, 92), Enum.Material.Wood)
-			pin.Name = "Clothespin"
+			-- the mesh's leg root stops 0.45 under the sock's top (see buildFromMesh)
+			addClothespin(ctx, meshLeg.Size.Y / 2 + 0.45)
 			applyRarity(ctx)
 			applyMutation(ctx)
 			model:ScaleTo(S.Config.Economy.SockScale)
@@ -610,9 +648,7 @@ function Factory.Build(sock): Model
 		attach(ctx, "Pupil", Vector3.new(0.3, 0.3, 0.3), CFrame.new(ex + 0.08, eyeY - 0.02, 0.98), BLACK, nil, Enum.PartType.Ball)
 	end
 
-	-- Clothespin (only shown while hanging on the line)
-	local pin = attach(ctx, "Clothespin", Vector3.new(0.6, 1.5, 0.45), CFrame.new(0, legH / 2 + 0.55, 0), Color3.fromRGB(196, 146, 92), Enum.Material.Wood)
-	pin.Name = "Clothespin"
+	addClothespin(ctx, legH / 2 + 0.05) -- top of the Cuff
 
 	for _, feature in ipairs(look) do
 		local builder = FEATURES[feature]
@@ -657,6 +693,13 @@ function Factory.SetClothespin(model: Model, visible: boolean)
 	local pin = model:FindFirstChild("Clothespin")
 	if pin and pin:IsA("BasePart") then
 		pin.Transparency = if visible then 0 else 1
+	elseif pin then
+		-- mesh pin: show every part but the hidden markers
+		for _, d in ipairs(pin:GetDescendants()) do
+			if d:IsA("BasePart") and not isMarker(d.Name) then
+				d.Transparency = if visible then 0 else 1
+			end
+		end
 	end
 end
 

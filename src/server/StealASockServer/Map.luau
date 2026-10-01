@@ -10,6 +10,10 @@ local MeshTemplate = require(script.Parent:WaitForChild("MeshTemplate"))
 
 local Map = {}
 local GLOW_PARTS: { [string]: Color3 } -- filled once the palette below exists
+-- see-through parts from tools/blender/props (the dryer door's glass bowl)
+local GLASS_PARTS: { [string]: { color: Color3, transparency: number } } = {
+	DryerGlass = { color = Color3.fromRGB(190, 225, 255), transparency = 0.55 },
+}
 local S
 
 local LAYOUT = {
@@ -56,7 +60,7 @@ local C = {
 	Baseboard = Color3.fromRGB(120, 92, 60),
 	Wood = Color3.fromRGB(183, 122, 69),
 	WoodDark = Color3.fromRGB(138, 90, 48),
-	Felt = Color3.fromRGB(150, 70, 80),
+	Felt = Color3.fromRGB(84, 112, 186), -- blue drawer lining, as in the concept
 	Knob = Color3.fromRGB(240, 200, 90),
 	Mattress = Color3.fromRGB(248, 246, 240),
 	Blanket = Color3.fromRGB(92, 127, 200),
@@ -64,6 +68,7 @@ local C = {
 	Pillow = Color3.fromRGB(255, 255, 255),
 	Lamp = Color3.fromRGB(255, 229, 138),
 	Moon = Color3.fromRGB(190, 210, 255),
+	MoonGlow = Color3.fromRGB(247, 237, 207),
 	Metal = Color3.fromRGB(233, 238, 245),
 	MetalDark = Color3.fromRGB(70, 90, 130),
 	Swirl = Color3.fromRGB(123, 63, 224),
@@ -129,7 +134,8 @@ Map.Label = label
 
 -- ---------- real meshes (optional) ----------
 -- Put a Model/MeshPart into ReplicatedStorage.MapMeshes named Bed, Nightstand, Lamp, Dryer, Duck,
--- Teddy, Basket, Blocks, Crayons, Drawer (one is enough - it is cloned per base) and the builder
+-- Teddy, Basket, Blocks, Crayons, Drawer (one is enough - it is cloned per base), Window, Picture or
+-- Bookshelf (the last two exist only as meshes) and the builder
 -- below uses it instead of the Part version: it is scaled to fit the slot's size and its bottom is
 -- set on the floor point. See docs/ART_PIPELINE.md.
 local meshFolder: Folder? = nil
@@ -146,8 +152,10 @@ local function ensureMeshFolder(): Folder
 end
 
 -- `floorCF` = where the bottom-centre of the piece goes (y = floor level); `fit` = max size.
+-- `alignBack` = put the piece's back (its -Z side) on floorCF instead of its centre: for wall decor
+-- and furniture that stands against a wall (floorCF on the wall, its +Z pointing into the room).
 -- Returns the placed Model, or nil when there is no template of that name.
-local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent: Instance, tag: string?): Model?
+local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent: Instance, tag: string?, alignBack: boolean?): Model?
 	local template = meshFolder and meshFolder:FindFirstChild(name)
 	if not template then
 		return nil
@@ -182,17 +190,26 @@ local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent
 			d:Destroy()
 		end
 	end
-	-- glow parts from tools/blender/furniture.py: the lamp globe and the dryer's galaxy portal
+	-- glow and glass parts from tools/blender/props: the lamp globe, the dryer's galaxy portal and
+	-- door glass, the window's moon
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("BasePart") and GLOW_PARTS[d.Name] then
 			d.Material = Enum.Material.Neon
 			d.Color = GLOW_PARTS[d.Name]
 			d.CastShadow = false
+		elseif d:IsA("BasePart") and GLASS_PARTS[d.Name] then
+			local glass = GLASS_PARTS[d.Name]
+			d.Material = Enum.Material.Glass
+			d.Color = glass.color
+			d.Transparency = glass.transparency
+			d.CastShadow = false
+			d.CanCollide = false
 		end
 	end
 	local bbCF, bbSize = model:GetBoundingBox()
-	-- move so the bounding box's bottom centre sits on floorCF (keep floorCF's rotation)
-	local bottomOffset = bbCF.Position - model:GetPivot().Position - Vector3.new(0, bbSize.Y / 2, 0)
+	-- move so the bounding box's bottom centre (or bottom back centre) sits on floorCF (keep
+	-- floorCF's rotation)
+	local bottomOffset = bbCF.Position - model:GetPivot().Position - Vector3.new(0, bbSize.Y / 2, if alignBack then bbSize.Z / 2 else 0)
 	model:PivotTo(floorCF * CFrame.new(-bottomOffset.X, -bottomOffset.Y, -bottomOffset.Z))
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("BasePart") then
@@ -211,6 +228,7 @@ Map.PlaceTemplate = placeTemplate
 GLOW_PARTS = {
 	LampGlow = C.Lamp,
 	DryerPortal = Color3.fromRGB(150, 90, 255),
+	MoonGlow = C.MoonGlow,
 }
 
 local function pointLight(parent: BasePart, color: Color3, range: number, brightness: number, shadows: boolean?): PointLight
@@ -283,9 +301,6 @@ local function buildBed(folder: Folder)
 	local depth, width = 76, 270
 	local zc = z0 + depth / 2 + 2
 	if placeTemplate("Bed", CFrame.new(0, 0, zc), Vector3.new(width + 20, 100, depth + 10), folder, "Furniture") then
-		local win = part("Window", Vector3.new(70, 56, 1.5), CFrame.new(190, 78, z0 + 2), C.Moon, Enum.Material.Neon, folder, "Furniture")
-		win.Transparency = 0.15
-		pointLight(win, C.Moon, 240, 1.0)
 		return
 	end
 	local frameH = 26
@@ -314,8 +329,21 @@ local function buildBed(folder: Folder)
 	for i = 0, 4 do
 		column("HeadboardSlat", 3, 40, CFrame.new(-width / 2 + 40 + i * (width - 80) / 4, 60, z0 + 4), C.WoodDark, Enum.Material.SmoothPlastic, folder, "Furniture")
 	end
-	-- round moon window above the bed, like the concept: a porthole with a crescent moon
+end
+
+-- Round moon window above the bed, like the concept: a porthole with a crescent moon.
+local function buildWindow(folder: Folder)
+	local z0 = -LAYOUT.FloorZ / 2 -- north wall
 	local wx, wy = 40, 92
+	local mesh = placeTemplate("Window", CFrame.new(wx, wy - 32, z0), Vector3.new(64, 64, 10), folder, "Furniture", true)
+	if mesh then
+		local moon = mesh:FindFirstChild("MoonGlow", true)
+		local anchor = if moon and moon:IsA("BasePart") then moon else mesh:FindFirstChildWhichIsA("BasePart", true)
+		if anchor then
+			pointLight(anchor, C.Moon, 240, 1.0)
+		end
+		return
+	end
 	local ring = part("WindowRing", Vector3.new(2, 64, 64), CFrame.new(wx, wy, z0 + 2.2) * CFrame.Angles(0, math.pi / 2, 0), C.WoodDark, Enum.Material.SmoothPlastic, folder, "Furniture")
 	ring.Shape = Enum.PartType.Cylinder
 	local win = part("Window", Vector3.new(1.4, 56, 56), CFrame.new(wx, wy, z0 + 2.6) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(46, 58, 120), Enum.Material.Neon, folder, "Furniture")
@@ -383,6 +411,14 @@ local function buildNightstand(folder: Folder)
 	fill.CanCollide = false
 	fill.CanQuery = false
 	pointLight(fill, Color3.fromRGB(255, 236, 214), 320, 0.55)
+end
+
+-- Wall decor from the concept (mesh only - the Part map does without): a framed landscape on the
+-- west wall and a bookshelf against the east wall.
+local function buildDecor(folder: Folder)
+	local L = LAYOUT
+	placeTemplate("Picture", CFrame.new(-L.FloorX / 2, 46, -40) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(54, 42, 6), folder, "Furniture", true)
+	placeTemplate("Bookshelf", CFrame.new(L.FloorX / 2, 0, -100) * CFrame.Angles(0, -math.pi / 2, 0), Vector3.new(72, 62, 30), folder, "Furniture", true)
 end
 
 local function buildToys(folder: Folder)
@@ -752,6 +788,8 @@ function Map.Init(s)
 	local mapFolder = Map.Folders.Map
 	buildFloor(mapFolder)
 	buildBed(mapFolder)
+	buildWindow(mapFolder)
+	buildDecor(mapFolder)
 	buildNightstand(mapFolder)
 	buildToys(mapFolder)
 	buildDustBunnies(mapFolder)
