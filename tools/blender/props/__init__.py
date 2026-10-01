@@ -1,0 +1,26 @@
+"""
+props - the bedroom props for Steal a Sock, one module per prop, in the concept-art style
+(docs/concept/bedroom_keyframe.png).
+
+Conventions every prop module follows:
+- `NAME` = the exact object name the game looks for; `build()` returns the Blender objects:
+  `[body, body_Outline, (glow parts...), *K.markers(NAME)]`.
+- Blender Z-up, origin = floor centre of the prop, FRONT faces -Y (becomes +Z in Roblox).
+- Sizes are "units"; Map.luau fits each prop into its slot (uniform scale), so only proportions
+  matter - except `Clothespin`, which the game scales itself (see its module).
+- Colours: `hexcol("<prop>_<what>", "#RRGGBB")` with a prop-prefixed name (the palette is keyed by
+  name; the first registration wins). `props/common.py` holds a few shared colours, read-only.
+- Glow parts the game turns into Neon are exported untextured via `K.plain_object` and named
+  exactly as Map.luau expects (`LampGlow`, `DryerPortal`, `MoonGlow`).
+- Roblox limit: keep each exported object under ~10k triangles (body and outline separately).
+
+`EXPORT_DIR` says which folder the GLB goes to: "map" -> ReplicatedStorage.MapMeshes,
+"socks" -> ReplicatedStorage.SockMeshes (used by the sock Factory).
+"""
+from props import (basket, bed, blocks, bookshelf, clothespin, crayons, drawer, dryer, duck, lamp,
+                   nightstand, picture, teddy, window)
+
+MODULES = [dryer, bed, nightstand, lamp, blocks, duck, teddy, crayons, basket, drawer, window, bookshelf,
+           picture, clothespin]
+BUILDERS = {m.NAME: m.build for m in MODULES}
+EXPORT_DIR = {m.NAME: getattr(m, "EXPORT_DIR", "map") for m in MODULES}

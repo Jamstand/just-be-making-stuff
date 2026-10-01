@@ -69,6 +69,46 @@ def leg_height(spec) -> float:
     return H
 
 
+class SockCtx:
+    """What feature builders (sockfeat_*.py) may rely on. body_pieces()/face_pieces() fill it in.
+
+    Axes: Blender Z-up; the leg axis is the Z axis at x = y = 0; the FACE (eyes) is on the -Y side;
+    the foot points along +X for "R" (d = +1), -X for "L" (d = -1); singles ("S", d = 0) have no
+    foot direction. z = 0 is the floor / bottom of the foot.
+    """
+
+    def __init__(self, tid, spec, side):
+        self.tid, self.spec, self.side = tid, spec, side
+        self.d = -1.0 if side == "L" else (1.0 if side == "R" else 0.0)
+        self.h = leg_height(spec)          # z of the top of the leg (the opening)
+        self.RL, self.RF, self.FOOT = RL, RF, FOOT  # leg radius, foot radius, axis -> toe tip (x)
+        self.cuff_z = self.h - CUFF        # where the cuff band starts
+        self.ey = 0.0                      # eye centre height (set by face_pieces)
+        self.eyes = []                     # [(x, y, z)] eye-ball centres (set by face_pieces)
+        self.eye_r = 0.0
+        self.mouth_z = 0.0
+        self.body = hexcol(f"{tid}_body", spec["body"])
+        self.accent = hexcol(f"{tid}_accent", spec["accent"])
+
+    def extra(self, key="extra"):
+        """Palette index of an extra spec colour (e.g. spec['extra'])."""
+        return hexcol(f"{self.tid}_{key}", self.spec[key])
+
+    def radius_at(self, z):
+        """Leg radius at height z (above the foot)."""
+        return self.RL
+
+    def around(self, angle, z, lift=0.0):
+        """Point on the leg surface at height z; angle 0 = the face (-Y), +pi/2 = +X, pi = back."""
+        r = self.radius_at(z) + lift
+        return (math.sin(angle) * r, -math.cos(angle) * r, z)
+
+    def front(self, x, z, lift=0.0):
+        """Point on the face side (-Y) of the leg at sideways offset x and height z."""
+        r = self.radius_at(z)
+        return (x, -math.sqrt(max(r * r - x * x, 0.01)) - lift, z)
+
+
 def body_pieces(tid, spec, side):
     """The sock body: leg tube + toe + cuff rim + opening, region-coloured."""
     d = -1.0 if side == "L" else 1.0
@@ -154,234 +194,41 @@ def face_pieces(spec, h, d):
     return out, ey
 
 
-# ---------------------------------------------------------------- signature features
-def feat_argylo(tid, spec, h, d, ey):
-    gold = hexcol(f"{tid}_extra", spec["extra"])
-    out = []
-    for i, (x, z) in enumerate([(-0.42, 2.55), (0.42, 2.55), (0.0, 1.95), (-0.42, 1.35), (0.42, 1.35), (0.0, 3.15)]):
-        y = -math.sqrt(max(RL * RL - x * x, 0.01)) + 0.02
-        ang = math.atan2(x, RL)
-        out.append(K.rounded_box(gold if i % 2 == 0 else color(f"{tid}_accent"), (0.42, 0.08, 0.42),
-                                 M((x, y, z), rot=(0, math.pi / 4, -ang)), bevel=0.03, segments=1, outline=False, name="diamond"))
-    # monocle on the viewer-right eye + chain
-    ex, ey_ = 0.37, ey
-    y = -math.sqrt(RL * RL - ex * ex) + 0.1 - 0.32
-    out.append(K.torus(C_GOLD, 0.40, 0.065, M((ex, y, ey_), rot=(math.pi / 2, 0, 0)), seg=20, mseg=6, name="monocle"))
-    out.append(K.tube(C_GOLD, [(ex + 0.35, y + 0.05, ey_ - 0.2), (0.9, -0.3, ey_ - 0.8), (0.86, -0.15, ey_ - 1.4)], radius=0.035, res=6, bevel_res=1, outline=False, name="chain"))
-    return out
+def _feature_modules():
+    import sockfeat_a
+    import sockfeat_b
+    import sockfeat_c
+    return (sockfeat_a, sockfeat_b, sockfeat_c)
 
 
-def feat_tubolino(tid, spec, h, d, ey):
-    return []
+def features():
+    """Merged type id -> feature builder table (imported lazily: the modules import this one)."""
+    table = {}
+    for mod in _feature_modules():
+        table.update(mod.FEATURES)
+    return table
 
 
-def feat_anklebiter(tid, spec, h, d, ey):
-    return []
-
-
-def feat_crusty(tid, spec, h, d, ey):
-    crust = hexcol("crust", "#9C7B45")
-    out = []
-    for i in range(9):
-        a = i * 2.3
-        z = 1.0 + (i % 4) * 0.55
-        out.append(K.sphere(crust, 0.13 + (i % 3) * 0.04, M((math.cos(a) * RL * 0.98, math.sin(a) * RL * 0.98, z)), seg=8, rings=5, outline=False, name="crust"))
-    return out
-
-
-def feat_gymgary(tid, spec, h, d, ey):
-    band = color(f"{tid}_accent")
-    out = [K.torus(band, RL * 1.02, 0.24, M((0, 0, h - 0.55)), seg=20, mseg=8, name="sweatband"),
-           K.torus(K.WHITE, RL * 1.06, 0.07, M((0, 0, h - 0.55)), seg=20, mseg=6, outline=False, name="bandstripe")]
-    drop = hexcol("sweat", "#8CCBFF")
-    for x, z in ((-0.62, ey + 0.35), (0.7, ey + 0.15)):
-        y = -math.sqrt(max(RL * RL - x * x, 0.01))
-        out.append(K.sphere(drop, 0.11, M((x, y - 0.02, z), scale=(1, 1, 1.5)), seg=8, rings=5, name="drop"))
-    return out
-
-
-def feat_toetoe(tid, spec, h, d, ey):
-    out = []
-    acc = color(f"{tid}_accent")
-    for i in range(5):
-        y = -0.56 + i * 0.28
-        r = 0.2 if i in (0, 4) else 0.24
-        out.append(K.sphere(acc, r, M((d * (FOOT - 0.05), y, RF + 0.05 + (0.06 if i == 2 else 0))), seg=10, rings=6, name="toe"))
-    return out
-
-
-def feat_sockrates(tid, spec, h, d, ey):
-    out = []
-    my = ey - 0.65
-    beard = K.sphere(C_GREY, 0.62, M((0, -RL * 0.7, my - 0.25), scale=(1.15, 0.55, 1.1)), seg=14, rings=8, name="beard")
-    out.append(beard)
-    out.append(K.tube(C_GREY, [(-0.4, -RL - 0.12, my + 0.12), (0, -RL - 0.2, my + 0.02), (0.4, -RL - 0.12, my + 0.12)], radius=0.09, res=6, bevel_res=1, name="moustache"))
-    # toga sash
-    out.append(K.tube(K.WHITE, [(-RL - 0.05, -0.2, h - 1.1), (-0.3, -RL - 0.05, 1.6), (RL * 0.6, -0.5, 0.9), (RL + 0.05, 0.2, 0.7)], radius=0.22, res=8, bevel_res=2, name="toga"))
-    # laurel wreath
-    for i in range(10):
-        a = i / 10 * math.tau
-        if abs(math.sin(a) + 1) < 0.25:
-            continue
-        out.append(K.sphere(C_GREEN, 0.18, M((math.cos(a) * (RL + 0.05), math.sin(a) * (RL + 0.05), h - 0.15), rot=(0, 0, a), scale=(1.6, 0.6, 0.8)), seg=8, rings=5, name="leaf"))
-    return out
-
-
-def feat_slipperino(tid, spec, h, d, ey):
-    out = []
-    for i in range(5):
-        x = d * (0.2 + i * 0.42)
-        for y in (-0.3, 0.3):
-            out.append(K.sphere(K.WHITE, 0.12, M((x, y, RF - RF * 0.93), scale=(1, 1, 0.5)), seg=8, rings=4, outline=False, name="grip"))
-    return out
-
-
-def feat_sockhopper(tid, spec, h, d, ey):
-    red = C_RED
-    out = [K.cylinder(red, 0.12, h + 2.4, M((0, 0.2, (h + 2.4) / 2 - 1.6)), seg=10, name="pole"),
-           K.rounded_box(red, (1.6, 0.6, 0.18), M((0, 0.2, -0.9)), bevel=0.06, segments=2, name="pegs"),
-           K.cylinder(C_DARK, 0.2, 0.7, M((0, 0.2, -1.95)), seg=10, name="spring"),
-           K.cylinder(C_DARK, 0.11, 2.2, M((0, -0.2, h + 0.85), rot=(0, math.pi / 2, 0)), seg=10, name="handle")]
-    return out
-
-
-def feat_djdryer(tid, spec, h, d, ey):
-    out = [K.tube(C_DARK, [(-RL - 0.1, 0, ey + 0.2), (0, 0, h + 0.55), (RL + 0.1, 0, ey + 0.2)], radius=0.11, res=8, bevel_res=1, name="band")]
-    for x in (-RL - 0.08, RL + 0.08):
-        out.append(K.cylinder(C_MAGENTA, 0.38, 0.34, M((x, 0, ey + 0.05), rot=(0, math.pi / 2, 0)), seg=16, name="cup"))
-    out.append(K.rounded_box(C_DARK, (1.25, 0.18, 0.34), M((0, -RL - 0.2, ey + 0.02)), bevel=0.08, segments=2, name="shades"))
-    return out
-
-
-def feat_socktopus(tid, spec, h, d, ey):
-    body = color(f"{tid}_body")
-    acc = color(f"{tid}_accent")
-    out = []
-    for i in range(8):
-        a = i / 8 * math.tau + 0.2
-        r0, r1, r2 = 0.6, 1.4, 2.0
-        pts = [(math.cos(a) * r0, math.sin(a) * r0, 0.7), (math.cos(a) * r1, math.sin(a) * r1, 0.35),
-               (math.cos(a + 0.35) * r2, math.sin(a + 0.35) * r2, 0.3)]
-        out.append(K.tube(body, pts, radius=0.32, radii=[1, 0.85, 0.6], res=6, bevel_res=2, name="tentacle"))
-        out.append(K.sphere(acc, 0.2, M((math.cos(a + 0.35) * r2, math.sin(a + 0.35) * r2, 0.3)), seg=8, rings=5, name="tip"))
-    return out
-
-
-def feat_sockington(tid, spec, h, d, ey):
-    foil, foil2 = C_SILVER, C_SILVER2
-    out = [K.cylinder(foil, RL * 1.08, 0.9, M((0, 0, h + 0.2)), seg=18, name="helmet"),
-           K.sphere(foil, RL * 1.07, M((0, 0, h + 0.62), scale=(1, 1, 0.55)), seg=18, rings=8, name="dome"),
-           K.rounded_box(foil2, (0.16, 0.2, 0.9), M((0, -RL - 0.08, h + 0.25)), bevel=0.05, segments=1, name="noseguard"),
-           K.sphere(C_RED, 0.3, M((0, 0.1, h + 1.25), scale=(0.6, 1.6, 1.3)), seg=10, rings=6, name="plume"),
-           K.rounded_box(foil, (1.5, 0.25, 1.2), M((0, -RL + 0.02, 1.6)), bevel=0.12, segments=2, name="breastplate")]
-    return out
-
-
-def feat_stinkolino(tid, spec, h, d, ey):
-    out = []
-    for i, x in enumerate((-0.5, 0.15, 0.7)):
-        z0 = h + 0.25
-        pts = [(x, 0, z0), (x + 0.25, -0.1, z0 + 0.5), (x - 0.15, -0.1, z0 + 1.0), (x + 0.2, 0, z0 + 1.5)]
-        out.append(K.tube(C_STINK, pts, radius=0.09, res=6, bevel_res=1, name="stink"))
-    for i in range(4):
-        a = i * 1.7
-        out.append(K.sphere(C_DARK, 0.1, M((math.cos(a) * 1.4, math.sin(a) * 1.4, h - 0.6 + i * 0.4)), seg=6, rings=4, outline=False, name="fly"))
-    return out
-
-
-def feat_sockness(tid, spec, h, d, ey):
-    body = color(f"{tid}_body")
-    acc = color(f"{tid}_accent")
-    out = [K.tube(body, [(0, 0, h - 0.2), (0.3, 0, h + 1.2), (0.1, -0.2, h + 2.4), (0.6, -0.6, h + 2.9)], radius=0.45, radii=[1, 0.85, 0.75, 0.72], res=8, bevel_res=2, name="neck"),
-           K.sphere(body, 0.7, M((0.75, -0.75, h + 3.05), scale=(1.15, 1.25, 0.85)), seg=14, rings=8, name="head")]
-    for x in (0.45, 1.05):
-        out.append(K.sphere(K.WHITE, 0.2, M((x, -1.35, h + 3.25)), seg=10, rings=6, name="eye2"))
-        out.append(K.sphere(K.BLACK, 0.1, M((x, -1.5, h + 3.25)), seg=8, rings=5, outline=False, name="pupil2"))
-    for i in range(4):
-        out.append(K.cylinder(acc, 0.12, 0.35, M((0.2, 0.38, h + 0.3 + i * 0.6), rot=(0.3, 0, 0)), seg=6, radius2=0.01, name="spine"))
-    # laundry basket around the bottom
-    # laundry basket around the bottom - big enough to hide the foot
-    bx = d * 0.85
-    out.append(K.cylinder(C_WICKER, 2.0, 1.9, M((bx, 0, 0.8)), seg=24, name="basket"))
-    for i in range(14):
-        a = i / 14 * math.tau
-        out.append(K.rounded_box(C_WICKER2, (0.2, 0.12, 1.7), M((bx + math.cos(a) * 2.03, math.sin(a) * 2.03, 0.85), rot=(0, 0, a)), bevel=0.04, segments=1, outline=False, name="slat"))
-    out.append(K.torus(C_WICKER2, 2.03, 0.15, M((bx, 0, 1.75)), seg=24, mseg=6, name="basketrim"))
-    return out
-
-
-def feat_shockini(tid, spec, h, d, ey):
-    out = []
-    for i in range(7):
-        a = i / 7 * math.tau
-        out.append(K.cylinder(C_BLUEBOLT, 0.12, 0.8, M((math.cos(a) * 0.55, math.sin(a) * 0.55, h + 0.35), rot=(math.sin(a) * 0.5, -math.cos(a) * 0.5, 0)), seg=6, radius2=0.02, name="fuzz"))
-    for x, z, s in ((-RL - 0.05, 2.2, 1), (RL + 0.05, 2.8, -1)):
-        pts = [(x, -0.2, z + 0.6), (x - 0.2 * s, -0.25, z + 0.15), (x + 0.15 * s, -0.25, z), (x - 0.1 * s, -0.25, z - 0.55)]
-        out.append(K.tube(C_BLUEBOLT, pts, radius=0.09, res=2, bevel_res=1, name="bolt"))
-    return out
-
-
-def feat_lintlord(tid, spec, h, d, ey):
-    lint = hexcol("lint", "#C2C3CC")
-    out = []
-    for i in range(14):
-        a = i * 2.39
-        z = 0.6 + (i % 7) * 0.5
-        out.append(K.sphere(lint, 0.25 + (i % 3) * 0.06, M((math.cos(a) * RL * 0.9, math.sin(a) * RL * 0.9, z)), seg=8, rings=5, outline=False, name="fluff"))
-    out.append(K.cylinder(C_GOLD, RL * 1.05, 0.35, M((0, 0, h + 0.15)), seg=18, name="crown"))
-    for i in range(6):
-        a = i / 6 * math.tau
-        out.append(K.cylinder(C_GOLD, 0.2, 0.75, M((math.cos(a) * RL * 0.9, math.sin(a) * RL * 0.9, h + 0.65)), seg=6, radius2=0.03, name="spike"))
-        out.append(K.sphere(C_RED, 0.1, M((math.cos(a) * RL * 1.06, math.sin(a) * RL * 1.06, h + 0.2)), seg=6, rings=4, outline=False, name="gem"))
-    return out
-
-
-def feat_zillionaire(tid, spec, h, d, ey):
-    out = [K.cylinder(C_DARK, 1.35, 0.14, M((0, 0, h + 0.1)), seg=20, name="brim"),
-           K.cylinder(C_DARK, 0.85, 1.5, M((0, 0, h + 0.9)), seg=18, name="hat"),
-           K.cylinder(C_GOLD2, 0.87, 0.28, M((0, 0, h + 0.38)), seg=18, outline=False, name="hatband")]
-    ex = 0.37
-    y = -math.sqrt(RL * RL - ex * ex) + 0.1 - 0.32
-    out.append(K.torus(C_GOLD, 0.4, 0.065, M((ex, y, ey), rot=(math.pi / 2, 0, 0)), seg=20, mseg=6, name="monocle"))
-    for i, (x, z, r) in enumerate(((-1.3, 2.4, 0.4), (1.25, 3.0, -0.3), (-1.0, 3.6, 0.9))):
-        out.append(K.rounded_box(C_CASH, (0.8, 0.06, 0.4), M((x, -0.4, z), rot=(0.3, r, 0.2)), bevel=0.03, segments=1, name="bill"))
-    for i in range(3):
-        out.append(K.torus(K.WHITE if i else C_GOLD2, RL * 1.01, 0.04, M((0, 0, 1.4 + i * 0.7)), seg=20, mseg=4, outline=False, name="thread"))
-    return out
-
-
-def feat_lost(tid, spec, h, d, ey):
-    q = hexcol("ghost", "#B9BCFF")
-    return [K.text(q, "?", size=1.4, depth=0.18, mat=M((0, -0.1, h + 1.1), rot=(math.pi / 2, 0, 0)), outline=True, name="question")]
-
-
-def feat_puppet(tid, spec, h, d, ey):
-    out = [K.sphere(C_PINKMOUTH, 0.55, M((0, -RL * 0.72, ey - 0.85), scale=(1.15, 0.5, 0.75)), seg=14, rings=8, name="mouth"),
-           K.rounded_box(K.WHITE, (0.9, 0.12, 0.12), M((0, -RL - 0.12, ey - 0.62)), bevel=0.04, segments=1, outline=False, name="teeth"),
-           K.sphere(C_TONGUE, 0.3, M((0, -RL - 0.05, ey - 1.05), scale=(1, 0.5, 0.5)), seg=10, rings=6, outline=False, name="tongue")]
-    hair = hexcol("hair", "#FF9F2E")
-    for i in range(5):
-        a = (i - 2) * 0.45
-        out.append(K.sphere(hair, 0.32, M((math.sin(a) * 0.5, 0.1, h + 0.25 + math.cos(a) * 0.15), scale=(0.7, 0.7, 1.3)), seg=8, rings=5, name="hair"))
-    return out
-
-
-FEATURES = {
-    "Tubolino": feat_tubolino, "AnkleBiter": feat_anklebiter, "CrustyCrew": feat_crusty, "GymGary": feat_gymgary,
-    "Argylo": feat_argylo, "ToeToe": feat_toetoe, "Sockrates": feat_sockrates, "KneeHigh": lambda *a: [],
-    "Slipperino": feat_slipperino, "Compressio": lambda *a: [], "Sockhopper": feat_sockhopper, "DJDryer": feat_djdryer,
-    "Socktopus": feat_socktopus, "Sockington": feat_sockington, "Stinkolino": feat_stinkolino, "SockNess": feat_sockness,
-    "Shockini": feat_shockini, "Lintlord": feat_lintlord, "Zillionaire": feat_zillionaire, "LostSock": feat_lost,
-    "PuppetSupreme": feat_puppet,
-}
+def spec_for(tid: str) -> dict:
+    """SPECS[tid] with the owning feature module's SPEC_OVERRIDES[tid] merged on top, so a feature
+    module can retune its own types' colours/flags without editing this file."""
+    spec = dict(SPECS[tid])
+    for mod in _feature_modules():
+        spec.update(getattr(mod, "SPEC_OVERRIDES", {}).get(tid, {}))
+    return spec
 
 
 def build_sock(tid: str, side: str):
-    spec = SPECS[tid]
+    spec = spec_for(tid)
+    c = SockCtx(tid, spec, side)
     pieces, h, d = body_pieces(tid, spec, side)
     face, ey = face_pieces(spec, h, d)
+    c.ey = ey
+    c.mouth_z = ey - 0.62
+    c.eye_r = 0.36
+    c.eyes = [(ex, -math.sqrt(max(RL * RL - ex * ex, 0.01)) + 0.1, ey) for ex in (-0.37, 0.37)]
     pieces += face
-    pieces += FEATURES[tid](tid, spec, h, d, ey)
+    pieces += features()[tid](c)
     name = tid if side == "S" else f"{tid}_{side}"
     body, outline = K.finish(pieces, name, outline_width=0.055)
     return [body, outline] + K.markers(name, pin=(0, 0, h + 0.1))

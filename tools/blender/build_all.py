@@ -6,13 +6,14 @@ build_all.py - regenerates every Steal a Sock mesh from code and exports GLB fil
 
 Outputs
     assets/meshes/steal-a-sock/socks/<TypeId>_L.glb, <TypeId>_R.glb, <TypeId>.glb (singles)
+    assets/meshes/steal-a-sock/socks/Clothespin.glb   (the pin every hanging sock wears)
     assets/meshes/steal-a-sock/map/<Name>.glb   (Dryer, Bed, Nightstand, Lamp, Blocks, Duck, Teddy,
-                                                 Crayons, Basket, Drawer)
+                                                 Crayons, Basket, Drawer, Window, Bookshelf, Picture)
     assets/meshes/steal-a-sock/palette.png      (the shared colour palette every mesh samples)
     docs/concept/renders/socks.jpg, furniture.jpg  (preview sheets; pass --no-render to skip)
 
 Each GLB holds the textured body, a separate `<Name>_Outline` inverted hull (the game turns its
-shadows off), optional glow parts (`LampGlow`, `DryerPortal`) and tiny marker parts
+shadows off), optional glow parts (`LampGlow`, `DryerPortal`, `MoonGlow`) and tiny marker parts
 (`_Base`, `_Unit`, `_Pin`) the game uses to scale, orient and hang the model. See
 docs/ART_PIPELINE.md.
 """
@@ -26,7 +27,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 import bpy  # noqa: E402
 import sockkit as K  # noqa: E402
 import socks  # noqa: E402
-import furniture as F  # noqa: E402
+import props as F  # noqa: E402
 
 OUT = os.path.join(REPO, "assets", "meshes", "steal-a-sock")
 SOCK_OUT = os.path.join(OUT, "socks")
@@ -78,7 +79,7 @@ def main(render=True):
     for name, fn in F.BUILDERS.items():
         fresh_scene()
         objs = fn()
-        path = os.path.join(MAP_OUT, name + ".glb")
+        path = os.path.join(SOCK_OUT if F.EXPORT_DIR[name] == "socks" else MAP_OUT, name + ".glb")
         K.export_glb(objs, path)
         tris = sum(K.tri_count(o) for o in objs if not o.name.endswith(("_Base", "_Unit", "_Pin")))
         report.append((name, tris, os.path.getsize(path)))
@@ -103,17 +104,18 @@ def render_sheets():
     K.render_preview(objs, os.path.join(RENDERS, "socks.jpg"), res=1400, angle=-0.3, elev=0.12)
 
     fresh_scene()
-    layout = {"Bed": (0, 14, 0, 1.0), "Nightstand": (-21, 10, 0, 1.0), "Lamp": (-21, 10, 8.2, 1.3), "Dryer": (15, -4, 0, 2.3),
-              "Blocks": (-7, -8, 0, 1.4), "Duck": (-17, -4, 0, 1.3), "Teddy": (0, -2, 0, 1.4), "Crayons": (-3, -15, 0, 0.9),
-              "Basket": (24, -14, 0, 1.8), "Drawer": (-22, -16, 0, 3.0)}
     objs = []
+    x = 0.0
     for name, fn in F.BUILDERS.items():
-        x, y, z, s = layout[name]
-        for o in fn():
+        built = [o for o in fn() if not o.hide_render]
+        xs = [(o.matrix_world @ v.co).x for o in built for v in o.data.vertices]
+        span = max(xs) - min(xs)
+        s = 9.0 / max(span, 1e-3) if span > 9.0 else 1.0  # big props shrink to fit a 9-unit cell
+        for o in built:
             o.scale = (s, s, s)
-            o.location = (x, y, z)
-            if not o.hide_render and o.name not in ("LampGlow", "DryerPortal"):
-                objs.append(o)
+            o.location = (x - min(xs) * s, 0, 0)
+        x += span * s + 1.5
+        objs += built
     K.render_preview(objs, os.path.join(RENDERS, "furniture.jpg"), res=1400, angle=-0.45, elev=0.35)
 
 

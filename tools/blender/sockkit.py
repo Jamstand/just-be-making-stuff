@@ -6,7 +6,7 @@ dark outlines. Every asset is assembled from simple "pieces"; each piece carries
 per face, an outline flag and a smooth/flat flag. `finish()` merges the pieces into one mesh,
 adds an inverted-hull outline (a slightly inflated, inside-out black copy - Roblox culls back
 faces, so only the silhouette edge shows), and maps every face to its colour swatch in one shared
-256x256 palette texture. Coordinates: Blender Z-up; the asset's FRONT faces -Y (becomes +Z in
+512x512 palette texture. Coordinates: Blender Z-up; the asset's FRONT faces -Y (becomes +Z in
 glTF/Roblox).
 """
 import math
@@ -17,8 +17,8 @@ from mathutils import Matrix, Vector
 # ---------------------------------------------------------------- palette
 PALETTE: dict[str, tuple[int, int, int]] = {}
 _ORDER: list[str] = []
-SWATCH = 16  # px per swatch; 16x16 grid -> 256 colours in a 256x256 image
-GRID = 16
+SWATCH = 16  # px per swatch; 32x32 grid -> 1024 colours in a 512x512 image
+GRID = 32
 
 
 def color(name: str, rgb: tuple[int, int, int] | None = None) -> int:
@@ -391,10 +391,11 @@ def export_glb(objs: list, path: str):
 
 
 # ---------------------------------------------------------------- preview render
-def render_preview(objs: list, path: str, res=420, angle=-0.55, elev=0.28):
+def render_preview(objs: list, path: str, res=420, angle=-0.55, elev=0.28, samples=24):
     scn = bpy.context.scene
+    bpy.context.view_layer.update()  # objects moved since they were built: refresh matrix_world
     scn.render.engine = "CYCLES"
-    scn.cycles.samples = 24
+    scn.cycles.samples = samples
     scn.cycles.use_denoising = False
     scn.render.resolution_x = res
     scn.render.resolution_y = res
