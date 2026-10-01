@@ -8,7 +8,7 @@ real mesh **without touching the code**: drop a model into one of two folders in
 
 | Folder | Name the model exactly | What happens |
 | --- | --- | --- |
-| `ReplicatedStorage.SockMeshes` | the type id from `SockConfig` (`Argylo`, `Sockrates`, `Socktopus`, …) or `Argylo_L` / `Argylo_R` for different halves | `Factory` uses it as the sock body: scaled to the standard sock height, invisible root added, rarity glow + mutation look + label + all game hooks still apply. A small L/R tag is added when one mesh serves both halves. |
+| `ReplicatedStorage.SockMeshes` | the type id from `SockConfig` (`Argylo`, `Sockrates`, `Socktopus`, …) or `Argylo_L` / `Argylo_R` for different halves | `Factory` uses it as the sock body: invisible root added, rarity glow + mutation effects + label + all game hooks still apply. Meshes with markers (the Blender kit) keep their modelled size; meshes without are scaled to the standard sock height. A small L/R tag is added when one mesh serves both halves. |
 | `ReplicatedStorage.MapMeshes` | `Bed`, `Nightstand`, `Lamp`, `Dryer`, `Basket`, `Duck`, `Teddy`, `Blocks`, `Crayons`, `Drawer` | `Map` places it instead of the Part version, scaled to fit its slot, bottom on the floor. `Dryer` keeps the spinning portal light; `Drawer` becomes the shell of all 8 bases (walls stay for collision, invisible). |
 
 Both folders are created empty on the first Play. A model can be a `Model` or a single `MeshPart`.
@@ -22,7 +22,54 @@ builder handles by rotating the template so its **front (+Z)** points down the l
 The server prints `[Factory] N sock mesh template(s)` / `[Map] N mesh template(s)` in Output on
 start so you can see what was picked up.
 
-## Three ways to get meshes
+## The Blender kit (already made — start here)
+
+`tools/blender/` builds every sock and every bedroom prop in the concept-art style from code, so
+nothing is hand-modelled and anything can be re-made with one command:
+
+| File | What it makes |
+| --- | --- |
+| `sockkit.py` | shared helpers: palette texture, rounded shapes, tubes, text, the dark toon outline, marker parts, GLB export, preview renders |
+| `socks.py` | all 21 sock types from `SockConfig` (googly eyes, mood mouths, stripes, each type's accessory) |
+| `furniture.py` | `Bed`, `Nightstand`, `Lamp`, `Dryer`, `Basket`, `Duck`, `Teddy`, `Blocks`, `Crayons`, `Drawer` |
+| `build_all.py` | runs everything and writes the files below |
+
+Output (committed, so `git pull` brings it to your PC):
+
+- `assets/meshes/steal-a-sock/socks/<Type>_L.glb` and `<Type>_R.glb` (one file each for the
+  single socks `Socktopus` and `LostSock`) — 40 files.
+- `assets/meshes/steal-a-sock/map/<Name>.glb` — 10 files.
+- `docs/concept/renders/socks.jpg`, `furniture.jpg` — preview sheets of everything.
+
+Each GLB holds the textured model, a separate `<Name>_Outline` mesh (the black toon outline — an
+inside-out copy, so Roblox only draws its rim) and small marker parts the game reads and then hides:
+
+| Marker | Meaning |
+| --- | --- |
+| `<Name>_Base` | the model's floor point |
+| `<Name>_Unit` | exactly 1 stud in front of `_Base`: says which way is the front (+Z) and how big 1 unit is |
+| `<Name>_Pin` | socks only: where the clothespin goes at the top of the leg |
+
+`MeshTemplate.luau` uses them to turn the model to face +Z, scale it, anchor it and hide the
+markers; outlines get `CastShadow = false`. The lamp's `LampGlow` globe and the dryer's
+`DryerPortal` disc come in untextured and are turned into Neon by `Map`.
+
+**Re-making the meshes** (only needed if you change a shape or colour in the scripts): install
+Python 3.11 and `pip install bpy==4.5.14` in a venv, then from the repo root run
+`python tools/blender/build_all.py` (add `--no-render` to skip the preview pictures). Or open
+Blender 4.5 and run `build_all.py` from its Scripting tab.
+
+**Getting them into Studio:**
+
+1. File → Import 3D → select every `.glb` in `assets/meshes/steal-a-sock/socks` (multi-select),
+   untick **Merge Meshes** if it is shown (keeps the markers and outline as separate parts), Import.
+2. Same again for `assets/meshes/steal-a-sock/map`.
+3. Move the sock models into `ReplicatedStorage.SockMeshes` and the furniture into
+   `ReplicatedStorage.MapMeshes`, keeping the names (`Argylo_L`, `Bed`, …). Anything with the same
+   name already there (e.g. a Creator Store model) must be deleted first.
+4. Play. Output prints how many templates were found.
+
+## Other ways to get meshes
 
 ### 1. Roblox Mesh Generator (inside Studio, free, no import step)
 Studio → Assistant panel (or the Mesh Generator beta in the Create tab). Describe one object at a
@@ -69,8 +116,8 @@ for anything unexpected on the first Play.
 
 ## Style rules (from `docs/concept/`)
 
-- Chunky, rounded, low-poly; thick dark outlines read well at Roblox scale — bake them into the
-  texture, don't rely on edge shaders.
+- Chunky, rounded, low-poly; thick dark outlines read well at Roblox scale — model them as an
+  inside-out hull (what the Blender kit does), don't rely on edge shaders.
 - Palette: warm wood `#B07A46`, cream `#F3E6CC`, coral `#E8A08C`, blanket blue `#5C7FD1`, red
   stripe `#D94F4F`, lamp yellow `#FFE58A`, night wall `#3E3A6E`, portal purple `#7A3FE0`.
 - Every sock: big white googly eyes, one signature accessory, one accent stripe. Left and right

@@ -5,3 +5,4 @@ node_modules/
 # Toolchain outputs (scripts/check.sh) - never commit these
 .lint/
 sourcemap.json
+__pycache__/
