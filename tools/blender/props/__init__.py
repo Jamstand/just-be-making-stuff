@@ -17,10 +17,19 @@ Conventions every prop module follows:
 `EXPORT_DIR` says which folder the GLB goes to: "map" -> ReplicatedStorage.MapMeshes,
 "socks" -> ReplicatedStorage.SockMeshes (used by the sock Factory).
 """
-from props import (basket, bed, blocks, bookshelf, clothespin, crayons, drawer, dryer, duck, lamp,
-                   nightstand, picture, teddy, window)
+import importlib
 
-MODULES = [dryer, bed, nightstand, lamp, blocks, duck, teddy, crayons, basket, drawer, window, bookshelf,
-           picture, clothespin]
-BUILDERS = {m.NAME: m.build for m in MODULES}
-EXPORT_DIR = {m.NAME: getattr(m, "EXPORT_DIR", "map") for m in MODULES}
+# module name = NAME.lower(); order = export order
+MODULE_NAMES = ["dryer", "bed", "nightstand", "lamp", "blocks", "duck", "teddy", "crayons", "basket", "drawer",
+                "window", "bookshelf", "picture", "clothespin"]
+
+
+def load(name: str):
+    """Imports just one prop module (by NAME or module name) - a broken module elsewhere can't stop it."""
+    return importlib.import_module("props." + name.lower())
+
+
+def load_all():
+    """-> (BUILDERS {NAME: build}, EXPORT_DIR {NAME: "map"|"socks"}) for every prop, in export order."""
+    mods = [load(n) for n in MODULE_NAMES]
+    return {m.NAME: m.build for m in mods}, {m.NAME: getattr(m, "EXPORT_DIR", "map") for m in mods}

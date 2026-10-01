@@ -31,8 +31,8 @@ sys.path.insert(0, HERE)
 
 import bpy  # noqa: E402
 import sockkit as K  # noqa: E402
-import socks  # noqa: E402
-import props  # noqa: E402
+# socks / props are imported lazily, only the asset being previewed: a half-edited module of another
+# asset can't break this preview.
 
 VIEWS = {"front": (0.0, 0.08), "three": (-0.6, 0.3), "threer": (0.6, 0.3), "side": (1.5708, 0.08),
          "back": (3.1416, 0.15), "top": (0.0, 1.35), "low": (-0.4, -0.05)}
@@ -42,6 +42,10 @@ DEFAULT_OUT = os.path.join(os.environ.get("PREVIEW_DIR", tempfile.gettempdir()),
 def build(target):
     kind, _, rest = target.partition(":")
     objs = []
+    if kind in ("sock", "socks"):
+        import socks
+    if kind in ("prop", "props"):
+        import props
     if kind == "sock":
         tid, _, side = rest.partition(":")
         side = side or ("S" if socks.SPECS[tid].get("single") else "R")
@@ -56,12 +60,12 @@ def build(target):
                 o.location.z += -(i // 7) * 10.0
             objs += built
     elif kind == "prop":
-        objs = props.BUILDERS[rest]()
+        objs = props.load(rest).build()
     elif kind == "props":
-        names = list(props.BUILDERS) if rest == "all" else rest.split(",")
+        names = props.MODULE_NAMES if rest == "all" else rest.split(",")
         x = 0.0
         for name in names:
-            built = props.BUILDERS[name]()
+            built = props.load(name).build()
             xs = [(o.matrix_world @ v.co).x for o in built if not o.hide_render for v in o.data.vertices]
             w = (max(xs) - min(xs)) if xs else 1
             for o in built:

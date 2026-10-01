@@ -27,8 +27,9 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 import bpy  # noqa: E402
 import sockkit as K  # noqa: E402
 import socks  # noqa: E402
-import props as F  # noqa: E402
+import props  # noqa: E402
 
+BUILDERS, EXPORT_DIR = props.load_all()
 OUT = os.path.join(REPO, "assets", "meshes", "steal-a-sock")
 SOCK_OUT = os.path.join(OUT, "socks")
 MAP_OUT = os.path.join(OUT, "map")
@@ -61,7 +62,7 @@ def main(render=True):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     for tid, side in sock_jobs():
         socks.build_sock(tid, side)
-    for fn in F.BUILDERS.values():
+    for fn in BUILDERS.values():
         fn()
     K.write_palette(PALETTE)
     print(f"palette: {len(K.PALETTE)} colours -> {PALETTE}")
@@ -76,10 +77,10 @@ def main(render=True):
         K.export_glb(objs, path)
         tris = sum(K.tri_count(o) for o in objs[:2])
         report.append((name, tris, os.path.getsize(path)))
-    for name, fn in F.BUILDERS.items():
+    for name, fn in BUILDERS.items():
         fresh_scene()
         objs = fn()
-        path = os.path.join(SOCK_OUT if F.EXPORT_DIR[name] == "socks" else MAP_OUT, name + ".glb")
+        path = os.path.join(SOCK_OUT if EXPORT_DIR[name] == "socks" else MAP_OUT, name + ".glb")
         K.export_glb(objs, path)
         tris = sum(K.tri_count(o) for o in objs if not o.name.endswith(("_Base", "_Unit", "_Pin")))
         report.append((name, tris, os.path.getsize(path)))
@@ -106,7 +107,7 @@ def render_sheets():
     fresh_scene()
     objs = []
     x = 0.0
-    for name, fn in F.BUILDERS.items():
+    for name, fn in BUILDERS.items():
         built = [o for o in fn() if not o.hide_render]
         xs = [(o.matrix_world @ v.co).x for o in built for v in o.data.vertices]
         span = max(xs) - min(xs)

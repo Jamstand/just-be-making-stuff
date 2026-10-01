@@ -194,27 +194,28 @@ def face_pieces(spec, h, d):
     return out, ey
 
 
-def _feature_modules():
-    import sockfeat_a
-    import sockfeat_b
-    import sockfeat_c
-    return (sockfeat_a, sockfeat_b, sockfeat_c)
+# which sockfeat_* module owns each type's signature features
+FEATURE_MODULE = {
+    "Tubolino": "sockfeat_a", "AnkleBiter": "sockfeat_a", "CrustyCrew": "sockfeat_a", "GymGary": "sockfeat_a",
+    "Argylo": "sockfeat_a", "ToeToe": "sockfeat_a", "Sockrates": "sockfeat_a",
+    "KneeHigh": "sockfeat_b", "Slipperino": "sockfeat_b", "Compressio": "sockfeat_b", "Sockhopper": "sockfeat_b",
+    "DJDryer": "sockfeat_b", "Socktopus": "sockfeat_b", "Sockington": "sockfeat_b",
+    "Stinkolino": "sockfeat_c", "SockNess": "sockfeat_c", "Shockini": "sockfeat_c", "Lintlord": "sockfeat_c",
+    "Zillionaire": "sockfeat_c", "LostSock": "sockfeat_c", "PuppetSupreme": "sockfeat_c",
+}
 
 
-def features():
-    """Merged type id -> feature builder table (imported lazily: the modules import this one)."""
-    table = {}
-    for mod in _feature_modules():
-        table.update(mod.FEATURES)
-    return table
+def feature_module(tid: str):
+    """The owning sockfeat_* module (imported lazily: those modules import this one)."""
+    import importlib
+    return importlib.import_module(FEATURE_MODULE[tid])
 
 
 def spec_for(tid: str) -> dict:
     """SPECS[tid] with the owning feature module's SPEC_OVERRIDES[tid] merged on top, so a feature
     module can retune its own types' colours/flags without editing this file."""
     spec = dict(SPECS[tid])
-    for mod in _feature_modules():
-        spec.update(getattr(mod, "SPEC_OVERRIDES", {}).get(tid, {}))
+    spec.update(getattr(feature_module(tid), "SPEC_OVERRIDES", {}).get(tid, {}))
     return spec
 
 
@@ -228,7 +229,7 @@ def build_sock(tid: str, side: str):
     c.eye_r = 0.36
     c.eyes = [(ex, -math.sqrt(max(RL * RL - ex * ex, 0.01)) + 0.1, ey) for ex in (-0.37, 0.37)]
     pieces += face
-    pieces += features()[tid](c)
+    pieces += feature_module(tid).FEATURES[tid](c)
     name = tid if side == "S" else f"{tid}_{side}"
     body, outline = K.finish(pieces, name, outline_width=0.055)
     return [body, outline] + K.markers(name, pin=(0, 0, h + 0.1))
