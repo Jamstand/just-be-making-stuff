@@ -165,13 +165,18 @@ local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent
 	if not model then
 		return nil
 	end
-	local _, size = model:GetBoundingBox()
+	local lo, hi = MeshTemplate.SolidBounds(model)
+	if not (lo and hi) then
+		model:Destroy()
+		return nil
+	end
+	local size = hi - lo
 	if size.X <= 0 or size.Y <= 0 or size.Z <= 0 then
 		model:Destroy()
 		return nil
 	end
 	local scale = math.min(fit.X / size.X, fit.Y / size.Y, fit.Z / size.Z)
-	model:ScaleTo(scale)
+	model:ScaleTo(model:GetScale() * scale)
 	-- Style pass on whatever came from the Creator Store / a generator: flat toy materials only,
 	-- no glowing slabs (a Neon lampshade becomes a blob under bloom), no leftover lights/sounds/scripts.
 	for _, d in ipairs(model:GetDescendants()) do
@@ -206,10 +211,18 @@ local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent
 			d.CanCollide = false
 		end
 	end
-	local bbCF, bbSize = model:GetBoundingBox()
-	-- move so the bounding box's bottom centre (or bottom back centre) sits on floorCF (keep
-	-- floorCF's rotation)
-	local bottomOffset = bbCF.Position - model:GetPivot().Position - Vector3.new(0, bbSize.Y / 2, if alignBack then bbSize.Z / 2 else 0)
+	-- the point that lands on floorCF: the bottom of the visible parts, centred on the _Base marker
+	-- when there is one (the modeller's floor centre - e.g. the dryer's body, not its open door),
+	-- else on the bounds; with alignBack, the back (-Z side) instead of the centre
+	lo, hi = MeshTemplate.SolidBounds(model)
+	local mn, mx = lo :: Vector3, hi :: Vector3
+	local base = MeshTemplate.MarkerPosition(model, "_Base")
+	local anchor = Vector3.new(
+		if base then base.X else (mn.X + mx.X) / 2,
+		mn.Y,
+		if alignBack then mn.Z elseif base then base.Z else (mn.Z + mx.Z) / 2
+	)
+	local bottomOffset = anchor - model:GetPivot().Position
 	model:PivotTo(floorCF * CFrame.new(-bottomOffset.X, -bottomOffset.Y, -bottomOffset.Z))
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("BasePart") then
@@ -361,12 +374,19 @@ local function buildNightstand(folder: Folder)
 	local L = LAYOUT
 	local x, z = -L.FloorX / 2 + 52, -118
 	local h = 92
-	local stand = placeTemplate("Nightstand", CFrame.new(x, 0, z), Vector3.new(70, 78, 70), folder, "Furniture")
+	-- concept proportions: the nightstand's top is about level with the mattress, and the lamp
+	-- globe is about 0.6 of the nightstand's width
+	local stand = placeTemplate("Nightstand", CFrame.new(x, 0, z), Vector3.new(52, 54, 52), folder, "Furniture")
 	if stand then
-		local _, standSize = stand:GetBoundingBox()
-		local lampTop = standSize.Y + 50
-		local lamp = placeTemplate("Lamp", CFrame.new(x, standSize.Y, z), Vector3.new(36, 44, 36), folder, "Furniture")
-		local bulbY = if lamp then standSize.Y + select(2, lamp:GetBoundingBox()).Y * 0.75 else lampTop
+		local _, standHi = MeshTemplate.SolidBounds(stand)
+		local standTop = if standHi then standHi.Y else 54
+		local lampTop = standTop + 50
+		local lamp = placeTemplate("Lamp", CFrame.new(x, standTop, z), Vector3.new(33, 40, 33), folder, "Furniture")
+		local lampLo, lampHi
+		if lamp then
+			lampLo, lampHi = MeshTemplate.SolidBounds(lamp)
+		end
+		local bulbY = if lampLo and lampHi then standTop + (lampHi.Y - lampLo.Y) * 0.6 else lampTop
 		local bulb = ball("LampBulb", 6, CFrame.new(x, bulbY, z), Color3.fromRGB(255, 240, 200), Enum.Material.Neon, folder, "Furniture")
 		bulb.Transparency = if lamp then 1 else 0
 		bulb.CanCollide = false
@@ -520,18 +540,22 @@ end
 local function buildDryer(folder: Folder)
 	local L = LAYOUT
 	local x = L.DryerX
-	local dryerModel = placeTemplate("Dryer", CFrame.new(x, 0, 0) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(34, 40, 34), folder, "Dryer")
+	-- fit = the machine about 34 studs wide and 42 tall, plus its open door on one side
+	local dryerModel = placeTemplate("Dryer", CFrame.new(x, 0, 0) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(56, 42, 38), folder, "Dryer")
 	if dryerModel then
 		-- keep the spinning portal + light + steam so the Clothesline loop and the mood still work
 		local _, dsize = dryerModel:GetBoundingBox()
 		local cy = dsize.Y * 0.45
-		local swirl = ball("DryerSwirl", 9, CFrame.new(x + dsize.X * 0.25, cy, 0), C.Swirl, Enum.Material.Neon, folder, "Dryer")
+		-- the Blender dryer marks its porthole centre with Dryer_Pin; older models guess it
+		local porthole = MeshTemplate.MarkerPosition(dryerModel, "_Pin") or Vector3.new(x + dsize.X * 0.25, cy, 0)
+		local swirlPos = porthole - Vector3.new(3, 0, 0) -- just inside the drum
+		local swirl = ball("DryerSwirl", 9, CFrame.new(swirlPos), C.Swirl, Enum.Material.Neon, folder, "Dryer")
 		swirl.Transparency = 0.25
 		swirl.CanCollide = false
-		local core = ball("DryerCore", 4, CFrame.new(x + dsize.X * 0.25, cy, 0), Color3.fromRGB(255, 220, 255), Enum.Material.Neon, folder, "Dryer")
+		local core = ball("DryerCore", 4, CFrame.new(swirlPos), Color3.fromRGB(255, 220, 255), Enum.Material.Neon, folder, "Dryer")
 		core.CanCollide = false
 		pointLight(swirl, C.Swirl, 34, 0.7)
-		local drum = part("DryerDrum", Vector3.new(0.2, 0.2, 0.2), CFrame.new(x, cy, 0), C.Swirl, Enum.Material.Neon, folder, "Dryer")
+		local drum = part("DryerDrum", Vector3.new(0.2, 0.2, 0.2), CFrame.new(x, porthole.Y, porthole.Z), C.Swirl, Enum.Material.Neon, folder, "Dryer")
 		drum.Transparency = 1
 		drum.CanCollide = false
 		if dryerModel:FindFirstChild("DryerPortal", true) then

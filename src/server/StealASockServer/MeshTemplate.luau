@@ -60,6 +60,14 @@ function MeshTemplate.Prepare(template: Instance, scaleToStuds: boolean): (Model
 		local pin = findMarker(model, "_Pin")
 		info.pin = if pin then pin.Position else nil
 	end
+	-- world-aligned pivot: callers place the model with PivotTo(cf * offset) and expect its front
+	-- (+Z) to follow cf, which only holds when the pivot itself carries no rotation
+	local pivotPos = model:GetPivot().Position
+	if model.PrimaryPart then
+		model.PrimaryPart.PivotOffset = model.PrimaryPart.CFrame:Inverse() * CFrame.new(pivotPos)
+	else
+		model.WorldPivot = CFrame.new(pivotPos)
+	end
 
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("BasePart") then
@@ -77,6 +85,39 @@ function MeshTemplate.Prepare(template: Instance, scaleToStuds: boolean): (Model
 		end
 	end
 	return model, info
+end
+
+local function isHelper(name: string): boolean
+	return endsWith(name, "_Outline") or endsWith(name, "_Base") or endsWith(name, "_Unit") or endsWith(name, "_Pin")
+end
+
+-- World-axis bounds (min, max) of the parts you actually see. The inflated _Outline hull and the
+-- markers are left out: the hull reaches a little below the floor and past every side, so a box
+-- that includes it makes pieces float and come out slightly small. Nil when there are no parts.
+function MeshTemplate.SolidBounds(model: Instance): (Vector3?, Vector3?)
+	local minV: Vector3? = nil
+	local maxV: Vector3? = nil
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") and not isHelper(d.Name) then
+			local cf, h = d.CFrame, d.Size / 2
+			for _, sx in ipairs({ -1, 1 }) do
+				for _, sy in ipairs({ -1, 1 }) do
+					for _, sz in ipairs({ -1, 1 }) do
+						local p = cf * Vector3.new(h.X * sx, h.Y * sy, h.Z * sz)
+						minV = if minV then minV:Min(p) else p
+						maxV = if maxV then maxV:Max(p) else p
+					end
+				end
+			end
+		end
+	end
+	return minV, maxV
+end
+
+-- Current world position of a marker (e.g. "_Base"), or nil when the model has none.
+function MeshTemplate.MarkerPosition(model: Instance, suffix: string): Vector3?
+	local m = findMarker(model, suffix)
+	return if m then m.Position else nil
 end
 
 return MeshTemplate
