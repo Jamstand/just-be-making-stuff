@@ -6,7 +6,10 @@
 -- Layout numbers live in Map.Layout; Base/Clothesline read them instead of hard-coding.
 local CollectionService = game:GetService("CollectionService")
 
+local MeshTemplate = require(script.Parent:WaitForChild("MeshTemplate"))
+
 local Map = {}
+local GLOW_PARTS: { [string]: Color3 } -- filled once the palette below exists
 local S
 
 local LAYOUT = {
@@ -149,16 +152,9 @@ local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent
 	if not template then
 		return nil
 	end
-	local clone = template:Clone()
-	local model: Model
-	if clone:IsA("Model") then
-		model = clone
-	elseif clone:IsA("BasePart") then
-		model = Instance.new("Model")
-		clone.Parent = model
-		model.PrimaryPart = clone
-	else
-		clone:Destroy()
+	-- turns Blender templates so their front faces +Z, hides markers, outlines cast no shadow
+	local model = MeshTemplate.Prepare(template, false)
+	if not model then
 		return nil
 	end
 	local _, size = model:GetBoundingBox()
@@ -186,6 +182,14 @@ local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent
 			d:Destroy()
 		end
 	end
+	-- glow parts from tools/blender/furniture.py: the lamp globe and the dryer's galaxy portal
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") and GLOW_PARTS[d.Name] then
+			d.Material = Enum.Material.Neon
+			d.Color = GLOW_PARTS[d.Name]
+			d.CastShadow = false
+		end
+	end
 	local bbCF, bbSize = model:GetBoundingBox()
 	-- move so the bounding box's bottom centre sits on floorCF (keep floorCF's rotation)
 	local bottomOffset = bbCF.Position - model:GetPivot().Position - Vector3.new(0, bbSize.Y / 2, 0)
@@ -203,6 +207,11 @@ local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent
 	return model
 end
 Map.PlaceTemplate = placeTemplate
+
+GLOW_PARTS = {
+	LampGlow = C.Lamp,
+	DryerPortal = Color3.fromRGB(150, 90, 255),
+}
 
 local function pointLight(parent: BasePart, color: Color3, range: number, brightness: number, shadows: boolean?): PointLight
 	local l = Instance.new("PointLight")
@@ -489,6 +498,11 @@ local function buildDryer(folder: Folder)
 		local drum = part("DryerDrum", Vector3.new(0.2, 0.2, 0.2), CFrame.new(x, cy, 0), C.Swirl, Enum.Material.Neon, folder, "Dryer")
 		drum.Transparency = 1
 		drum.CanCollide = false
+		if dryerModel:FindFirstChild("DryerPortal", true) then
+			-- the model has its own glowing portal: keep the spin parts (and the light) but hide them
+			swirl.Transparency = 1
+			core.Transparency = 1
+		end
 		local anchor = dryerModel.PrimaryPart or dryerModel:FindFirstChildWhichIsA("BasePart", true)
 		if anchor then
 			label(anchor, "THE GREAT DRYER", 34, dsize.Y / 2 + 6, Color3.fromRGB(255, 240, 120))
@@ -614,6 +628,16 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 	-- optional real drawer shell: the Part walls stay for collision but turn invisible
 	local shell = placeTemplate("Drawer", cf * CFrame.new(0, 0, 0), Vector3.new(L.BaseW + 6, L.WallH + 6, L.BaseD + 6), model)
 	local wallT = if shell then 1 else 0
+	if shell then
+		-- decoration only: the invisible Part walls below keep doing the blocking
+		for _, d in ipairs(shell:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.CanCollide = false
+				d.CanQuery = false
+				d.CanTouch = false
+			end
+		end
+	end
 	local felt = part("Felt", Vector3.new(L.BaseW - 2, 0.3, L.BaseD - 2), cf * CFrame.new(0, 1.15, 0), C.Felt, Enum.Material.SmoothPlastic, model)
 	felt.CanCollide = false
 	part("BackWall", Vector3.new(L.BaseW, L.WallH, 1), cf * CFrame.new(0, 1 + L.WallH / 2, -L.BaseD / 2 + 0.5), C.Wood, Enum.Material.SmoothPlastic, model).Transparency = wallT

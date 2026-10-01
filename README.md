@@ -32,7 +32,8 @@ CollectionService (`Sock`, `Base`, `SockSlot`, `CollectPad`, `SlamButton`, `Drye
 | `Lighting` | night bedroom lighting: atmosphere, bloom, colour grade |
 | `Map` | builds the Giant's Bedroom (bed, lamp, toys, dryer, clothesline, basket, 8 drawers); `Map.Layout` holds every position |
 | `Registry` | live socks by uid; rolls rarity/type/side/mutation; income + price formulas |
-| `Factory` | sock models from Parts: body + googly eyes + each type's signature features, rarity glows, mutation looks |
+| `Factory` | sock models from Parts: body + googly eyes + each type's signature features, rarity glows, mutation looks (or from a mesh in `ReplicatedStorage.SockMeshes`) |
+| `MeshTemplate` | prepares imported meshes: turns, scales and anchors them using their `_Base` / `_Unit` / `_Pin` marker parts, hides the markers |
 | `Base` | drawer assignment, slots, Collect pad, Slam Drawer lock + shutter, profile sync |
 | `Pair` | THE HOOK: auto-pairing, Perfect Pairs, thread Beam + PAIRED badge |
 | `Income` | the one per-second loop that pays drawers and pushes state to clients |

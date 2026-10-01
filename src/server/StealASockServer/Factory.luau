@@ -5,6 +5,8 @@
 -- everything else is welded to it, so moving the Leg moves the whole sock.
 local CollectionService = game:GetService("CollectionService")
 
+local MeshTemplate = require(script.Parent:WaitForChild("MeshTemplate"))
+
 local Factory = {}
 local S
 
@@ -434,35 +436,60 @@ local function findMeshTemplate(sock): Instance?
 	return sided or meshFolder:FindFirstChild(sock.typeId)
 end
 
--- Clones the template, normalises it to the Part body's height (3.2 studs before SockScale),
--- welds it to an invisible Leg root and returns the Leg. Returns nil if the template is unusable.
+-- Builds the sock body from a mesh template. Returns the invisible root ("Leg") part, or nil.
+--  * Blender templates (with _Base/_Unit/_Pin markers): 1 unit = 1 stud, the root is sized and
+--    placed exactly like a Part-built sock's Leg (pin above, foot below), so hanging height,
+--    slot placement, labels and sway all line up with every other sock.
+--  * Other templates (Creator Store / Mesh Generator): normalised to the Part body's height and
+--    rooted at their bounding box, with a small L/R tag when one mesh serves both halves.
 local function buildFromMesh(template: Instance, model: Model, sock): (BasePart?, BasePart?)
-	local clone = template:Clone()
-	local holder: Model
-	if clone:IsA("Model") then
-		holder = clone
-	elseif clone:IsA("BasePart") then
-		holder = Instance.new("Model")
-		clone.Parent = holder
-		holder.PrimaryPart = clone
+	local holder, info = MeshTemplate.Prepare(template, true)
+	if not holder then
+		return nil, nil
+	end
+	local leg
+	if info.hasMarkers and info.base then
+		local base = info.base :: Vector3
+		local pin = info.pin or (base + Vector3.new(0, 4.3, 0))
+		-- Part sock: Leg centre -> pin = Y/2 + 0.55 and Leg centre -> foot bottom = Y/2 + 0.65
+		local legY = math.max(pin.Y - base.Y - 1.2, 1)
+		leg = newPart("Leg", Vector3.new(1.6, legY, 1.6), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic, model)
+		leg.CFrame = CFrame.new(base.X, base.Y + legY / 2 + 0.65, base.Z)
 	else
-		clone:Destroy()
-		return nil, nil
+		local _, size = holder:GetBoundingBox()
+		if size.Y <= 0 then
+			holder:Destroy()
+			return nil, nil
+		end
+		holder:ScaleTo(holder:GetScale() * (4.5 / size.Y)) -- leg + foot of the Part body
+		local cf
+		cf, size = holder:GetBoundingBox()
+		leg = newPart("Leg", Vector3.new(math.max(size.X, 1), size.Y, math.max(size.Z, 1)), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic, model)
+		leg.CFrame = cf
+		local sided = string.sub(template.Name, -2) == "_L" or string.sub(template.Name, -2) == "_R"
+		if sock.side ~= "S" and not sided then
+			local tag = newPart("SideTag", Vector3.new(0.9, 0.9, 0.1), Color3.new(1, 1, 1), Enum.Material.Neon, model)
+			tag.CFrame = cf * CFrame.new(if sock.side == "L" then -size.X / 2 - 0.3 else size.X / 2 + 0.3, -size.Y / 2 + 0.6, 0)
+			weld(leg, tag)
+			local gui = Instance.new("SurfaceGui")
+			gui.Face = Enum.NormalId.Front
+			gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+			gui.PixelsPerStud = 60
+			gui.LightInfluence = 0
+			local t = Instance.new("TextLabel")
+			t.Size = UDim2.fromScale(1, 1)
+			t.BackgroundTransparency = 1
+			t.Font = Enum.Font.FredokaOne
+			t.TextScaled = true
+			t.TextColor3 = Color3.fromRGB(40, 30, 60)
+			t.Text = sock.side
+			t.Parent = gui
+			gui.Parent = tag
+		end
 	end
-	local cf, size = holder:GetBoundingBox()
-	if size.Y <= 0 then
-		holder:Destroy()
-		return nil, nil
-	end
-	local targetHeight = 3.2 + 1.3 -- leg + foot of the Part body
-	holder:ScaleTo(targetHeight / size.Y)
-	cf, size = holder:GetBoundingBox()
-	-- invisible root the prompts/welds/pivots use; sized like the mesh so labels sit right
-	local leg = newPart("Leg", Vector3.new(math.max(size.X, 1), size.Y, math.max(size.Z, 1)), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic, model)
 	leg.Transparency = 1
 	leg.Anchored = true
 	leg.CanQuery = true
-	leg.CFrame = cf
 	model.PrimaryPart = leg
 	for _, d in ipairs(holder:GetDescendants()) do
 		if d:IsA("BasePart") then
@@ -476,26 +503,6 @@ local function buildFromMesh(template: Instance, model: Model, sock): (BasePart?
 	end
 	holder.Name = "Mesh"
 	holder.Parent = model
-	-- side marker so L/R still read at a glance when the same mesh serves both halves
-	if sock.side ~= "S" then
-		local tag = newPart("SideTag", Vector3.new(0.9, 0.9, 0.1), Color3.new(1, 1, 1), Enum.Material.Neon, model)
-		tag.CFrame = cf * CFrame.new(if sock.side == "L" then -size.X / 2 - 0.3 else size.X / 2 + 0.3, -size.Y / 2 + 0.6, 0)
-		weld(leg, tag)
-		local gui = Instance.new("SurfaceGui")
-		gui.Face = Enum.NormalId.Front
-		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		gui.PixelsPerStud = 60
-		gui.LightInfluence = 0
-		local t = Instance.new("TextLabel")
-		t.Size = UDim2.fromScale(1, 1)
-		t.BackgroundTransparency = 1
-		t.Font = Enum.Font.FredokaOne
-		t.TextScaled = true
-		t.TextColor3 = Color3.fromRGB(40, 30, 60)
-		t.Text = sock.side
-		t.Parent = gui
-		gui.Parent = tag
-	end
 	return leg, leg
 end
 

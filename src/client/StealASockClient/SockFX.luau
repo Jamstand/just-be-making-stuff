@@ -56,8 +56,18 @@ local function refreshOutlines()
 	table.sort(list, function(a, b)
 		return a.d < b.d
 	end)
-	for i, entry in ipairs(list) do
-		outline(entry.model).Enabled = i <= MAX_OUTLINES and entry.d < 140
+	local shown = 0
+	for _, entry in ipairs(list) do
+		-- Blender meshes have the outline baked in; only Part-built socks need a Highlight
+		if entry.model:GetAttribute("FromMesh") then
+			local h = highlights[entry.model]
+			if h then
+				h.Enabled = false
+			end
+		else
+			shown += 1
+			outline(entry.model).Enabled = shown <= MAX_OUTLINES and entry.d < 140
+		end
 	end
 end
 
@@ -155,7 +165,7 @@ function SockFX.Init()
 	task.spawn(function()
 		local mapFolder = root and root:WaitForChild("Map", 10)
 		local dryerBody = mapFolder and (mapFolder:FindFirstChild("DryerBody") or mapFolder:FindFirstChild("Dryer"))
-		if dryerBody then
+		if dryerBody and not dryerBody:FindFirstChild("Dryer_Outline", true) then
 			local h = Instance.new("Highlight")
 			h.Name = "ToonOutline"
 			h.OutlineColor = OUTLINE_COLOR

@@ -23,8 +23,8 @@ ReplicatedStorage
    └─ RemoteNames              (ModuleScript)  src/shared/RemoteNames.luau
 ServerScriptService
 └─ StealASockServer            (Script)        src/server/StealASockServer/init.server.luau
-   ├─ RateLimit  Data  Lighting  Map  Registry  Factory  Base  Pair  Income
-   │  Clothesline  Purchase  Steal  Towel      (ModuleScripts, one per .luau file)
+   ├─ RateLimit  Data  Lighting  Map  Registry  Factory  MeshTemplate  Base
+   │  Pair  Income  Clothesline  Purchase  Steal  Towel   (ModuleScripts, one per .luau file)
    └─ ProfileStore             (ModuleScript)  vendored, MIT
 StarterPlayer
 └─ StarterPlayerScripts
@@ -40,7 +40,7 @@ place — delete the default Baseplate and SpawnLocation.
 ## Loading it into Studio (paste into your local Claude, Studio open, MCP on)
 
 ```text
-Read CLAUDE.md. I have a NEW blank place open in Studio called "Steal a Sock" with the MCP toggle on. Load the Phase 1 code into it: in this repo folder run `git fetch origin` then `git checkout claude/steal-a-sock`, then recreate the tree from docs/PHASE1.md in the open place EXACTLY: ReplicatedStorage.Shared (Folder) with a Config Folder holding ModuleScripts EconomyConfig, RarityConfig, MutationConfig, SockConfig, EventConfig (from src/shared/Config/*.luau) plus ModuleScripts Types, Util, RemoteNames; ServerScriptService.StealASockServer as a Script whose Source is src/server/StealASockServer/init.server.luau, with one child ModuleScript per other .luau file in that folder (named after the file: RateLimit, Data, Lighting, Map, Registry, Factory, Base, Pair, Income, Clothesline, Purchase, Steal, Towel, ProfileStore); StarterPlayer.StarterPlayerScripts.StealASockClient as a LocalScript from init.client.luau with the child ModuleScripts HUD and SockFX. Copy every file's contents into Source unchanged (keep tabs; when setting Source from Luau wrap the text in a long-bracket level the file doesn't contain). Delete the default Baseplate part and SpawnLocation. Then read back each Source and compare its length to the file; fix any mismatch. Don't publish. Finally list what you created and tell me to press Play.
+Read CLAUDE.md. I have a NEW blank place open in Studio called "Steal a Sock" with the MCP toggle on. Load the Phase 1 code into it: in this repo folder run `git fetch origin` then `git checkout claude/steal-a-sock`, then recreate the tree from docs/PHASE1.md in the open place EXACTLY: ReplicatedStorage.Shared (Folder) with a Config Folder holding ModuleScripts EconomyConfig, RarityConfig, MutationConfig, SockConfig, EventConfig (from src/shared/Config/*.luau) plus ModuleScripts Types, Util, RemoteNames; ServerScriptService.StealASockServer as a Script whose Source is src/server/StealASockServer/init.server.luau, with one child ModuleScript per other .luau file in that folder (named after the file: RateLimit, Data, Lighting, Map, Registry, Factory, MeshTemplate, Base, Pair, Income, Clothesline, Purchase, Steal, Towel, ProfileStore); StarterPlayer.StarterPlayerScripts.StealASockClient as a LocalScript from init.client.luau with the child ModuleScripts HUD and SockFX. Copy every file's contents into Source unchanged (keep tabs; when setting Source from Luau wrap the text in a long-bracket level the file doesn't contain). Delete the default Baseplate part and SpawnLocation. Then read back each Source and compare its length to the file; fix any mismatch. Don't publish. Finally list what you created and tell me to press Play.
 ```
 
 ## Updating a place that already has Phase 1 (paste into your local Claude)
