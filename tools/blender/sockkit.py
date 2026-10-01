@@ -290,7 +290,8 @@ def finish(pieces: list[Piece], name: str, outline_width=0.05, outline_only: lis
     shell would shadow the whole model (Roblox shadow maps don't respect back-face culling)."""
     body = _merge([(p, 0.0, False) for p in pieces], name)
     outline = _merge([(p, outline_width, True) for p in pieces + (outline_only or []) if p.outline], name + "_Outline")
-    outline.visible_shadow = False  # preview renders behave like the game
+    outline.visible_shadow = False  # preview renders behave like the game:
+    outline.visible_diffuse = False  # the hull must not block light bouncing onto the body either
     for p in pieces + (outline_only or []):
         if p.mesh.users == 0:
             bpy.data.meshes.remove(p.mesh)
@@ -312,11 +313,12 @@ def marker(name: str, loc) -> bpy.types.Object:
     return obj
 
 
-def markers(name: str, pin=None) -> list:
+def markers(name: str, pin=None, base_z=0.0) -> list:
     """`_Base` at the origin (floor centre / leg axis), `_Unit` 1 unit toward the FRONT (-Y), and
     optionally `_Pin` (where a sock hangs from the clothespin). The game uses Base->Unit for the
-    import scale (1 unit = 1 stud) and to turn the model so its front faces +Z."""
-    out = [marker(name + "_Base", (0, 0, 0)), marker(name + "_Unit", (0, -1, 0))]
+    import scale (1 unit = 1 stud) and to turn the model so its front faces +Z. `base_z` lowers
+    both when something reaches below z = 0 and should stand on the floor (Sockhopper's pogo)."""
+    out = [marker(name + "_Base", (0, 0, base_z)), marker(name + "_Unit", (0, -1, base_z))]
     if pin is not None:
         out.append(marker(name + "_Pin", pin))
     return out
@@ -334,8 +336,12 @@ def set_palette_image(img):
 
 def palette_material():
     global _PALETTE_MAT
-    if _PALETTE_MAT is not None and _PALETTE_MAT.name in bpy.data.materials:
-        return _PALETTE_MAT
+    if _PALETTE_MAT is not None:
+        try:
+            if _PALETTE_MAT.name in bpy.data.materials:
+                return _PALETTE_MAT
+        except ReferenceError:  # the scene was reset since (read_factory_settings)
+            pass
     mat = bpy.data.materials.new("Palette")
     mat.use_backface_culling = True  # glTF doubleSided=false: the outline hull must be single-sided
     mat.use_nodes = True

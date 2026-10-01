@@ -8,8 +8,8 @@ real mesh **without touching the code**: drop a model into one of two folders in
 
 | Folder | Name the model exactly | What happens |
 | --- | --- | --- |
-| `ReplicatedStorage.SockMeshes` | the type id from `SockConfig` (`Argylo`, `Sockrates`, `Socktopus`, …) or `Argylo_L` / `Argylo_R` for different halves | `Factory` uses it as the sock body: invisible root added, rarity glow + mutation effects + label + all game hooks still apply. Meshes with markers (the Blender kit) keep their modelled size; meshes without are scaled to the standard sock height. A small L/R tag is added when one mesh serves both halves. |
-| `ReplicatedStorage.MapMeshes` | `Bed`, `Nightstand`, `Lamp`, `Dryer`, `Basket`, `Duck`, `Teddy`, `Blocks`, `Crayons`, `Drawer` | `Map` places it instead of the Part version, scaled to fit its slot, bottom on the floor. `Dryer` keeps the spinning portal light; `Drawer` becomes the shell of all 8 bases (walls stay for collision, invisible). |
+| `ReplicatedStorage.SockMeshes` | the type id from `SockConfig` (`Argylo`, `Sockrates`, `Socktopus`, …) or `Argylo_L` / `Argylo_R` for different halves; plus `Clothespin` | `Factory` uses it as the sock body: invisible root added, rarity glow + mutation effects + label + all game hooks still apply. Meshes with markers (the Blender kit) keep their modelled size; meshes without are scaled to the standard sock height. A small L/R tag is added when one mesh serves both halves. `Clothespin` replaces the wooden block every hanging sock wears. |
+| `ReplicatedStorage.MapMeshes` | `Bed`, `Nightstand`, `Lamp`, `Dryer`, `Basket`, `Duck`, `Teddy`, `Blocks`, `Crayons`, `Drawer`, `Window`, `Picture`, `Bookshelf` | `Map` places it instead of the Part version, scaled to fit its slot, bottom on the floor (`Window` and `Picture` hang on a wall, `Bookshelf` stands against one; those last two exist only as meshes). `Dryer` keeps the spinning portal light; `Drawer` becomes the shell of all 8 bases (walls stay for collision, invisible). |
 
 Both folders are created empty on the first Play. A model can be a `Model` or a single `MeshPart`.
 Whatever you drop in is **style-normalised on placement**: every part becomes SmoothPlastic (flat
@@ -30,15 +30,17 @@ nothing is hand-modelled and anything can be re-made with one command:
 | File | What it makes |
 | --- | --- |
 | `sockkit.py` | shared helpers: palette texture, rounded shapes, tubes, text, the dark toon outline, marker parts, GLB export, preview renders |
-| `socks.py` | all 21 sock types from `SockConfig` (googly eyes, mood mouths, stripes, each type's accessory) |
-| `furniture.py` | `Bed`, `Nightstand`, `Lamp`, `Dryer`, `Basket`, `Duck`, `Teddy`, `Blocks`, `Crayons`, `Drawer` |
+| `socks.py` | the shared sock body + face for all 21 types from `SockConfig`, and `SockCtx` (where the eyes, cuff, heel, toe… are, for feature builders) |
+| `sockfeat_a.py`, `_b.py`, `_c.py` | each type's signature features (fangs, monocle, beard, pogo stick, tentacles, armour…), 7 types per file |
+| `props/<prop>.py` | one file per prop: `Bed`, `Nightstand`, `Lamp`, `Dryer`, `Basket`, `Duck`, `Teddy`, `Blocks`, `Crayons`, `Drawer`, `Window`, `Picture`, `Bookshelf`, `Clothespin` (conventions in `props/__init__.py`) |
 | `build_all.py` | runs everything and writes the files below |
+| `preview.py` | renders one asset, optionally next to a concept-art crop, without touching the repo: `python tools/blender/preview.py prop:Bed --views three,front --compare crop.png` |
 
 Output (committed, so `git pull` brings it to your PC):
 
 - `assets/meshes/steal-a-sock/socks/<Type>_L.glb` and `<Type>_R.glb` (one file each for the
-  single socks `Socktopus` and `LostSock`) — 40 files.
-- `assets/meshes/steal-a-sock/map/<Name>.glb` — 10 files.
+  single socks `Socktopus` and `LostSock`) — 40 files, plus `Clothespin.glb`.
+- `assets/meshes/steal-a-sock/map/<Name>.glb` — 13 files.
 - `docs/concept/renders/socks.jpg`, `furniture.jpg` — preview sheets of everything.
 
 Each GLB holds the textured model, a separate `<Name>_Outline` mesh (the black toon outline — an
@@ -51,8 +53,9 @@ inside-out copy, so Roblox only draws its rim) and small marker parts the game r
 | `<Name>_Pin` | socks only: where the clothespin goes at the top of the leg |
 
 `MeshTemplate.luau` uses them to turn the model to face +Z, scale it, anchor it and hide the
-markers; outlines get `CastShadow = false`. The lamp's `LampGlow` globe and the dryer's
-`DryerPortal` disc come in untextured and are turned into Neon by `Map`.
+markers; outlines get `CastShadow = false`. A few parts come in untextured and `Map` styles them by
+name: `LampGlow` (the lamp globe), `DryerPortal` (the galaxy's glow) and `MoonGlow` (the window's
+moon) become Neon; `DryerGlass` (the open door's glass) becomes see-through Glass.
 
 **Re-making the meshes** (only needed if you change a shape or colour in the scripts): install
 Python 3.11 and `pip install bpy==4.5.14` in a venv, then from the repo root run
@@ -64,9 +67,9 @@ Blender 4.5 and run `build_all.py` from its Scripting tab.
 1. File → Import 3D → select every `.glb` in `assets/meshes/steal-a-sock/socks` (multi-select),
    untick **Merge Meshes** if it is shown (keeps the markers and outline as separate parts), Import.
 2. Same again for `assets/meshes/steal-a-sock/map`.
-3. Move the sock models into `ReplicatedStorage.SockMeshes` and the furniture into
-   `ReplicatedStorage.MapMeshes`, keeping the names (`Argylo_L`, `Bed`, …). Anything with the same
-   name already there (e.g. a Creator Store model) must be deleted first.
+3. Move the sock models (and `Clothespin`) into `ReplicatedStorage.SockMeshes` and the furniture
+   into `ReplicatedStorage.MapMeshes`, keeping the names (`Argylo_L`, `Bed`, …). Anything with the
+   same name already there (an older import or a Creator Store model) must be deleted first.
 4. Play. Output prints how many templates were found.
 
 ## Other ways to get meshes
