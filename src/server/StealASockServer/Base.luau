@@ -111,7 +111,10 @@ function Base.SlotCFrame(record, slotIndex: number, model: Model?): CFrame
 	local slotPart = record.slotParts[slotIndex]
 	local leg = model and model.PrimaryPart
 	local halfHeight = if leg then leg.Size.Y / 2 else 1.6
-	return slotPart.CFrame * CFrame.new(0, 0.3 + halfHeight + 0.45, 0)
+	-- the foot reaches 0.65 (sock units) below the Leg root, times the sock scale; sink 0.1 into
+	-- the cushion so the sock sits in it rather than on it
+	local footDrop = 0.65 * S.Config.Economy.SockScale - 0.1
+	return slotPart.CFrame * CFrame.new(0, 0.3 + halfHeight + footDrop, 0)
 end
 
 -- Drawer volume (walls included). Used for ejecting on slam.
