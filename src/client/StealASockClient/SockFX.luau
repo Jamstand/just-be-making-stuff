@@ -8,8 +8,8 @@
 --  * One-shot bursts requested by the server (FX remote): buy, pair, perfect, steal, claim, snap.
 --  * The Great Dryer's galaxy: its two layers spin, its glow breathes, and it puffs sparkles
 --    whenever a sock pops out onto the line.
---  * The ceiling fan's blades turn; the invisible forcefield round the play area shimmers only
---    where the player walks up to it.
+--  * The ceiling fan's blades turn; the invisible forcefield round the play area lights up a
+--    patch of glowing hexagon cells only where the player walks up to it.
 -- One Heartbeat loop for the socks; carried socks are left to physics.
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
@@ -233,64 +233,199 @@ local function startFan(mapFolder: Instance)
 end
 
 -- ---------- the forcefield round the play area ----------
--- Map's field walls are invisible. Walking up to one fades in a soft ForceField-material disc on the
--- wall right where you are, so the edge only shows itself when you reach it.
-local FIELD_SHOW = 28 -- studs: start showing the shimmer this close
+-- Map's field walls are invisible. Walking up to one lights a honeycomb of glowing hexagon cells on
+-- the wall around the spot you're nearest: the patch fades in and grows as you get closer, its cells
+-- twinkle, and touching the wall sends a ripple out through them. Far away there's nothing to see.
+-- The honeycomb is fixed to the wall (only which cells are lit follows you), and it's all local:
+-- each player sees only their own.
+local HEX_R = 2.5 -- cell corner radius (studs)
+local HEX_GAP = 0.86 -- cells drawn this much smaller than the lattice, so each one reads on its own
+local HEX_RINGS = 3 -- rings of cells round the centre one -> 37 cells, 6 bars each
+local HEX_BAR = 0.22 -- bar thickness
+local FIELD_SHOW = 22 -- studs: cells start to appear this close to the wall
+local FIELD_TOUCH = 3.5 -- studs: this close counts as touching (ripples)
+local FIELD_COLOR = Color3.fromRGB(196, 158, 255)
+local SQRT3 = math.sqrt(3)
+
+type FieldWall = { part: BasePart, u: Vector3, n: Vector3, halfLen: number, halfThick: number, bottom: number, height: number }
+type HexCell = { dq: number, dr: number, bars: { BasePart }, phase: number, alpha: number, cu: number, cv: number }
+
+-- lattice (q, r) -> wall coords (u along the wall, v up), flat-topped hexagons
+local function hexCentre(q: number, r: number): (number, number)
+	return HEX_R * 1.5 * q, HEX_R * SQRT3 * (r + q / 2)
+end
+
+-- wall coords -> nearest lattice cell (cube rounding)
+local function hexRound(u: number, v: number): (number, number)
+	local fq = (2 / 3 * u) / HEX_R
+	local fr = (-1 / 3 * u + SQRT3 / 3 * v) / HEX_R
+	local fs = -fq - fr
+	local q, r, s = math.round(fq), math.round(fr), math.round(fs)
+	local dq, dr, ds = math.abs(q - fq), math.abs(r - fr), math.abs(s - fs)
+	if dq > dr and dq > ds then
+		q = -r - s
+	elseif dr > ds then
+		r = -q - s
+	end
+	return q, r
+end
 
 local function startField(mapFolder: Instance)
 	local field = mapFolder:WaitForChild("Forcefield", 20)
 	if not field then
 		return
 	end
-	local walls = {} :: { BasePart }
+	local walls = {} :: { FieldWall }
 	for _, w in ipairs(field:GetChildren()) do
 		if w:IsA("BasePart") then
-			table.insert(walls, w)
+			local thinX = w.Size.X < w.Size.Z
+			table.insert(walls, {
+				part = w,
+				u = if thinX then w.CFrame.ZVector else w.CFrame.XVector,
+				n = if thinX then w.CFrame.XVector else w.CFrame.ZVector,
+				halfLen = (if thinX then w.Size.Z else w.Size.X) / 2,
+				halfThick = (if thinX then w.Size.X else w.Size.Z) / 2,
+				bottom = w.Position.Y - w.Size.Y / 2,
+				height = w.Size.Y,
+			})
 		end
 	end
-	local ripple = Instance.new("Part")
-	ripple.Name = "FieldShimmer"
-	ripple.Shape = Enum.PartType.Cylinder -- a disc: the cylinder's axis is the wall's normal
-	ripple.Material = Enum.Material.ForceField
-	ripple.Color = Color3.fromRGB(175, 140, 255)
-	ripple.Anchored = true
-	ripple.CanCollide = false
-	ripple.CanQuery = false
-	ripple.CanTouch = false
-	ripple.CastShadow = false
-	ripple.Transparency = 1
-	ripple.Size = Vector3.new(0.3, 20, 20)
-	ripple.Parent = workspace
+	if #walls == 0 then
+		return
+	end
+
+	-- the cell pool: built once, moved only when the lit patch shifts to another cell
+	local folder = Instance.new("Folder")
+	folder.Name = "FieldHexes"
+	folder.Parent = workspace
+	local cells = {} :: { HexCell }
+	local allBars = {} :: { BasePart }
+	for dq = -HEX_RINGS, HEX_RINGS do
+		for dr = math.max(-HEX_RINGS, -dq - HEX_RINGS), math.min(HEX_RINGS, -dq + HEX_RINGS) do
+			local bars = {}
+			for _ = 1, 6 do
+				local bar = Instance.new("Part")
+				bar.Name = "Hex"
+				bar.Size = Vector3.new(HEX_R * HEX_GAP + HEX_BAR * 0.5, 0.06, HEX_BAR)
+				bar.Material = Enum.Material.Neon
+				bar.Color = FIELD_COLOR
+				bar.Transparency = 1
+				bar.Anchored = true
+				bar.CanCollide = false
+				bar.CanQuery = false
+				bar.CanTouch = false
+				bar.CastShadow = false
+				bar.Parent = folder
+				table.insert(bars, bar)
+				table.insert(allBars, bar)
+			end
+			table.insert(cells, { dq = dq, dr = dr, bars = bars, phase = math.random() * math.pi * 2, alpha = 0, cu = 0, cv = 0 })
+		end
+	end
+
+	local placedWall, placedQ, placedR = nil :: FieldWall?, 0, 0
+	local function place(wall: FieldWall, side: number, q0: number, r0: number)
+		placedWall, placedQ, placedR = wall, q0, r0
+		local centre = wall.part.Position
+		local origin = Vector3.new(centre.X, wall.bottom, centre.Z) + wall.n * side * (wall.halfThick + 0.05)
+		local cfs = table.create(#allBars)
+		for _, cell in ipairs(cells) do
+			cell.cu, cell.cv = hexCentre(q0 + cell.dq, r0 + cell.dr)
+			local at = origin + wall.u * cell.cu + Vector3.yAxis * cell.cv
+			for k = 0, 5 do
+				local a = math.rad(30 + 60 * k) -- edge midpoints of a flat-topped hexagon
+				local out = wall.u * math.cos(a) + Vector3.yAxis * math.sin(a)
+				local along = wall.u * -math.sin(a) + Vector3.yAxis * math.cos(a)
+				table.insert(cfs, CFrame.fromMatrix(at + out * (HEX_R * HEX_GAP * SQRT3 / 2), along, wall.n))
+			end
+		end
+		workspace:BulkMoveTo(allBars, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+	end
+
+	local shown = false
+	local wasTouching = false
+	local rippleAt, rippleU, rippleV, rippleWall = -math.huge, 0, 0, nil :: FieldWall?
+	local function hideAll()
+		for _, cell in ipairs(cells) do
+			cell.alpha = 0
+			for _, bar in ipairs(cell.bars) do
+				bar.Transparency = 1
+			end
+		end
+		shown = false
+	end
+
 	RunService.RenderStepped:Connect(function()
 		local character = Players.LocalPlayer.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		if not (root and root:IsA("BasePart")) then
-			ripple.Transparency = 1
+			if shown then
+				hideAll()
+			end
 			return
 		end
 		local p = root.Position
-		local bestD, bestPoint, bestNormal = math.huge, nil, nil
+		-- nearest wall, and where on it the player is (u along it, v up from its foot)
+		local best, bestD, bestU, bestSide = nil :: FieldWall?, math.huge, 0, 1
 		for _, w in ipairs(walls) do
-			local lp = w.CFrame:PointToObjectSpace(p)
-			local h = w.Size / 2
-			local cp = Vector3.new(math.clamp(lp.X, -h.X, h.X), math.clamp(lp.Y, -h.Y, h.Y), math.clamp(lp.Z, -h.Z, h.Z))
-			local d = (lp - cp).Magnitude
+			local rel = p - w.part.Position
+			local u = rel:Dot(w.u)
+			local across = rel:Dot(w.n)
+			local over = math.max(math.abs(u) - w.halfLen, 0)
+			local d = math.sqrt(math.max(math.abs(across) - w.halfThick, 0) ^ 2 + over ^ 2)
 			if d < bestD then
-				-- the wall's thin axis, pointing at the player's side
-				local n = if w.Size.X < w.Size.Z then Vector3.new(math.sign(lp.X), 0, 0) else Vector3.new(0, 0, math.sign(lp.Z))
-				bestD, bestPoint, bestNormal = d, w.CFrame:PointToWorldSpace(cp), w.CFrame:VectorToWorldSpace(n)
+				best, bestD, bestU, bestSide = w, d, math.clamp(u, -w.halfLen, w.halfLen), if across >= 0 then 1 else -1
 			end
 		end
-		if not (bestPoint and bestNormal) or bestD > FIELD_SHOW then
-			ripple.Transparency = 1
+		if not best or bestD > FIELD_SHOW then
+			if shown then
+				hideAll()
+			end
+			wasTouching = false
 			return
 		end
+		local wall = best :: FieldWall
+		local pv = math.clamp(p.Y - wall.bottom + 2.5, 0, wall.height) -- centred about head height
+		local q0, r0 = hexRound(bestU, pv)
+		if wall ~= placedWall or q0 ~= placedQ or r0 ~= placedR then
+			place(wall, bestSide, q0, r0)
+		end
+		local t = os.clock()
+		local touching = bestD < FIELD_TOUCH
+		if touching and (not wasTouching or t - rippleAt > 1.6) then
+			rippleAt, rippleU, rippleV, rippleWall = t, bestU, pv, wall
+		end
+		wasTouching = touching
+
 		local near = 1 - bestD / FIELD_SHOW -- 0 far .. 1 touching
-		local size = 16 + 18 * near
-		local at = Vector3.new(bestPoint.X, math.max(p.Y, size / 2), bestPoint.Z) + bestNormal * 0.2
-		ripple.Size = Vector3.new(0.3, size, size)
-		ripple.CFrame = CFrame.fromMatrix(at, bestNormal, Vector3.yAxis)
-		ripple.Transparency = 1 - 0.6 * near * (0.85 + 0.15 * math.sin(os.clock() * 5))
+		local reach = HEX_R * (1.2 + (HEX_RINGS * SQRT3 - 1.2) * near) -- grows to the pool's edge as you come closer
+		local rippleAge = t - rippleAt
+		local rippling = rippleWall == wall and rippleAge < 1.1
+		for _, cell in ipairs(cells) do
+			local alpha = 0
+			local inside = math.abs(cell.cu) <= wall.halfLen and cell.cv >= -HEX_R * 0.5 and cell.cv <= wall.height
+			if inside then
+				local du, dv = cell.cu - bestU, cell.cv - pv
+				local r = math.sqrt(du * du + dv * dv)
+				local fall = math.clamp(1 - r / reach, 0, 1)
+				fall = fall * fall * (3 - 2 * fall)
+				local twinkle = 0.65 + 0.35 * math.sin(t * 3.2 + cell.phase)
+				alpha = near * fall * twinkle * 0.8
+				if rippling then
+					local ru, rv = cell.cu - rippleU, cell.cv - rippleV
+					local front = rippleAge * 26
+					local bump = math.max(0, 1 - math.abs(math.sqrt(ru * ru + rv * rv) - front) / (HEX_R * 1.6))
+					alpha = math.max(alpha, bump * (1 - rippleAge / 1.1) * 0.95)
+				end
+			end
+			if math.abs(alpha - cell.alpha) > 0.01 or (alpha == 0 and cell.alpha ~= 0) then
+				cell.alpha = alpha
+				for _, bar in ipairs(cell.bars) do
+					bar.Transparency = 1 - alpha
+				end
+			end
+		end
+		shown = true
 	end)
 end
 
