@@ -75,33 +75,27 @@ follow them to any device (`src/shared/Config/SettingsConfig.luau`).
 
 ## Sounds
 
-The game is silent until sound ids are pasted into `UISound.Ids` in
-`src/client/StealASockClient/UISound.luau`:
+Every UI sound is one of Roblox's own (creator "Roblox", marked public domain and free to use in any
+experience), from the "Roblox GUI - ..." and "Roblox_UI_..." packs in the Creator Store. The ids live
+in `UISound.Ids` in `src/client/StealASockClient/UISound.luau`; swap any for another audio id, or set
+it to `""` to silence it. Players set the volumes in Settings (Music, Sound effects).
 
-| Name | When it plays |
-| --- | --- |
-| `click` | any button |
-| `hover` | mouse over a button (desktop, very quiet) |
-| `open` / `close` | a menu panel opens / closes |
-| `tab` | switching tabs |
-| `toggle` | a settings switch |
-| `buy` | an Item Shop upgrade was bought |
-| `coin` | one coin landing in the cash pill (plays a lot: keep it short) |
-| `error` | can't afford it / not allowed |
-| `success` | a good outcome |
-| `confetti` | big celebration (pass unlocked, milestone, rare drop) |
-| `newSock` | a new Sockdex entry |
-| `whoosh` | banners and toasts sliding in |
-| `pop` | small pop-ins (badges, cards) |
-| `sell` | a sock was sold |
-| `music` | background music loop |
+| Name | When it plays | Sound (id) |
+| --- | --- | --- |
+| `click` | any button | Roblox GUI - Select (17208396156) |
+| `hover` | mouse over a button (desktop, very quiet) | Roblox GUI - Hover 01 (17208339919) |
+| `open` / `close` | a menu panel opens / closes | Roblox_UI_Sweep (15675046931) / Roblox GUI - Back (17208186900) |
+| `tab` | switching tabs | Roblox GUI - Tab (17208408337) |
+| `toggle` | a settings switch | Roblox_UI_Small_Click (15675032796) |
+| `buy` | an Item Shop upgrade was bought | Roblox GUI - Purchase (17208380755) |
+| `coin` | one coin landing in the cash pill (spaced at least 0.07 s apart) | Roblox GUI - Pickup (17208319162) |
+| `error` | can't afford it / not allowed | Roblox GUI - Negative (17208353912) |
+| `success` | a good outcome | Roblox GUI - Notification High (17208361335) |
+| `confetti` | big celebration (pass unlocked, milestone, rare drop) | Roblox_UI_Indicator (15675085146) |
+| `newSock` | a new Sockdex entry | Roblox GUI - Aura (17208327798) |
+| `whoosh` | banners and toasts sliding in | Roblox_UI_Whoosh_02 (15675028888) |
+| `pop` | small pop-ins (badges, cards) | Roblox GUI - Bubble (17208204604) |
+| `sell` | a sock was sold | CoinTransfer_01 (127645268874265) |
+| `music` | background music loop (starts once the saved Music volume is known) | Roblox_UI_Loop_Calm_Music (15675069601) |
 
-Prompt for the local Claude (Studio open, MCP on):
-
-> Read docs/UI.md, section Sounds. Using the Roblox Studio MCP, search the Creator Store for free,
-> short, cartoony UI sounds that fit a cosy night-time bedroom game (soft pops, bubbly clicks, a
-> coin clink, a light whoosh, a cheerful jingle for confetti, a gentle error boop) and one calm,
-> playful looping music track. Only use sounds that are free and allowed in other experiences. Put
-> each asset id into `UISound.Ids` in src/client/StealASockClient/UISound.luau as
-> "rbxassetid://<id>", update that ModuleScript's Source in the open place to match, and list the
-> ids you chose. Don't publish.
+All sounds are preloaded when the game starts, so the first click isn't silent.

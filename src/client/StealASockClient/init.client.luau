@@ -76,9 +76,10 @@ run("DexUI", DexUI, "Init") -- "Sockdex" button, order 4
 run("SettingsUI", SettingsUI, "Init") -- "Settings" button, order 5
 run("SockCard", SockCard, "Init")
 run("Performance", Performance, "Init") -- Low graphics / Hide others' effects / Sock name tags (ClientSettings)
-run("UISound", UISound, "StartMusic")
+run("UISound", UISound, "Preload")
 
 local screens = { HUD = HUD, ShopUI = ShopUI, StoreUI = StoreUI, DexUI = DexUI, SockCard = SockCard }
+local musicStarted = false
 Remotes:WaitForChild("State").OnClientEvent:Connect(function(state)
 	if type(state) ~= "table" then
 		return
@@ -93,6 +94,10 @@ Remotes:WaitForChild("State").OnClientEvent:Connect(function(state)
 	end
 	state.slots = slots
 	run("ClientSettings", ClientSettings, "Load", state.settings)
+	if not musicStarted then
+		musicStarted = true -- after the saved Music volume is applied, so a muted player hears nothing
+		run("UISound", UISound, "StartMusic")
+	end
 	for name, screen in pairs(screens) do
 		run(name, screen, "SetState", state)
 	end
