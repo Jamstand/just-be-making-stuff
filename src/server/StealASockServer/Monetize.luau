@@ -173,6 +173,16 @@ function Monetize.LuckMult(rank: number): number
 	return luck ^ math.max(0, rank - 1)
 end
 
+-- Runs a side effect that comes AFTER a grant has happened (toast, FX, celebrate, push). It must
+-- never error out of GrantProduct: ProcessReceipt would answer NotProcessedYet and Roblox would
+-- deliver the receipt again - a second grant on top of the one that already happened.
+local function after(fn: (...any) -> ...any, ...: any)
+	local ok, err = pcall(fn, ...)
+	if not ok then
+		warn("[Monetize] after-grant step failed: " .. tostring(err))
+	end
+end
+
 -- ---------- Rare Sock Drop ----------
 
 -- Rolls an Epic-or-better sock and flies it from the Great Dryer into `slot`.
@@ -183,12 +193,15 @@ local function dropInto(player: Player, record, slot: number)
 	local model = S.Factory.Build(sock)
 	model:PivotTo(S.Map.LinePoint(0)) -- starts in the dryer's mouth; PlaceInSlot hops it home
 	S.Base.PlaceInSlot(record, sock, slot, true)
-	S.Dex.Record(player, sock) -- before Pair: a new type earns its Sockdex reward
-	S.Pair.Recompute(record)
-	S.Base.SyncToProfile(record)
-	local tier = S.Registry.Tier(sock)
-	S.FX("claim", S.Base.SlotCFrame(record, slot).Position, tier.color)
-	S.Celebrate(player, "rareDrop", { name = S.Registry.DisplayName(sock), rarity = S.Registry.Type(sock).rarity })
+	-- the sock is in the drawer now: nothing below may undo that by erroring
+	after(S.Dex.Record, player, sock) -- before Pair: a new type earns its Sockdex reward
+	after(S.Pair.Recompute, record)
+	after(S.Base.SyncToProfile, record)
+	after(function()
+		local tier = S.Registry.Tier(sock)
+		S.FX("claim", S.Base.SlotCFrame(record, slot).Position, tier.color)
+		S.Celebrate(player, "rareDrop", { name = S.Registry.DisplayName(sock), rarity = S.Registry.Type(sock).rarity })
+	end)
 end
 
 -- Lands one drop now, or queues it in profile.Data.pendingDrops when the drawer is full.
@@ -202,12 +215,12 @@ function Monetize.DeliverDrop(player: Player): boolean
 	local slot = S.Base.FirstEmptySlot(record)
 	if not slot then
 		profile.Data.pendingDrops = (tonumber(profile.Data.pendingDrops) or 0) + 1
-		S.Toast(player, "Your drawer is full — your Rare Sock Drop will land when a slot frees up", "info")
-		S.Income.Push(player)
+		after(S.Toast, player, "Your drawer is full — your Rare Sock Drop will land when a slot frees up", "info")
+		after(S.Income.Push, player)
 		return false
 	end
 	dropInto(player, record, slot)
-	S.Income.Push(player)
+	after(S.Income.Push, player)
 	return true
 end
 
@@ -256,22 +269,24 @@ function Monetize.GrantProduct(player: Player, key: string): string
 		local rate = if record then S.Income.RateOf(record) else 0
 		local amount = math.max(product.cashMin or 0, math.floor(rate * (product.cashSeconds or 0)))
 		S.Data.AddCash(player, amount)
-		S.Celebrate(player, "product", { key = key, display = product.display, cash = amount })
-		S.Income.Push(player)
+		after(S.Celebrate, player, "product", { key = key, display = product.display, cash = amount })
+		after(S.Income.Push, player)
 		return product.display .. ": +$" .. S.Util.FormatCash(amount)
 	elseif key == "ServerLuck" then
 		local minutes = product.minutes or 15
 		luckUntil = math.max(workspace:GetServerTimeNow(), luckUntil) + minutes * 60
-		if S.Map.Root then
-			S.Map.Root:SetAttribute("LuckUntil", luckUntil) -- every client shows the timer
-		end
-		S.Announce("🍀 " .. player.DisplayName .. " bought Server Luck! Rarer socks for " .. minutes .. " minutes!", LUCK_COLOR)
-		S.Celebrate(player, "product", { key = key, display = product.display })
-		S.Income.Push(player)
+		after(function()
+			if S.Map.Root then
+				S.Map.Root:SetAttribute("LuckUntil", luckUntil) -- every client shows the timer
+			end
+			S.Announce("🍀 " .. player.DisplayName .. " bought Server Luck! Rarer socks for " .. minutes .. " minutes!", LUCK_COLOR)
+		end)
+		after(S.Celebrate, player, "product", { key = key, display = product.display })
+		after(S.Income.Push, player)
 		return product.display .. " is on!"
 	elseif key == "RareDrop" then
 		if not Monetize.DeliverDrop(player) then
-			S.Celebrate(player, "product", { key = key, display = product.display })
+			after(S.Celebrate, player, "product", { key = key, display = product.display })
 			return product.display .. " is waiting for a free slot"
 		end
 		return product.display .. " landed in your drawer!"
@@ -279,8 +294,8 @@ function Monetize.GrantProduct(player: Player, key: string): string
 		if not S.Base.ForceLock(player) then
 			error("no drawer to lock")
 		end
-		S.Celebrate(player, "product", { key = key, display = product.display })
-		S.Income.Push(player)
+		after(S.Celebrate, player, "product", { key = key, display = product.display })
+		after(S.Income.Push, player)
 		return "Drawer slammed!"
 	end
 	error("no grant for product " .. key)

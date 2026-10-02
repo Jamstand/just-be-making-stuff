@@ -255,7 +255,7 @@ function Steal.Return(player: Player, reason: string)
 		local slot = if sock.homeSlot and victimBase.slots[sock.homeSlot] == nil then sock.homeSlot else S.Base.FirstEmptySlot(victimBase)
 		if slot then
 			S.Base.PlaceInSlot(victimBase, sock, slot, true)
-			S.Pair.Recompute(victimBase)
+			S.Pair.Recompute(victimBase, true) -- quiet: the pair was only broken by the steal, it isn't new
 		else
 			-- Drawer filled up meanwhile: the sock stays in the owner's save and reappears next join.
 			victimBase.away[sock.uid] = true
