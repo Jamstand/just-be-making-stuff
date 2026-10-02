@@ -1004,7 +1004,9 @@ local function makeLockRow(): ExtraRow
 
 	Anim.button(button, "click")
 	button.Activated:Connect(function()
-		Menu.Open("Store")
+		-- straight to the +4 Drawer Slots pass (StoreUI doesn't require the HUD, so no cycle)
+		local StoreUI = require(script.Parent:WaitForChild("StoreUI")) :: any
+		StoreUI.Focus("pass", "ExtraSlots")
 	end)
 	return { holder = holder, card = button, text = text }
 end
@@ -1824,6 +1826,7 @@ function HUD.Toast(text: string, kind: string?)
 	card.AnchorPoint = Vector2.new(0.5, 0)
 	card.Position = UDim2.new(0.5, 0, 0, -18)
 	card.Size = UDim2.new(1, 0, 0, h)
+	card.Active = true -- over an open panel, a tap on a toast mustn't reach the panel's backdrop
 	Theme.candy(card, spec.style, 14, 3)
 	Theme.gloss(card, 14)
 	card.Parent = holder

@@ -24,6 +24,7 @@ type Entry = {
 	key: string,
 	button: TextButton?,
 	badge: Frame?,
+	badgeShown: boolean?, -- what SetBadge last asked for (Visible lags behind while it pops out)
 	panel: Frame?,
 	onOpen: (() -> ())?,
 	onClose: (() -> ())?,
@@ -141,6 +142,7 @@ function Menu.AddButton(key: string, icon: string, label: string, style: string,
 	tile.Position = UDim2.fromScale(0.5, 0.5)
 	local glyph = Theme.label(tile, icon, 34, Theme.Color.White)
 	glyph.Name = "Glyph"
+	glyph.ZIndex = tile.ZIndex + 3 -- over the gloss
 	glyph.Position = UDim2.new(0, 0, 0, 4)
 	glyph.Size = UDim2.new(1, 0, 0.62, 0)
 	glyph.TextScaled = true
@@ -148,7 +150,8 @@ function Menu.AddButton(key: string, icon: string, label: string, style: string,
 	glyphMax.MaxTextSize = 34
 	glyphMax.Parent = glyph
 	local name = Theme.label(tile, label, 14, Theme.Color.White)
-	name.Name = "Label"
+	name.Name = "Caption"
+	name.ZIndex = tile.ZIndex + 3
 	name.AnchorPoint = Vector2.new(0, 1)
 	name.Position = UDim2.new(0, 0, 1, -5)
 	name.Size = UDim2.new(1, 0, 0, 16)
@@ -194,12 +197,14 @@ function Menu.SetBadge(key: string, text: string?)
 			label.Text = text
 		end
 		badge.Size = UDim2.fromOffset(math.max(28, 12 + #text * 10), 28)
-		if not badge.Visible then
+		if not e.badgeShown then
+			e.badgeShown = true
 			Anim.popIn(badge)
 			Anim.sway(badge, 8, 1.2)
 			UISound.Play("pop")
 		end
-	elseif badge.Visible then
+	elseif e.badgeShown then
+		e.badgeShown = false
 		Anim.stop(badge, "sway")
 		Anim.popOut(badge)
 	end
@@ -217,12 +222,14 @@ function Menu.Panel(key: string, title: string, size: Vector2, ribbonStyle: stri
 	panel.Size = UDim2.fromScale(0.94, 0.86) -- capped at `size` below; narrow (portrait) screens get 94%
 	panel.ZIndex = 10
 	panel.Visible = false
+	panel.Active = true -- taps on blank parts stop here instead of reaching the closing backdrop
 	Theme.candy(panel, "cream", 22, 4)
 	local maxSize = Instance.new("UISizeConstraint")
 	maxSize.MaxSize = size
 	maxSize.Parent = panel
 	local ribbon = Theme.ribbon(panel, title, ribbonStyle or "coral", math.min(size.X - 120, 320))
 	ribbon.ZIndex = 15
+	ribbon.Active = true -- it sticks out above the panel
 	Anim.sway(ribbon, 1.2, 3)
 	local close = Theme.closeButton(panel)
 	close.ZIndex = 16
@@ -324,8 +331,9 @@ function Menu.Close()
 	end
 	showBackdrop(backdrop, false, 0)
 	local tw = Anim.tween(blur, 0.25, { Size = 0 }, Enum.EasingStyle.Quad)
-	tw.Completed:Once(function()
-		if not current then
+	tw.Completed:Once(function(playbackState)
+		-- a panel or overlay opened meanwhile cancels this tween: keep the blur then
+		if playbackState == Enum.PlaybackState.Completed and not current and not overlay then
 			blur.Enabled = false
 		end
 	end)
@@ -372,8 +380,8 @@ function Menu.HideOverlay()
 	showBackdrop(overlayBackdrop, false, 0)
 	if not current then
 		local tw = Anim.tween(blur, 0.25, { Size = 0 }, Enum.EasingStyle.Quad)
-		tw.Completed:Once(function()
-			if not current and not overlay then
+		tw.Completed:Once(function(playbackState)
+			if playbackState == Enum.PlaybackState.Completed and not current and not overlay then
 				blur.Enabled = false
 			end
 		end)

@@ -79,6 +79,9 @@ local TOTAL = #SockConfig.List
 
 local panel: Frame
 local grid: ScrollingFrame
+local topBlock: Frame -- progress block (summary + bar)
+local summaryBox: Frame
+local narrowTop: boolean? = nil -- portrait phones: the bar gets its own row under the summary
 local gridLayout: UIGridLayout
 local countLabel: TextLabel
 local percentLabel: TextLabel
@@ -575,6 +578,27 @@ local function relayout()
 	if w <= 0 then
 		return
 	end
+	-- narrow screens (portrait phones): summary on top, the bar on its own full-width row, so the
+	-- four milestone chests stay far enough apart to tap
+	local narrow = w < 440
+	if narrow ~= narrowTop then
+		narrowTop = narrow
+		local topH = if narrow then TOP_H + 58 else TOP_H
+		topBlock.Size = UDim2.new(1, 0, 0, topH)
+		if narrow then
+			summaryBox.AnchorPoint = Vector2.new(0.5, 0)
+			summaryBox.Position = UDim2.new(0.5, 0, 0, 0)
+			trackHolder.Position = UDim2.fromOffset(24, 58)
+			trackHolder.Size = UDim2.new(1, -24 - 34, 0, TOP_H)
+		else
+			summaryBox.AnchorPoint = Vector2.new(0, 0.5)
+			summaryBox.Position = UDim2.new(0, 0, 0.5, 0)
+			trackHolder.Position = UDim2.fromOffset(150, 0)
+			trackHolder.Size = UDim2.new(1, -150 - 34, 1, 0)
+		end
+		grid.Position = UDim2.fromOffset(0, topH + 6)
+		grid.Size = UDim2.new(1, 0, 1, -(topH + 6))
+	end
 	local cols = math.clamp(math.floor((w + GAP) / (CARD_MIN_W + GAP)), 2, 6)
 	local cellW = math.floor((w - (cols - 1) * GAP) / cols)
 	if cellW ~= lastCellW then
@@ -649,6 +673,7 @@ function DexUI.Init()
 	top.Size = UDim2.new(1, 0, 0, TOP_H)
 	top.ZIndex = 5 -- the milestone tip floats over the grid
 	top.Parent = content
+	topBlock = top
 
 	local summary = Instance.new("Frame")
 	summary.Name = "Summary"
@@ -660,6 +685,7 @@ function DexUI.Init()
 	Theme.corner(summary, 14)
 	Theme.stroke(summary, Theme.Color.Stroke, 2, 0.5)
 	summary.Parent = top
+	summaryBox = summary
 	countLabel = Theme.label(summary, "0 / " .. TOTAL, 26, Theme.Color.Title)
 	countLabel.Name = "Count"
 	countLabel.Position = UDim2.fromOffset(0, 4)

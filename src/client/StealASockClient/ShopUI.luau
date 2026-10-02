@@ -569,6 +569,20 @@ local function buildHeader(content: Frame)
 	rate.ZIndex = 12
 	fit(rate, 15, 10)
 	rateLabel = rate
+
+	-- portrait phones: the hint and rate don't fit beside the cash pill, so only the pill shows
+	local function fitHeader()
+		-- take the UI scale and the panel's pop animation back out of the measured width
+		local holder = header:FindFirstAncestor("Panel_Shop")
+		local pop = holder and holder:FindFirstChild("AnimScale")
+		local popScale = if pop and pop:IsA("UIScale") and pop.Scale > 0.05 then pop.Scale else 1
+		local width = header.AbsoluteSize.X / math.max(Theme.Scale() * popScale, 0.01)
+		local roomy = width <= 0 or width >= 440
+		hint.Visible = roomy
+		rate.Visible = roomy
+	end
+	header:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitHeader)
+	task.defer(fitHeader)
 end
 
 -- Two columns when the card area is wide enough, one on narrow (portrait) screens.

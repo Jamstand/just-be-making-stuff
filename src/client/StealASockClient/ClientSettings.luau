@@ -23,7 +23,6 @@ for key, s in pairs(SettingsConfig.Settings) do
 end
 
 local loaded = false
-local dirty = false
 local saveToken = 0
 
 -- the settings the UI kit applies itself
@@ -57,12 +56,20 @@ function ClientSettings.Get(key: string): any
 	return values[key]
 end
 
-local function save()
+local touched = {} :: { [string]: boolean } -- keys changed on this client before the saved ones arrived
+
+-- Sends the changed-from-default settings a moment after the last change. It waits for the saved
+-- values first (sending defaults would wipe them) and retries a few times if the server refuses.
+local function save(attempt: number?)
 	saveToken += 1
 	local token = saveToken
 	task.delay(1.5, function()
 		if token ~= saveToken then
 			return -- a newer change restarts the wait
+		end
+		if not loaded then
+			save(attempt) -- the saved settings haven't arrived yet
+			return
 		end
 		local out = {}
 		for key, s in pairs(SettingsConfig.Settings) do
@@ -71,12 +78,19 @@ local function save()
 			end
 		end
 		local remote = ReplicatedStorage:WaitForChild("Remotes"):FindFirstChild("SaveSettings")
-		if remote and remote:IsA("RemoteFunction") then
-			local ok = pcall(function()
-				remote:InvokeServer(out)
-			end)
-			if ok and token == saveToken then
-				dirty = false
+		if not (remote and remote:IsA("RemoteFunction")) then
+			return
+		end
+		local ok, result = pcall(function()
+			return remote:InvokeServer(out)
+		end)
+		if token ~= saveToken then
+			return
+		end
+		if not (ok and type(result) == "table" and result.ok == true) and (attempt or 1) < 5 then
+			task.wait(3)
+			if token == saveToken then
+				save((attempt or 1) + 1)
 			end
 		end
 	end)
@@ -88,24 +102,29 @@ function ClientSettings.Set(key: string, value: any)
 		return
 	end
 	values[key] = value
-	dirty = true
+	if not loaded then
+		touched[key] = true
+	end
 	apply(key)
 	changedEvent:Fire(key, value)
 	save()
 end
 
 -- The saved settings from the server's State. Only the first State counts: after that this client
--- is the one changing them, so later States can't undo a change that is still being saved.
+-- is the one changing them, so later States can't undo a change that is still being saved. Keys
+-- the player already changed before it arrived keep their new value.
 function ClientSettings.Load(saved: { [string]: any }?)
-	if loaded or dirty or type(saved) ~= "table" then
+	if loaded or type(saved) ~= "table" then
 		return
 	end
 	loaded = true
 	for key, s in pairs(SettingsConfig.Settings) do
-		local v = saved[key]
-		values[key] = if v ~= nil and valid(key, v) then v else s.default
-		apply(key)
-		changedEvent:Fire(key, values[key])
+		if not touched[key] then
+			local v = saved[key]
+			values[key] = if v ~= nil and valid(key, v) then v else s.default
+			apply(key)
+			changedEvent:Fire(key, values[key])
+		end
 	end
 end
 

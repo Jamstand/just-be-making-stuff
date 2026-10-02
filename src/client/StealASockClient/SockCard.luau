@@ -510,14 +510,20 @@ local function setChips(side: string?, mutation: string?, stink: number?, sockTy
 	end
 end
 
+local halvesKey = ""
 local function setHalves(typeId: string)
+	local sockType = SockConfig.ById[typeId]
+	local entry = dexEntry(typeId) or {}
+	local key = typeId .. (if entry.L then "L" else "") .. (if entry.R then "R" else "") .. (if entry.S then "S" else "")
+	if key == halvesKey then
+		return -- unchanged (SetState calls this every second while the card is open)
+	end
+	halvesKey = key
 	for _, c in ipairs(halves:GetChildren()) do
 		if c:IsA("Frame") then
 			c:Destroy()
 		end
 	end
-	local sockType = SockConfig.ById[typeId]
-	local entry = dexEntry(typeId) or {}
 	if sockType and sockType.single then
 		SockCard.HalfBadge(halves, "1", entry.S == true, 24).LayoutOrder = 1
 	else
@@ -923,7 +929,7 @@ function SockCard.Init()
 	sellButton.TextScaled = true
 	local sellMax = Instance.new("UITextSizeConstraint")
 	sellMax.MaxTextSize = 26
-	sellMax.Parent = sellButton
+	sellMax.Parent = sellButton:FindFirstChild("Label") or sellButton -- Theme.button shows its text in Label
 	sellTimer = Instance.new("Frame")
 	sellTimer.Name = "Timer"
 	sellTimer.AnchorPoint = Vector2.new(0, 1)

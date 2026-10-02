@@ -447,6 +447,14 @@ end
 
 -- Celebrate {kind, data}: the HUD does the banner and confetti; this panel finishes the button.
 local function onCelebrate(kind, data)
+	if kind == "rareDrop" then
+		-- a drop that lands at once only sends "rareDrop" (no "product"): finish its button too
+		local drop = byKey.product.RareDrop
+		if drop then
+			stopWaiting(drop)
+		end
+		return
+	end
 	if (kind ~= "pass" and kind ~= "product") or type(data) ~= "table" or type(data.key) ~= "string" then
 		return
 	end

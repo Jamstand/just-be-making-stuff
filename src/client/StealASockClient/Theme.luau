@@ -213,7 +213,11 @@ function Theme.button(parent: Instance?, text: string, style: string?, size: UDi
 	label.AnchorPoint = Vector2.new(0.5, 0.5)
 	label.Position = UDim2.fromScale(0.5, 0.5)
 	label.Size = UDim2.new(1, -10, 1, -4)
-	label.ZIndex = b.ZIndex + 2 -- over the gloss
+	-- over the gloss (+1) and Anim.shine's sweep (+2); follows the button if its ZIndex changes
+	label.ZIndex = b.ZIndex + 3
+	b:GetPropertyChangedSignal("ZIndex"):Connect(function()
+		label.ZIndex = b.ZIndex + 3
+	end)
 	for _, prop in ipairs(MIRRORED) do
 		(label :: any)[prop] = (b :: any)[prop]
 		b:GetPropertyChangedSignal(prop):Connect(function()
