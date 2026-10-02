@@ -709,7 +709,8 @@ end
 
 local function buildClothesline(folder: Folder)
 	local L = LAYOUT
-	-- a sagging rope in 12 segments between two broom-handle posts
+	-- a sagging rope in 12 segments from inside the dryer's drum (the dryer holds that end - a post
+	-- there would poke through the bigger mesh dryer) to a broom-handle post
 	local n = 12
 	local length = L.LineEndX - L.LineStartX
 	local sag = 1.4
@@ -723,7 +724,6 @@ local function buildClothesline(folder: Folder)
 		seg.Shape = Enum.PartType.Cylinder
 		seg.CanCollide = false
 	end
-	column("PostWest", 1.1, L.LineY + 4, CFrame.new(L.LineStartX + 6, (L.LineY + 4) / 2, 3), C.Wood, Enum.Material.SmoothPlastic, folder, "Clothesline")
 	column("PostEast", 1.1, L.LineY + 4, CFrame.new(L.LineEndX, (L.LineY + 4) / 2, 0), C.Wood, Enum.Material.SmoothPlastic, folder, "Clothesline")
 	ball("PostCapE", 3, CFrame.new(L.LineEndX, L.LineY + 4.5, 0), C.WoodDark, Enum.Material.SmoothPlastic, folder, "Clothesline")
 	-- Lint Trap: a giant laundry basket overflowing with lint
