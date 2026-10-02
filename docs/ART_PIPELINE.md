@@ -33,6 +33,7 @@ nothing is hand-modelled and anything can be re-made with one command:
 | `socks.py` | the shared sock body + face for all 21 types from `SockConfig`, and `SockCtx` (where the eyes, cuff, heel, toe… are, for feature builders) |
 | `sockfeat_a.py`, `_b.py`, `_c.py` | each type's signature features (fangs, monocle, beard, pogo stick, tentacles, armour…), 7 types per file |
 | `props/<prop>.py` | one file per prop (`bed.py`, `dryer.py`, `ceilingfan.py`, `plant.py` for `PottedPlant`, …; the full list and the conventions are in `props/__init__.py`) |
+| `props/roomshell.py` + `roomtex.py` | `RoomShell` (into `MapMeshes`): the room's textured plank floor, starry wallpaper, cream trim, plaster ceiling and knitted play rug, plus glow-in-the-dark `CeilingStars` (Neon). Built at 1 stud per unit, so `Map` places it at scale 1 and turns the floor, wall and ceiling Parts invisible (they still collide). Its hand-painted seamless textures live in `assets/textures/steal-a-sock/`; `python tools/blender/roomtex.py` repaints them |
 | `build_all.py` | runs everything and writes the files below |
 | `preview.py` | renders one asset, optionally next to a concept-art crop, without touching the repo: `python tools/blender/preview.py prop:Bed --views three,front --compare crop.png` |
 

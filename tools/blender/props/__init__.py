@@ -25,7 +25,7 @@ MODULE_NAMES = ["dryer", "bed", "nightstand", "lamp", "blocks", "duck", "teddy",
                 "window", "bookshelf", "picture", "clothespin", "cushion", "slambutton", "cointray", "drawerfront",
                 "alarmclock", "dresser", "toychest", "beachball", "toycar", "slippers", "bookstack", "ceilingfan",
                 "curtains", "door", "wardrobe", "desk", "deskchair", "beanbag", "plant", "hamper", "posterrocket",
-                "posterdino", "pennant", "trashcan"]
+                "posterdino", "pennant", "trashcan", "roomshell"]
 
 
 # NAME -> module for props whose module name isn't just NAME.lower()

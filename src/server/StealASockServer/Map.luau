@@ -219,7 +219,7 @@ local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent
 		end
 	end
 	-- glow and glass parts from tools/blender/props: the lamp globe, the dryer's galaxy portal and
-	-- door glass, the window's moon
+	-- door glass, the window's moon, the ceiling's star stickers
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("BasePart") and GLOW_PARTS[d.Name] then
 			d.Material = Enum.Material.Neon
@@ -282,6 +282,7 @@ GLOW_PARTS = {
 	DryerPortal = Color3.fromRGB(150, 90, 255),
 	MoonGlow = C.MoonGlow,
 	FanLight = C.FanLight,
+	CeilingStars = Color3.fromRGB(200, 255, 170), -- the RoomShell's glow-in-the-dark star stickers
 }
 
 local function pointLight(parent: BasePart, color: Color3, range: number, brightness: number, shadows: boolean?): PointLight
@@ -355,8 +356,42 @@ end
 
 -- ---------- floor, rug, walls ----------
 
+-- The textured room (mesh only, tools/blender/props/roomshell.py): plank floor, starry wallpaper,
+-- cream baseboard and crown molding, plaster ceiling, the knitted play rug and glow-in-the-dark
+-- ceiling stars. It is built at 1 stud per unit, so its fit box is the room itself (scale 1). Only
+-- its walls cast shadows, like the wall Parts it covers; the ceiling and the stars never do.
+local SHELL_SHADOWS: { [string]: boolean } = { RoomWalls = true }
+
+local function buildShell(folder: Folder): Model?
+	local L = LAYOUT
+	local shell = placeTemplate("RoomShell", CFrame.new(0, 0, 0), Vector3.new(L.FloorX, L.WallHeight, L.FloorZ), folder, "MapFloor")
+	if not shell then
+		return nil
+	end
+	decor(shell)
+	for _, d in ipairs(shell:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CastShadow = SHELL_SHADOWS[d.Name] == true
+		end
+	end
+	local stars = shell:FindFirstChild("CeilingStars", true)
+	if stars and stars:IsA("BasePart") then
+		stars.Transparency = 0.15 -- Neon from GLOW_PARTS, a little softer
+	end
+	return shell
+end
+
 local function buildFloor(folder: Folder)
 	local L = LAYOUT
+	-- with the RoomShell in place the Parts below are only there for collision (planks, walls,
+	-- ceiling) and turn invisible; without it they are the room's look
+	local shell = buildShell(folder)
+	local function hide(p: BasePart)
+		if shell then
+			p.Transparency = 1
+			p.CastShadow = false
+		end
+	end
 	local planks = Instance.new("Folder")
 	planks.Name = "Planks"
 	planks.Parent = folder
@@ -364,7 +399,7 @@ local function buildFloor(folder: Folder)
 	local nx = L.FloorX / plankW
 	for ix = 0, nx - 1 do
 		local x = -L.FloorX / 2 + plankW / 2 + ix * plankW
-		part("Plank", Vector3.new(plankW - 0.4, 1, L.FloorZ), CFrame.new(x, -0.5, 0), if ix % 2 == 0 then C.Plank1 else C.Plank2, Enum.Material.SmoothPlastic, planks, "MapFloor")
+		hide(part("Plank", Vector3.new(plankW - 0.4, 1, L.FloorZ), CFrame.new(x, -0.5, 0), if ix % 2 == 0 then C.Plank1 else C.Plank2, Enum.Material.SmoothPlastic, planks, "MapFloor"))
 	end
 	-- checkered rug over the play area (spec: checkered floor) with a dark border
 	local rug = Instance.new("Folder")
@@ -372,6 +407,7 @@ local function buildFloor(folder: Folder)
 	rug.Parent = folder
 	local edge = part("RugEdge", Vector3.new(L.RugX + 8, 0.3, L.RugZ + 8), CFrame.new(0, 0.05, 0), C.RugEdge, Enum.Material.SmoothPlastic, rug, "MapFloor")
 	edge.CanCollide = false
+	hide(edge)
 	local cx, cz = L.RugX / L.Tile, L.RugZ / L.Tile
 	for ix = 0, cx - 1 do
 		for iz = 0, cz - 1 do
@@ -379,6 +415,7 @@ local function buildFloor(folder: Folder)
 			local z = -L.RugZ / 2 + L.Tile / 2 + iz * L.Tile
 			local t = part("Tile", Vector3.new(L.Tile, 0.4, L.Tile), CFrame.new(x, 0.2, z), if (ix + iz) % 2 == 0 then C.RugA else C.RugB, Enum.Material.SmoothPlastic, rug, "MapFloor")
 			t.CanCollide = false
+			hide(t)
 		end
 	end
 	-- walls with wallpaper stripes, a baseboard, a ceiling and crown molding
@@ -387,7 +424,7 @@ local function buildFloor(folder: Folder)
 	walls.Parent = folder
 	local h = L.WallHeight
 	local function wall(name: string, size: Vector3, cf: CFrame, along: string)
-		part(name, size, cf, C.Wall, Enum.Material.SmoothPlastic, walls, "MapWall")
+		hide(part(name, size, cf, C.Wall, Enum.Material.SmoothPlastic, walls, "MapWall"))
 		local length = if along == "x" then size.X else size.Z
 		for i = 0, length / 80 - 1 do
 			local offset = -length / 2 + 40 + i * 80
@@ -395,13 +432,15 @@ local function buildFloor(folder: Folder)
 			local ssize = if along == "x" then Vector3.new(28, h, size.Z + 0.2) else Vector3.new(size.X + 0.2, h, 28)
 			local stripe = part("Stripe", ssize, scf, C.WallStripe, Enum.Material.SmoothPlastic, walls, "MapWall")
 			stripe.CanCollide = false
+			hide(stripe)
 		end
 		local bh = 14 -- a real ~10 cm baseboard at this scale
 		local bsize = if along == "x" then Vector3.new(size.X, bh, size.Z + 3) else Vector3.new(size.X + 3, bh, size.Z)
-		part("Baseboard", bsize, cf * CFrame.new(0, -h / 2 + bh / 2, 0), C.Baseboard, Enum.Material.SmoothPlastic, walls, "MapWall")
+		hide(part("Baseboard", bsize, cf * CFrame.new(0, -h / 2 + bh / 2, 0), C.Baseboard, Enum.Material.SmoothPlastic, walls, "MapWall"))
 		local msize = if along == "x" then Vector3.new(size.X, 10, size.Z + 6) else Vector3.new(size.X + 6, 10, size.Z)
 		local molding = part("CrownMolding", msize, cf * CFrame.new(0, h / 2 - 5, 0), C.Baseboard, Enum.Material.SmoothPlastic, walls, "MapWall")
 		molding.CastShadow = false
+		hide(molding)
 	end
 	wall("WallNorth", Vector3.new(L.FloorX + 4, h, 3), CFrame.new(0, h / 2, -L.FloorZ / 2 - 1.5), "x")
 	wall("WallSouth", Vector3.new(L.FloorX + 4, h, 3), CFrame.new(0, h / 2, L.FloorZ / 2 + 1.5), "x")
@@ -410,6 +449,7 @@ local function buildFloor(folder: Folder)
 	-- the ceiling: no shadow, so the moonlight from the window still lights the room
 	local ceiling = part("Ceiling", Vector3.new(L.FloorX + 6, 2, L.FloorZ + 6), CFrame.new(0, h + 1, 0), C.Ceiling, Enum.Material.SmoothPlastic, walls, "MapWall")
 	ceiling.CastShadow = false
+	hide(ceiling)
 end
 
 -- The ceiling fan hangs in the middle of the ceiling; its FanBlades spin on every client (SockFX)
