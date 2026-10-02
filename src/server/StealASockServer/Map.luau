@@ -29,6 +29,7 @@ local LAYOUT = {
 	LineStartX = -160, -- inside the dryer drum: socks slide out of it
 	LineEndX = 150,
 	HangDrop = 4.6, -- sock pivot (Leg centre) sits this far under the rail; socks are 2x scale
+	RiseLength = 50, -- the rope leaves the centre of the dryer's void and eases down to LineY over this
 	DryerX = -172,
 	LintX = 174,
 	BaseXs = { -126, -42, 42, 126 },
@@ -47,6 +48,14 @@ Map.Layout = LAYOUT
 Map.Root = nil :: Folder?
 Map.Folders = {} :: { [string]: Folder }
 Map.Dryer = {} :: { [string]: BasePart }
+-- studs the rope rises at the dryer end so it starts in the centre of the void (set by buildClothesline)
+local lineRise = 0
+
+-- extra height of the rope `t` studs along the line: lineRise at the dryer, easing to 0 at RiseLength
+local function riseAt(t: number): number
+	local u = math.clamp(t / LAYOUT.RiseLength, 0, 1)
+	return lineRise * (1 + math.cos(math.pi * u)) / 2
+end
 Map.Bases = {} :: { Model }
 
 -- Palette sampled from docs/concept/bedroom_keyframe.png. Flat colours on SmoothPlastic: the
@@ -709,16 +718,19 @@ end
 
 local function buildClothesline(folder: Folder)
 	local L = LAYOUT
-	-- a sagging rope in 12 segments from inside the dryer's drum (the dryer holds that end - a post
-	-- there would poke through the bigger mesh dryer) to a broom-handle post
-	local n = 12
+	-- a sagging rope from the centre of the dryer's void (the dryer holds that end - a post there
+	-- would poke through the bigger mesh dryer) to a broom-handle post; it starts at the drum's height
+	-- and eases down to LineY, so socks come out of the middle of the swirl
+	local drum = Map.Dryer.Drum
+	lineRise = if drum then drum.Position.Y - (L.LineY + 0.3) else 0
 	local length = L.LineEndX - L.LineStartX
+	local n = math.ceil(length / 10)
 	local sag = 1.4
 	for i = 0, n - 1 do
 		local t0, t1 = i / n, (i + 1) / n
 		local x0, x1 = L.LineStartX + t0 * length, L.LineStartX + t1 * length
-		local y0 = L.LineY + 0.3 - sag * math.sin(t0 * math.pi)
-		local y1 = L.LineY + 0.3 - sag * math.sin(t1 * math.pi)
+		local y0 = L.LineY + 0.3 - sag * math.sin(t0 * math.pi) + riseAt(t0 * length)
+		local y1 = L.LineY + 0.3 - sag * math.sin(t1 * math.pi) + riseAt(t1 * length)
 		local p0, p1 = Vector3.new(x0, y0, 0), Vector3.new(x1, y1, 0)
 		local seg = part("Rope", Vector3.new((p1 - p0).Magnitude + 0.3, 0.4, 0.4), CFrame.lookAt((p0 + p1) / 2, p1) * CFrame.Angles(0, math.pi / 2, 0), Color3.fromRGB(235, 225, 205), Enum.Material.SmoothPlastic, folder, "Clothesline")
 		seg.Shape = Enum.PartType.Cylinder
@@ -902,6 +914,8 @@ function Map.Init(s)
 	buildDustBunnies(mapFolder)
 	buildDryer(mapFolder)
 	buildClothesline(mapFolder)
+	line:SetAttribute("Rise", lineRise) -- known once the dryer is built
+	line:SetAttribute("RiseLength", LAYOUT.RiseLength)
 	buildSpawn(mapFolder)
 	local baseIndex = 0
 	for _, sideZ in ipairs({ -LAYOUT.BaseZ, LAYOUT.BaseZ }) do
@@ -916,7 +930,7 @@ end
 -- World position of a sock hanging `t` studs along the clothesline.
 function Map.LinePoint(t: number): CFrame
 	local L = LAYOUT
-	return CFrame.new(L.LineStartX + t, L.LineY - L.HangDrop, 0)
+	return CFrame.new(L.LineStartX + t, L.LineY - L.HangDrop + riseAt(t), 0)
 end
 
 function Map.LineLength(): number
