@@ -47,6 +47,9 @@ local EconomyConfig = {
 	StateSyncSeconds = 1,
 	PromptRateLimit = 0.25, -- min seconds between prompt actions per player
 
+	-- Selling (the sock card's Sell button)
+	SellBack = 0.5, -- a sold sock pays this share of its clothesline price
+
 	-- Special socks
 	LostSockMaxPerServer = 1,
 }

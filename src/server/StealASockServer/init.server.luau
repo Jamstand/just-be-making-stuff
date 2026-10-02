@@ -9,13 +9,19 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ConfigFolder = Shared:WaitForChild("Config")
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 
--- Remotes (server -> client only in Phase 1; see RemoteNames.luau)
+-- Remotes (see RemoteNames.luau). The menu RemoteFunctions get their handlers in the modules
+-- that own them (Upgrades, Monetize, Purchase, Data, Dex).
 local remotes = Instance.new("Folder")
 remotes.Name = RemoteNames.Folder
 for _, name in ipairs(RemoteNames.Events) do
 	local event = Instance.new("RemoteEvent")
 	event.Name = name
 	event.Parent = remotes
+end
+for _, name in ipairs(RemoteNames.Functions) do
+	local fn = Instance.new("RemoteFunction")
+	fn.Name = name
+	fn.Parent = remotes
 end
 remotes.Parent = ReplicatedStorage
 
@@ -29,6 +35,10 @@ local S = {
 		Mutation = require(ConfigFolder:WaitForChild("MutationConfig")),
 		Sock = require(ConfigFolder:WaitForChild("SockConfig")),
 		Event = require(ConfigFolder:WaitForChild("EventConfig")),
+		Shop = require(ConfigFolder:WaitForChild("ShopConfig")),
+		Store = require(ConfigFolder:WaitForChild("StoreConfig")),
+		Settings = require(ConfigFolder:WaitForChild("SettingsConfig")),
+		Dex = require(ConfigFolder:WaitForChild("DexConfig")),
 	},
 }
 
@@ -49,10 +59,17 @@ function S.FX(kind: string, position: Vector3, color: Color3?)
 	remotes.FX:FireAllClients(kind, position, color)
 end
 
+-- A big UI moment for one player: confetti, a banner, a sound (see Types.CelebrateKind).
+function S.Celebrate(player: Player, kind: string, data: { [string]: any }?)
+	if player.Parent == Players then
+		remotes.Celebrate:FireClient(player, kind, data or {})
+	end
+end
+
 -- Init order matters: each module may use the ones before it.
 local ORDER = {
 	"RateLimit", "Data", "Lighting", "Map", "Registry", "Factory", "Base", "Pair",
-	"Income", "Clothesline", "Purchase", "Steal", "Towel",
+	"Income", "Clothesline", "Purchase", "Steal", "Towel", "Upgrades", "Dex", "Monetize",
 }
 for _, name in ipairs(ORDER) do
 	S[name] = require(script:WaitForChild(name))
@@ -78,6 +95,8 @@ local function onPlayerAdded(player: Player)
 	end
 	S.Steal.Setup(player)
 	S.Towel.Setup(player)
+	S.Dex.Setup(player) -- records the socks already in the drawer (no rewards for those)
+	S.Monetize.Setup(player) -- game pass ownership, VIP tag, Golden Towel, slot row, pending drops
 	S.Income.Push(player)
 	S.Toast(player, "Welcome to the laundromat! Buy socks off the clothesline. 🧦", "good")
 end
@@ -90,6 +109,7 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	S.Steal.OnPlayerRemoving(player) -- carried socks go home / steals of their socks fail
 	S.Towel.OnPlayerRemoving(player)
+	S.Monetize.OnPlayerRemoving(player)
 	S.Base.Unassign(player) -- writes the drawer into the profile, frees the base
 	S.Data.Release(player) -- ends the ProfileStore session (saves)
 	S.RateLimit.Clear(player)

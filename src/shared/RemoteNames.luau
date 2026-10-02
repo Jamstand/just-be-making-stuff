@@ -1,7 +1,8 @@
 --!strict
--- Names of the RemoteEvents the server creates under ReplicatedStorage.Remotes.
--- Phase 1 needs NO client -> server remotes: buying, stealing and slamming use ProximityPrompts,
--- collecting uses a touch pad and the Towel Snap is a Tool. All of those are validated on the server.
+-- Names of the remotes the server creates under ReplicatedStorage.Remotes.
+-- Buying off the line, stealing and slamming still use ProximityPrompts, collecting a touch pad and
+-- the Towel Snap a Tool. The menus (shop, store, Sockdex, settings) talk through the RemoteFunctions
+-- below; every handler checks S.Ready, validates its arguments and rate-limits per player.
 return {
 	Folder = "Remotes",
 	Events = {
@@ -10,5 +11,13 @@ return {
 		"Announce", -- server -> all: banner text + color
 		"Carry", -- server -> client: carry started/ended {name, side, rarity} or nil
 		"FX", -- server -> all: one-shot effect {kind, position, color} (buy, pair, steal, claim, snap)
+		"Celebrate", -- server -> client: a big UI moment {kind, data} (see Types.CelebrateKind)
+	},
+	Functions = {
+		"BuyUpgrade", -- (key: string) -> Result: Item Shop level up (Upgrades.luau)
+		"StorePurchase", -- (kind: "pass" | "product", key: string) -> Result: Robux Store (Monetize.luau)
+		"SellSock", -- (uid: number) -> Result: sell a drawer sock back (Purchase.luau)
+		"SaveSettings", -- (settings: {[string]: any}) -> Result: changed settings (Data.luau)
+		"ClaimDex", -- (milestoneKey: string) -> Result: Sockdex milestone reward (Dex.luau)
 	},
 }

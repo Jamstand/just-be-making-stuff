@@ -13,9 +13,14 @@ local TEMPLATE = {
 	cash = 100, -- replaced by EconomyConfig.StartingCash in Init
 	rebirths = 0,
 	socks = {}, -- { {typeId, side, mutation, stink}, ... } (no gaps - ProfileStore requirement)
-	sockdex = {}, -- Phase 2: typeId -> {L = bool, R = bool, paired = bool, perfect = bool}
+	sockdex = {}, -- typeId -> {L = bool, R = bool, S = bool, paired = bool, perfect = bool} (Dex.luau)
 	perks = {}, -- Phase 4: cached gamepass perks
 	stats = { pairsCompleted = 0, socksStolen = 0, socksLost = 0, cashCollected = 0 },
+	upgrades = { Towel = 0, Speed = 0, Lock = 0, Collect = 0 }, -- Item Shop levels (ShopConfig)
+	settings = {}, -- SettingsConfig key -> value, only the ones changed from the default
+	receipts = {}, -- recent developer-product PurchaseIds, oldest first (Monetize.ProcessReceipt)
+	pendingDrops = 0, -- Rare Sock Drops bought while the drawer was full; delivered when a slot frees
+	dexClaimed = {}, -- DexConfig milestone key -> true
 }
 
 local store = nil

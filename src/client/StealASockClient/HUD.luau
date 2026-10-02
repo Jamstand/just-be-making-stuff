@@ -405,6 +405,17 @@ function HUD.Toast(text: string, kind: string?)
 	end)
 end
 
+-- STUB until the HUD is rebuilt: the column's Drawer button and the Celebrate remote land here.
+function HUD.ToggleDrawer()
+	drawerOpen = not drawerOpen
+	if refs.drawerPanel then
+		refs.drawerPanel.Visible = drawerOpen
+	end
+end
+
+function HUD.Celebrate(_kind: string, _data)
+end
+
 local announceToken = 0
 function HUD.Announce(text: string, color: Color3?)
 	if not refs.announceFrame then
