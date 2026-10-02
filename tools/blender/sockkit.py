@@ -437,6 +437,8 @@ def render_preview(objs: list, path: str, res=420, angle=-0.55, elev=0.28, sampl
     cam = bpy.data.objects.new("cam", cam_data)
     link(cam)
     dist = radius / math.tan(cam_data.angle / 2) * 1.08
+    cam_data.clip_start = max(0.01, dist * 0.001)
+    cam_data.clip_end = dist + radius * 4  # big scenes (a whole room) outrun Blender's 100-unit default
     direction = Vector((math.sin(angle) * math.cos(elev), -math.cos(angle) * math.cos(elev), math.sin(elev)))
     cam.location = center + direction * dist
     cam.rotation_euler = (center - cam.location).to_track_quat("-Z", "Y").to_euler()
