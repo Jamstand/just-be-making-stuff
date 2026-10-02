@@ -13,12 +13,15 @@ band on each side; a darker foot ring.
 The lint (no art shows it; modelled on the fluffy cartoon cloud in the painting, props/picture.py):
 ONE continuous puffy skin heaped over the rim like a big dust bunny - a dome of round puffs (a ring
 resting on the rope, a middle ring, one big crown puff and two smaller ones, a second tier of
-small bumps along the cloud edge, fillers in the pits between the top puffs), bulging over the
-rope's outer edge at five uneven spots and spilling over it in a cascade of puffs at the
-front-left and a smaller tongue at the back-right - in soft lavender-white, cel-shaded lit / shade
-/ deep crease. Three long, gently wavy sock threads (blue, pink, yellow) and a few short sock
-fibres lie on it; a flat dust bunny sits on the floor at the foot of the big tongue. Only the
-silhouette is inked: an outline-only twin stretched over the skin like a membrane (see _membrane).
+small bumps along the cloud edge, fillers in the pits), a continuous roll of overlapping puffs of
+uneven size and height curling over the rope's crest, and spilling over it in a cascade of puffs
+at the front-left and a smaller tongue at the back-right - in soft lavender-white, cel-shaded lit
+/ shade / deep crease, shaded round by normals taken from the field. Three long, thin, loose sock
+threads (dusty blue, pink, yellow) lie tangled in it, dipping in and out of the fluff, the pink
+one hanging off the big tongue in an open hook; an irregular wad and two small balls of fluff sit
+on the floor at the foot of the big tongue. Only the silhouette is inked: an outline-only twin
+of the skin, relaxed over its creases (see _membrane) and stripped of the faces that would draw
+lines inside the heap (see _cull_inner).
 Dimensions in studs (Map.luau fit box 34 x 30 x 34, which the model fills: 33.9 x 33.9 x 29.9),
 scaled by S.
 """
@@ -35,6 +38,7 @@ from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Basket"
 S = 0.1  # model units per stud
+INK_W = 0.55  # outline width (studs): about 1.8% of the basket's height, like the art's ink
 
 TAN_L = hexcol("basket_tan_light", "#F2C676")   # thin strip along each slat's top, rope crests
 TAN = hexcol("basket_tan", "#D99E4E")           # wicker slats, rope
@@ -65,9 +69,9 @@ FLUFF_LEVELS = (-0.65, -0.05)  # brightness (see _lint_tone) at the crease/shade
 AO = (48, 4.0, 0.3, 0.9)  # fluff occlusion: rays, reach (studs), start off the surface (studs), weight
 TONE_BLUR = 1.0       # the brightness is blurred over this distance (studs, Gaussian sigma)
 THREAD_R = 0.24       # sock thread radius (studs)
-THREAD_LIFT = 0.45    # a thread lies this fraction of its radius out of the fluff between dips ...
+THREAD_LIFT = 0.2     # a thread lies this fraction of its radius out of the fluff between dips ...
 DIP_DEPTH = 1.6       # ... and at the bottom of each dip this many radii under it (hidden: caught inside)
-SAG = 0.45            # it spans a crease at most this far (studs) above the skin under it
+SAG = 0.2             # it spans a crease at most this far (studs) above the skin under it
 
 # body (studs)
 R0, R1 = 12.0, 14.0   # radius at the bottom / top of the woven wall
@@ -301,27 +305,29 @@ def _handle(side):
 # rounded bumps all along the silhouette, softly melted together in the creases), polygonised
 # finely, decimated to the budget (sparing the silhouette regions: the rim, the tongues, the crown)
 # and relaxed back onto the field's surface.
-# Its ink comes from an outline-only TWIN: the same puffs in a softer field, radii fitted so it
-# just covers the top of every puff (_fit_ink), then relaxed into a membrane stretched over the
-# skin (_membrane): it rests on the puffs and spans the creases between them, so its hull draws
-# the heap's silhouette from every side - bumps and all - but no line where one puff stands in
-# front of another, and no hairline scratches in the creases. Where the lint rests on the rope it
-# sinks under the skin (_ink_bounds): no broken dashes on the rope.
+# Its ink comes from an outline-only TWIN: a coarser copy of the same skin, relaxed into a membrane
+# (_membrane) that hugs every bump of the side silhouettes (an even line round each puff) and
+# spans the creases on the dome's top and between the puffs round the rim (_ink_bounds); then the
+# faces whose hull would mostly draw a line over the fluff rather than round it - where one puff
+# stands in front of another, seen from the game's camera all round - are dropped (_cull_inner).
+# Where the lint rests on the rope the twin sinks under the skin: no broken dashes on the rope.
 # The cel tones come from the field (smooth whatever the mesh), blurred in 3D and painted with a UV
 # ramp (see _ramp_uvs). Ball radii are the VISIBLE radius of a lone ball (studs).
 MB_T, MB_S = 0.6, 8.0  # metaball threshold and stiffness (stiffer = rounder, more separate puffs)
-INK_S = 2.0            # the outline twin's stiffness (soft: broad filled creases)
 INK_FIT = 0.05         # how far (studs) the twin stands out of the skin over the top of each puff
 INK_FILL = 1.6         # ... and at most in the creases it spans on the dome's top (see _membrane) ...
-INK_EDGE = 0.5         # ... and on the outer band and the tongues, the side silhouettes: there it
-                       # only bridges shallow creases, so the line follows the bumps at an even width
+INK_SIDE = 0.4         # ... between the puffs round the rim (where the skin faces sideways or in) ...
+INK_EDGE = 0.15        # ... where it faces straight out and on the tongues, the side silhouettes:
+                       # there it follows every bump, so the line keeps an even width
 INK_SINK = -0.8        # ... and where the lint rests on the rope: under the skin (see _ink_bounds)
-SIDEWAYS = 50.0        # round the rim the twin sinks where the skin faces further than this from straight out
 MB_RES = 0.4           # polygonisation cell (studs) before decimation
 HEAP_TRIS = 4250       # triangle budgets after decimation: the heap ...
-FLOOR_TRIS = 330       # ... the dust bunny on the floor ...
-INK_TRIS = 4900        # ... the heap's outline twin (before the faces near the rope are dropped) ...
-FLOOR_INK_TRIS = 330   # ... and the dust bunny's
+FLOOR_TRIS = 470       # ... the dust bunny on the floor ...
+INK_TRIS = 4350        # ... the heap's outline twin (before the faces near the rope are dropped) ...
+FLOOR_INK_TRIS = 450   # ... and the dust bunny's
+INK_VIEWS = ((-10, 0.3), (5, 1.0), (20, 1.0), (35, 0.6), (50, 0.15), (70, 0.05))  # (elevation, weight)
+CULL = 1.0             # the twin's faces drawing this many times more inner lines than outline go
+INK_GAP = 2.0          # an inner line counts in full where the fluff behind it is this far back (studs)
 KEEP, KEEP_F = 0.9, 0.6  # decimation: how much the silhouette regions are spared (see _keep)
 PIVOT = (0.0, 0.0, 18.5)  # the heap's centre (studs): bumps are placed on rays from it
 TONGUES = (-135.0, 45.0)  # where the two tongues spill over the rim (degrees)
@@ -375,14 +381,14 @@ def _on_skin(balls, specs):
     return out
 
 
-def _pit_fillers(balls, most=8):
+def _pit_fillers(balls, most=12):
     """Small filler balls for the deepest pits between the top puffs (seen from above they read
     as dark holes in a sponge): the skin's distance from PIVOT is sampled over the upper dome; where
     it falls short of the average a ring of neighbours 10 degrees round reaches, by more than 0.5
     studs, a ball of radius 1.2-1.8 is sunk into the pit."""
     field = _field(balls)
     D, A = [], []
-    for el in range(30, 88, 3):
+    for el in range(12, 88, 3):
         for az in range(0, 360, max(3, int(round(3 / math.cos(math.radians(el)))))):
             a, e = math.radians(az), math.radians(el)
             D.append((math.cos(a) * math.cos(e), math.sin(a) * math.cos(e), math.sin(e)))
@@ -443,6 +449,13 @@ def _heap_balls():
                            (-10, 14.6, 20.5, 2.1), (18, 14.9, 21.3, 2.5), (79, 14.7, 20.4, 2.5),
                            (110, 15.0, 21.4, 2.2), (146, 15.4, 20.2, 2.8), (176, 14.5, 21.0, 2.0)):
         balls.append(_polar(ang + j(-2, 2), rho, z, r))
+    # ... and a smaller puff a little further in and up in each valley between two of them, so the
+    # band round the rim is one continuous roll of overlapping scallops (no deep valley that would
+    # show one puff's outline standing in front of the next)
+    for ang, rho, z, r in ((-88, 14.0, 21.6, 1.9), (-57, 14.2, 21.0, 1.8), (-25, 14.0, 21.5, 1.9), (4, 14.2, 21.0, 1.8),
+                           (31, 14.0, 21.6, 1.7), (62, 14.0, 21.5, 1.8), (95, 14.1, 21.5, 1.9), (128, 14.3, 21.2, 2.0),
+                           (161, 14.1, 21.6, 1.9), (192, 14.3, 21.2, 1.9), (207, 14.0, 21.5, 1.7), (241, 14.1, 21.4, 1.8)):
+        balls.append(_polar(ang, rho, z, r))
     # the big tongue at the front-left: a cascade growing out from under the dome's edge - a fat
     # upper lobe with bumpy shoulders at different heights, the lower body leaning to one side and
     # one small drip hanging clearly lowest (a drip of fluff, nothing symmetric)
@@ -504,7 +517,7 @@ def _tongue_dist(p):
     return min(abs((az - ang + 180.0) % 360.0 - 180.0) for ang in TONGUES)
 
 
-def _sink(p, n, m):
+def _sink(p, n):
     """0..1: how far the outline twin sinks under the skin at point p (studs) whose skin normal
     there is n, see _ink_bounds: 1 where the fluff rests on the rope (within 0.6 studs of it and
     facing it), 0 more than 1.4 studs away or where the skin faces away from the rope (a puff's
@@ -514,41 +527,36 @@ def _sink(p, n, m):
     to = c - np.asarray(p, dtype=float)
     facing = float(np.dot(n, to)) / max(float(np.linalg.norm(to)), 1e-9)
     t = _ramp01(1.4, 0.6, _rope_dist(p)) * _ramp01(0.05, 0.45, facing)
-    # ... and wherever the skin of the band round the rim faces sideways along the rim or in toward
-    # the axis (more than SIDEWAYS degrees from straight out, looking down on it): the heap's outer
-    # silhouette, seen from anywhere round, is drawn only by surfaces facing out from the axis;
-    # these face a neighbouring puff or the dome, so from any view they stand in front of more
-    # fluff and their line could only be an inner one (the slits between the puffs round the rim).
-    # Not on the tongues: they hang outside the basket, and their sides outline them on the wicker
-    nh = math.hypot(m[0], m[1])
-    out = (m[0] * p[0] + m[1] * p[1]) / max(rho, 1e-9)
-    side = abs(m[1] * p[0] - m[0] * p[1]) / max(rho, 1e-9)
-    phi = math.degrees(math.atan2(side, out))
-    t = max(t, _ramp01(SIDEWAYS - 8.0, SIDEWAYS + 8.0, phi) * _ramp01(0.12, 0.3, nh) * _ramp01(9.0, 10.5, rho)
-            * _ramp01(RIM_Z - 1.0, RIM_Z + 0.5, p[2]) * _ramp01(22.0, 30.0, _tongue_dist(p)))
-    # ... and over the top of each tongue, where it grows out from under the dome
-    t = max(t, _ramp01(26.0, 18.0, _tongue_dist(p)) * _ramp01(13.6, 14.8, rho) * _ramp01(19.6, 21.0, p[2]))
-    return t
+    # ... and on the top of each tongue where it faces up and back toward the dome: seen from the
+    # players' eye line its outline would cross the dome behind (the tongue grows out of the heap);
+    # the faces turned outward keep their line (the tongue's silhouette seen from the side)
+    out = (n[0] * p[0] + n[1] * p[1]) / max(rho, 1e-9)
+    return max(t, _ramp01(26.0, 18.0, _tongue_dist(p)) * _ramp01(13.6, 14.8, rho) * _ramp01(19.6, 21.0, p[2])
+               * _ramp01(0.3, 0.6, float(n[2])) * _ramp01(0.15, -0.15, out))
 
 
-def _ink_bounds(p, n, m):
+def _ink_bounds(p, n, m=None):
     """(lo, hi): how far (studs) the outline twin may stand out of the skin at point p, where the
-    skin's normal is n (see _membrane). Where the skin faces up (the creases between the dome's
-    rings and puffs, seen from above or the side) it may span creases up to INK_FILL deep: no line
-    where one puff stands in front of another. Where it faces sideways (the outer band, the tongues:
-    the side silhouettes) only INK_EDGE, so the line follows every bump at an even width instead of
-    filling the notches with a fat black band. Where the lint rests on the rope the twin sinks under
-    the skin (and those faces are then dropped, see _membrane): the strong white/tan colour change
-    marks that edge (a hull there drew broken scratches on the rope and, seen from below, lines
-    inside the heap). It also sinks over the top of each tongue, so the tongue's upper edge never
-    draws a line across the dome behind it (seen from below or from the side): the tongue grows
-    out of the heap. On the tongues hanging over the rim the twin keeps to INK_EDGE whichever way
-    the skin faces (bridging the creases between their puffs drew black wedges against the
-    wicker)."""
-    t = _sink(p, n, m)
-    up = max(_ramp01(0.45, 0.8, n[2]), _ramp01(10.5, 8.5, math.hypot(p[0], p[1])))
-    up *= 1.0 - _ramp01(30.0, 22.0, _tongue_dist(p)) * _ramp01(13.5, 15.0, math.hypot(p[0], p[1])) * _ramp01(21.5, 20.5, p[2])
-    fill = INK_EDGE + (INK_FILL - INK_EDGE) * up
+    skin's normal is n (see _membrane). Over the top of every puff it rests INK_FIT out. Where the
+    skin faces up (the creases between the dome's puffs, seen from the side) it may span creases up
+    to INK_FILL deep, and between the puffs round the rim (where the skin turns sideways or in,
+    toward a neighbour or the dome) up to INK_SIDE: no line where one puff stands in front of
+    another. Where it faces straight out (the side silhouettes) and on the tongues hanging over the
+    rim only INK_EDGE: the line follows every bump at an even width instead of filling the notches
+    with a fat black band. Where the lint rests on the rope the twin sinks under the skin (and those
+    faces are then dropped, see _membrane): the strong white/tan colour change marks that edge (a
+    hull there drew broken scratches on the rope). It also sinks over the top of each tongue where
+    the skin faces up and back toward the dome, so seen from the eye line the tongue's upper edge
+    draws no line across the dome behind it: the tongue grows out of the heap."""
+    t = _sink(p, n)
+    rho = max(math.hypot(p[0], p[1]), 1e-9)
+    up = max(_ramp01(0.2, 0.6, n[2]), _ramp01(10.5, 8.5, rho))
+    out = (n[0] * p[0] + n[1] * p[1]) / rho
+    side = abs(n[1] * p[0] - n[0] * p[1]) / rho
+    turn = _ramp01(15.0, 45.0, math.degrees(math.atan2(side, out))) * _ramp01(0.1, 0.3, math.hypot(n[0], n[1]))
+    tongue = _ramp01(30.0, 22.0, _tongue_dist(p)) * _ramp01(13.5, 15.0, rho) * _ramp01(21.5, 20.5, p[2])
+    fill = INK_EDGE + (INK_SIDE - INK_EDGE) * turn
+    fill = (fill + (INK_FILL - fill) * up) * (1.0 - tongue) + INK_EDGE * tongue
     lo = INK_FIT + (INK_SINK - INK_FIT) * t
     return lo, max(lo, fill * (1.0 - t) + INK_SINK * t)
 
@@ -646,28 +654,50 @@ def _metaballs(balls, tris_max, res, hidden=None, s=MB_S):
     return me
 
 
-def _fit_ink(balls, fixed, pts):
-    """The outline twin's balls: the same centres in a soft field (INK_S), each free ball's radius
-    fitted so that over the top of its puff (the skin points `pts` where it dominates the skin's
-    field) the twin stands INK_FIT out of the skin: the hull then draws an even line round every
-    bump of the silhouette while the twin's soft creases bridge the skin's. Fixed (hidden core)
-    balls shrink a little so the soft twin never bulges out through the basket."""
-    C = np.array([b[:3] for b in balls], dtype=float)
-    r0 = np.array([b[3] for b in balls], dtype=float)
-    fixed = np.array(fixed, dtype=bool)
-    R2 = np.array([_mb_radius(r) ** 2 for r in r0])
-    owner = np.concatenate([np.argmax(np.clip(1.0 - ((pts[k:k + 2048, None, :] - C[None]) ** 2).sum(-1) / R2, 0.0, None), 1)
-                            for k in range(0, len(pts), 2048)])
-    rt = np.where(fixed, r0 * 0.7, r0 * 0.8)
-    groups = [(i, owner == i) for i in range(len(balls)) if not fixed[i]]
-    for _ in range(40):
-        f, g = _field([tuple(C[i]) + (rt[i],) for i in range(len(balls))], INK_S)(pts)
-        d = f / np.maximum(np.linalg.norm(g, axis=1), 1e-9)  # > 0: the skin point is inside the twin
-        for i, sel in groups:
-            if sel.sum() >= 3:
-                m = np.percentile(d[sel], 3)
-                rt[i] = min(max(rt[i] + 0.7 * (INK_FIT - m), 0.3 * r0[i]), 1.6 * r0[i])
-    return [tuple(C[i]) + (float(rt[i]),) for i in range(len(balls))]
+def _cull_inner(twin, lint, solids, width):
+    """Drops the outline twin's faces (`twin`, model units) whose hull would mostly draw lines INSIDE
+    the heap rather than round it: from views all round (INK_VIEWS: the game's camera, mostly a
+    little above), each face's hull (`width` model units out) is checked where it would show - its
+    face turned away from the camera and nothing of the body (`lint` + `solids`, meshes) in front of
+    it - and what lies behind it there: fluff (a line where one puff stands in front of another:
+    the long double lines round the shoulders, the hooks and slivers in the creases) or not (the
+    background or the basket: a silhouette). A face whose inner lines outweigh its silhouette lines
+    CULL times is dropped; the skin right in front of it hides the gap."""
+    fluff, body = _bvh(lint), _bvh(lint + solids)
+    dirs = []
+    for el, w in INK_VIEWS:
+        for az in range(0, 360, 10):
+            a, e = math.radians(az + 5.0 * (el % 2)), math.radians(el)
+            dirs.append((Vector((math.cos(a) * math.cos(e), math.sin(a) * math.cos(e), math.sin(e))), w))
+    eps = 0.02 * S
+    bm = bmesh.new()
+    bm.from_mesh(twin)
+    bm.normal_update()
+    bm.faces.ensure_lookup_table()
+    votes = np.zeros((len(bm.faces), 2))  # (inner, silhouette)
+    for f in bm.faces:
+        n, c = f.normal, f.calc_center_median()
+        h = c + n * width
+        for d, w in dirs:
+            if n.dot(d) > -0.05 or body.ray_cast(h + d * eps, d)[0] is not None:
+                continue  # the hull is not seen from there
+            hf, hb = fluff.ray_cast(h - d * eps, -d), body.ray_cast(h - d * eps, -d)
+            if hb[0] is None:  # nothing behind: a silhouette
+                votes[f.index, 1] += w
+            else:  # something behind: the further back it is, the longer the line drawn over it
+                votes[f.index, 0 if hf[0] is not None and hf[3] <= hb[3] + 1e-6 else 1] += w * min(hb[3] / (INK_GAP * S), 1.0)
+    # pooled over each face's neighbours, so whole stretches go or stay, not dashes
+    nbr = [list({g.index for v in f.verts for g in v.link_faces}) for f in bm.faces]
+    votes = np.array([votes[nb].sum(0) / len(nb) for nb in nbr])
+    cut = votes[:, 0] > CULL * votes[:, 1]
+    for _ in range(3):  # then each face follows the majority of its neighbours: no lone dashes
+        cut = np.array([cut[nb].mean() > 0.5 if abs(cut[nb].mean() - 0.5) > 0.01 else cut[i] for i, nb in enumerate(nbr)])
+    dead = [f for f in bm.faces if cut[f.index]]
+    bmesh.ops.delete(bm, geom=dead, context="FACES")
+    bm.to_mesh(twin)
+    bm.free()
+    twin.update()
+    return twin
 
 
 def _membrane(me, skin, bounds, iters=250, drop_sunk=False):
@@ -840,10 +870,12 @@ def _resample(path, step):
 
 
 def _snap(field, P, steps=4):
-    """Points (studs) moved onto the field's surface (Newton steps along the gradient)."""
+    """Points (studs) moved onto the field's surface (Newton steps along the gradient, each at most
+    half a stud long: where the field is nearly flat a full step would fling a point away)."""
     for _ in range(steps):
         f, g = field(P)
-        P = P - (f / np.maximum((g * g).sum(1), 1e-9))[:, None] * g
+        step = (f / np.maximum((g * g).sum(1), 1e-9))[:, None] * g
+        P = P - step * np.minimum(1.0, 0.5 / np.maximum(np.linalg.norm(step, axis=1), 1e-9))[:, None]
     return P
 
 
@@ -1025,21 +1057,19 @@ def _lint(solids):
     """-> (the fluff pieces and threads, the fluff's outline-only twins, the tone function, the
     fluff's field). The twins draw one hull round the fluff's silhouette (outline only: the painted
     pieces draw none)."""
-    heap_balls, fixed = _heap_balls()
+    heap_balls, _ = _heap_balls()
     floor_balls = _floor_balls()
     heap = _metaballs(heap_balls, HEAP_TRIS, MB_RES, _in_basket)
     floor = _flatten(_metaballs(floor_balls, FLOOR_TRIS, MB_RES * 0.5))
     inks = []
-    for balls, fx, n, res, hid, bounds in ((heap_balls, fixed, INK_TRIS, MB_RES, _in_basket, _ink_bounds),
-                                           (floor_balls, [False] * len(floor_balls), FLOOR_INK_TRIS, MB_RES * 0.5, None,
-                                            lambda p, n, m: (INK_FIT, 0.4))):
+    for balls, n, res, hid, bounds in ((heap_balls, INK_TRIS, MB_RES, _in_basket, _ink_bounds),
+                                       (floor_balls, FLOOR_INK_TRIS, MB_RES * 0.5, None, lambda p, n, m: (INK_FIT, INK_EDGE))):
         skin = _polygonise(balls, res * 0.8)
-        pts = np.array([v.co for v in skin.vertices]) / S
-        if hid is not None:  # fitted only where the twin follows the skin (see _ink_bounds)
-            pts = pts[[not hid(Vector(p)) and _rope_dist(p) > 1.4 for p in pts]]
-        twin = _membrane(_metaballs(_fit_ink(balls, fx, pts), n, res, hid, INK_S), skin, bounds, drop_sunk=hid is not None)
+        twin = _membrane(_metaballs(balls, n, res, hid), skin, bounds, drop_sunk=hid is not None)
         if hid is None:
             twin = _flatten(twin)
+        else:
+            twin = _cull_inner(twin, [heap, floor], solids, INK_W * S)
         inks.append(K.Piece(twin, K.OUTLINE, outline=True, smooth=True, name="lint_ink"))
         bpy.data.meshes.remove(skin)
     pieces = [K.Piece(heap, FLUFF[0], outline=False, smooth=True, name="lint"),
@@ -1112,7 +1142,7 @@ def build():
     _drop_unseen(p[1:4], p[:1] + p[4:] + lint)  # faces no camera can see: their triangles go to the lint
     p += lint
     inks += lint_inks
-    body, outline = K.finish(p, NAME, outline_width=0.55 * S, outline_only=inks)
+    body, outline = K.finish(p, NAME, outline_width=INK_W * S, outline_only=inks)
     _round_normals(body, _ramp_uvs(body, tone), field)
     _no_bounce(outline)
     return [body, outline] + K.markers(NAME)

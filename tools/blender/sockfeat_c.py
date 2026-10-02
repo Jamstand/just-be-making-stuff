@@ -20,21 +20,24 @@ reads from any side and from far away:
                  out of whose opening (dark lip showing all round) rises a tapering neck whose curve
                  turns in 3D - back over the heel, across to the toe side, forward into the head - so
                  it is a curve from every side (never a straight column); a big head (about twice the
-                 neck's width) with the googly eyes moved on top, mint ear frills and a long friendly
-                 snout (nostrils, smile, pink cheeks); ONE centred row of rounded-triangle mint fins
-                 down the head, neck and sock back (a zig-zag crest); five soft mint belly scutes; the
-                 foot in a suds puddle trailing off behind the heel, where two tall humps (daylight
-                 under each arch, mint undersides) and the tail tip rise out of the foam
+                 neck's width) yawed toward the toe side (the muzzle in profile from the front) with
+                 the googly eyes moved on top, mint fan frills either side and a long friendly snout
+                 (nostrils, smile, pink cheeks); ONE centred row of rounded-triangle mint fins down
+                 the head, neck and sock back to the heel (a zig-zag crest); one continuous segmented
+                 mint belly strip down the throat; the foot in a suds puddle (rolled, lumpy foam bead,
+                 tinted soap bubbles) trailing off behind the heel, where two humps (daylight under
+                 each arch, mint undersides) and the tail tip rise out of the foam
   Shockini       hair standing on end: a dandelion burst of pale-yellow zig-zag strands (thin ink
                  lines) out of a fuzzy tuft, kinked static hairs on the sides and back, a blue zig-zag
                  stripe, four chunky bolts at staggered heights clear of the face, sparks; shocked
                  face: pinpoint pupils, high brows under a narrow dark cuff, a big open oval mouth
-  Lintlord       a gold crown (ball-tipped points, gems, red velvet cap) on a deep-scalloped lint
-                 ruff; the sock wrapped in soft lint cushions - light warm lavender-grey (a clear step
-                 above the grey sock), domed, rimmed with small rounded scallops, a few darker strand
-                 lines on top, one clean ink line each; two sit on the side edges (cloud-soft outline
-                 from the front and back), two on the back, one each on the heel, toe and instep; short
-                 wisps ending in open curls sprout up out of the ruff and a pad; smug half-lids
+  Lintlord       a gold crown (ball-tipped points, gems, red velvet cap) on a ruff of round lint
+                 puffs; the sock wrapped in four big soft lint drifts - light warm lavender-grey (a
+                 clear step above the grey sock), pillows with a rolled bead and bumpy cloud edges that
+                 also rise and dip (soft from edge-on), a few darker strand lines on top, one clean
+                 ink line each - wrapping round the leg's edges: toe side -> back, heel side -> back
+                 up into the ruff, over the heel, over the toe and up the instep; fat soft S-curled
+                 lint wisps off the ruff and the side drifts; smug half-lids
   Zillionaire    a black top hat (its hollow has no ink hull) with a green band and a tucked bill,
                  a flat inked handlebar moustache with curled-up tips, monocle and chain, three bright
                  gold-thread bands mid-leg, a 3D fountain of bills bursting out of the hat
@@ -805,7 +808,7 @@ def _move_face(c, mat):
     c._eye_solids = []
 
 
-def _fin(pal, p, n, along, L, H, thick, sink=0.3, lean=0.22, bulge=0.05, apex_pts=7, name="fin"):
+def _fin(pal, p, n, along, L, H, thick, sink=0.3, lean=0.22, bulge=0.05, apex_pts=5, name="fin"):
     """A rounded-triangle dorsal fin standing on a surface at p (outward normal n): its base is L long
     along `along`, its apex H above the surface, leaning lean * L toward +along (point `along` at the
     tail and the fins sweep back), the corners rounded and the sides bulging a little. Cross-section:
@@ -860,57 +863,32 @@ def _fin(pal, p, n, along, L, H, thick, sink=0.3, lean=0.22, bulge=0.05, apex_pt
     return _piece(bm, pal, name, outline=True, smooth=True)
 
 
-def _surf_oval(surf, a0, b0, ra, rb, lift, thick, pal, seg=12, rings=2, outline=True, name="oval"):
-    """A soft oval decal on a parametrised surface: surf(a, b) -> (point, normal); centred at (a0, b0)
-    with half-axes ra, rb in those parameters. Its back sits `lift` off the surface, its front domes up
-    to `thick` in the middle (0.6 * thick at the rim). A closed shell (one clean ink ring)."""
-    bm = bmesh.new()
-
-    def at(rho, th, front):
-        pnt, nn = surf(a0 + ra * rho * math.cos(th), b0 + rb * rho * math.sin(th))
-        return bm.verts.new(pnt + nn * (lift + (thick * (1.0 - 0.4 * rho * rho) if front else 0.0)))
-
-    cf, cb = at(0.0, 0.0, True), at(0.0, 0.0, False)
-    fr, br = [], []
-    for k in range(1, rings + 1):
-        fr.append([at(k / rings, TAU * j / seg, True) for j in range(seg)])
-        br.append([at(k / rings, TAU * j / seg, False) for j in range(seg)])
-    for j in range(seg):
-        j2 = (j + 1) % seg
-        bm.faces.new((cf, fr[0][j], fr[0][j2]))
-        bm.faces.new((cb, br[0][j2], br[0][j]))
-        for k in range(rings - 1):
-            bm.faces.new((fr[k][j], fr[k + 1][j], fr[k + 1][j2], fr[k][j2]))
-            bm.faces.new((br[k][j2], br[k + 1][j2], br[k + 1][j], br[k][j]))
-        bm.faces.new((fr[-1][j], br[-1][j], br[-1][j2], fr[-1][j2]))
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    return _piece(bm, pal, name, outline=outline, smooth=True)
-
-
 def feat_sockness(c):
     """A cute Loch Ness sea serpent: a teal ankle sock out of whose opening (its dark lip showing all
     round) rises a long, tapering neck. The neck's curve turns in 3D: it bows straight back first,
     then swings over to the toe side and up into a big head facing forward, so it is a curve from
     every side - a question mark from the side, a C leaning over the toe from the front and the back,
     an S from the 3/4 views - never a straight column. The head (a round cranium about twice as wide
-    as the neck, the googly eyes moved on top, a long friendly snout with nostrils, a smile and pink
-    cheeks, mint ear frills) is clearly wider than the neck from every side. ONE centred row of
-    rounded-triangle mint fins runs down the back of the head, the neck and the sock, shrinking toward
-    the cuff (a zig-zag crest along the outline); soft mint belly scutes follow the throat. The foot
-    stands in a suds puddle that trails off behind the heel, where two tall humps of the serpent's
-    body (daylight under each arch) and the tip of its tail rise out of the foam."""
+    as the neck, yawed ~24 deg toward the toe side so the muzzle shows in profile from the front, the
+    googly eyes moved on top, a long friendly snout with nostrils, a smile and pink cheeks, mint fan
+    frills either side facing front and back) is clearly wider than the neck from every side. ONE
+    centred row of rounded-triangle mint fins runs down the back of the head, the neck and the sock
+    to the heel (a zig-zag crest along the outline); one continuous mint belly strip of five soft
+    segments follows the throat. The foot stands in a suds puddle (a rolled, lumpy foam bead, foam
+    clumps, three tinted soap bubbles) that trails off behind the heel, where two humps of the
+    serpent's body (daylight under each arch) and the tip of its tail rise out of the foam."""
     tid, h, d = c.tid, c.h, (c.d or 1.0)
     acc = c.accent
     nostril = hexcol(f"{tid}_nostril", "#14504C")
     cheek = hexcol(f"{tid}_cheek", "#F29AA6")
     foam = hexcol(f"{tid}_foam", "#F4FAFF")
     foam2 = hexcol(f"{tid}_foam2", "#CDEAF7")
-    foam3 = hexcol(f"{tid}_foam3", "#A9D6EE")
     out = []
     k = c.RL / 0.7                                   # proportions follow the leg
     # ---- the head: a round cranium and a long rounded snout in ONE soft union (one clean outline)
     C1 = Vector((0.42 * d * k, -0.34 * k, h + 2.5 * k))
-    fwd = Vector((0.04 * d, -1.0, -0.1)).normalized()
+    fwd = Vector((0.45 * d, -1.0, -0.1)).normalized()     # yawed ~24 deg to the toe side: the muzzle
+                                                          # shows in profile from the front
     side = fwd.cross(Z).normalized()
     up = side.cross(fwd).normalized()
     Ri = Matrix((side, fwd, up))                     # world -> head frame (x across, y along, z up)
@@ -1012,31 +990,64 @@ def feat_sockness(c):
     ss = [i / 200 for i in range(201)]
     s_lo = next(s for s in ss if spine(s)[0].z > h + 0.12)
     s_hi = max(s for s in ss if F(neck_surf(0.0, s)[0]) > 0.1 * k)
-    # ---- belly: five soft mint scutes down the throat, shrinking toward the jaw (ink rings between)
+    # ---- belly: ONE continuous mint strip down the throat, about half the neck's width, made of five
+    # soft segments (a thin darker-mint crease and a slight waist between them, rounded ends); a thin
+    # skin lifted off the neck without ink, so it reads as the serpent's belly, not stuck-on bands
     sb0, sb1 = s_lo + 0.02, s_hi - 0.01
-    n_sc = 5
-    step = (sb1 - sb0) / n_sc
-    for i in range(n_sc):
-        f = i / (n_sc - 1)
-        sc = sb0 + step * (i + 0.5)
-        out.append(_surf_oval(neck_surf, 0.0, sc, _lerp(0.95, 0.8, f), step * 0.4, 0.006, 0.035, acc, seg=16,
-                              rings=2, name="scute"))
+    n_sc, per, nu = 5, 9, 6
+    nv = n_sc * per
+    crease = hexcol(f"{tid}_belly_crease", "#74CDBE")    # only a shade darker: one strip at a glance
+
+    def half_w(f):
+        w = _lerp(0.5, 0.42, f)
+        e = min(f, 1.0 - f) / 0.07                     # round off both ends
+        if e < 1.0:
+            w *= math.sqrt(max(1.0 - (1.0 - e) ** 2, 0.0))
+        g = (f * n_sc) % 1.0                            # a soft waist at every crease
+        return max(w * (0.86 + 0.14 * math.sin(math.pi * g) ** 0.5), 0.03)
+
+    bm = bmesh.new()
+    grid, nrm = [], []
+    for kk in range(nv + 1):
+        f = kk / nv
+        sv_ = _lerp(sb0, sb1, f)
+        w = half_w(f)
+        row, nrow = [], []
+        for i in range(nu + 1):
+            pnt, nn = neck_surf(_lerp(-w, w, i / nu), sv_)
+            row.append(bm.verts.new(pnt + nn * 0.016))
+            nrow.append(nn)
+        grid.append(row)
+        nrm.append(nrow)
+    pals = []
+    for kk in range(nv):
+        is_crease = kk % per == per - 1 and kk < nv - 1
+        for i in range(nu):
+            fc = bm.faces.new((grid[kk][i], grid[kk][i + 1], grid[kk + 1][i + 1], grid[kk + 1][i]))
+            fc.normal_update()
+            if fc.normal.dot(nrm[kk][i] + nrm[kk + 1][i + 1]) < 0:
+                fc.normal_flip()
+            pals.append(crease if is_crease else acc)
+    out.append(_piece(bm, pals, "belly", outline=False, smooth=True))
     # ---- ONE centred row of fins down the back: the head, the neck, the sock (a zig-zag crest)
     def dorsal(s):
         bd, T = belly_dir(s)
         return -bd, T
 
     fins = []
-    for a, L_, H_ in ((0.72, 0.5, 0.6), (1.14, 0.52, 0.62), (1.55, 0.5, 0.58)):
+    for a, L_, H_ in ((0.72, 0.56, 0.75), (1.14, 0.58, 0.78), (1.55, 0.54, 0.7)):
         hit = hray(C1, up * math.cos(a) - fwd * math.sin(a))      # a: from the crown toward the back
         if hit:
             along = -(up * math.sin(a) + fwd * math.cos(a))
             fins.append(_fin(acc, hit[0], hit[1], along, L_ * k, H_ * k, 0.075 * k, name="crest"))
+    # ear frills: fans standing out sideways and up from the back of the cranium, their flat faces
+    # toward the front and the back, so from behind the head shows a fan of fins, not a knob
     for s_ in (-1, 1):
-        hit = hray(C1, side * s_ - fwd * 0.2 + up * 0.2)
+        hit = hray(C1, side * s_ - fwd * 0.3 + up * 0.25)
         if hit:
-            n = (hit[1] + side * (0.5 * s_) - fwd * 0.3).normalized()
-            fins.append(_fin(acc, hit[0], n, -fwd + up * 0.5, 0.42 * k, 0.44 * k, 0.08 * k, lean=0.3, name="ear"))
+            n = (side * s_ + up * 0.25).normalized()
+            along = up - side * (0.25 * s_)
+            fins.append(_fin(acc, hit[0], n, along, 0.66 * k, 0.44 * k, 0.075 * k, lean=0.28, name="ear"))
     # neck fins, evenly spaced by arc length from under the back of the head to the lip
     s_top = max(s for s in ss if F(spine(s)[0] + dorsal(s)[0] * radii[-1]) > 0.12 * k)
     n_neck = max(2, int((s_top - s_lo) * run / (0.3 * k)) + 1)
@@ -1048,9 +1059,10 @@ def feat_sockness(c):
             continue
         f = 1.0 - 0.32 * i / (n_neck - 1)
         fins.append(_fin(acc, hit[0], hit[1], -T, 0.62 * k * f, 0.62 * k * f, 0.07 * k, name="spine"))
-    for i, z in enumerate((h - 0.3 * k, h - 0.74 * k)):
-        p, n = c.surface(math.pi, z)
-        f = 0.62 - 0.1 * i
+    # the crest carries on down the sock's back to the heel, as big as the lowest neck fin
+    f = 0.68
+    for z, a in ((h - 0.3 * k, math.pi), (h - 0.76 * k, math.pi + 0.12 * d), (h - 1.22 * k, math.pi + 0.3 * d)):
+        p, n = c.surface(a, z)
         fins.append(_fin(acc, p, n, -Z, 0.62 * k * f, 0.62 * k * f, 0.07 * k, name="spine"))
     out += fins
     # the clothespin grips the top of the head / neck: above everything within 0.25 of the axis
@@ -1064,14 +1076,15 @@ def feat_sockness(c):
             tops.append(hit[0].z)
     if tops:
         c.pin_z = max(tops) + 0.08
-    # ---- suds: a low lumpy foam puddle round the foot that trails off behind the heel ...
+    # ---- suds: a low foam puddle round the foot that trails off behind the heel; its edge is a
+    # rolled, bulging bead of foam (no straight side wall, 44 rim points), lumpy in plan ...
     tip = Vector(c.toe_tip)
     hx = c.heel_c.x - c.heel_radii.x * math.cos(math.radians(35)) * d
     cx = (hx + tip.x) / 2
     pa, pb = abs(tip.x - hx) / 2 + 0.4, 1.0
     u = Vector((-0.8 * d, 0.6, 0.0)).normalized()      # the trail: behind the heel
     un = Vector((u.y, -u.x, 0.0))
-    tc, ta, tb = u * 2.05 * k, 1.4 * k, 0.75 * k
+    tc, ta, tb = u * 2.12 * k, 1.55 * k, 0.75 * k
 
     def pud(x, y):
         e1 = (math.hypot((x - cx) / pa, y / pb) - 1.0) * pb
@@ -1080,7 +1093,7 @@ def feat_sockness(c):
         return _smin(e1, e2, 0.45)
 
     pc = Vector((_lerp(cx, tc.x, 0.45), _lerp(0.0, tc.y, 0.45), 0.0))
-    seg = 24
+    seg = 44
     rim = []
     for j in range(seg):
         ph = TAU * j / seg
@@ -1095,9 +1108,10 @@ def feat_sockness(c):
                 lo = mid
             else:
                 hi = mid
-        w = 1.0 + 0.05 * math.sin(5 * ph + 0.4) + 0.03 * math.sin(8 * ph + 1.3)
-        rim.append(dv * (lo * w))
-    prof = [(1.0, 0.0), (1.02, 0.05), (1.0, 0.12), (0.93, 0.18), (0.8, 0.205), (0.0, 0.215)]
+        rim.append(dv * (lo + 0.07 * math.sin(9 * ph + 0.4) + 0.04 * math.sin(14 * ph + 1.3)))
+    lump = [0.5 + 0.5 * math.sin(9 * TAU * j / seg + 0.4) for j in range(seg)]    # 1 on a lump, 0 between
+    # (radius factor, z): the floor rim, the bulge of the rolled bead, its top, then the flat foam
+    prof = [(1.0, 0.0), (1.04, 0.06), (1.0, 0.13), (0.9, 0.17), (0.75, 0.2), (0.0, 0.21)]
     bm = bmesh.new()
     rings_v = []
     for f_, z_ in prof:
@@ -1105,11 +1119,13 @@ def feat_sockness(c):
             rings_v.append(bm.verts.new((pc.x, pc.y, z_)))
             continue
         ring = []
-        for rv in rim:
-            # inner rings are pulled in by a fixed margin (not scaled), so the thin trail stays round
-            L_ = rv.length * f_ if f_ >= 0.999 else max(rv.length - (1.0 - f_) * 1.6, rv.length * 0.15)
+        for j, rv in enumerate(rim):
+            zz = z_ * (1.0 + 0.35 * (lump[j] - 0.4)) if 0.0 < z_ < 0.2 else z_     # the bead rises on each lump
+            # rings are pushed out / pulled in by a fixed margin (not scaled), so the bead is the
+            # same size all round and the thin trail stays round
+            L_ = rv.length + (f_ - 1.0) * 1.6 if f_ >= 1.0 else max(rv.length - (1.0 - f_) * 1.6, rv.length * 0.15)
             q = rv.normalized() * L_
-            ring.append(bm.verts.new((pc.x + q.x, pc.y + q.y, z_)))
+            ring.append(bm.verts.new((pc.x + q.x, pc.y + q.y, zz)))
         rings_v.append(ring)
     pals = []
     bm.faces.new(list(reversed(rings_v[0])))
@@ -1122,13 +1138,29 @@ def feat_sockness(c):
                 bm.faces.new((A[j], A[j2], B[j2], B[j]))
             else:
                 bm.faces.new((A[j], A[j2], B))
-            pals.append(foam2 if i_ < 2 else foam)
+            pals.append(foam2 if i_ == 0 else foam)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     out.append(_piece(bm, pals, "puddle"))
-    # ... two tall humps of the serpent's body (daylight under each arch) and the tip of its tail
-    for t, span, hgt, rr in ((1.45, 0.56, 1.1, 0.26), (2.35, 0.46, 0.92, 0.22)):
+    # ... a few fat foam clumps sitting on the bead, so the edge is bumpy, not a cut board
+    for i in range(5):
+        j = int(seg * (i + 0.15 + 0.3 * _rnd(i, 41)) / 5) % seg
+        rv = rim[j]
+        r = 0.19 + 0.06 * _rnd(i, 42)
+        q = pc + rv.normalized() * (rv.length - 0.1)
+        out.append(_blob(foam, (q.x, q.y, 0.15), None, (r, r, 0.8 * r), seg=8, rings=2, cut=-0.25,
+                         lump=0.1, seed=i, name="foam"))
+    # ... two tall humps of the serpent's body (daylight under each arch) and the tip of its tail,
+    # every end well inside the puddle and above the floor
+    # each arch is a half ellipse (span / sin 1.4 wide, hgt tall) whose curvature radius at the top,
+    # span^2 / hgt, stays 1.3x the tube radius - a tighter arch folds its inside over itself and
+    # its ink hull pokes through as a dark tick
+    for t, span, hgt, rr in ((1.5, 0.56, 1.0, 0.24), (2.55, 0.48, 0.84, 0.2)):
         b0 = u * (t * k)
-        base = -0.1
+        base = -0.05
+        # (each leg's foot - 0.9 rr round - must stand inside the puddle outline)
+        while span > 0.2 and max(pud(*(b0 + u * (s_ * span * k)).xy) for s_ in (-1, 1)) > -(0.9 * rr * k + 0.03):
+            span *= 0.92
+        hgt = min(hgt, (span / math.sin(1.4)) ** 2 / (1.3 * rr))
         apts, arad = [], []
         for i in range(7):
             a = _lerp(-1.4, 1.4, i / 6)
@@ -1142,31 +1174,25 @@ def feat_sockness(c):
         out.append(_sweep(apts, arad, c.body, seg=10, samples=2, cap0=0.0, cap1=0.0, up=u, pal_fn=under, name="hump"))
         top_p = apts[3] + Z * (arad[3] * 0.92)
         out.append(_fin(acc, top_p, Z, u, 0.4 * k * rr / 0.25, 0.4 * k * rr / 0.25, 0.075 * k, name="humpfin"))
-    # the tail tip: rises out of the foam beyond the second hump and flicks up and out
-    t0 = u * (3.1 * k)
-    tpts = [t0 + Z * -0.1, t0 + u * 0.12 * k + Z * 0.34, t0 + u * 0.32 * k + Z * 0.68, t0 + u * 0.58 * k + Z * 0.86,
+    # the tail tip: rises out of the foam beyond the second hump (its root 0.4 inside the trail's end,
+    # just above the floor) and flicks up and out
+    t0 = u * (3.12 * k)
+    tpts = [t0 + Z * 0.02, t0 + u * 0.12 * k + Z * 0.34, t0 + u * 0.32 * k + Z * 0.68, t0 + u * 0.58 * k + Z * 0.86,
             t0 + u * 0.8 * k + Z * 0.76]
     out.append(_sweep(tpts, [0.2 * k, 0.18 * k, 0.14 * k, 0.09 * k, 0.05 * k], c.body, seg=10, samples=2,
                       cap0=0.0, cap1=1.0, name="tail"))
-    # ... and a few bubbles piled at the heel, the toe and between the humps
-    bubbles = [  # (x along the foot puddle from heel (-1) to toe (+1), y, z, radius)
-        (-0.95, -0.35, 0.3, 0.25), (-0.88, -0.78, 0.22, 0.15), (0.95, 0.1, 0.3, 0.26), (0.88, -0.48, 0.26, 0.19),
-        (0.92, -0.15, 0.58, 0.14), (0.15, -0.95, 0.22, 0.14), (-0.3, -0.92, 0.2, 0.09), (0.45, 0.95, 0.22, 0.12),
-    ]
-    for kk, (bu, bv, z, r) in enumerate(bubbles):
-        x = cx + bu * (pa - 0.25) * d
-        y = bv * (pb - 0.15)
-        if r >= 0.18:
-            out.append(_blob(foam if kk % 3 else foam2, (x, y, z), None, (r, r, r), seg=9, rings=3, cut=-0.45,
-                             name="suds"))
-            out.append(K.sphere(K.WHITE, r * 0.22, Matrix.Translation((x - r * 0.35, y - r * 0.75, z + r * 0.4)), seg=5,
-                                rings=3, outline=False, name="glint"))
-        elif r >= 0.13:
-            out.append(K.sphere(foam2 if kk % 2 else foam, r, Matrix.Translation((x, y, z)), seg=7, rings=4, name="suds"))
-        else:
-            out.append(K.sphere(foam3, r, Matrix.Translation((x, y, z)), seg=6, rings=3, outline=False, name="suds"))
-    for q, r in ((u * 1.95 * k + un * 0.5, 0.16), (u * 2.85 * k - un * 0.45, 0.13)):
-        out.append(K.sphere(foam, r, Matrix.Translation((q.x, q.y, 0.24)), seg=7, rings=4, name="suds"))
+    # ... and three soap bubbles (pale cyan / lilac, a white glint up front) - suds, not snowballs
+    bub_c = hexcol(f"{tid}_bubble", "#BEE9F4")
+    bub_l = hexcol(f"{tid}_bubble_lilac", "#D6CBF3")
+    bubbles = [(Vector((cx + 0.86 * (pa - 0.25) * d, -0.62 * (pb - 0.15), 0.0)), 0.27, bub_c),
+               (Vector((cx - 0.78 * (pa - 0.25) * d, -0.72 * (pb - 0.15), 0.0)), 0.21, bub_l),
+               (u * 1.95 * k + un * 0.52, 0.19, bub_c)]
+    for q, r, pal_ in bubbles:
+        ctr = Vector((q.x, q.y, 0.2 + 0.72 * r))
+        out.append(K.sphere(pal_, r, Matrix.Translation(ctr), seg=9, rings=5, name="bubble"))
+        g = ctr + Vector((-0.3 * d, -0.55, 0.55)).normalized() * (r * 0.8)
+        out.append(_ellipsoid(K.WHITE, g, (r * 0.24, r * 0.24, r * 0.15), _frame((g - ctr), Z), seg=5, rings=3,
+                              outline=False, name="glint"))
     return out
 
 
@@ -1299,11 +1325,11 @@ def feat_shockini(c):
 
 # ------------------------------------------------------------------ Lintlord
 def _scallop_rim(R, nb, seed, stretch, amp=0.09):
-    """The outline of a lint pad: an irregular soft blob (a middle oval and three big puffs in one
-    smooth union, stretched `stretch` x sideways) whose rim is a row of nb small round scallops of
-    equal length (amp deep). Sampled 4 times per scallop, at its cusp, its shoulders and its top,
-    so the mesh rings follow the scallops exactly. -> (angles, radii), 4 * nb samples, the biggest
-    radius about R."""
+    """The outline of a lint drift: an irregular soft blob (a middle oval and three big puffs in one
+    smooth union, stretched `stretch` x sideways) whose rim is a row of nb round scallops of equal
+    length (amp deep). Sampled 4 times per scallop, at its cusp, its shoulders and its top, so the
+    mesh rings follow the scallops exactly. -> (angles, radii, scallop heights 0.12..1 (cusp ..
+    top), the blob's radius without the scallops), 4 * nb samples, the biggest radius about R."""
     circles = [(0.0, 0.0, 0.62)]
     ph = _rnd(seed, 1) * TAU
     for i in range(3):
@@ -1341,7 +1367,7 @@ def _scallop_rim(R, nb, seed, stretch, amp=0.09):
         acc.append(acc[-1] + (p1 - p0).length)
     tot = acc[-1]
     prof = (0.12, 0.8, 1.0, 0.8)                      # cusp (rounded a little), shoulder, top, shoulder
-    out_t, out_r = [], []
+    out_t, out_r, out_h, out_b = [], [], [], []
     k = 0
     off = _rnd(seed, 9)
     for i in range(nb):
@@ -1351,18 +1377,52 @@ def _scallop_rim(R, nb, seed, stretch, amp=0.09):
                 k = (k + 1) % n
             f = (target - acc[k]) / max(acc[k + 1] - acc[k], 1e-9)
             th = _lerp(ths[k], ths[k + 1], f)
+            b = _lerp(rc[k], rc[k + 1], f)
             out_t.append(th)
-            out_r.append(_lerp(rc[k], rc[k + 1], f) + amp * hgt)
+            out_r.append(b + amp * hgt)
+            out_h.append(hgt)
+            out_b.append(b + amp * 0.6)
     order = sorted(range(len(out_t)), key=lambda j: out_t[j])
-    big = max(out_r)
-    return [out_t[j] for j in order], [out_r[j] * R / big for j in order]
+    s = R / max(out_r)
+    return ([out_t[j] for j in order], [out_r[j] * s for j in order], [out_h[j] for j in order],
+            [out_b[j] * s for j in order])
 
 
-_PAD_PROF = [(1.0, 0.0), (0.86, 0.6), (0.0, 1.0)]     # (rho, height / thick): a soft cushion
+def _cyc(ths, vals, a):
+    """Value at angle a interpolated from samples (ths ascending in 0..TAU, cyclic)."""
+    a %= TAU
+    n = len(ths)
+    for j in range(n):
+        t0, t1 = ths[j], ths[(j + 1) % n] + (TAU if j == n - 1 else 0.0)
+        aa = a + (TAU if a < t0 else 0.0)
+        if t0 <= aa <= t1:
+            return _lerp(vals[j], vals[(j + 1) % n], (aa - t0) / max(t1 - t0, 1e-9))
+    return vals[0]
+
+
+def _stitch(bm, A, ta, B, tb):
+    """Triangles joining two closed rings of different vertex counts (vertices in ascending angle
+    order, angles ta / tb in 0..TAU starting near 0) by zipping along the angles."""
+    n, m = len(A), len(B)
+    i = j = 0
+    while i < n or j < m:
+        an = ta[(i + 1) % n] + (TAU if i + 1 >= n else 0.0)
+        bn = tb[(j + 1) % m] + (TAU if j + 1 >= m else 0.0)
+        if i < n and (j >= m or an <= bn):
+            bm.faces.new((A[i % n], A[(i + 1) % n], B[j % m]))
+            i += 1
+        else:
+            bm.faces.new((A[i % n], B[(j + 1) % m], B[j % m]))
+            j += 1
+
+
+# (rho, height / thick): a pillow with a rolled edge - the rim tucked just under the surface, a
+# quick rise into a round bead, then a broad soft dome (so a drift seen edge-on is a rounded bump)
+_PAD_PROF = [(1.0, 0.0), (0.97, 0.35), (0.9, 0.65), (0.75, 0.88), (0.5, 0.97), (0.25, 0.995), (0.0, 1.0)]
 
 
 def _pad_height(rho):
-    """Height of a lint pad's cushion (a fraction of `thick`) at rho (0 = middle, 1 = rim)."""
+    """Height of a lint drift's cushion (a fraction of `thick`) at rho (0 = middle, 1 = rim)."""
     for (ra, ha), (rb, hb) in zip(_PAD_PROF, _PAD_PROF[1:]):
         if rb <= rho <= ra:
             return _lerp(hb, ha, (rho - rb) / max(ra - rb, 1e-6))
@@ -1389,60 +1449,71 @@ def _ribbon(pts, nrms, width, pal, name="strand"):
     return _piece(bm, pal, name, outline=False, smooth=False)
 
 
-def _lint_pad(surf, R, seed, pal, strand_pal, thick=0.18, nb=9, stretch=1.42, sink=0.012, ink=0.02,
-              name="lintpad"):
-    """A soft lint pad hugging a surface: surf(x, y) -> (point, normal) maps local patch coordinates
-    (world units round 0, 0) onto the body. A cushion `thick` high in the middle whose outline is an
-    irregular soft blob rimmed with nb small round scallops (_scallop_rim), tucked just under the
-    surface; closed underneath (a fan to a point inside the body) so it has ONE clean hull; a thin
+def _lint_pad(surf, R, seed, pal, strand_pal, thick=0.24, nb=8, stretch=1.2, sink=0.015, ink=0.02, amp=0.11,
+              wob=0.45, n_in=16, n_strands=3, name="lintpad"):
+    """A soft lint drift hugging a surface: surf(x, y) -> (point, normal) maps local patch coordinates
+    (world units round 0, 0) onto the body. A pillow `thick` high in the middle (_PAD_PROF: a rolled
+    bead round the edge, a broad dome on top) whose outline is an irregular soft blob rimmed with nb
+    round scallops (_scallop_rim); the bead rises and dips with the scallops (each scallop's top
+    `wob` higher than its cusp), so seen edge-on the drift is a bumpy cloud, not a slab. The rim is
+    tucked just under the surface and the shell is closed underneath (a fan to a point inside the
+    body), so it has ONE clean hull; the inner rings (no scallops) use only n_in vertices. A thin
     flat ink line runs round the scalloped rim (the hull can't draw one where the rim meets the
-    body) and 2-3 short, roughly parallel strand lines in a darker grey are drawn on its top, like
-    the fibres the sheet draws in Sockrates' beard. -> [pad, ink, strands]"""
-    ths, rim = _scallop_rim(R, nb, seed, stretch)
-    seg = len(ths)
+    body) and a few short, roughly parallel darker strand lines are drawn on top, like the fibres
+    the sheet draws in Sockrates' beard. -> [pad, ink, strands]"""
+    ths, rim, sc, base = _scallop_rim(R, nb, seed, stretch, amp)
+    uni = [TAU * j / n_in for j in range(n_in)]
     bm = bmesh.new()
     p0, n0 = surf(0.0, 0.0)
     top = bm.verts.new(p0 + n0 * thick)
     rings = []
     for rho, hf in _PAD_PROF[:-1]:
-        ring = []
-        for th, r in zip(ths, rim):
-            p, n = surf(r * rho * math.cos(th), r * rho * math.sin(th))
-            ring.append(bm.verts.new(p + n * (hf * thick if hf > 0 else -sink)))
-        rings.append(ring)
+        if rho > 0.7:                                # the scalloped bead
+            fade = 1.0 if rho > 0.8 else 0.5
+            ring = [(th, r * rho, 1.0 + wob * fade * (s_ - 0.65)) for th, r, s_ in zip(ths, rim, sc)]
+        else:                                        # the dome: plain blob outline, fewer vertices
+            ring = [(a, _cyc(ths, base, a) * rho, 1.0) for a in uni]
+        vs = []
+        for th, r, md in ring:
+            p, n = surf(r * math.cos(th), r * math.sin(th))
+            vs.append(bm.verts.new(p + n * (hf * thick * md if hf > 0 else -sink)))
+        rings.append((vs, [t for t, _r, _m in ring]))
     bot = bm.verts.new(p0 - n0 * (0.1 + R * 0.5))
-    for j in range(seg):
-        j2 = (j + 1) % seg
-        bm.faces.new((top, rings[-1][j], rings[-1][j2]))
-        for ra, rb in zip(rings[::-1], rings[-2::-1]):          # inner ring -> outer ring
-            bm.faces.new((ra[j], rb[j], rb[j2], ra[j2]))
-        bm.faces.new((bot, rings[0][j2], rings[0][j]))
+    for (A, ta), (B, tb) in zip(rings, rings[1:]):
+        _stitch(bm, A, ta, B, tb)
+    inner = rings[-1][0]
+    for j in range(len(inner)):
+        bm.faces.new((top, inner[j], inner[(j + 1) % len(inner)]))
+    rimv = rings[0][0]
+    for j in range(len(rimv)):
+        bm.faces.new((bot, rimv[(j + 1) % len(rimv)], rimv[j]))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     out = [_piece(bm, pal, name, outline=True, smooth=True)]
     bm = bmesh.new()
-    inner, outer = [], []
+    inn, outr = [], []
     for th, r in zip(ths, rim):
-        for lst, rr in ((inner, r - 0.015), (outer, r + ink)):
+        for lst, rr in ((inn, r - 0.015), (outr, r + ink)):
             p, n = surf(rr * math.cos(th), rr * math.sin(th))
             lst.append(bm.verts.new(p + n * 0.012))
+    seg = len(ths)
     for j in range(seg):
         j2 = (j + 1) % seg
-        bm.faces.new((inner[j], outer[j], outer[j2], inner[j2]))
+        bm.faces.new((inn[j], outr[j], outr[j2], inn[j2]))
     bm.normal_update()
     bm.faces.ensure_lookup_table()
     if bm.faces[0].normal.dot(n0) < 0:
         bmesh.ops.reverse_faces(bm, faces=bm.faces)
     out.append(_piece(bm, K.BLACK, name + "_ink", outline=False, smooth=True))
-    # strand lines: 2-3 short, gently curved fibres running the same way across the cushion
+    # strand lines: a few short, gently curved fibres running the same way across the cushion
     rmin = min(rim)
     flow = 0.35 + 0.5 * (_rnd(seed, 60) - 0.5)
     fd = Vector((math.cos(flow), math.sin(flow)))
     fn = Vector((-fd.y, fd.x))
-    n_st = 3 if R > 0.55 else 2
-    for i in range(n_st):
+    for i in range(n_strands):
         # staggered along the flow as well as across it, so they read as loose fibres, not ribs
-        c0 = fn * (rmin * 0.48 * (i - (n_st - 1) / 2)) + fd * (rmin * (0.3 * (i % 2) - 0.15 + 0.15 * _rnd(seed, i + 70)))
-        L = rmin * (0.42 + 0.18 * _rnd(seed, i + 90))
+        c0 = (fn * (rmin * 0.42 * (i - (n_strands - 1) / 2))
+              + fd * (rmin * (0.3 * (i % 2) - 0.15 + 0.15 * _rnd(seed, i + 70))))
+        L = rmin * (0.36 + 0.16 * _rnd(seed, i + 90))
         pts, nrms = [], []
         for t in range(5):
             f = t / 4 - 0.5
@@ -1451,41 +1522,47 @@ def _lint_pad(surf, R, seed, pal, strand_pal, thick=0.18, nb=9, stretch=1.42, si
             p, n = surf(q.x, q.y)
             pts.append(p + n * (thick * _pad_height(rho) + 0.014))
             nrms.append(n)
-        out.append(_ribbon(pts, nrms, 0.02, strand_pal, name=name + "_strand"))
+        out.append(_ribbon(pts, nrms, 0.022, strand_pal, name=name + "_strand"))
     return out
 
 
-def _wisp(p0, out_dir, side_dir, length=0.32, curl=0.09, r0=0.065, pal=None, width=0.022, name="wisp"):
-    """A short lint wisp: a tapering stem from p0 up and out along out_dir that bends over sideways
-    (toward side_dir) at the top into an open half-curl of radius `curl`, ending in a fine tip (no
-    closed loop, so no ink triangle forms inside it). A thin ink line (`width`) like _strand, from a
-    cheap hidden core."""
+def _wisp(p0, out_dir, bend_dir, length=0.5, r0=0.11, A=0.45, curl=1.15, pal=None, width=0.022, n=7, name="wisp"):
+    """A soft lint wisp: a strand from p0 whose chord runs along out_dir, fat at the base (r0) and
+    tapering to a fine tip, waving in an S in the plane of out_dir and bend_dir (its heading starts
+    A radians toward bend_dir, swings A the other way and back) and curling over toward bend_dir in
+    its last third (`curl` radians more). A thin ink line (`width`) like _strand, from a cheap
+    hidden core."""
     v = Vector(out_dir).normalized()
-    t = Vector(side_dir)
+    t = Vector(bend_dir)
     t = (t - v * t.dot(v)).normalized()
-    p0 = Vector(p0)
-    stem = length - curl
-    pts = [p0 - v * 0.05, p0 + v * (stem * 0.45) + t * 0.008, p0 + v * stem + t * 0.025]
-    cc = p0 + v * stem + t * (0.025 + curl)                  # centre of the curl
-    for k in range(1, 5):
-        a = math.pi - (1.15 * math.pi) * k / 4                # up, over the top and a little down
-        pts.append(cc + t * (curl * math.cos(a)) + v * (curl * math.sin(a)))
-    rr = [_lerp(r0, 0.014, i / (len(pts) - 1)) for i in range(len(pts))]
+    pts = [Vector(p0) - v * 0.06]
+    pos = Vector(p0)
+    pts.append(pos.copy())
+    ds = length / (n - 1)
+    for i in range(1, n):
+        s = (i - 0.5) / (n - 1)
+        th = A * math.cos(TAU * s) + curl * max(0.0, (s - 0.62) / 0.38) ** 2
+        pos = pos + (v * math.cos(th) + t * math.sin(th)) * ds
+        pts.append(pos.copy())
+    m = len(pts)
+    rr = [r0 * (1.0 - 0.87 * (max(i - 1, 0) / (m - 2)) ** 1.5) for i in range(m)]
     inner = [max(r - (HULL - width), 0.004) for r in rr]
-    return [_sweep(pts, rr, pal, seg=5, samples=2, cap0=0.0, cap1=1.0, cap_rings=2, outline=False, name=name),
+    return [_sweep(pts, rr, pal, seg=5, samples=1, cap0=0.0, cap1=1.0, cap_rings=2, outline=False, name=name),
             _sweep(pts, inner, pal, seg=4, samples=1, cap0=0.0, cap1=1.0, cap_rings=2, outline=True, name=name + "_core")]
 
 
 def feat_lintlord(c):
     """A gold crown (ball-tipped points, red and blue gems on the band, a red velvet cap filling it)
-    on a deep-scalloped lint ruff round the rim; the sock wrapped in soft lint pads - light warm
-    lavender-grey cushions (a clear step above the grey sock, like the sheet's fluffy grey beard)
-    domed in the middle, with rims of many small rounded scallops and a few darker strand lines on
-    top, each one closed shell with one clean ink line. Two sit squarely on the side edges (the
-    outline goes cloud-soft there from the front and the back), two on the back, one each wrapping
-    the heel, the toe and the instep; the face and the area under the mouth stay grey sock. Short
-    lint wisps sprout up and out of the ruff and the tops of the side pads, ending in open curls;
-    smug half-lids over the googly eyes."""
+    on a fluffy lint ruff round the rim; the sock wrapped in a few big soft lint drifts - light warm
+    lavender-grey pillows (a clear step above the grey sock, like the sheet's fluffy grey beard)
+    with rolled, bumpy cloud edges (round scallops that also rise and dip, so a drift seen edge-on
+    is a soft bumpy cloud) and a few darker strand lines on top, each one closed shell with one
+    clean ink line. They wrap round the leg's edges so the outline goes cloud-soft from every side:
+    one from the toe-side edge round to the back, one from the heel-side edge round the back and up
+    into the ruff, one over the heel toward the back of the ankle and one over the toe and up the
+    instep; the face and the band under the mouth stay grey sock. Fat, soft S-curled lint wisps
+    stick out of both ends of the ruff, the back of the ruff and the side drifts (leaning back and
+    out, below the crown band); smug half-lids over the googly eyes."""
     tid, h, d = c.tid, c.h, (c.d or 1.0)
     gold = hexcol(f"{tid}_gold", "#F5C842")
     gold2 = hexcol(f"{tid}_gold_dark", "#D19A2C")
@@ -1498,18 +1575,18 @@ def feat_lintlord(c):
     out = []
     tilt = Matrix.Rotation(math.radians(-7) * d, 4, "Y")     # a rakish tilt toward the heel
     base = Matrix.Translation((0.0, 0.0, h - 0.16)) @ tilt
-    # ---- the lint ruff under the crown band: ONE ring of deep, round scallops with a little
-    # vertical wobble (a fluffy collar with one clean outline)
-    nl, per = 13, 4
+    # ---- the lint ruff under the crown band: ONE ring of round puffs (a round cross-section),
+    # alternate puffs set higher and lower, so its outline is scalloped from every side
+    nl, per = 12, 4
     m = nl * per
     pts, radii = [], []
     for j in range(m):
         a = TAU * j / m
         lob = (0.5 + 0.5 * math.cos(nl * a + 0.4)) ** 0.8
-        r = c.top_r + 0.05 + 0.03 * lob
-        pts.append(base @ Vector((math.sin(a) * r, -math.cos(a) * r, -0.04 + 0.035 * math.sin(nl * a * 0.5 + 1.1) * lob)))
-        radii.append(0.18 * (0.52 + 0.48 * lob))
-    out.append(_sweep(pts, radii, lint, seg=5, closed=True, flat=0.85, up=Z, name="ruff"))
+        r = c.top_r + 0.06 + 0.03 * lob
+        pts.append(base @ Vector((math.sin(a) * r, -math.cos(a) * r, -0.05 + 0.06 * math.cos(nl * a * 0.5 + 0.2) * lob)))
+        radii.append(0.18 * (0.5 + 0.5 * lob))
+    out.append(_sweep(pts, radii, lint, seg=6, closed=True, flat=1.0, up=Z, name="ruff"))
     # ---- crown: a thick ring whose top edge zig-zags into five points
     npts, per = 5, 8
     cols = npts * per
@@ -1548,11 +1625,15 @@ def feat_lintlord(c):
     for k in range(npts):
         a = TAU * k / npts
         top = base @ Vector((math.sin(a) * (R0 + 0.06 * zp), -math.cos(a) * (R0 + 0.06 * zp), zp + 0.05))
-        out.append(K.sphere(gold, 0.1, Matrix.Translation(top), seg=8, rings=4, name="crownball"))
-        gp = base @ Vector((math.sin(a) * (R0 + 0.01), -math.cos(a) * (R0 + 0.01), zv * 0.62))
+        out.append(K.sphere(gold, 0.1, Matrix.Translation(top), seg=8, rings=3, name="crownball"))
+        # the gem's widest ring stands just proud of the band (band radius here ~R0 + 0.018), so its
+        # ink line hugs its edge instead of showing through the band as a separate ring
+        gz = zv * 0.62
+        gr = R0 + 0.015 + 0.042 * (gz - zv * 0.5) / (zp - zv * 0.5) + 0.032
+        gp = base @ Vector((math.sin(a) * gr, -math.cos(a) * gr, gz))
         n = (base.to_3x3() @ Vector((math.sin(a), -math.cos(a), 0.0))).normalized()
         out.append(_ellipsoid(ruby if k % 2 == 0 else sapph, gp, (0.1, 0.13, 0.05), _frame(n, base.to_3x3() @ Z),
-                              seg=8, rings=4, name="gem"))
+                              seg=8, rings=3, name="gem"))
     # velvet cap filling the crown, topped by a little gold ball
     vel = [(0.0, -0.05), (R0 - th - 0.005, -0.05), (R0 - th - 0.02, zv * 0.5), (R0 * 0.8, zv + 0.12), (R0 * 0.45, zv + 0.3),
            (0.0, zv + 0.36)]
@@ -1561,7 +1642,7 @@ def feat_lintlord(c):
     # the crown closes the opening: the clothespin clips the cap ball on top
     c.pin_z = (base @ Vector((0.0, 0.0, zv + 0.51))).z + 0.1
 
-    # ---- soft lint pads hugging the sock (the face and the area under the mouth stay grey)
+    # ---- big soft lint drifts wrapping the sock (the face and the band under the mouth stay grey)
     def on_leg(a0, z0):
         r0 = c.radius_at(z0, a0)
         return lambda x, y: c.surface(a0 + x / r0, z0 + y)
@@ -1582,38 +1663,48 @@ def feat_lintlord(c):
         return surf
 
     eye_lo = c.ey - c.eye_rim_r                      # bottom of the eyes' ink rims
-    leg = [  # (angle in units of d: 0 = face, 1.57 = toe side, pi = back;  z;  size)
-        (1.6, min(c.mouth_z - 0.55, eye_lo - 0.75), 0.68),    # toe side edge, low (under the eye line)
-        (-1.72, eye_lo - 0.3, 0.66),                          # heel side edge, higher (behind the eye)
-        (2.5, c.cuff_z - 0.5, 0.66),                          # back, toe side, high
-        (-2.52, c.instep_z + 0.01, 0.6),                      # back, heel side, low
-    ]
-    pads = []
-    for i, (a, z, R) in enumerate(leg):
-        pads.append((on_leg(a * d, z), R, i + 3, lint if i % 2 == 0 else lint2, (a * d, z)))
-    if c.heel_point:
-        pads.append((on_body(c.heel_point, c.heel_c), 0.66, 20, lint2, None))
-    toe = c.ray(c.toe_c, Vector(c.toe_dir) + Vector((0.0, -0.15, 0.95)))
-    if toe:
-        pads.append((on_body(toe, c.toe_c), 0.6, 21, lint, None))
-    fs = _foot_point(c, 0.36, 0.75)                  # the instep: the top of the foot, toward the front
-    if fs:
-        pads.append((on_body(fs, Vector(c.foot_axis[0]).lerp(Vector(c.foot_axis[1]), 0.36)), 0.42, 22, lint2, None))
-    for surf, R, seed, pal, _where in pads:
-        out += _lint_pad(surf, R, seed, pal, strand, name="lintpad")
-    # ---- short lint wisps sprouting up and out (35-45 degrees from vertical) of the ruff - a tuft of
-    # two at the back, one over the toe side - and of the top of the high back pad
+    drifts = []
+    for a, z, R, st, seed, pal in (
+            (2.35, min(c.mouth_z - 0.2, eye_lo - 0.45), 1.05, 1.2, 3, lint),   # toe-side edge -> back, mid-leg
+            (-2.25, eye_lo + 0.25, 0.9, 1.0, 4, lint2)):                       # heel-side edge -> back, up into the ruff
+        drifts.append((on_leg(a * d, z), R, st, seed, pal))
+    if c.d:
+        hc = Vector(c.heel_c)
+        hit = c.ray(hc, Vector((-0.75 * d, 0.5, 0.3)))      # over the heel, toward the back of the ankle
+        if hit:
+            drifts.append((on_body(hit, hc), 0.9, 1.25, 20, lint))
+        tc = Vector(c.toe_c)
+        hit = c.ray(tc, Vector(c.toe_dir) * 0.5 + Vector((0.0, -0.45, 0.8)))   # over the toe and up the instep
+        if hit:
+            drifts.append((on_body(hit, tc), 1.0, 1.3, 21, lint2))
+    for surf, R, st, seed, pal in drifts:
+        out += _lint_pad(surf, R, seed, pal, strand, stretch=st, name="lintpad")
+    # ---- fat, soft lint wisps: out of both ends of the ruff (as the front view sees it) and its
+    # back, aimed outward and a little down, and off the outer edges of the two side drifts; none
+    # passes in front of the crown band from the front, the sides or the back
     tips = []
-    for a, lean, sgn in ((-2.45, 0.6, 1.0), (-2.15, 0.75, -1.0), (1.3, 0.65, 1.0)):
+    # each one leans back (round the leg toward the back) as well as out, so it sticks out past the
+    # outline from the front, the side and the back alike and no main view looks down its length
+    # (end-on a wisp reads as a spike); not mirrored pairs, so the back never shows a 'moustache'
+    def lean(a, out, back, upw):
+        rdir = Vector((math.sin(a), -math.cos(a), 0.0))
+        tb = Vector((math.cos(a), math.sin(a), 0.0))         # round the leg ...
+        tb = tb if tb.y >= 0.0 else -tb                      # ... toward the back (+Y)
+        return (rdir * out + tb * back + Z * upw).normalized(), rdir
+
+    for a, ln, dz, upw in ((1.72, 0.56, -0.08, -0.5), (-1.7, 0.48, -0.12, -0.85), (math.pi - 0.55, 0.5, -0.1, -0.6)):
+        # locks flicking out and down off the ruff, the tip curling up
         aa = a * d
-        rdir = Vector((math.sin(aa), -math.cos(aa), 0.0))
-        p = base @ Vector((math.sin(aa) * (c.top_r + 0.15), -math.cos(aa) * (c.top_r + 0.15), 0.04))
-        tips.append((p, rdir * math.sin(lean) + Z * math.cos(lean), Z.cross(rdir) * sgn))
-    a, z, R = leg[2]
-    p, n = c.surface(a * d, z + R * 0.6)
-    tips.append((p + n * 0.12, n * math.sin(0.7) + Z * math.cos(0.7), Z.cross(n)))
-    for i, (p, v, sd) in enumerate(tips):
-        out += _wisp(p, v, sd, length=0.3 if i != 1 else 0.24, curl=0.085, pal=lint, name="wisp")
+        v, rdir = lean(aa, 0.72, 0.45, upw)
+        p = base @ Vector((math.sin(aa) * (c.top_r + 0.14), -math.cos(aa) * (c.top_r + 0.14), dz))
+        tips.append((p, v, Z, ln))
+    for a, z in ((1.9, min(c.mouth_z - 0.2, eye_lo - 0.45) + 0.45), (-1.9, eye_lo - 0.15)):
+        # tufts rising out of the side drifts, curling over outward
+        p, n = c.surface(a * d, z)
+        v, _r = lean(a * d, 0.6, 0.55, 0.6)
+        tips.append((p + n * 0.12, v, -Z, 0.52))
+    for i, (p, v, bend, ln) in enumerate(tips):
+        out += _wisp(p, v, bend, length=ln, pal=lint, name="wisp")
     # smug half-lids (their ink line stays on the front of the eyeball)
     out += _lids(c, c.body, math.radians(96), math.radians(72), lift=0.03, line_r=0.04, clip=0.4, name="lid")
     return out
