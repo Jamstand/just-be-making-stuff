@@ -8,8 +8,8 @@ local EconomyConfig = {
 	RebirthMultPerLevel = 0.5, -- +0.5x income per rebirth (Phase 3)
 
 	-- The Great Dryer and the Clothesline
-	DryerSpawnInterval = 2, -- seconds between socks
-	MaxSocksOnLine = 24, -- the dryer waits while the line holds this many
+	DryerSpawnInterval = 4, -- seconds between socks (~24 studs apart on the line, ~13 riding at once)
+	MaxSocksOnLine = 16, -- the dryer waits while the line holds this many
 	ClotheslineSpeed = 6, -- studs per second
 	BuyRange = 16, -- studs; server re-checks the ProximityPrompt distance
 

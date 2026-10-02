@@ -1,5 +1,8 @@
 --!strict
 -- RarityConfig: spawn weights, income bands, payback (price = income x payback) and thief speed.
+-- Weights are relative (they sum to ~100, so each reads as a percent). Since the Dryer slowed to a
+-- sock every 4 s, the rarer tiers are a little more likely (Rare x1.1 ... Sock God/Secret x1.5)
+-- and Common gives up the difference.
 export type Tier = {
 	rank: number,
 	weight: number,
@@ -17,13 +20,13 @@ local RarityConfig = {
 }
 
 RarityConfig.Tiers = {
-	Common    = { rank = 1, weight = 55,   income = { 1, 5 },             payback = 20,  carrySpeed = 0.90, color = Color3.fromRGB(205, 205, 212), display = "Common" },
-	Rare      = { rank = 2, weight = 26,   income = { 10, 40 },           payback = 40,  carrySpeed = 0.85, color = Color3.fromRGB(80, 170, 255),  display = "Rare" },
-	Epic      = { rank = 3, weight = 12,   income = { 75, 250 },          payback = 60,  carrySpeed = 0.80, color = Color3.fromRGB(190, 90, 255),  display = "Epic" },
-	Legendary = { rank = 4, weight = 5.3,  income = { 600, 2000 },        payback = 90,  carrySpeed = 0.75, color = Color3.fromRGB(255, 170, 40),  display = "Legendary" },
-	Mythic    = { rank = 5, weight = 1.4,  income = { 6000, 20000 },      payback = 150, carrySpeed = 0.70, color = Color3.fromRGB(255, 70, 90),   display = "Mythic" },
-	SockGod   = { rank = 6, weight = 0.29, income = { 75000, 250000 },    payback = 300, carrySpeed = 0.65, color = Color3.fromRGB(255, 230, 80),  display = "Sock God" },
-	Secret    = { rank = 7, weight = 0.01, income = { 1000000, 2000000 }, payback = 600, carrySpeed = 0.60, color = Color3.fromRGB(40, 40, 60),    display = "SECRET" },
+	Common    = { rank = 1, weight = 47.7,  income = { 1, 5 },             payback = 20,  carrySpeed = 0.90, color = Color3.fromRGB(205, 205, 212), display = "Common" },
+	Rare      = { rank = 2, weight = 28.6,  income = { 10, 40 },           payback = 40,  carrySpeed = 0.85, color = Color3.fromRGB(80, 170, 255),  display = "Rare" },
+	Epic      = { rank = 3, weight = 14.4,  income = { 75, 250 },          payback = 60,  carrySpeed = 0.80, color = Color3.fromRGB(190, 90, 255),  display = "Epic" },
+	Legendary = { rank = 4, weight = 6.9,   income = { 600, 2000 },        payback = 90,  carrySpeed = 0.75, color = Color3.fromRGB(255, 170, 40),  display = "Legendary" },
+	Mythic    = { rank = 5, weight = 2,     income = { 6000, 20000 },      payback = 150, carrySpeed = 0.70, color = Color3.fromRGB(255, 70, 90),   display = "Mythic" },
+	SockGod   = { rank = 6, weight = 0.43,  income = { 75000, 250000 },    payback = 300, carrySpeed = 0.65, color = Color3.fromRGB(255, 230, 80),  display = "Sock God" },
+	Secret    = { rank = 7, weight = 0.015, income = { 1000000, 2000000 }, payback = 600, carrySpeed = 0.60, color = Color3.fromRGB(40, 40, 60),    display = "SECRET" },
 }
 
 return RarityConfig
