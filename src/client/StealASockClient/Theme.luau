@@ -55,6 +55,11 @@ Theme.Styles = {
 
 Theme.Robux = utf8.char(0xE002) -- Roblox draws this private-use character as the Robux icon
 
+-- Light text (white-ish) gets a dark outline on candy buttons; dark text doesn't need one.
+function Theme.IsLight(c: Color3): boolean
+	return c.R * 0.299 + c.G * 0.587 + c.B * 0.114 > 0.75
+end
+
 function Theme.RarityColor(rarity: string): Color3
 	local tier = RarityConfig.Tiers[rarity]
 	return if tier then tier.color else Theme.Color.Muted
@@ -196,9 +201,7 @@ function Theme.button(parent: Instance?, text: string, style: string?, size: UDi
 	b.TextWrapped = true
 	Theme.candy(b, style or "green", 16, 3)
 	Theme.gloss(b, 16)
-	if st.text == Theme.Color.White then
-		Theme.textStroke(b, st.stroke, 2)
-	end
+	Theme.textStroke(b, st.stroke, 2).Enabled = Theme.IsLight(st.text)
 	b.Parent = parent
 	return b
 end
@@ -219,7 +222,7 @@ function Theme.restyle(frame: GuiObject, style: string)
 		for _, child in ipairs(frame:GetChildren()) do
 			if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Contextual then
 				child.Color = st.stroke
-				child.Enabled = st.text == Theme.Color.White
+				child.Enabled = Theme.IsLight(st.text)
 			end
 		end
 	end

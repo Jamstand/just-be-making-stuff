@@ -98,8 +98,9 @@ function Menu.Init()
 		local refHeight = menuRoot.AbsoluteSize.Y / math.max(Theme.Scale(), 0.01)
 		local tile = if refHeight < 600 then 60 else 72
 		for _, e in pairs(entries) do
-			if e.button then
-				e.button.Size = UDim2.fromOffset(tile, tile)
+			local cell = e.button and e.button.Parent
+			if cell and cell:IsA("Frame") then
+				cell.Size = UDim2.fromOffset(tile, tile)
 			end
 		end
 		column.Size = UDim2.new(0, tile, 1, -Menu.ColumnTop - 12)
@@ -127,9 +128,17 @@ end
 -- panel registered under the same key.
 function Menu.AddButton(key: string, icon: string, label: string, style: string, order: number, onClick: (() -> ())?): TextButton
 	local e = entry(key)
-	local tile = Theme.button(column, "", style, UDim2.fromOffset(72, 72))
+	-- the list places the cell; the tile sits centred in it so its pops and hovers grow from the middle
+	local cell = Instance.new("Frame")
+	cell.Name = key .. "Cell"
+	cell.BackgroundTransparency = 1
+	cell.Size = UDim2.fromOffset(72, 72)
+	cell.LayoutOrder = order
+	cell.Parent = column
+	local tile = Theme.button(cell, "", style, UDim2.fromScale(1, 1))
 	tile.Name = key .. "Button"
-	tile.LayoutOrder = order
+	tile.AnchorPoint = Vector2.new(0.5, 0.5)
+	tile.Position = UDim2.fromScale(0.5, 0.5)
 	local glyph = Theme.label(tile, icon, 34, Theme.Color.White)
 	glyph.Name = "Glyph"
 	glyph.Position = UDim2.new(0, 0, 0, 4)
@@ -205,7 +214,7 @@ function Menu.Panel(key: string, title: string, size: Vector2, ribbonStyle: stri
 	panel.Name = "Panel_" .. key
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.new(0.5, 0, 0.5, 14) -- a touch low: the ribbon sticks out of the top
-	panel.Size = UDim2.new(0, size.X, 0.86, 0)
+	panel.Size = UDim2.fromScale(0.94, 0.86) -- capped at `size` below; narrow (portrait) screens get 94%
 	panel.ZIndex = 10
 	panel.Visible = false
 	Theme.candy(panel, "cream", 22, 4)

@@ -34,6 +34,7 @@ export type Product = {
 local StoreConfig = {
 	PassOrder = { "DoubleCash", "VIP", "ExtraSlots", "GoldenTowel" },
 	ProductOrder = { "CashSmall", "CashMedium", "CashLarge", "ServerLuck", "RareDrop", "Relock" },
+	Featured = "DoubleCash", -- the pass the Store marks "BEST"
 	Passes = {} :: { [string]: Pass },
 	Products = {} :: { [string]: Product },
 	DoubleCashMult = 2, -- 2x Cash pass: income multiplier
