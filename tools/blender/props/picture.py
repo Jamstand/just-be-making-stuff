@@ -21,6 +21,9 @@ from sockkit import M, hexcol
 from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Picture"
+
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"picture_": "print", "picture_frame": "wood"}  # the painting, its wooden frame
 EXPORT_DIR = "map"
 
 # frame: sampled from the lamp-lit frame in the keyframe

@@ -17,6 +17,10 @@ Options
     --samples N     Cycles samples (default 20)
     --glb DIR       also export the target (single sock:/prop: targets) to DIR/<name>.glb exactly as
                     build_all.py would, to prove it exports (never writes into the repo)
+    --bake          bake the hand-painted textures first (texturing.py, as build_all.py does), so
+                    the render shows them; --tex-res N forces a texture size
+    --bake-cache DIR  keep the Cycles helper maps in DIR and reuse them next time (only the painting
+                    step re-runs: quick when tuning texturing.py's patterns)
 
 Prints triangle counts per exported object. Uses the same build code as build_all.py, so what you
 see is what gets exported (outline hull drawn the way Roblox draws it: back faces hidden).
@@ -39,9 +43,11 @@ VIEWS = {"front": (0.0, 0.08), "three": (-0.6, 0.3), "threer": (0.6, 0.3), "side
 DEFAULT_OUT = os.path.join(os.environ.get("PREVIEW_DIR", tempfile.gettempdir()), "previews")
 
 
-def build(target):
+def build(target, groups=None):
+    """-> every object built; `groups` (a list) also gets one (name, objs, bake kwargs) per asset."""
     kind, _, rest = target.partition(":")
     objs = []
+    groups = [] if groups is None else groups
     if kind in ("sock", "socks"):
         import socks
     if kind in ("prop", "props"):
@@ -50,22 +56,30 @@ def build(target):
         tid, _, side = rest.partition(":")
         side = side or ("S" if socks.SPECS[tid].get("single") else "R")
         objs = socks.build_sock(tid, side)
+        groups.append((objs[0].name, objs, dict(sock_id=tid, sock_side=side)))
     elif kind == "socks":
         ids = list(socks.SPECS) if rest == "all" else rest.split(",")
         for i, tid in enumerate(ids):
             side = "S" if socks.SPECS[tid].get("single") else "R"
             built = socks.build_sock(tid, side)
+            groups.append((built[0].name, built, dict(sock_id=tid, sock_side=side)))
             for o in built:
                 o.location.x += (i % 7) * 6.5
                 o.location.z += -(i // 7) * 10.0
             objs += built
     elif kind == "prop":
-        objs = props.load(rest).build()
+        mod = props.load(rest)
+        objs = mod.build()
+        groups.append((mod.NAME, objs, dict(materials=getattr(mod, "MATERIALS", None),
+                                            res=getattr(mod, "TEXTURE_SIZE", None))))
     elif kind == "props":
         names = props.MODULE_NAMES if rest == "all" else rest.split(",")
         x = 0.0
         for name in names:
-            built = props.load(name).build()
+            mod = props.load(name)
+            built = mod.build()
+            groups.append((mod.NAME, built, dict(materials=getattr(mod, "MATERIALS", None),
+                                                 res=getattr(mod, "TEXTURE_SIZE", None))))
             xs = [(o.matrix_world @ v.co).x for o in built if not o.hide_render for v in o.data.vertices]
             w = (max(xs) - min(xs)) if xs else 1
             for o in built:
@@ -86,12 +100,16 @@ def main():
     ap.add_argument("--compare")
     ap.add_argument("--samples", type=int, default=20)
     ap.add_argument("--glb")
+    ap.add_argument("--bake", action="store_true")
+    ap.add_argument("--bake-cache")
+    ap.add_argument("--tex-res", type=int)
     a = ap.parse_args()
     os.makedirs(DEFAULT_OUT, exist_ok=True)
     out = a.out or os.path.join(DEFAULT_OUT, a.target.replace(":", "_").replace(",", "+") + ".png")
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    objs = build(a.target)
+    groups = []
+    objs = build(a.target, groups)
     for o in objs:
         if not o.hide_render:
             print(f"{o.name:28s} {K.tri_count(o):6d} tris")
@@ -99,6 +117,12 @@ def main():
     img = K.write_palette(pal)
     K.set_palette_image(img)
     visible = [o for o in objs if not o.hide_render]
+    if a.bake or a.bake_cache:
+        import texturing
+        for name, gobjs, kw in groups:
+            if a.tex_res:
+                kw["res"] = a.tex_res
+            texturing.bake(gobjs, name, cache_dir=a.bake_cache, **kw)
     if a.glb:
         os.makedirs(a.glb, exist_ok=True)
         path = os.path.join(a.glb, objs[0].name + ".glb")

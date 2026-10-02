@@ -30,6 +30,7 @@ nothing is hand-modelled and anything can be re-made with one command:
 | File | What it makes |
 | --- | --- |
 | `sockkit.py` | shared helpers: palette texture, rounded shapes, tubes, text, the dark toon outline, marker parts, GLB export, preview renders |
+| `texturing.py` | bakes each model's hand-painted texture right before export (see **Textures** below) |
 | `socks.py` | the shared sock body + face for all 21 types from `SockConfig`, and `SockCtx` (where the eyes, cuff, heel, toe… are, for feature builders) |
 | `sockfeat_a.py`, `_b.py`, `_c.py` | each type's signature features (fangs, monocle, beard, pogo stick, tentacles, armour…), 7 types per file |
 | `props/<prop>.py` | one file per prop (`bed.py`, `dryer.py`, `ceilingfan.py`, `plant.py` for `PottedPlant`, …; the full list and the conventions are in `props/__init__.py`) |
@@ -63,9 +64,38 @@ ceiling fan's `FanBlades` layer spins the same way, about the fan's `_Pin` marke
 `FanLight` (the light bowl) becomes Neon with a soft light.
 
 **Re-making the meshes** (only needed if you change a shape or colour in the scripts): install
-Python 3.11 and `pip install bpy==4.5.14` in a venv, then from the repo root run
-`python tools/blender/build_all.py` (add `--no-render` to skip the preview pictures). Or open
+Python 3.11 and `pip install bpy==4.5.14 pillow` in a venv, then from the repo root run
+`python tools/blender/build_all.py` (add `--no-render` to skip the preview pictures, `--no-bake`
+for flat palette colours without textures - a quick check, not for committing). Or open
 Blender 4.5 and run `build_all.py` from its Scripting tab.
+
+### Textures
+
+Every model is textured in a soft hand-painted style that keeps the cartoon look: each face keeps
+its palette colour, and `texturing.py` paints over it — wood grain on wood, a woven look on
+blankets / curtains / cushions, knit stitches on every sock (ribs where the texture is too small
+for stitches), plush fur on the teddy, bean bag and slippers, paper fibre on posters and books,
+glossy plastic on toys, brushed brass / gold / chrome, leaf veins, glazed pots, twisted rope on the
+hamper, fuzzy felt in the drawers — plus gentle shading: darker, slightly cooler crevices (baked
+ambient occlusion), lighter rounded edges and tops, a little colour variation. Ink (drawn lines,
+pupils), googly-eye whites and glints stay flat. The outline hulls, glow parts (`LampGlow`,
+`DryerPortal`, …), markers and the dryer's flat galaxy layers (`DryerVortex`, `DryerStars`) are
+not textured; they keep the flat `palette.png`.
+
+- **What you get:** each model's body (and the spinning `FanBlades` and the `DrawerLiner`) has its
+  own JPEG texture inside its GLB: 1024 px for big furniture (and the dryer), 512 for socks and
+  small pieces. Patterns are sized in game studs, so the grain on the bed matches the dresser's;
+  the socks and their clothespin get 10x finer patterns, the drawer bases 3x.
+- **Which pattern a colour gets** comes from its name (`bed_post` → wood, `curtains_fabric` →
+  fabric, `<Sock>_body` → knit …; the rules are at the top of `texturing.py`). When a name guesses
+  wrong, add a `MATERIALS` line to the prop's module, e.g. `MATERIALS = {"dryer_door": "plastic"}`
+  (a colour-name prefix or a pattern like `"crayons_*_wrap"` → a class); `TEXTURE_SIZE = 1024`
+  forces the texture size. The bake prints any colour that fell through to the default
+  ("painted") class.
+- **Re-baking** happens on every `build_all.py` run (about 20 minutes for everything). To check one
+  model first: `python tools/blender/preview.py prop:Bed --bake` (or `sock:Argylo:L --bake`);
+  `build_all.py --only Bed,Argylo_L` re-exports just those GLBs. `--no-bake` exports the old
+  flat-colour look.
 
 **Getting them into Studio:**
 

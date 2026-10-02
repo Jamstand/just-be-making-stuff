@@ -24,6 +24,9 @@ from sockkit import M, hexcol
 from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Curtains"
+
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"curtains_wood": "wood"}  # the rod
 EXPORT_DIR = "map"
 
 # ---------------------------------------------------------------- palette

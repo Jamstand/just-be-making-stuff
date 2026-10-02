@@ -25,6 +25,10 @@ from props.dresser import sock
 
 NAME = "ToyChest"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"toychest_teal": "paintwood", "toychest_cream": "paintwood", "toychest_inside": "paintwood",
+             "toychest_lid_inside": "paintwood", "toychest_pile": "fabric"}
+
 # ---- colours
 TEAL = hexcol("toychest_teal", "#33B0A4")
 TEAL_L = hexcol("toychest_teal_light", "#5ED0C1")

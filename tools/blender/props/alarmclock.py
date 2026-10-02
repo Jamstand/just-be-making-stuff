@@ -22,6 +22,9 @@ from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "AlarmClock"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"alarmclock_face": "paper", "alarmclock_second": "metal"}
+
 BODY = hexcol("alarmclock_body", "#25A89E")         # teal: pops against the warm wood and the lamp's glow
 BODY_L = hexcol("alarmclock_body_light", "#4CCBBE")  # top-facing faces
 BODY_D = hexcol("alarmclock_body_dark", "#187470")   # undersides

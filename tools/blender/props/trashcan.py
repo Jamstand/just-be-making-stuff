@@ -22,6 +22,10 @@ from sockkit import hexcol
 from props.common import CREAM, DUCK_Y, DUCK_YD, GLOBE, YELLOW
 
 NAME = "TrashCan"
+
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"duck": "knit", "cream": "knit", "globe": "paper", "block_yellow": "paper",  # a sock and notes in the bin,
+             "white": "paper"}  # the crumpled paper (and the painted stars)
 EXPORT_DIR = "map"
 
 BIN = hexcol("trashcan_blue", "#4C86DA")

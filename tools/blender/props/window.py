@@ -22,6 +22,9 @@ from sockkit import M, hexcol
 from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Window"
+
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"window_sky": "painted"}
 EXPORT_DIR = "map"
 
 # colours sampled from the keyframe (ring lit by the lamp, reveal and sky lit by the moon)

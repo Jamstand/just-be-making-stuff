@@ -30,6 +30,11 @@ from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Dryer"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"dryer_band": "plastic", "dryer_door": "plastic",  # enamel / white plastic, not fabric or wood
+             "dryer_lane": "decal", "dryer_void": "decal", "dryer_arm": "decal"}  # the galaxy stays flat and bright
+TEXTURE_SIZE = 1024  # the map's centrepiece: the full texture size even though it's small
+
 # ---------------------------------------------------------------- palette (sampled from the keyframe)
 FRONT = hexcol("dryer_front", "#ECF1FE")          # cool white front face (stays white, not cream, under warm lamps)
 SIDE = hexcol("dryer_side", "#8FA6F0")            # light periwinkle body sides

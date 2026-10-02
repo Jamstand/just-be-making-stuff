@@ -26,6 +26,9 @@ from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Teddy"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"teddy_pad": "felt", "teddy_ear_in": "felt", "teddy_nose": "plastic"}
+
 F_BASE = hexcol("teddy_fur", "#AA4A22")       # most of the fur (art: #AE4A21)
 F_TOP = hexcol("teddy_fur_top", "#BE5824")    # lit, top-facing fur (art: head top #C15923)
 F_SHADE = hexcol("teddy_fur_shade", "#8A3A1C")  # undersides / shadowed sides (art: #91391F)

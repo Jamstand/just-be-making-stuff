@@ -34,6 +34,9 @@ from props.dresser import sock, sweep
 
 NAME = "Wardrobe"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"wardrobe_game": "paper", "wardrobe_rail": "metal", "wardrobe_coat_button": "plastic"}
+
 # ---- colours: the dresser's wood (sampled from the concept's dressers), its own names
 WOOD = hexcol("wardrobe_wood", "#C4633A")          # fronts, sides
 WOOD_L = hexcol("wardrobe_wood_light", "#E8914A")  # top-facing faces and top chamfers

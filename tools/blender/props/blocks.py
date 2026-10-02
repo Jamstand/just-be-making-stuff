@@ -21,6 +21,9 @@ from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Blocks"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"blocks_": "paintwood"}  # painted wooden letter blocks
+
 # colours sampled from the concept art (lit faces), per block: frame/letter base, lit top tone,
 # shadow tone, ink (letter outline + the step round the panel)
 B_RED = (hexcol("blocks_red", "#EC4034"), hexcol("blocks_red_light", "#FF6E58"),

@@ -29,6 +29,9 @@ from sockkit import M, hexcol
 
 NAME = "BeanBag"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"beanbag_fabric": "fur", "beanbag_star": "fur", "beanbag_star_cheek": "felt"}  # plush sack, plush star
+
 FAB = (hexcol("beanbag_fabric_light", "#7EE3E2"),   # top-facing fabric
        hexcol("beanbag_fabric", "#34BDC6"),         # most of the sack
        hexcol("beanbag_fabric_shade", "#2393AE"),   # sides turning away / under the bulge

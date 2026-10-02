@@ -22,6 +22,9 @@ from props.posterrocket import Art, push_pin, camera_only, PIN_BLUE, RED, RED_D,
 from props.common import WOOD, WOOD_D, WOOD_L, CREAM, YELLOW
 
 NAME = "Pennant"
+
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"posterrocket_red": "felt", "cream": "felt", "block_yellow": "felt", "posterrocket_pin": "plastic"}
 EXPORT_DIR = "map"
 
 # mostly shared tones (the room's wood, the posters' reds): one 32 x 32 palette serves the whole game

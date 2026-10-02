@@ -1,8 +1,12 @@
 """
 build_all.py - regenerates every Steal a Sock mesh from code and exports GLB files for Studio.
 
-    python -m pip install bpy==4.5.14        (Python 3.11; Blender as a Python module)
-    python tools/blender/build_all.py        (from the repo root)
+    python -m pip install bpy==4.5.14 pillow (Python 3.11; Blender as a Python module)
+    python tools/blender/build_all.py        (from the repo root; ~20 min with the texture bake)
+    python tools/blender/build_all.py --no-bake      (flat palette colours only: quick)
+    python tools/blender/build_all.py --no-render    (skip the preview sheets)
+    python tools/blender/build_all.py --sheets-only  (just re-render the sheets from the GLBs on disk)
+    python tools/blender/build_all.py --only Bed,Argylo_L --no-render   (re-export just those)
 
 Outputs
     assets/meshes/steal-a-sock/socks/<TypeId>_L.glb, <TypeId>_R.glb, <TypeId>.glb (singles)
@@ -14,8 +18,9 @@ Outputs
 
 Each GLB holds the textured body, a separate `<Name>_Outline` inverted hull (the game turns its
 shadows off), optional glow parts (`LampGlow`, `DryerPortal`, `MoonGlow`) and tiny marker parts
-(`_Base`, `_Unit`, `_Pin`) the game uses to scale, orient and hang the model. See
-docs/ART_PIPELINE.md.
+(`_Base`, `_Unit`, `_Pin`) the game uses to scale, orient and hang the model. Every body (and the
+textured spin parts) gets its own hand-painted JPEG texture baked by texturing.py; outlines, glow
+parts and markers keep the flat palette. See docs/ART_PIPELINE.md.
 """
 import os
 import sys
@@ -28,6 +33,7 @@ import bpy  # noqa: E402
 import sockkit as K  # noqa: E402
 import socks  # noqa: E402
 import props  # noqa: E402
+import texturing  # noqa: E402
 
 BUILDERS, EXPORT_DIR = props.load_all()
 OUT = os.path.join(REPO, "assets", "meshes", "steal-a-sock")
@@ -53,7 +59,23 @@ def fresh_scene():
         K.set_palette_image(img)
 
 
-def main(render=True):
+def _materials(fn):
+    """The prop module's optional MATERIALS hints for texturing.py."""
+    return getattr(sys.modules.get(fn.__module__), "MATERIALS", None)
+
+
+def _texture_size(fn):
+    """The prop module's optional TEXTURE_SIZE (pixels) for its baked texture, else automatic."""
+    return getattr(sys.modules.get(fn.__module__), "TEXTURE_SIZE", None)
+
+
+def _tex_note(tex):
+    return " ".join(f"{n}:{r}px" if r else f"{n}:flat" for n, r, _ in tex) if tex else "-"
+
+
+def main(render=True, bake=True, only=None):
+    """only: GLB names to (re)export, e.g. {"Bed", "Argylo_L"} (the palette is still written from
+    everything, so the other GLBs stay valid); None = all."""
     os.makedirs(SOCK_OUT, exist_ok=True)
     os.makedirs(MAP_OUT, exist_ok=True)
     os.makedirs(RENDERS, exist_ok=True)
@@ -70,34 +92,63 @@ def main(render=True):
     # pass 2: one clean scene per asset -> exact object names -> one GLB each
     report = []
     for tid, side in sock_jobs():
+        if only and (f"{tid}_{side}" if side != "S" else tid) not in only:
+            continue
         fresh_scene()
         objs = socks.build_sock(tid, side)
         name = objs[0].name
+        tex = texturing.bake(objs, name, sock_id=tid, sock_side=side) if bake else None
         path = os.path.join(SOCK_OUT, name + ".glb")
         K.export_glb(objs, path)
         tris = sum(K.tri_count(o) for o in objs[:2])
-        report.append((name, tris, os.path.getsize(path)))
+        report.append((name, tris, os.path.getsize(path), _tex_note(tex)))
     for name, fn in BUILDERS.items():
+        if only and name not in only:
+            continue
         fresh_scene()
         objs = fn()
+        tex = texturing.bake(objs, name, materials=_materials(fn), res=_texture_size(fn)) if bake else None
         path = os.path.join(SOCK_OUT if EXPORT_DIR[name] == "socks" else MAP_OUT, name + ".glb")
         K.export_glb(objs, path)
         tris = sum(K.tri_count(o) for o in objs if not o.name.endswith(("_Base", "_Unit", "_Pin")))
-        report.append((name, tris, os.path.getsize(path)))
-    for name, tris, size in report:
-        print(f"{name:22s} {tris:6d} tris  {size / 1024:7.1f} KB")
+        report.append((name, tris, os.path.getsize(path), _tex_note(tex)))
+    total = 0
+    for name, tris, size, note in report:
+        total += size
+        print(f"{name:22s} {tris:6d} tris  {size / 1024:7.1f} KB  {note}")
+    print(f"{len(report)} GLBs, {total / 1024 / 1024:.1f} MB")
 
     if render:
-        render_sheets()
+        render_sheets(from_glb=bake)
 
 
-def render_sheets():
+def _import_glb(path):
+    """The exported GLB back in the scene (so the sheets show the baked textures without re-baking);
+    markers hidden like the game does."""
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=path)
+    objs = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
+    for o in objs:
+        o.hide_render = o.name.endswith(("_Base", "_Unit", "_Pin"))
+        if o.name.endswith("_Outline") or o.name == "FanBlades":
+            o.visible_shadow = False
+            o.visible_diffuse = False
+    return objs
+
+
+SHEET_SKIP = {"RoomShell"}  # the room's own floor / walls / ceiling: no prop-sized cell can frame it
+
+
+def render_sheets(from_glb=False):
+    """Preview sheets of every sock and prop: rebuilt from the scripts, or (from_glb) the exported
+    GLBs read back in, textures and all."""
     fresh_scene()
     objs = []
     ids = list(socks.SPECS)
     for i, tid in enumerate(ids):
         side = "S" if socks.SPECS[tid].get("single") else "R"
-        built = socks.build_sock(tid, side)
+        built = _import_glb(os.path.join(SOCK_OUT, f"{tid}_{side}.glb" if side != "S" else f"{tid}.glb")) \
+            if from_glb else socks.build_sock(tid, side)
         for o in built:
             o.location.x += (i % 7) * 6.5
             o.location.z += -(i // 7) * 10.0
@@ -107,8 +158,10 @@ def render_sheets():
     fresh_scene()
     objs = []
     # 5-column grid, each prop scaled to fill a 9 x 8 cell (sizes vary wildly in model units)
-    for i, (name, fn) in enumerate(BUILDERS.items()):
-        built = [o for o in fn() if not o.hide_render]
+    sheet = [(n, f) for n, f in BUILDERS.items() if n not in SHEET_SKIP]
+    for i, (name, fn) in enumerate(sheet):
+        path = os.path.join(SOCK_OUT if EXPORT_DIR[name] == "socks" else MAP_OUT, name + ".glb")
+        built = [o for o in (_import_glb(path) if from_glb else fn()) if not o.hide_render]
         ws = [o.matrix_world @ v.co for o in built for v in o.data.vertices]
         lo = [min(w[k] for w in ws) for k in range(3)]
         hi = [max(w[k] for w in ws) for k in range(3)]
@@ -122,4 +175,14 @@ def render_sheets():
 
 
 if __name__ == "__main__":
-    main(render="--no-render" not in sys.argv)
+    if "--sheets-only" in sys.argv:  # re-render the preview sheets from the GLBs already exported
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        for tid, side in sock_jobs():
+            socks.build_sock(tid, side)
+        for fn in BUILDERS.values():
+            fn()
+        render_sheets(from_glb="--no-bake" not in sys.argv)
+    else:
+        pick = sys.argv[sys.argv.index("--only") + 1].split(",") if "--only" in sys.argv else None
+        main(render="--no-render" not in sys.argv and not pick, bake="--no-bake" not in sys.argv,
+             only=set(pick) if pick else None)

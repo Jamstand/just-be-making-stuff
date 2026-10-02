@@ -23,6 +23,9 @@ from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Slippers"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"slippers_ear_in": "felt", "slippers_cheek": "felt"}
+
 PLUSH = (hexcol("slippers_plush_light", "#DCCBFF"), hexcol("slippers_plush", "#BCA4F2"),
          hexcol("slippers_plush_dark", "#957AD8"), hexcol("slippers_plush_deep", "#7458B9"))
 SOLE = (hexcol("slippers_sole_light", "#8169BE"), hexcol("slippers_sole", "#6A53A8"), hexcol("slippers_sole_dark", "#4E3D84"))

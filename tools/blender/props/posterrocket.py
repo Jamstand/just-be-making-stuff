@@ -40,6 +40,9 @@ import sockkit as K
 from sockkit import M, hexcol
 
 NAME = "PosterRocket"
+
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"posterrocket_": "print", "posterrocket_paper": "paper", "posterrocket_pin": "plastic"}  # print on paper, push pins
 EXPORT_DIR = "map"
 
 # paper

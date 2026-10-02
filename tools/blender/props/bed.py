@@ -34,6 +34,9 @@ from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Bed"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"bed_cuff": "fabric"}  # the turned-down blanket fold, not a sock cuff
+
 # colours sampled from the keyframe (lit areas), nudged to albedo where the night light tints them
 POST = hexcol("bed_post", "#CF703D")         # posts and finials: warm orange-brown
 POST_L = hexcol("bed_post_light", "#EA9454")  # top-facing faces (lit top edges)

@@ -25,6 +25,10 @@ from sockkit import hexcol
 
 NAME = "PottedPlant"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"plant_pot": "ceramic", "plant_rim": "ceramic", "plant_dot": "ceramic", "plant_soil": "soil",
+             "plant_stem": "wood"}
+
 POT = (hexcol("plant_pot_light", "#F2965F"), hexcol("plant_pot", "#DB6C3F"), hexcol("plant_pot_shade", "#B24E2E"))
 RIM = (hexcol("plant_rim_light", "#FBB37C"), hexcol("plant_rim", "#E8814F"), hexcol("plant_rim_shade", "#BF5A34"))
 DOT = hexcol("plant_dot", "#FFF0D2")

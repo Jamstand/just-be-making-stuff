@@ -35,6 +35,9 @@ from sockkit import M, hexcol
 
 NAME = "Hamper"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"hamper_lid_inside": "fabric", "hamper_heap": "knit"}  # lid lining; the big sock under the heap
+
 ROPE = (hexcol("hamper_rope_light", "#FFF4DC"),   # top strip of each coil, rim top
         hexcol("hamper_rope", "#F1DDB6"),         # coil faces
         hexcol("hamper_rope_shade", "#CDB083"),   # coil undersides, grooves

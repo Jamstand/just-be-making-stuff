@@ -29,6 +29,11 @@ from props.wardrobe import (tone, chamfer_box, lathe, plate, shape, no_bounce, f
 
 NAME = "Desk"
 
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"desk_lamp": "plastic", "desk_lamp_bulb": "glass", "desk_globe": "plastic", "desk_globe_metal": "metal",
+             "desk_crayon": "plastic", "desk_crayon_*_wrap": "paper", "desk_pencil": "paintwood",
+             "desk_pencil_wood": "wood", "desk_pencil_lead": "painted", "desk_shadow": "wood"}
+
 # ---- colours
 WOOD = hexcol("desk_wood", "#C4633A")
 WOOD_L = hexcol("desk_wood_light", "#E8914A")

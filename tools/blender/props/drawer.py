@@ -24,6 +24,9 @@ from sockkit import M, hexcol
 from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Drawer"
+
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"drawer_dot": "felt", "drawer_wood_box": "wood"}  # polka dots printed on the felt liner
 S = 0.1  # model units per stud
 
 # colours sampled from the open drawers in the keyframe (lit front face, lit top edges, box, inside)

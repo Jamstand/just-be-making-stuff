@@ -23,6 +23,10 @@ from props.posterrocket import (Art, paper, glyph_polys, camera_only, circle, el
 from props import posterrocket as R
 
 NAME = "PosterDino"
+
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"posterdino_": "print", "posterrocket_": "print", "posterrocket_paper": "paper",
+             "posterrocket_pin": "plastic"}  # print on paper (shares the rocket poster's colours), push pins
 EXPORT_DIR = "map"
 
 PAPER, PAPER_B = R.PAPER, R.PAPER_B  # the same poster paper

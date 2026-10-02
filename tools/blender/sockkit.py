@@ -6,19 +6,21 @@ dark outlines. Every asset is assembled from simple "pieces"; each piece carries
 per face, an outline flag and a smooth/flat flag. `finish()` merges the pieces into one mesh,
 adds an inverted-hull outline (a slightly inflated, inside-out black copy - Roblox culls back
 faces, so only the silhouette edge shows), and maps every face to its colour swatch in one shared
-512x512 palette texture. Coordinates: Blender Z-up; the asset's FRONT faces -Y (becomes +Z in
-glTF/Roblox).
+1024x1024 palette texture. Before export, texturing.py bakes each body's palette colours into its
+own hand-painted texture (outlines keep the flat palette). Coordinates: Blender Z-up; the asset's
+FRONT faces -Y (becomes +Z in glTF/Roblox).
 """
 import math
 import bmesh
 import bpy
+import numpy as np
 from mathutils import Matrix, Vector
 
 # ---------------------------------------------------------------- palette
 PALETTE: dict[str, tuple[int, int, int]] = {}
 _ORDER: list[str] = []
-SWATCH = 16  # px per swatch; 32x32 grid -> 1024 colours in a 512x512 image
-GRID = 32
+SWATCH = 16  # px per swatch; 64x64 grid -> 4096 colours in a 1024x1024 image (Roblox's texture cap)
+GRID = 64
 
 
 def color(name: str, rgb: tuple[int, int, int] | None = None) -> int:
@@ -26,6 +28,8 @@ def color(name: str, rgb: tuple[int, int, int] | None = None) -> int:
     if name not in PALETTE:
         if rgb is None:
             raise KeyError(f"unknown colour {name}")
+        if len(_ORDER) >= GRID * GRID:
+            raise ValueError(f"palette full ({GRID * GRID} colours): raise GRID in sockkit.py")
         PALETTE[name] = rgb
         _ORDER.append(name)
     return _ORDER.index(name)
@@ -51,17 +55,13 @@ def swatch_uv(index: int) -> tuple[float, float]:
 def write_palette(path: str):
     size = SWATCH * GRID
     img = bpy.data.images.new("Palette", size, size, alpha=False)
-    px = [0.0] * (size * size * 4)
+    px = np.zeros((size, size, 4), np.float32)
+    px[..., 3] = 1.0
     for i, name in enumerate(_ORDER):
-        r, g, b = PALETTE[name]
         col, row = i % GRID, i // GRID
-        for y in range(SWATCH):
-            for x in range(SWATCH):
-                py = size - 1 - (row * SWATCH + y)  # Blender images are bottom-up
-                pxx = col * SWATCH + x
-                o = (py * size + pxx) * 4
-                px[o:o + 4] = [r / 255, g / 255, b / 255, 1.0]
-    img.pixels[:] = px
+        y1 = size - row * SWATCH  # Blender images are bottom-up: row 0 is the top
+        px[y1 - SWATCH:y1, col * SWATCH:(col + 1) * SWATCH, :3] = np.array(PALETTE[name], np.float32) / 255
+    img.pixels.foreach_set(px.ravel())
     img.filepath_raw = path
     img.file_format = "PNG"
     img.save()
@@ -457,10 +457,10 @@ def render_preview(objs: list, path: str, res=420, angle=-0.55, elev=0.28, sampl
     link(fill)
     # Cycles draws back faces; Roblox doesn't. Swap in a preview material that makes back faces
     # transparent so the inverted-hull outline renders the way it will in game.
-    prev = _preview_material()
     saved = {}
     for o in objs:
         saved[o.name] = list(o.data.materials)
+        prev = _preview_material(_own_image(o))  # baked bodies (or imported GLBs): their own image
         o.data.materials.clear()
         o.data.materials.append(prev)
     scn.render.filepath = path
@@ -476,11 +476,28 @@ def render_preview(objs: list, path: str, res=420, angle=-0.55, elev=0.28, sampl
         bpy.data.objects.remove(o)
 
 
-def _preview_material():
-    mat = bpy.data.materials.get("PalettePreview")
+def _own_image(o):
+    """The image a body shows when it isn't the shared palette (a baked texture, an imported GLB's
+    texture, or the image named by the object's "paint_image" property), else None."""
+    named = bpy.data.images.get(o.get("paint_image", ""))
+    if named:
+        return named
+    for m in o.data.materials:
+        if m and m.use_nodes:
+            for nd in m.node_tree.nodes:
+                if nd.type == "TEX_IMAGE" and nd.image and nd.image != _PALETTE_IMG \
+                        and not nd.image.name.lower().startswith("palette"):
+                    return nd.image
+    return None
+
+
+def _preview_material(img=None):
+    """The preview material: the palette (or a baked body's own image, Linear filtered like the game)."""
+    key = "PalettePreview" if img is None else "PaintPreview_" + img.name
+    mat = bpy.data.materials.get(key)
     if mat:
         return mat
-    mat = bpy.data.materials.new("PalettePreview")
+    mat = bpy.data.materials.new(key)
     mat.use_nodes = True
     nt = mat.node_tree
     out = nt.nodes.get("Material Output")
@@ -489,8 +506,8 @@ def _preview_material():
     if "Specular IOR Level" in bsdf.inputs:
         bsdf.inputs["Specular IOR Level"].default_value = 0.2
     tex = nt.nodes.new("ShaderNodeTexImage")
-    tex.image = _PALETTE_IMG
-    tex.interpolation = "Closest"
+    tex.image = _PALETTE_IMG if img is None else img
+    tex.interpolation = "Closest" if img is None else "Linear"
     nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
     geo = nt.nodes.new("ShaderNodeNewGeometry")
     transp = nt.nodes.new("ShaderNodeBsdfTransparent")

@@ -21,6 +21,10 @@ from sockkit import M, hexcol
 from props.common import *  # noqa: F401,F403 - shared colours (read-only)
 
 NAME = "Door"
+
+# texture classes for tools/blender/texturing.py where the colour names alone guess wrong
+MATERIALS = {"door_blue": "paintwood", "door_groove": "paintwood", "door_casing": "paintwood", "door_jamb": "paintwood",
+             "door_pin": "plastic", "door_sticker": "paper"}
 EXPORT_DIR = "map"
 
 # ---------------------------------------------------------------- palette
