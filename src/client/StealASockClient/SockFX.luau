@@ -5,16 +5,21 @@
 --    wiggle, wobble, hop, skate, shiver, float, spin), started ~0.8 s after placement so the
 --    server's buy hop finishes first.
 --  * Rainbow mutation hue cycling.
---  * One-shot bursts requested by the server (FX remote): buy, pair, perfect, steal, claim, snap.
+--  * One-shot bursts requested by the server (FX remote): buy, pair, perfect, steal, claim, snap, sell.
 --  * The Great Dryer's galaxy: its two layers spin, its glow breathes, and it puffs sparkles
 --    whenever a sock pops out onto the line.
 --  * The ceiling fan's blades turn; the invisible forcefield round the play area lights up a
 --    patch of glowing hexagon cells only where the player walks up to it.
 -- One Heartbeat loop for the socks; carried socks are left to physics.
+-- Settings (ClientSettings): "Hide others' effects" skips bursts away from you and outlines only your
+-- own socks (+ the dryer); "Low graphics" makes bursts smaller, drops their flash light and outlines
+-- fewer socks.
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+
+local ClientSettings = require(script.Parent:WaitForChild("ClientSettings"))
 
 local SockFX = {}
 
@@ -26,6 +31,7 @@ local rainbowParts = {} :: { [Model]: { BasePart } }
 -- Toon outlines: Roblox renders at most 31 Highlights at once, so only the socks nearest the
 -- camera (plus the dryer) get the thick dark outline from the concept art.
 local MAX_OUTLINES = 22
+local LOW_OUTLINES = 8 -- with Low graphics on
 local OUTLINE_COLOR = Color3.fromRGB(34, 22, 48)
 local highlights = {} :: { [Model]: Highlight }
 
@@ -52,6 +58,9 @@ local function refreshOutlines()
 		return
 	end
 	local camPos = cam.CFrame.Position
+	local onlyMine = ClientSettings.Get("hideOthersFX") == true
+	local budget = if ClientSettings.Get("lowGraphics") == true then LOW_OUTLINES else MAX_OUTLINES
+	local me = Players.LocalPlayer.UserId
 	local list = {}
 	for model in pairs(active) do
 		local leg = model.PrimaryPart
@@ -64,15 +73,16 @@ local function refreshOutlines()
 	end)
 	local shown = 0
 	for _, entry in ipairs(list) do
-		-- Blender meshes have the outline baked in; only Part-built socks need a Highlight
-		if entry.model:GetAttribute("FromMesh") then
+		-- Blender meshes have the outline baked in; only Part-built socks need a Highlight.
+		-- "Hide others' effects": only your own socks keep theirs.
+		if entry.model:GetAttribute("FromMesh") or (onlyMine and entry.model:GetAttribute("OwnerId") ~= me) then
 			local h = highlights[entry.model]
 			if h then
 				h.Enabled = false
 			end
 		else
 			shown += 1
-			outline(entry.model).Enabled = shown <= MAX_OUTLINES and entry.d < 140
+			outline(entry.model).Enabled = shown <= budget and entry.d < 140
 		end
 	end
 end
@@ -433,7 +443,7 @@ end
 local function dryerBurst(model: Model)
 	local lineStart = model:GetAttribute("LineStart")
 	if voidSparkles and typeof(lineStart) == "number" and workspace:GetServerTimeNow() - lineStart < 1.5 then
-		voidSparkles:Emit(24)
+		voidSparkles:Emit(if ClientSettings.Get("lowGraphics") == true then 10 else 24)
 	end
 end
 
@@ -555,9 +565,24 @@ local BURSTS = {
 	steal = { count = 24, color = Color3.fromRGB(255, 70, 70), size = 0.6, speed = 10, life = 0.6 },
 	claim = { count = 30, color = Color3.fromRGB(120, 255, 160), size = 0.5, speed = 9, life = 0.9 },
 	snap = { count = 16, color = Color3.fromRGB(255, 255, 255), size = 0.8, speed = 14, life = 0.4 },
+	-- a sock sold back from a drawer slot: a quick puff of gold coins with a few white sparkles
+	sell = { count = 26, color = Color3.fromRGB(255, 205, 70), size = 0.55, speed = 11, life = 0.9, coins = true, sparkles = 10 },
 }
 
+local HIDE_OTHERS_RANGE = 30 -- studs: with "Hide others' effects" on, only bursts this close to you play
+
+-- The FX remote doesn't say who caused a burst, so "near my character" stands in for "mine".
+local function nearMe(position: Vector3): boolean
+	local character = Players.LocalPlayer.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return root ~= nil and root:IsA("BasePart") and (root.Position - position).Magnitude <= HIDE_OTHERS_RANGE
+end
+
 function SockFX.Burst(kind: string, position: Vector3, color: Color3?)
+	if ClientSettings.Get("hideOthersFX") == true and not nearMe(position) then
+		return
+	end
+	local low = ClientSettings.Get("lowGraphics") == true
 	local spec = BURSTS[kind] or BURSTS.buy
 	local holder = Instance.new("Part")
 	holder.Name = "FX_" .. kind
@@ -585,15 +610,36 @@ function SockFX.Burst(kind: string, position: Vector3, color: Color3?)
 		})
 		e.Rotation = NumberRange.new(0, 360)
 		e.RotSpeed = NumberRange.new(-300, 300)
+	elseif spec.coins then
+		-- always coin gold (deepening as they fall), tumbling and popping upward first
+		e.Color = ColorSequence.new(spec.color, Color3.fromRGB(230, 150, 40))
+		e.Rotation = NumberRange.new(0, 360)
+		e.RotSpeed = NumberRange.new(-240, 240)
+		e.EmissionDirection = Enum.NormalId.Top
+		e.SpreadAngle = Vector2.new(55, 55)
+		e.Acceleration = Vector3.new(0, -26, 0)
 	else
 		e.Color = ColorSequence.new(color or spec.color)
 	end
 	e.Parent = holder
 	holder.Parent = workspace.CurrentCamera
-	e:Emit(spec.count)
-	if kind == "pair" or kind == "perfect" or kind == "claim" then
+	e:Emit(if low then math.max(4, math.floor(spec.count * 0.4)) else spec.count)
+	if spec.sparkles and not low then
+		local sparkle = Instance.new("ParticleEmitter")
+		sparkle.Rate = 0
+		sparkle.Lifetime = NumberRange.new(0.3, 0.6)
+		sparkle.Speed = NumberRange.new(4, 9)
+		sparkle.SpreadAngle = Vector2.new(180, 180)
+		sparkle.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.3, 0.35), NumberSequenceKeypoint.new(1, 0) })
+		sparkle.LightEmission = 1
+		sparkle.Color = ColorSequence.new(color or Color3.new(1, 1, 1))
+		sparkle.Drag = 3
+		sparkle.Parent = holder
+		sparkle:Emit(spec.sparkles)
+	end
+	if not low and (kind == "pair" or kind == "perfect" or kind == "claim" or kind == "sell") then
 		local l = Instance.new("PointLight")
-		l.Color = color or spec.color
+		l.Color = if spec.coins then spec.color else color or spec.color
 		l.Range = 14
 		l.Brightness = 2
 		l.Parent = holder
