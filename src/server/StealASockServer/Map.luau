@@ -37,13 +37,15 @@ local LAYOUT = {
 	DryerX = -172,
 	LintX = 174,
 	BaseXs = { -126, -42, 42, 126 },
-	BaseZ = 78, -- bases at +BaseZ (south) and -BaseZ (north), facing the line
+	BaseZ = 83, -- bases at +BaseZ (south) and -BaseZ (north), facing the line (front edge 62 from it)
 	BaseW = 46, -- drawer footprint (x)
-	BaseD = 32, -- drawer footprint (z)
+	BaseD = 42, -- drawer footprint (z): deep enough for three rows of slots
 	WallH = 9, -- drawer wall height (taller than a jump)
 	SlotCols = 4,
 	SlotSpacingX = 11,
-	SlotRowZ = { -8, 2 }, -- Phase 3 adds rows toward the back for rebirth levels
+	-- slot rows (base-local z, +Z = the front): rows 1-2 hold the BaseSlots, row 3 at the back is the
+	-- padlocked row the +4 Drawer Slots pass unlocks (StoreConfig.ExtraSlots)
+	SlotRowZ = { -3, 7, -13 },
 	SlotSize = 5,
 	FrontApron = 10, -- claim zone extends this far out the front of the drawer
 	SpawnZ = 30,
@@ -92,6 +94,10 @@ local C = {
 	Lint = Color3.fromRGB(190, 187, 204), -- matches the Blender basket's lavender-white lint
 	Basket = Color3.fromRGB(200, 160, 100),
 	DryerBlue = Color3.fromRGB(109, 165, 227),
+	LockGold = Color3.fromRGB(255, 196, 64), -- the back row's padlocks (the UI kit's gold candy)
+	LockShine = Color3.fromRGB(255, 228, 140),
+	LockSteel = Color3.fromRGB(196, 200, 214),
+	LockInk = Color3.fromRGB(46, 28, 40),
 }
 
 local function part(name: string, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?, parent: Instance, tag: string?): Part
@@ -875,7 +881,123 @@ local function buildClothesline(folder: Folder)
 	label(basket, "LINT TRAP", 28, 20, Color3.fromRGB(200, 200, 210))
 end
 
--- One base = one open dresser drawer with a felt lining and a little warm light.
+-- A chunky toy padlock (~3 studs tall) sitting on a back-row slot's cushion, keyhole facing out of
+-- the drawer. Plain Parts that never block or catch anything; Base shows/hides it through the
+-- parts' Transparency once it knows whether the owner has the +4 Drawer Slots pass.
+local function padlock(slot: BasePart, seatY: number, tilt: number): Model
+	local lock = Instance.new("Model")
+	lock.Name = "Padlock"
+	-- bottom centre on the seat, +Z out of the drawer, leaning a little like a dropped toy
+	local at = slot.CFrame * CFrame.new(0, seatY - slot.Position.Y, 0) * CFrame.Angles(0, 0, tilt)
+	local w, h, d = 2.6, 1.8, 1.2
+	local body = part("PadlockBody", Vector3.new(w, h, d), at * CFrame.new(0, h / 2, 0), C.LockGold, nil, lock)
+	part("PadlockCap", Vector3.new(w + 0.1, 0.35, d + 0.1), at * CFrame.new(0, h - 0.15, 0), C.LockShine, nil, lock)
+	-- keyhole: a round hole over a slot, both through the body so it shows front and back
+	local hole = part("PadlockKeyhole", Vector3.new(d + 0.06, 0.5, 0.5), at * CFrame.new(0, h / 2 + 0.12, 0) * CFrame.Angles(0, math.pi / 2, 0), C.LockInk, nil, lock)
+	hole.Shape = Enum.PartType.Cylinder
+	part("PadlockKeyslot", Vector3.new(0.22, 0.55, d + 0.06), at * CFrame.new(0, h / 2 - 0.22, 0), C.LockInk, nil, lock)
+	-- the shackle: two posts out of the cap and a half ring of short rods between them, with a
+	-- ball on every bend so the ring reads as one smooth bar
+	local r, t = 0.75, 0.4
+	local yc = h + 0.35
+	for _, sx in ipairs({ -1, 1 }) do
+		column("PadlockShackle", t / 2, yc - h + 0.3, at * CFrame.new(sx * r, (yc + h - 0.3) / 2, 0), C.LockSteel, nil, lock)
+	end
+	local n = 4
+	for k = 0, n - 1 do
+		local a0, a1 = k / n * math.pi, (k + 1) / n * math.pi
+		local p0 = Vector3.new(r * math.cos(a0), yc + r * math.sin(a0), 0)
+		local p1 = Vector3.new(r * math.cos(a1), yc + r * math.sin(a1), 0)
+		local rod = part("PadlockShackle", Vector3.new((p1 - p0).Magnitude, t, t), at * CFrame.new((p0 + p1) / 2) * CFrame.Angles(0, 0, math.atan2(p1.Y - p0.Y, p1.X - p0.X)), C.LockSteel, nil, lock)
+		rod.Shape = Enum.PartType.Cylinder
+		if k > 0 then
+			ball("PadlockShackle", t, at * CFrame.new(p0), C.LockSteel, nil, lock)
+		end
+	end
+	decor(lock)
+	lock.PrimaryPart = body
+	lock.Parent = slot
+	return lock
+end
+
+-- The back row's sign: a floating "🔒 +4 SLOTS" pill and the prompt that opens the Store. The
+-- client shows the prompt to the drawer's owner only; Base flips its Locked attribute and
+-- LockGui.Enabled.
+local function lockSign(cf: CFrame, model: Model)
+	local extra = S.Config.Store.ExtraSlots
+	local sign = part("LockSign", Vector3.new(1, 1, 1), cf, C.LockGold, nil, model)
+	sign.Transparency = 1
+	sign.CanCollide = false
+	sign.CanQuery = false
+	sign.CanTouch = false
+	sign.CastShadow = false
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "LockGui"
+	gui.Adornee = sign
+	gui.Size = UDim2.fromScale(8, 2.2) -- studs: a sign over the padlocks, shrinking with distance
+	gui.StudsOffset = Vector3.new(0, 2, 0) -- above the prompt's own pop-up
+	gui.AlwaysOnTop = false
+	gui.MaxDistance = 60
+	gui.LightInfluence = 0
+	-- the UI kit's candy pill: cream-to-gold gradient, plum outline, a soft gloss on top
+	local pill = Instance.new("Frame")
+	pill.Name = "Pill"
+	pill.Size = UDim2.fromScale(1, 1)
+	pill.BackgroundColor3 = Color3.new(1, 1, 1)
+	pill.BorderSizePixel = 0
+	pill.ZIndex = 1
+	pill.Parent = gui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.5, 0)
+	corner.Parent = pill
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(74, 42, 94)
+	stroke.Thickness = 3
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = pill
+	local gradient = Instance.new("UIGradient")
+	gradient.Rotation = 90
+	gradient.Color = ColorSequence.new(Color3.fromRGB(255, 244, 214), Color3.fromRGB(255, 190, 70))
+	gradient.Parent = pill
+	local gloss = Instance.new("Frame")
+	gloss.Name = "Gloss"
+	gloss.AnchorPoint = Vector2.new(0.5, 0)
+	gloss.Position = UDim2.fromScale(0.5, 0.08)
+	gloss.Size = UDim2.fromScale(0.86, 0.36)
+	gloss.BackgroundColor3 = Color3.new(1, 1, 1)
+	gloss.BackgroundTransparency = 0.6
+	gloss.BorderSizePixel = 0
+	gloss.ZIndex = 2
+	gloss.Parent = pill
+	local glossCorner = Instance.new("UICorner")
+	glossCorner.CornerRadius = UDim.new(0.5, 0)
+	glossCorner.Parent = gloss
+	local text = Instance.new("TextLabel")
+	text.Name = "LockText"
+	text.AnchorPoint = Vector2.new(0.5, 0.5)
+	text.Position = UDim2.fromScale(0.5, 0.52)
+	text.Size = UDim2.fromScale(0.84, 0.7)
+	text.BackgroundTransparency = 1
+	text.ZIndex = 3
+	text.Font = Enum.Font.FredokaOne
+	text.TextScaled = true
+	text.TextColor3 = Color3.fromRGB(70, 40, 8)
+	text.Text = "🔒 +" .. extra .. " SLOTS"
+	text.Parent = pill
+	gui.Parent = sign
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "UnlockSlotsPrompt"
+	prompt.ActionText = "Unlock"
+	prompt.ObjectText = "+" .. extra .. " Drawer Slots"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 18 -- reaches the whole back row from inside the drawer
+	prompt.RequiresLineOfSight = false
+	prompt:SetAttribute("Locked", true)
+	prompt.Parent = sign
+end
+
+-- One base = one open dresser drawer with a felt lining and a little warm light: three rows of
+-- slot cushions, the back one padlocked until the owner has the +4 Drawer Slots pass.
 -- Local space: origin at the drawer floor centre (y = 0 is the map floor), +Z points out of the
 -- drawer toward the clothesline.
 local function buildBase(index: number, x: number, z: number, folder: Folder): Model
@@ -939,18 +1061,24 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 		shutter:SetAttribute("Skinned", true)
 	end
 
-	-- Slots: little felt cushions
+	-- Slots: little felt cushions. The first BaseSlots fill rows 1-2; the back row (ExtraSlots more,
+	-- attribute BackRow) wears padlocks until the owner has the +4 Drawer Slots pass.
 	local slots = Instance.new("Folder")
 	slots.Name = "Slots"
 	slots.Parent = model
-	local total = S.Config.Economy.BaseSlots
+	local baseSlots = S.Config.Economy.BaseSlots
+	local total = baseSlots + S.Config.Store.ExtraSlots
+	local function rowZ(row: number): number
+		return L.SlotRowZ[row] or (L.SlotRowZ[#L.SlotRowZ] - (row - #L.SlotRowZ) * 10)
+	end
 	for i = 1, total do
 		local row = math.ceil(i / L.SlotCols)
 		local col = (i - 1) % L.SlotCols + 1
 		local sx = (col - (L.SlotCols + 1) / 2) * L.SlotSpacingX
-		local sz = L.SlotRowZ[row] or (L.SlotRowZ[#L.SlotRowZ] - (row - #L.SlotRowZ) * 10)
+		local sz = rowZ(row)
 		local slot = part("Slot_" .. i, Vector3.new(L.SlotSize, 0.6, L.SlotSize), cf * CFrame.new(sx, 1.5, sz), Color3.fromRGB(240, 200, 150), Enum.Material.SmoothPlastic, slots, "SockSlot")
 		slot:SetAttribute("Index", i)
+		local seatY = slot.Position.Y + slot.Size.Y / 2
 		-- a puffy tufted cushion instead of the flat pad; socks sit on its top (Base.SlotCFrame)
 		local cushion = placeTemplate("SlotCushion", cf * CFrame.new(sx, 1.3, sz), Vector3.new(7, 2.2, 7), slot)
 		if cushion then
@@ -960,12 +1088,18 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 			if lo and hi then
 				local seat = lo.Y + 0.76 * (hi.Y - lo.Y) -- the tufted middle, a little under the dome
 				slot:SetAttribute("SeatLift", seat - (slot.Position.Y + slot.Size.Y / 2 - 0.1))
+				seatY = seat
 			end
 		end
+		if i > baseSlots then
+			slot:SetAttribute("BackRow", true)
+			padlock(slot, seatY, if i % 2 == 0 then -0.1 else 0.1)
+		end
 	end
+	lockSign(cf * CFrame.new(0, 6.5, rowZ(math.ceil((baseSlots + 1) / L.SlotCols))), model)
 
 	-- Collect pad (inside, near the front) with the amount printed on it
-	local pad = part("CollectPad", Vector3.new(10, 0.3, 5), cf * CFrame.new(0, 1.35, 11), Color3.fromRGB(80, 230, 120), Enum.Material.Neon, model, "CollectPad")
+	local pad = part("CollectPad", Vector3.new(10, 0.3, 5), cf * CFrame.new(0, 1.35, 16), Color3.fromRGB(80, 230, 120), Enum.Material.Neon, model, "CollectPad")
 	local padGui = Instance.new("SurfaceGui")
 	padGui.Name = "PadGui"
 	padGui.Face = Enum.NormalId.Top
@@ -985,17 +1119,17 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 	padText.Parent = padGui
 	padGui.Parent = pad
 	-- gold coin tray round the pad (the pad keeps its glow, text and touch)
-	local tray = placeTemplate("CollectTray", cf * CFrame.new(0, 1.3, 11), Vector3.new(13.6, 2.4, 6.9), model)
+	local tray = placeTemplate("CollectTray", cf * CFrame.new(0, 1.3, 16), Vector3.new(13.6, 2.4, 6.9), model)
 	if tray then
 		decor(tray)
 	end
 
-	-- Slam Drawer button (tucked in the back-left corner, clear of slot 1's cushion; only reachable in person)
-	local buttonBase = part("ButtonBase", Vector3.new(3, 2, 3), cf * CFrame.new(-20, 2, -13), C.MetalDark, Enum.Material.Metal, model)
-	local button = part("SlamButton", Vector3.new(0.6, 2.4, 2.4), cf * CFrame.new(-20, 3.3, -13) * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(240, 60, 60), Enum.Material.Neon, model, "SlamButton")
+	-- Slam Drawer button (tucked in the back-left corner, clear of slot 9's cushion; only reachable in person)
+	local buttonBase = part("ButtonBase", Vector3.new(3, 2, 3), cf * CFrame.new(-20, 2, -18), C.MetalDark, Enum.Material.Metal, model)
+	local button = part("SlamButton", Vector3.new(0.6, 2.4, 2.4), cf * CFrame.new(-20, 3.3, -18) * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(240, 60, 60), Enum.Material.Neon, model, "SlamButton")
 	button.Shape = Enum.PartType.Cylinder
 	-- big red arcade button on a hazard-striped box (the part keeps the Slam prompt)
-	local skin = placeTemplate("SlamButton", cf * CFrame.new(-20, 1.3, -13), Vector3.new(3.6, 3.0, 3.6), model)
+	local skin = placeTemplate("SlamButton", cf * CFrame.new(-20, 1.3, -18), Vector3.new(3.6, 3.0, 3.6), model)
 	local slamLabelY = 2
 	if skin then
 		skin.Name = "SlamButtonSkin" -- Base looks the button part up as model.SlamButton

@@ -9,10 +9,12 @@ chamfered block handle, a box behind it in a much darker, cooler plum-brown, lig
 dark insides and dusty blue liner paper inside, inked where the paper meets the wood.
 
 Gameplay shape: players and socks walk in over the front, so the front panel stays LOW (30% of the
-wall height) and carries the handle; back and side walls are full height. The polka-dot liner floor
+wall height) and carries the handle; back and side walls are full height. The drawer is deep: three
+rows of four slot cushions, the back row padlocked until the +4 Drawer Slots pass (Map.luau builds
+the padlocks). The polka-dot liner floor
 is its own untinted object, `DrawerLiner` (no outline): Map.luau hides its flat felt when it finds
-it. Brass caps on the top corners; the liner paper on the walls is polka-dotted too. Dimensions below are in studs (Map.luau: 46 x 32 footprint inside
-9-stud invisible walls, fit box 52 x 15 x 38) and scaled by S into model units.
+it. Brass caps on the top corners; the liner paper on the walls is polka-dotted too. Dimensions below are in studs (Map.luau: 46 x 42 footprint inside
+9-stud invisible walls, fit box 52 x 15 x 48) and scaled by S into model units.
 """
 import bmesh
 import bpy
@@ -41,16 +43,17 @@ BRASS_D = hexcol("drawer_brass_dark", "#A9782A")
 INK = K.OUTLINE                                  # drawn ink lines inside the drawer
 
 # layout (studs). The game fits the bounding box (outline hull included: +OUTLINE all round) into
-# 52 x 15 x 38 and centres it, so:
+# 52 x 15 x 48 and centres it, so:
 #  - width: FX + OUTLINE = 26 keeps the scale at exactly 1 and puts the side liner face (IX - LINER
 #    = 22) on the inner face of the game's invisible side walls (x 22..23);
-#  - depth: the back outer face and the handle's tip sit at -/+ 18.0 (37.0 with the outline, < 38,
-#    centred), the back liner face lands at y 15 (the invisible back wall). The front slab and the
-#    deep handle fit because the front slab's inner face sits at YF, 1.3 studs inside the
-#    footprint edge, still clear of the CollectPad (y -13.5).
+#  - depth: the back outer face and the handle's tip sit at -/+ 23.0 (47.0 with the outline, < 48,
+#    centred), the back liner face lands at y 20 (the invisible back wall). The front slab and the
+#    deep handle fit because the front slab's inner face sits at YF, 2.3 studs inside the
+#    footprint edge (1.3 inside the game's shutter), still clear of the CollectPad (y -18.5).
+D2 = 21.0           # half the footprint depth (Map: BaseD / 2); only the depth grows with it
 IX = 22.3           # side wall inner faces at x +-IX
-IYB = 15.3          # back wall inner face
-YF = -13.7          # front slab inner face (side walls end here)
+IYB = D2 - 0.7      # back wall inner face (20.3)
+YF = -(D2 - 2.3)    # front slab inner face (-18.7; side walls end here)
 LINER = 0.3         # blue liner thickness
 OUTLINE = 0.52      # ink line width (~1% of the front, like the art's ink)
 WALL = 1.8          # side wall thickness
