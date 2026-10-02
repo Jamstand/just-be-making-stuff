@@ -14,6 +14,8 @@ local GLOW_PARTS: { [string]: Color3 } -- filled once the palette below exists
 local GLASS_PARTS: { [string]: { color: Color3, transparency: number } } = {
 	DryerGlass = { color = Color3.fromRGB(190, 225, 255), transparency = 0.55 },
 }
+-- the dryer's galaxy layers: each client spins them (StealASockClient.SockFX), so no shadows/collisions
+local SPIN_PARTS: { [string]: boolean } = { DryerVortex = true, DryerStars = true }
 local S
 
 local LAYOUT = {
@@ -209,6 +211,11 @@ local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent
 			d.Transparency = glass.transparency
 			d.CastShadow = false
 			d.CanCollide = false
+		elseif d:IsA("BasePart") and SPIN_PARTS[d.Name] then
+			d.CastShadow = false
+			d.CanCollide = false
+			d.CanQuery = false
+			d.CanTouch = false
 		end
 	end
 	-- the point that lands on floorCF: the bottom of the visible parts, centred on the _Base marker
@@ -252,6 +259,65 @@ local function pointLight(parent: BasePart, color: Color3, range: number, bright
 	l.Shadows = shadows == true
 	l.Parent = parent
 	return l
+end
+
+-- The Great Dryer's galaxy breathing out into the room: twinkling sparkles, fast bright motes and
+-- soft purple wisps, all leaving `mouth`'s Front face. `unit` = studs per model unit (~10), so the
+-- particles keep their size if the dryer's fit changes. SockFX also bursts VoidSparkles whenever a
+-- sock pops out onto the line.
+local function voidParticles(mouth: BasePart, unit: number)
+	local k = unit / 10
+	local function emitter(name: string): ParticleEmitter
+		local e = Instance.new("ParticleEmitter")
+		e.Name = name
+		e.EmissionDirection = Enum.NormalId.Front
+		e.LightInfluence = 0
+		e.ZOffset = 0.5
+		e.Rotation = NumberRange.new(0, 360)
+		e.Parent = mouth
+		return e
+	end
+	local sparkles = emitter("VoidSparkles")
+	sparkles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	sparkles.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.4, Color3.fromRGB(225, 175, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 90, 255)),
+	})
+	sparkles.LightEmission = 1
+	sparkles.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5 * k), NumberSequenceKeypoint.new(0.25, 1.4 * k), NumberSequenceKeypoint.new(1, 0) })
+	sparkles.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.75, 0.25), NumberSequenceKeypoint.new(1, 1) })
+	sparkles.Rate = 22
+	sparkles.Lifetime = NumberRange.new(1.8, 3.2)
+	sparkles.Speed = NumberRange.new(6 * k, 12 * k)
+	sparkles.SpreadAngle = Vector2.new(35, 35)
+	sparkles.Drag = 0.9
+	sparkles.Acceleration = Vector3.new(0, 1.5 * k, 0)
+	sparkles.RotSpeed = NumberRange.new(-200, 200)
+
+	local motes = emitter("VoidMotes")
+	motes.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	motes.Color = ColorSequence.new(Color3.fromRGB(255, 240, 255), Color3.fromRGB(255, 140, 230))
+	motes.LightEmission = 1
+	motes.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4 * k), NumberSequenceKeypoint.new(1, 0) })
+	motes.Rate = 30
+	motes.Lifetime = NumberRange.new(1, 1.8)
+	motes.Speed = NumberRange.new(10 * k, 16 * k)
+	motes.SpreadAngle = Vector2.new(20, 20)
+
+	local wisps = emitter("VoidWisps")
+	wisps.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	wisps.Color = ColorSequence.new(Color3.fromRGB(185, 125, 255), Color3.fromRGB(100, 50, 210))
+	wisps.LightEmission = 0.6
+	wisps.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 3 * k), NumberSequenceKeypoint.new(1, 7 * k) })
+	wisps.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(0.6, 0.65), NumberSequenceKeypoint.new(1, 1) })
+	wisps.Rate = 4
+	wisps.Lifetime = NumberRange.new(2.5, 4)
+	wisps.Speed = NumberRange.new(3 * k, 6 * k)
+	wisps.SpreadAngle = Vector2.new(15, 15)
+	wisps.Drag = 0.4
+	wisps.Acceleration = Vector3.new(0, 0.8 * k, 0)
+	wisps.RotSpeed = NumberRange.new(-30, 30)
 end
 
 -- ---------- floor, rug, walls ----------
@@ -563,6 +629,23 @@ local function buildDryer(folder: Folder)
 			swirl.Transparency = 1
 			core.Transparency = 1
 		end
+		-- particles flowing out of the galaxy, toward the clothesline (the model's front)
+		local basePos = MeshTemplate.MarkerPosition(dryerModel, "_Base")
+		local unitPos = MeshTemplate.MarkerPosition(dryerModel, "_Unit")
+		local front, unit = Vector3.new(1, 0, 0), 10
+		if basePos and unitPos then
+			local flat = Vector3.new(unitPos.X - basePos.X, 0, unitPos.Z - basePos.Z)
+			if flat.Magnitude > 1e-3 then
+				front, unit = flat.Unit, flat.Magnitude
+			end
+		end
+		local mouth = part("DryerVoidEmitter", Vector3.new(1.4 * unit, 1.4 * unit, 0.5), CFrame.lookAt(porthole + front * 0.15 * unit, porthole + front * unit), C.Swirl, Enum.Material.SmoothPlastic, folder, "Dryer")
+		mouth.Transparency = 1
+		mouth.CanCollide = false
+		mouth.CanQuery = false
+		mouth.CanTouch = false
+		mouth.CastShadow = false
+		voidParticles(mouth, unit)
 		local anchor = dryerModel.PrimaryPart or dryerModel:FindFirstChildWhichIsA("BasePart", true)
 		if anchor then
 			label(anchor, "THE GREAT DRYER", 34, dsize.Y / 2 + 6, Color3.fromRGB(255, 240, 120))

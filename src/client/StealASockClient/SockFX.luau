@@ -6,7 +6,9 @@
 --    server's buy hop finishes first.
 --  * Rainbow mutation hue cycling.
 --  * One-shot bursts requested by the server (FX remote): buy, pair, perfect, steal, claim, snap.
--- One Heartbeat loop for all of it; carried socks are left to physics.
+--  * The Great Dryer's galaxy: its two layers spin, its glow breathes, and it puffs sparkles
+--    whenever a sock pops out onto the line.
+-- One Heartbeat loop for the socks; carried socks are left to physics.
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
 local RunService = game:GetService("RunService")
@@ -123,9 +125,93 @@ local function lineCFrame(model: Model, now: number, phase: number): CFrame?
 	return CFrame.new(x, lineY - drop, 0) * CFrame.new(0, pinOffset, 0) * CFrame.Angles(0, 0, sway) * CFrame.new(0, -pinOffset, 0)
 end
 
+-- ---------- the Great Dryer's galaxy ----------
+-- The Blender dryer exports its galaxy as two textured layers (tools/blender/props/dryer.py). They
+-- turn here, on each client, about the porthole axis: through the Dryer_Pin marker, along the
+-- machine's front (Dryer_Base -> Dryer_Unit). Counter-clockwise seen from the front, so the spiral
+-- arms seem to drain into the void; the stars turn faster for depth. Rad/s:
+local VORTEX_LAYERS: { [string]: number } = { DryerVortex = 0.55, DryerStars = 0.85 }
+local PORTAL_DIM, PORTAL_BRIGHT = Color3.fromRGB(150, 90, 255), Color3.fromRGB(205, 150, 255)
+local voidSparkles: ParticleEmitter? = nil
+
+local function findSuffix(root: Instance, suffix: string): BasePart?
+	for _, d in ipairs(root:GetDescendants()) do
+		if d:IsA("BasePart") and string.sub(d.Name, -#suffix) == suffix then
+			return d
+		end
+	end
+	return nil
+end
+
+local function startDryer(mapFolder: Instance)
+	local emitterPart = mapFolder:WaitForChild("DryerVoidEmitter", 20)
+	local sparkles = emitterPart and emitterPart:FindFirstChild("VoidSparkles")
+	if sparkles and sparkles:IsA("ParticleEmitter") then
+		voidSparkles = sparkles
+	end
+	local dryer = mapFolder:WaitForChild("Dryer", 20)
+	if not dryer then
+		return -- the Part-built dryer has no galaxy layers
+	end
+	-- parts can stream in after the model: give them a few seconds
+	local pin, base, unit
+	local layers = {} :: { { part: BasePart, rest: CFrame, speed: number } }
+	local portal: BasePart? = nil
+	for _ = 1, 20 do
+		pin, base, unit = findSuffix(dryer, "_Pin"), findSuffix(dryer, "_Base"), findSuffix(dryer, "_Unit")
+		layers = {}
+		for name, speed in pairs(VORTEX_LAYERS) do
+			local p = dryer:FindFirstChild(name, true)
+			if p and p:IsA("BasePart") then
+				table.insert(layers, { part = p, rest = p.CFrame, speed = speed })
+			end
+		end
+		local glow = dryer:FindFirstChild("DryerPortal", true)
+		portal = if glow and glow:IsA("BasePart") then glow else nil
+		if pin and base and unit and #layers == 2 then
+			break
+		end
+		task.wait(0.5)
+	end
+	if not (pin and base and unit) then
+		return
+	end
+	local flat = Vector3.new(unit.Position.X - base.Position.X, 0, unit.Position.Z - base.Position.Z)
+	if flat.Magnitude < 1e-3 then
+		return
+	end
+	local axis = flat.Unit
+	local centre = pin.Position
+	RunService.RenderStepped:Connect(function()
+		local t = os.clock()
+		for _, layer in ipairs(layers) do
+			layer.part.CFrame = CFrame.new(centre) * CFrame.fromAxisAngle(axis, t * layer.speed) * CFrame.new(-centre) * layer.rest
+		end
+		if portal then
+			portal.Color = PORTAL_DIM:Lerp(PORTAL_BRIGHT, (math.sin(t * 2.2) + 1) * 0.25)
+		end
+	end)
+end
+
+-- a sock that just popped out of the dryer: puff some sparkles out of the galaxy
+local function dryerBurst(model: Model)
+	local lineStart = model:GetAttribute("LineStart")
+	if voidSparkles and typeof(lineStart) == "number" and workspace:GetServerTimeNow() - lineStart < 1.5 then
+		voidSparkles:Emit(24)
+	end
+end
+
 local function track(model: Instance)
 	if not model:IsA("Model") then
 		return
+	end
+	-- the server sets LineStart just after parenting a new line sock: catch it either way
+	if model:GetAttribute("LineStart") ~= nil then
+		dryerBurst(model)
+	else
+		model:GetAttributeChangedSignal("LineStart"):Once(function()
+			dryerBurst(model)
+		end)
 	end
 	active[model] = true
 	if model:GetAttribute("Rainbow") then
@@ -160,6 +246,13 @@ function SockFX.Init()
 		track(model)
 	end
 	CollectionService:GetInstanceAddedSignal("Sock"):Connect(track)
+
+	task.spawn(function()
+		local mapFolder = root and root:WaitForChild("Map", 10)
+		if mapFolder then
+			startDryer(mapFolder)
+		end
+	end)
 
 	-- the Great Dryer always gets an outline; socks are re-ranked by distance twice a second
 	task.spawn(function()

@@ -55,7 +55,9 @@ inside-out copy, so Roblox only draws its rim) and small marker parts the game r
 `MeshTemplate.luau` uses them to turn the model to face +Z, scale it, anchor it and hide the
 markers; outlines get `CastShadow = false`. A few parts come in untextured and `Map` styles them by
 name: `LampGlow` (the lamp globe), `DryerPortal` (the galaxy's glow) and `MoonGlow` (the window's
-moon) become Neon; `DryerGlass` (the open door's glass) becomes see-through Glass.
+moon) become Neon; `DryerGlass` (the open door's glass) becomes see-through Glass. The dryer's
+galaxy comes as two textured layers, `DryerVortex` and `DryerStars`, which every client spins about
+the porthole (`SockFX`), while `Map` adds sparkle, mote and wisp particles flowing out of it.
 
 **Re-making the meshes** (only needed if you change a shape or colour in the scripts): install
 Python 3.11 and `pip install bpy==4.5.14` in a venv, then from the repo root run
