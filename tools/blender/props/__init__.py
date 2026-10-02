@@ -21,12 +21,17 @@ import importlib
 
 # module name = NAME.lower(); order = export order
 MODULE_NAMES = ["dryer", "bed", "nightstand", "lamp", "blocks", "duck", "teddy", "crayons", "basket", "drawer",
-                "window", "bookshelf", "picture", "clothespin"]
+                "window", "bookshelf", "picture", "clothespin", "cushion", "slambutton", "cointray", "drawerfront"]
+
+
+# NAME -> module for props whose module name isn't just NAME.lower()
+ALIASES = {"slotcushion": "cushion", "collecttray": "cointray"}
 
 
 def load(name: str):
     """Imports just one prop module (by NAME or module name) - a broken module elsewhere can't stop it."""
-    return importlib.import_module("props." + name.lower())
+    key = name.lower()
+    return importlib.import_module("props." + ALIASES.get(key, key))
 
 
 def load_all():

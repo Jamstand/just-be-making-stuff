@@ -9,8 +9,9 @@ chamfered block handle, a box behind it in a much darker, cooler plum-brown, lig
 dark insides and dusty blue liner paper inside, inked where the paper meets the wood.
 
 Gameplay shape: players and socks walk in over the front, so the front panel stays LOW (30% of the
-wall height) and carries the handle; back and side walls are full height. No floor - Map.luau
-draws the floor and the felt. Dimensions below are in studs (Map.luau: 46 x 32 footprint inside
+wall height) and carries the handle; back and side walls are full height. The polka-dot liner floor
+is its own untinted object, `DrawerLiner` (no outline): Map.luau hides its flat felt when it finds
+it. Brass caps on the top corners; the liner paper on the walls is polka-dotted too. Dimensions below are in studs (Map.luau: 46 x 32 footprint inside
 9-stud invisible walls, fit box 52 x 15 x 38) and scaled by S into model units.
 """
 import bmesh
@@ -31,6 +32,12 @@ WOOD_S = hexcol("drawer_wood_shade", "#8A3F2E")  # undersides
 WOOD_X = hexcol("drawer_wood_box", "#63303A")    # outside of the box walls (art: #582A30-#5A2B31, cool plum)
 WOOD_IN = hexcol("drawer_wood_inner", "#4A1E1C")  # inside faces above the liner (art: #38151A-#491C1D)
 FELT = hexcol("drawer_felt", "#5272A8")          # blue liner paper (art: dusty denim #5976A0-#6A85A8)
+FELT_FLOOR = hexcol("drawer_felt_floor", "#5878B4")  # the liner floor, a touch brighter (it faces the lamp)
+DOT = hexcol("drawer_dot", "#EAF0FF")             # polka dots on the liner
+DOT2 = hexcol("drawer_dot_small", "#8EA8D8")      # the small in-between dots
+BRASS = hexcol("drawer_brass", "#E2AE45")
+BRASS_T = hexcol("drawer_brass_top", "#FFD780")
+BRASS_D = hexcol("drawer_brass_dark", "#A9782A")
 INK = K.OUTLINE                                  # drawn ink lines inside the drawer
 
 # layout (studs). The game fits the bounding box (outline hull included: +OUTLINE all round) into
@@ -161,6 +168,87 @@ def _no_bounce(outline):
     outline.visible_transmission = False
 
 
+def _dots(points, normal, radius, pal, seg=10, name="dots"):
+    """Flat round dots (one n-gon each) centred on `points` (studs), facing `normal` (+-x/+-y/+z)."""
+    import math
+    n = Vector(normal)
+    a = Vector((0, 0, 1)) if abs(n.z) < 0.5 else Vector((1, 0, 0))
+    u = n.cross(a).normalized()
+    v = n.cross(u).normalized()
+    verts, faces = [], []
+    for c in points:
+        c = Vector(c)
+        base = len(verts)
+        for k in range(seg):
+            t = k / seg * math.tau
+            verts.append(_v(*(c + (u * math.cos(t) + v * math.sin(t)) * radius)))
+        faces.append(list(range(base, base + seg)))
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([tuple(q) for q in verts], [], faces)
+    me.update()
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    for f in bm.faces:
+        if f.normal.dot(n) < 0:
+            f.normal_flip()
+    bm.to_mesh(me)
+    bm.free()
+    return K.Piece(me, pal, outline=False, smooth=False, name=name)
+
+
+def _grid(u0, u1, v0, v1, step, stagger=True):
+    """Points of a staggered polka grid inside [u0, u1] x [v0, v1] (big dots, small dots)."""
+    big, small = [], []
+    j = 0
+    v = v0 + step / 2
+    while v < v1 - step * 0.3:
+        off = step / 2 if (stagger and j % 2) else 0.0
+        u = u0 + step / 2 + off
+        while u < u1 - step * 0.3:
+            big.append((u, v))
+            if u + step / 2 < u1 - step * 0.3:
+                small.append((u + step / 2, v))
+            u += step
+        v += step
+        j += 1
+    return big, small
+
+
+def _liner_floor():
+    """The polka-dot liner floor (its own object, DrawerLiner): top at 1.3 studs, where the game's
+    felt used to be, from the inner wall faces to the front slab."""
+    z0, z1 = 1.0, 1.3
+    x0, x1, y0, y1 = -(IX - LINER), IX - LINER, YF, IYB - LINER
+    p = [K.Piece(_box((x1 - x0, y1 - y0, z1 - z0), (0, (y0 + y1) / 2, (z0 + z1) / 2), 0.05, 1, "liner_floor"),
+                 FELT_FLOOR, outline=False, smooth=False, name="liner_floor")]
+    big, small = _grid(x0, x1, y0, y1, 3.4)
+    p.append(_dots([(u, w, z1 + 0.02) for u, w in big], (0, 0, 1), 0.5, DOT, name="floor_dots"))
+    p.append(_dots([(u, w, z1 + 0.02) for u, w in small], (0, 0, 1), 0.22, DOT2, seg=8, name="floor_dots2"))
+    return K.textured_object(p, "DrawerLiner")
+
+
+def _wall_dots(lh, ly0):
+    """Polka dots on the liner paper's inner faces (sides and back)."""
+    zlo, zhi = 1.6, lh - 0.6
+    out = []
+    xi = IX - LINER - 0.02
+    for sx in (-1, 1):
+        big, small = _grid(ly0 + 0.4, IYB - LINER, zlo, zhi, 2.6)
+        out.append(_dots([(sx * xi, u, w) for u, w in big], (-sx, 0, 0), 0.4, DOT, name="side_dots"))
+        out.append(_dots([(sx * xi, u, w) for u, w in small], (-sx, 0, 0), 0.18, DOT2, seg=8, name="side_dots2"))
+    yb = IYB - LINER - 0.02
+    big, small = _grid(-(IX - LINER), IX - LINER, zlo, zhi, 2.6)
+    out.append(_dots([(u, yb, w) for u, w in big], (0, -1, 0), 0.4, DOT, name="back_dots"))
+    out.append(_dots([(u, yb, w) for u, w in small], (0, -1, 0), 0.18, DOT2, seg=8, name="back_dots2"))
+    return out
+
+
+def _brass(size, center):
+    piece = K.Piece(_box(size, center, 0.18, 2, "brass"), BRASS, outline=True, smooth=False, name="brass")
+    piece.face_pal = [BRASS_T if f.normal.z > 0.6 else (BRASS_D if f.normal.z < -0.6 else BRASS) for f in piece.mesh.polygons]
+    return piece
+
+
 def build():
     ox, by = IX + WALL, IYB + BACK
     # back + side walls: one U-shaped solid with rounded edges; the sides end at the front slab
@@ -203,6 +291,13 @@ def build():
     handle = _box((HW, HD + 0.2, HH), (0, hy, FH / 2), bevel=HB, segs=1, name="handle")
     p.append(_paint(handle, lambda n, c: WOOD_T if n.z > 0.6 else (WOOD_S if n.z < -0.6 else WOOD_B), name="handle"))
 
+    p += _wall_dots(lh, ly0)
+    # brass caps on the back corners (over the wall tops) and on the front slab's ends
+    for sx in (-1, 1):
+        p.append(_brass((2.6, 2.6, 0.5), (sx * (ox - 1.1), by - 1.1, H + 0.15)))
+        p.append(_brass((1.6, FT + 0.5, FH + 0.4), (sx * (FX - 0.6), fy, (FH + 0.4) / 2 - 0.05)))
+
     body, outline = K.finish(p, NAME, outline_width=OUTLINE * S)
     _no_bounce(outline)
-    return [body, outline] + K.markers(NAME)
+    liner = _liner_floor()
+    return [body, outline, liner] + K.markers(NAME)
