@@ -40,6 +40,18 @@ UISound.StartMusic()
 
 local screens = { HUD, ShopUI, StoreUI, DexUI, SockCard }
 Remotes:WaitForChild("State").OnClientEvent:Connect(function(state)
+	if type(state) ~= "table" then
+		return
+	end
+	-- the server sends slots with string keys (a gappy array could be cut short); screens index by number
+	local slots = {}
+	for k, view in pairs(if type(state.slots) == "table" then state.slots else {}) do
+		local i = tonumber(k)
+		if i then
+			slots[i] = view
+		end
+	end
+	state.slots = slots
 	ClientSettings.Load(state.settings)
 	for _, screen in ipairs(screens) do
 		screen.SetState(state)

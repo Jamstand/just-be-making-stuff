@@ -70,7 +70,10 @@ function Anim.popOut(gui: GuiObject, onDone: (() -> ())?)
 	if gui:IsA("CanvasGroup") then
 		Anim.tween(gui, 0.16, { GroupTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 	end
-	tw.Completed:Once(function()
+	tw.Completed:Once(function(playbackState)
+		if playbackState ~= Enum.PlaybackState.Completed then
+			return -- a newer popIn took over: stay visible
+		end
 		gui.Visible = false
 		s.Scale = 1
 		if onDone then

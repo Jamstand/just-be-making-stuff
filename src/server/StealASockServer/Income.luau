@@ -73,10 +73,10 @@ function Income.Push(player: Player)
 	end
 	local rebirths = profile.Data.rebirths
 	local mult = passMult(player)
-	local slots = {}
+	local slots = {} -- string keys: an array with gaps (an empty middle slot) could be cut short by the remote
 	for i, sock in pairs(S.Base.SlotSocks(record)) do
 		local t = S.Registry.Type(sock)
-		slots[i] = {
+		slots[tostring(i)] = {
 			uid = sock.uid,
 			typeId = sock.typeId,
 			name = t.name,

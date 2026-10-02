@@ -61,7 +61,7 @@ export type StateView = {
 	uncollected: number,
 	rebirths: number,
 	slotCount: number,
-	slots: { SlotView }, -- index = slot number; empty slots are absent
+	slots: { SlotView }, -- index = slot number; empty slots are absent (sent with string keys, init.client turns them back into numbers)
 	lockedUntil: number, -- workspace:GetServerTimeNow() timestamp, 0 when open
 	lockCooldownUntil: number,
 	baseIndex: number,
