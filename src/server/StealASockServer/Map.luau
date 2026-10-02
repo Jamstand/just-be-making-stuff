@@ -14,18 +14,21 @@ local GLOW_PARTS: { [string]: Color3 } -- filled once the palette below exists
 local GLASS_PARTS: { [string]: { color: Color3, transparency: number } } = {
 	DryerGlass = { color = Color3.fromRGB(190, 225, 255), transparency = 0.55 },
 }
--- the dryer's galaxy layers: each client spins them (StealASockClient.SockFX), so no shadows/collisions
-local SPIN_PARTS: { [string]: boolean } = { DryerVortex = true, DryerStars = true }
+-- the dryer's galaxy layers and the ceiling fan's blades: each client spins them
+-- (StealASockClient.SockFX), so no shadows/collisions
+local SPIN_PARTS: { [string]: boolean } = { DryerVortex = true, DryerStars = true, FanBlades = true }
 local S
 
 local LAYOUT = {
-	FloorX = 760, -- the whole bedroom; the furniture and clutter stand round the rug
-	FloorZ = 560,
+	-- the whole bedroom, sized like a real kid's room around the bed (bed 290 long = ~2 m, so ~145
+	-- studs per metre: 7.6 x 6.2 m, 2.75 m ceiling); the furniture and clutter stand round the rug
+	FloorX = 1100,
+	FloorZ = 900,
 	RugX = 440, -- the play area: drawers, clothesline, dryer, lint trap (inside the forcefield)
 	RugZ = 260,
 	FieldHeight = 60, -- the forcefield round the rug keeps players off the furniture
 	Tile = 20,
-	WallHeight = 170,
+	WallHeight = 400, -- walls up to the ceiling (with the ceiling fan in the middle)
 	LineY = 15, -- clothesline rail height
 	LineStartX = -160, -- inside the dryer drum: socks slide out of it
 	LineEndX = 150,
@@ -84,6 +87,8 @@ local C = {
 	Metal = Color3.fromRGB(233, 238, 245),
 	MetalDark = Color3.fromRGB(70, 90, 130),
 	Swirl = Color3.fromRGB(123, 63, 224),
+	Ceiling = Color3.fromRGB(58, 50, 104), -- the ceiling at night, a shade darker than the walls
+	FanLight = Color3.fromRGB(255, 236, 200),
 	Lint = Color3.fromRGB(190, 187, 204), -- matches the Blender basket's lavender-white lint
 	Basket = Color3.fromRGB(200, 160, 100),
 	DryerBlue = Color3.fromRGB(109, 165, 227),
@@ -270,6 +275,7 @@ GLOW_PARTS = {
 	LampGlow = C.Lamp,
 	DryerPortal = Color3.fromRGB(150, 90, 255),
 	MoonGlow = C.MoonGlow,
+	FanLight = C.FanLight,
 }
 
 local function pointLight(parent: BasePart, color: Color3, range: number, brightness: number, shadows: boolean?): PointLight
@@ -369,7 +375,7 @@ local function buildFloor(folder: Folder)
 			t.CanCollide = false
 		end
 	end
-	-- walls with wallpaper stripes and a baseboard (no ceiling: the night sky is the ceiling)
+	-- walls with wallpaper stripes, a baseboard, a ceiling and crown molding
 	local walls = Instance.new("Folder")
 	walls.Name = "Walls"
 	walls.Parent = folder
@@ -377,20 +383,45 @@ local function buildFloor(folder: Folder)
 	local function wall(name: string, size: Vector3, cf: CFrame, along: string)
 		part(name, size, cf, C.Wall, Enum.Material.SmoothPlastic, walls, "MapWall")
 		local length = if along == "x" then size.X else size.Z
-		for i = 0, length / 40 - 1 do
-			local offset = -length / 2 + 20 + i * 40
+		for i = 0, length / 80 - 1 do
+			local offset = -length / 2 + 40 + i * 80
 			local scf = if along == "x" then cf * CFrame.new(offset, 0, 0) else cf * CFrame.new(0, 0, offset)
-			local ssize = if along == "x" then Vector3.new(14, h, size.Z + 0.2) else Vector3.new(size.X + 0.2, h, 14)
+			local ssize = if along == "x" then Vector3.new(28, h, size.Z + 0.2) else Vector3.new(size.X + 0.2, h, 28)
 			local stripe = part("Stripe", ssize, scf, C.WallStripe, Enum.Material.SmoothPlastic, walls, "MapWall")
 			stripe.CanCollide = false
 		end
-		local bsize = if along == "x" then Vector3.new(size.X, 5, size.Z + 1.2) else Vector3.new(size.X + 1.2, 5, size.Z)
-		part("Baseboard", bsize, cf * CFrame.new(0, -h / 2 + 2.5, 0), C.Baseboard, Enum.Material.SmoothPlastic, walls, "MapWall")
+		local bh = 14 -- a real ~10 cm baseboard at this scale
+		local bsize = if along == "x" then Vector3.new(size.X, bh, size.Z + 3) else Vector3.new(size.X + 3, bh, size.Z)
+		part("Baseboard", bsize, cf * CFrame.new(0, -h / 2 + bh / 2, 0), C.Baseboard, Enum.Material.SmoothPlastic, walls, "MapWall")
+		local msize = if along == "x" then Vector3.new(size.X, 10, size.Z + 6) else Vector3.new(size.X + 6, 10, size.Z)
+		local molding = part("CrownMolding", msize, cf * CFrame.new(0, h / 2 - 5, 0), C.Baseboard, Enum.Material.SmoothPlastic, walls, "MapWall")
+		molding.CastShadow = false
 	end
 	wall("WallNorth", Vector3.new(L.FloorX + 4, h, 3), CFrame.new(0, h / 2, -L.FloorZ / 2 - 1.5), "x")
 	wall("WallSouth", Vector3.new(L.FloorX + 4, h, 3), CFrame.new(0, h / 2, L.FloorZ / 2 + 1.5), "x")
 	wall("WallWest", Vector3.new(3, h, L.FloorZ), CFrame.new(-L.FloorX / 2 - 1.5, h / 2, 0), "z")
 	wall("WallEast", Vector3.new(3, h, L.FloorZ), CFrame.new(L.FloorX / 2 + 1.5, h / 2, 0), "z")
+	-- the ceiling: no shadow, so the moonlight from the window still lights the room
+	local ceiling = part("Ceiling", Vector3.new(L.FloorX + 6, 2, L.FloorZ + 6), CFrame.new(0, h + 1, 0), C.Ceiling, Enum.Material.SmoothPlastic, walls, "MapWall")
+	ceiling.CastShadow = false
+end
+
+-- The ceiling fan hangs in the middle of the ceiling; its FanBlades spin on every client (SockFX)
+-- and its FanLight glows. Mesh only.
+local function buildCeilingFan(folder: Folder)
+	local fan = placeTemplate("CeilingFan", CFrame.new(0, 0, 0), Vector3.new(220, 110, 220), folder, "Furniture")
+	if not fan then
+		return
+	end
+	local _, hi = MeshTemplate.SolidBounds(fan)
+	if hi then
+		fan:PivotTo(fan:GetPivot() + Vector3.new(0, LAYOUT.WallHeight - hi.Y, 0)) -- canopy against the ceiling
+	end
+	decor(fan)
+	local glow = fan:FindFirstChild("FanLight", true)
+	if glow and glow:IsA("BasePart") then
+		pointLight(glow, C.FanLight, 60, 0.8)
+	end
 end
 
 -- ---------- furniture ----------
@@ -435,8 +466,10 @@ end
 -- Round moon window above the bed, like the concept: a porthole with a crescent moon.
 local function buildWindow(folder: Folder)
 	local z0 = -LAYOUT.FloorZ / 2 -- north wall
-	local wx, wy = 0, 122 -- centred over the bed, above its blanket
-	local mesh = placeTemplate("Window", CFrame.new(wx, wy - 36, z0), Vector3.new(72, 72, 10), folder, "Furniture", true)
+	local wx, wy = 0, 230 -- centred over the bed, a real ~1 m round window
+	-- curtains framing it (mesh only): rod above, drapes down to just over the bed
+	placeTemplate("Curtains", CFrame.new(wx, 115, z0), Vector3.new(320, 240, 24), folder, "Furniture", true)
+	local mesh = placeTemplate("Window", CFrame.new(wx, wy - 70, z0), Vector3.new(140, 140, 24), folder, "Furniture", true)
 	if mesh then
 		local moon = mesh:FindFirstChild("MoonGlow", true)
 		local anchor = if moon and moon:IsA("BasePart") then moon else mesh:FindFirstChildWhichIsA("BasePart", true)
@@ -461,23 +494,23 @@ end
 local function buildNightstand(folder: Folder)
 	local L = LAYOUT
 	-- beside the bed's head end (the bed spans x -145..145), back against the north wall
-	local x, z = -182, -L.FloorZ / 2 + 30
+	local x, z = -192, -L.FloorZ / 2 + 38
 	local h = 92
 	-- concept proportions: the nightstand's top is about level with the mattress, and the lamp
 	-- globe is about 0.6 of the nightstand's width
-	local stand = placeTemplate("Nightstand", CFrame.new(x, 0, z), Vector3.new(52, 54, 52), folder, "Furniture")
+	local stand = placeTemplate("Nightstand", CFrame.new(x, 0, z), Vector3.new(72, 80, 72), folder, "Furniture")
 	if stand then
 		local _, standHi = MeshTemplate.SolidBounds(stand)
-		local standTop = if standHi then standHi.Y else 54
+		local standTop = if standHi then standHi.Y else 80
 		local lampTop = standTop + 50
 		-- lamp toward the back-left, the alarm clock front-right turned a little toward the room
-		local lamp = placeTemplate("Lamp", CFrame.new(x - 9, standTop, z - 4), Vector3.new(33, 40, 33), folder, "Furniture")
-		local clock = placeTemplate("AlarmClock", CFrame.new(x + 15, standTop, z + 11) * CFrame.Angles(0, 0.35, 0), Vector3.new(16, 18, 10), folder, "Furniture")
+		local lamp = placeTemplate("Lamp", CFrame.new(x - 12, standTop, z - 6), Vector3.new(46, 56, 46), folder, "Furniture")
+		local clock = placeTemplate("AlarmClock", CFrame.new(x + 21, standTop, z + 15) * CFrame.Angles(0, 0.35, 0), Vector3.new(22, 25, 14), folder, "Furniture")
 		if clock then
 			decor(clock)
 		end
-		x -= 9 -- the bulb and its light sit in the lamp
-		z -= 4
+		x -= 12 -- the bulb and its light sit in the lamp
+		z -= 6
 		local lampLo, lampHi
 		if lamp then
 			lampLo, lampHi = MeshTemplate.SolidBounds(lamp)
@@ -533,14 +566,29 @@ end
 -- stands outside the forcefield, between the rug and the walls. `face` turns the piece's front
 -- (+Z) toward the room; wall pieces put their back on the wall (alignBack).
 local CLUTTER = {
-	{ name = "Picture", at = Vector3.new(-380, 62, -40), face = math.pi / 2, fit = Vector3.new(90, 68, 6), wall = true },
-	{ name = "Bookshelf", at = Vector3.new(380, 0, -150), face = -math.pi / 2, fit = Vector3.new(110, 100, 42), wall = true },
-	{ name = "Dresser", at = Vector3.new(170, 0, 280), face = math.pi, fit = Vector3.new(130, 110, 60), wall = true },
-	{ name = "ToyChest", at = Vector3.new(265, 0, -225), face = -math.pi / 4, fit = Vector3.new(90, 60, 55) },
-	{ name = "BeachBall", at = Vector3.new(300, 0, 75), face = 0.4, fit = Vector3.new(40, 38, 40) },
-	{ name = "BookStack", at = Vector3.new(-290, 0, -190), face = 0.9, fit = Vector3.new(40, 42, 32) },
-	{ name = "ToyCar", at = Vector3.new(40, 0, 212), face = 2.6, fit = Vector3.new(44, 32, 70) }, -- nose = front, so its length is Z
-	{ name = "Slippers", at = Vector3.new(-115, 0, 222), face = math.pi + 0.3, fit = Vector3.new(60, 20, 50) },
+	-- north wall (the bed, nightstand, window and curtains are built above)
+	{ name = "ToyChest", at = Vector3.new(320, 0, -395), face = 0, fit = Vector3.new(116, 78, 72) },
+	{ name = "PottedPlant", at = Vector3.new(495, 0, -400), face = -0.4, fit = Vector3.new(90, 170, 90) },
+	{ name = "PosterRocket", at = Vector3.new(-345, 140, -450), face = 0, fit = Vector3.new(90, 130, 4), wall = true },
+	-- west wall: wardrobe, desk + chair with a picture above, a pennant
+	{ name = "Wardrobe", at = Vector3.new(-550, 0, -250), face = math.pi / 2, fit = Vector3.new(180, 300, 95), wall = true },
+	{ name = "Pennant", at = Vector3.new(-550, 250, -40), face = math.pi / 2, fit = Vector3.new(120, 50, 6), wall = true },
+	{ name = "Desk", at = Vector3.new(-550, 0, 170), face = math.pi / 2, fit = Vector3.new(200, 115, 100), wall = true },
+	{ name = "DeskChair", at = Vector3.new(-418, 0, 195), face = -math.pi / 2, fit = Vector3.new(80, 140, 80) },
+	{ name = "Picture", at = Vector3.new(-550, 175, 170), face = math.pi / 2, fit = Vector3.new(110, 82, 10), wall = true },
+	{ name = "TrashCan", at = Vector3.new(-490, 0, 305), face = 0.6, fit = Vector3.new(50, 64, 50) },
+	{ name = "BookStack", at = Vector3.new(-360, 0, -120), face = 0.9, fit = Vector3.new(40, 42, 32) },
+	-- east wall: low bookshelf with a poster above, bean bag, hamper
+	{ name = "Bookshelf", at = Vector3.new(550, 0, -150), face = -math.pi / 2, fit = Vector3.new(150, 125, 56), wall = true },
+	{ name = "PosterDino", at = Vector3.new(550, 170, -150), face = -math.pi / 2, fit = Vector3.new(130, 90, 4), wall = true },
+	{ name = "BeanBag", at = Vector3.new(430, 0, 40), face = -math.pi / 2 - 0.4, fit = Vector3.new(120, 80, 110) },
+	{ name = "BeachBall", at = Vector3.new(330, 0, 150), face = 0.4, fit = Vector3.new(58, 55, 58) },
+	{ name = "Hamper", at = Vector3.new(480, 0, 300), face = -math.pi / 2 - 0.6, fit = Vector3.new(90, 110, 90) },
+	-- south wall: door, dresser; slippers by the door, the toy car on the floor
+	{ name = "Door", at = Vector3.new(-300, 0, 450), face = math.pi, fit = Vector3.new(140, 300, 16), wall = true },
+	{ name = "Dresser", at = Vector3.new(180, 0, 450), face = math.pi, fit = Vector3.new(175, 150, 82), wall = true },
+	{ name = "Slippers", at = Vector3.new(-190, 0, 330), face = math.pi + 0.3, fit = Vector3.new(60, 20, 50) },
+	{ name = "ToyCar", at = Vector3.new(0, 0, 280), face = 2.6, fit = Vector3.new(44, 32, 70) }, -- nose = front, so its length is Z
 }
 
 local function buildDecor(folder: Folder)
@@ -549,8 +597,9 @@ local function buildDecor(folder: Folder)
 	end
 end
 
--- The forcefield round the play area: four shimmering walls along the rug's edge. Players can't
+-- The forcefield round the play area: four invisible walls along the rug's edge. Players can't
 -- climb out onto the bed, the nightstand or the clutter; nothing gameplay-related is outside it.
+-- Each client shows a soft shimmer on the wall only where the player walks up to it (SockFX).
 local function buildBoundary(folder: Folder)
 	local L = LAYOUT
 	local hx, hz, h = L.RugX / 2 + 6, L.RugZ / 2 + 6, L.FieldHeight
@@ -565,7 +614,7 @@ local function buildBoundary(folder: Folder)
 	}
 	for _, sd in ipairs(sides) do
 		local wall = part("Field", sd[1], CFrame.new(sd[2]), Color3.fromRGB(170, 130, 255), Enum.Material.ForceField, field, "Boundary")
-		wall.Transparency = 0.25
+		wall.Transparency = 1
 		wall.CastShadow = false
 		wall.CanQuery = false -- the camera and prompts look straight through it
 		wall.CanTouch = false
@@ -584,7 +633,7 @@ local function buildToys(folder: Folder)
 		{ x = half - 60, z = 140, s = 22, letter = "!", color = Color3.fromRGB(200, 110, 230), rot = -0.2 },
 	}
 	-- the toys are scattered round the rug, outside the forcefield
-	local blocksModel = placeTemplate("Blocks", CFrame.new(-300, 0, 150) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(90, 40, 60), folder, "Toy")
+	local blocksModel = placeTemplate("Blocks", CFrame.new(-330, 0, 250) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(90, 40, 60), folder, "Toy")
 	for _, b in ipairs(if blocksModel then {} else blocks) do
 		local y = b.s / 2 + (b.stack or 0)
 		local blk = part("ToyBlock", Vector3.new(b.s, b.s, b.s), CFrame.new(b.x, y, b.z) * CFrame.Angles(0, b.rot, 0), b.color, Enum.Material.SmoothPlastic, folder, "Toy")
@@ -611,7 +660,7 @@ local function buildToys(folder: Folder)
 		{ x = half - 110, z = 128, rot = 0.15, color = Color3.fromRGB(60, 120, 240) },
 		{ x = -half + 120, z = -140, rot = -0.7, color = Color3.fromRGB(60, 200, 90) },
 	}
-	local crayonsModel = placeTemplate("Crayons", CFrame.new(265, 0, 200) * CFrame.Angles(0, -0.5, 0), Vector3.new(80, 20, 60), folder, "Toy")
+	local crayonsModel = placeTemplate("Crayons", CFrame.new(330, 0, 280) * CFrame.Angles(0, -0.5, 0), Vector3.new(80, 20, 60), folder, "Toy")
 	for _, cr in ipairs(if crayonsModel then {} else crayons) do
 		local cf = CFrame.new(cr.x, 3, cr.z) * CFrame.Angles(0, cr.rot, 0)
 		local body = part("Crayon", Vector3.new(56, 6, 6), cf, cr.color, Enum.Material.SmoothPlastic, folder, "Toy")
@@ -622,7 +671,7 @@ local function buildToys(folder: Folder)
 		tip.Shape = Enum.PartType.Cylinder
 	end
 	-- rubber duck (east side, looking at the play area)
-	local dx, dz = 298, -20
+	local dx, dz = 320, -60
 	if not placeTemplate("Duck", CFrame.new(dx, 0, dz) * CFrame.Angles(0, -math.pi / 2, 0), Vector3.new(44, 46, 44), folder, "Toy") then
 	ball("DuckBody", 30, CFrame.new(dx, 13, dz), Color3.fromRGB(255, 220, 60), Enum.Material.SmoothPlastic, folder, "Toy")
 	ball("DuckHead", 18, CFrame.new(dx - 4, 34, dz - 8), Color3.fromRGB(255, 220, 60), Enum.Material.SmoothPlastic, folder, "Toy")
@@ -631,9 +680,9 @@ local function buildToys(folder: Folder)
 	ball("DuckEye", 3, CFrame.new(dx + 1, 38, dz - 15), Color3.new(0, 0, 0), Enum.Material.SmoothPlastic, folder, "Toy")
 	end
 	-- teddy bear sitting on the west side, facing the play area
-	local tx, tz = -300, 40
+	local tx, tz = -330, 40
 	local fur = Color3.fromRGB(160, 110, 70)
-	if not placeTemplate("Teddy", CFrame.new(tx, 0, tz) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(48, 60, 48), folder, "Toy") then
+	if not placeTemplate("Teddy", CFrame.new(tx, 0, tz) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(72, 90, 72), folder, "Toy") then
 	ball("BearBody", 34, CFrame.new(tx, 15, tz), fur, Enum.Material.SmoothPlastic, folder, "Toy")
 	ball("BearHead", 24, CFrame.new(tx + 4, 40, tz + 4), fur, Enum.Material.SmoothPlastic, folder, "Toy")
 	ball("BearEar", 9, CFrame.new(tx - 4, 50, tz + 2), fur, Enum.Material.SmoothPlastic, folder, "Toy")
@@ -645,12 +694,15 @@ local function buildToys(folder: Folder)
 	ball("BearArm", 14, CFrame.new(tx - 16, 14, tz + 8), fur, Enum.Material.SmoothPlastic, folder, "Toy")
 	ball("BearArm", 14, CFrame.new(tx + 20, 14, tz + 8), fur, Enum.Material.SmoothPlastic, folder, "Toy")
 	end
-	-- a bedroom door on the south wall
-	local sz = L.FloorZ / 2
-	part("Door", Vector3.new(60, 96, 2), CFrame.new(-190, 48, sz - 1), C.Baseboard, Enum.Material.SmoothPlastic, folder, "Furniture")
-	part("DoorPanel", Vector3.new(44, 34, 1), CFrame.new(-190, 66, sz - 2.2), Color3.fromRGB(220, 220, 228), Enum.Material.SmoothPlastic, folder, "Furniture")
-	part("DoorPanel", Vector3.new(44, 34, 1), CFrame.new(-190, 24, sz - 2.2), Color3.fromRGB(220, 220, 228), Enum.Material.SmoothPlastic, folder, "Furniture")
-	ball("DoorKnob", 6, CFrame.new(-166, 46, sz - 3), C.Knob, Enum.Material.Metal, folder, "Furniture")
+	-- a bedroom door on the south wall (Parts only when there is no Door mesh - see CLUTTER)
+	local meshes = meshFolder
+	if not (meshes and meshes:FindFirstChild("Door")) then
+		local sz, dx0 = L.FloorZ / 2, -300
+		part("Door", Vector3.new(116, 290, 2), CFrame.new(dx0, 145, sz - 1), C.Baseboard, Enum.Material.SmoothPlastic, folder, "Furniture")
+		part("DoorPanel", Vector3.new(84, 100, 1), CFrame.new(dx0, 200, sz - 2.2), Color3.fromRGB(220, 220, 228), Enum.Material.SmoothPlastic, folder, "Furniture")
+		part("DoorPanel", Vector3.new(84, 100, 1), CFrame.new(dx0, 75, sz - 2.2), Color3.fromRGB(220, 220, 228), Enum.Material.SmoothPlastic, folder, "Furniture")
+		ball("DoorKnob", 12, CFrame.new(dx0 + 44, 135, sz - 4), C.Knob, Enum.Material.Metal, folder, "Furniture")
+	end
 end
 
 local function buildDustBunnies(folder: Folder)
@@ -1009,6 +1061,7 @@ function Map.Init(s)
 	buildBed(mapFolder)
 	buildWindow(mapFolder)
 	buildDecor(mapFolder)
+	buildCeilingFan(mapFolder)
 	buildBoundary(mapFolder)
 	buildNightstand(mapFolder)
 	buildToys(mapFolder)

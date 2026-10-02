@@ -8,9 +8,12 @@
 --  * One-shot bursts requested by the server (FX remote): buy, pair, perfect, steal, claim, snap.
 --  * The Great Dryer's galaxy: its two layers spin, its glow breathes, and it puffs sparkles
 --    whenever a sock pops out onto the line.
+--  * The ceiling fan's blades turn; the invisible forcefield round the play area shimmers only
+--    where the player walks up to it.
 -- One Heartbeat loop for the socks; carried socks are left to physics.
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local SockFX = {}
@@ -197,6 +200,100 @@ local function startDryer(mapFolder: Instance)
 	end)
 end
 
+-- ---------- the ceiling fan ----------
+-- Map hangs the Blender fan (tools/blender/props/ceilingfan.py) from the ceiling; its FanBlades turn
+-- here about the vertical axis through the CeilingFan_Pin marker (the hub).
+local FAN_SPEED = 1.3 -- rad/s, a lazy night-time spin
+
+local function startFan(mapFolder: Instance)
+	local fan = mapFolder:WaitForChild("CeilingFan", 20)
+	if not fan then
+		return -- no fan mesh imported
+	end
+	local blades, pin
+	for _ = 1, 20 do -- parts can stream in after the model
+		local b = fan:FindFirstChild("FanBlades", true)
+		blades = if b and b:IsA("BasePart") then b else nil
+		pin = findSuffix(fan, "_Pin")
+		if blades and pin then
+			break
+		end
+		task.wait(0.5)
+	end
+	if not (blades and pin) then
+		return
+	end
+	local bladePart = blades :: BasePart
+	local rest = bladePart.CFrame
+	local hub = (pin :: BasePart).Position
+	RunService.RenderStepped:Connect(function()
+		local turn = CFrame.Angles(0, os.clock() * FAN_SPEED, 0)
+		bladePart.CFrame = CFrame.new(hub) * turn * CFrame.new(-hub) * rest
+	end)
+end
+
+-- ---------- the forcefield round the play area ----------
+-- Map's field walls are invisible. Walking up to one fades in a soft ForceField-material disc on the
+-- wall right where you are, so the edge only shows itself when you reach it.
+local FIELD_SHOW = 28 -- studs: start showing the shimmer this close
+
+local function startField(mapFolder: Instance)
+	local field = mapFolder:WaitForChild("Forcefield", 20)
+	if not field then
+		return
+	end
+	local walls = {} :: { BasePart }
+	for _, w in ipairs(field:GetChildren()) do
+		if w:IsA("BasePart") then
+			table.insert(walls, w)
+		end
+	end
+	local ripple = Instance.new("Part")
+	ripple.Name = "FieldShimmer"
+	ripple.Shape = Enum.PartType.Cylinder -- a disc: the cylinder's axis is the wall's normal
+	ripple.Material = Enum.Material.ForceField
+	ripple.Color = Color3.fromRGB(175, 140, 255)
+	ripple.Anchored = true
+	ripple.CanCollide = false
+	ripple.CanQuery = false
+	ripple.CanTouch = false
+	ripple.CastShadow = false
+	ripple.Transparency = 1
+	ripple.Size = Vector3.new(0.3, 20, 20)
+	ripple.Parent = workspace
+	RunService.RenderStepped:Connect(function()
+		local character = Players.LocalPlayer.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if not (root and root:IsA("BasePart")) then
+			ripple.Transparency = 1
+			return
+		end
+		local p = root.Position
+		local bestD, bestPoint, bestNormal = math.huge, nil, nil
+		for _, w in ipairs(walls) do
+			local lp = w.CFrame:PointToObjectSpace(p)
+			local h = w.Size / 2
+			local cp = Vector3.new(math.clamp(lp.X, -h.X, h.X), math.clamp(lp.Y, -h.Y, h.Y), math.clamp(lp.Z, -h.Z, h.Z))
+			local d = (lp - cp).Magnitude
+			if d < bestD then
+				-- the wall's thin axis, pointing at the player's side
+				local n = if w.Size.X < w.Size.Z then Vector3.new(math.sign(lp.X), 0, 0) else Vector3.new(0, 0, math.sign(lp.Z))
+				bestD, bestPoint, bestNormal = d, w.CFrame:PointToWorldSpace(cp), w.CFrame:VectorToWorldSpace(n)
+			end
+		end
+		if not (bestPoint and bestNormal) or bestD > FIELD_SHOW then
+			ripple.Transparency = 1
+			return
+		end
+		local near = 1 - bestD / FIELD_SHOW -- 0 far .. 1 touching
+		local size = 16 + 18 * near
+		local at = Vector3.new(bestPoint.X, math.max(p.Y, size / 2), bestPoint.Z) + bestNormal * 0.2
+		ripple.Size = Vector3.new(0.3, size, size)
+		ripple.CFrame = CFrame.fromMatrix(at, bestNormal, Vector3.yAxis)
+		ripple.Transparency = 1 - 0.6 * near * (0.85 + 0.15 * math.sin(os.clock() * 5))
+	end)
+end
+
 -- a sock that just popped out of the dryer: puff some sparkles out of the galaxy
 local function dryerBurst(model: Model)
 	local lineStart = model:GetAttribute("LineStart")
@@ -256,6 +353,8 @@ function SockFX.Init()
 	task.spawn(function()
 		local mapFolder = root and root:WaitForChild("Map", 10)
 		if mapFolder then
+			task.spawn(startFan, mapFolder)
+			task.spawn(startField, mapFolder)
 			startDryer(mapFolder)
 		end
 	end)
