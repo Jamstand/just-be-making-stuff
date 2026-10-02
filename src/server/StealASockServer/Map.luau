@@ -539,7 +539,7 @@ local CLUTTER = {
 	{ name = "ToyChest", at = Vector3.new(265, 0, -225), face = -math.pi / 4, fit = Vector3.new(90, 60, 55) },
 	{ name = "BeachBall", at = Vector3.new(300, 0, 75), face = 0.4, fit = Vector3.new(40, 38, 40) },
 	{ name = "BookStack", at = Vector3.new(-290, 0, -190), face = 0.9, fit = Vector3.new(40, 42, 32) },
-	{ name = "ToyCar", at = Vector3.new(40, 0, 212), face = 2.6, fit = Vector3.new(70, 32, 40) },
+	{ name = "ToyCar", at = Vector3.new(40, 0, 212), face = 2.6, fit = Vector3.new(44, 32, 70) }, -- nose = front, so its length is Z
 	{ name = "Slippers", at = Vector3.new(-115, 0, 222), face = math.pi + 0.3, fit = Vector3.new(60, 20, 50) },
 }
 
