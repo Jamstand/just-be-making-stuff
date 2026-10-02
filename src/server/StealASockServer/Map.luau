@@ -254,6 +254,17 @@ local function placeTemplate(name: string, floorCF: CFrame, fit: Vector3, parent
 end
 Map.PlaceTemplate = placeTemplate
 
+-- decorative mesh pieces never block players, catch touches or eat prompt/mouse queries
+local function decor(model: Instance)
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CanCollide = false
+			d.CanQuery = false
+			d.CanTouch = false
+		end
+	end
+end
+
 GLOW_PARTS = {
 	LampGlow = C.Lamp,
 	DryerPortal = Color3.fromRGB(150, 90, 255),
@@ -784,17 +795,13 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 	local shell = placeTemplate("Drawer", cf * CFrame.new(0, 0, 0), Vector3.new(L.BaseW + 6, L.WallH + 6, L.BaseD + 6), model)
 	local wallT = if shell then 1 else 0
 	if shell then
-		-- decoration only: the invisible Part walls below keep doing the blocking
-		for _, d in ipairs(shell:GetDescendants()) do
-			if d:IsA("BasePart") then
-				d.CanCollide = false
-				d.CanQuery = false
-				d.CanTouch = false
-			end
-		end
+		decor(shell) -- the invisible Part walls below keep doing the blocking
 	end
 	local felt = part("Felt", Vector3.new(L.BaseW - 2, 0.3, L.BaseD - 2), cf * CFrame.new(0, 1.15, 0), C.Felt, Enum.Material.SmoothPlastic, model)
 	felt.CanCollide = false
+	if shell and shell:FindFirstChild("DrawerLiner", true) then
+		felt.Transparency = 1 -- the mesh brings its own polka-dot liner floor (top at 1.3, like the felt)
+	end
 	part("BackWall", Vector3.new(L.BaseW, L.WallH, 1), cf * CFrame.new(0, 1 + L.WallH / 2, -L.BaseD / 2 + 0.5), C.Wood, Enum.Material.SmoothPlastic, model).Transparency = wallT
 	part("LeftWall", Vector3.new(1, L.WallH, L.BaseD), cf * CFrame.new(-L.BaseW / 2 + 0.5, 1 + L.WallH / 2, 0), C.Wood, Enum.Material.SmoothPlastic, model).Transparency = wallT
 	part("RightWall", Vector3.new(1, L.WallH, L.BaseD), cf * CFrame.new(L.BaseW / 2 - 0.5, 1 + L.WallH / 2, 0), C.Wood, Enum.Material.SmoothPlastic, model).Transparency = wallT
@@ -815,6 +822,24 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 	shutter.CFrame = shutter.CFrame - Vector3.new(0, L.WallH + 2, 0)
 	shutter.Transparency = 1
 	shutter.CanCollide = false
+	-- a full drawer front (with handle) welded to the shutter, so slamming really shuts the drawer;
+	-- the plain shutter part then stays invisible (Base.SetShutter reads "Skinned")
+	local front = placeTemplate("DrawerFront", shutter.CFrame * CFrame.new(0, -L.WallH / 2, 0), Vector3.new(L.BaseW + 2, L.WallH, 4.2), model)
+	if front then
+		front.Name = "ShutterSkin"
+		decor(front)
+		for _, d in ipairs(front:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.Anchored = false
+				d.Massless = true
+				local w = Instance.new("WeldConstraint")
+				w.Part0 = shutter
+				w.Part1 = d
+				w.Parent = d
+			end
+		end
+		shutter:SetAttribute("Skinned", true)
+	end
 
 	-- Slots: little felt cushions
 	local slots = Instance.new("Folder")
@@ -828,6 +853,17 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 		local sz = L.SlotRowZ[row] or (L.SlotRowZ[#L.SlotRowZ] - (row - #L.SlotRowZ) * 10)
 		local slot = part("Slot_" .. i, Vector3.new(L.SlotSize, 0.6, L.SlotSize), cf * CFrame.new(sx, 1.5, sz), Color3.fromRGB(240, 200, 150), Enum.Material.SmoothPlastic, slots, "SockSlot")
 		slot:SetAttribute("Index", i)
+		-- a puffy tufted cushion instead of the flat pad; socks sit on its top (Base.SlotCFrame)
+		local cushion = placeTemplate("SlotCushion", cf * CFrame.new(sx, 1.3, sz), Vector3.new(7, 2.2, 7), slot)
+		if cushion then
+			decor(cushion)
+			slot.Transparency = 1
+			local lo, hi = MeshTemplate.SolidBounds(cushion)
+			if lo and hi then
+				local seat = lo.Y + 0.76 * (hi.Y - lo.Y) -- the tufted middle, a little under the dome
+				slot:SetAttribute("SeatLift", seat - (slot.Position.Y + slot.Size.Y / 2 - 0.1))
+			end
+		end
 	end
 
 	-- Collect pad (inside, near the front) with the amount printed on it
@@ -850,17 +886,35 @@ local function buildBase(index: number, x: number, z: number, folder: Folder): M
 	padText.Rotation = if z > 0 then 0 else 180
 	padText.Parent = padGui
 	padGui.Parent = pad
+	-- gold coin tray round the pad (the pad keeps its glow, text and touch)
+	local tray = placeTemplate("CollectTray", cf * CFrame.new(0, 1.3, 11), Vector3.new(13.6, 2.4, 6.9), model)
+	if tray then
+		decor(tray)
+	end
 
-	-- Slam Drawer button (back-left corner; only reachable in person)
-	part("ButtonBase", Vector3.new(3, 2, 3), cf * CFrame.new(-19, 2, -12), C.MetalDark, Enum.Material.Metal, model)
-	local button = part("SlamButton", Vector3.new(0.6, 2.4, 2.4), cf * CFrame.new(-19, 3.3, -12) * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(240, 60, 60), Enum.Material.Neon, model, "SlamButton")
+	-- Slam Drawer button (tucked in the back-left corner, clear of slot 1's cushion; only reachable in person)
+	local buttonBase = part("ButtonBase", Vector3.new(3, 2, 3), cf * CFrame.new(-20, 2, -13), C.MetalDark, Enum.Material.Metal, model)
+	local button = part("SlamButton", Vector3.new(0.6, 2.4, 2.4), cf * CFrame.new(-20, 3.3, -13) * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(240, 60, 60), Enum.Material.Neon, model, "SlamButton")
 	button.Shape = Enum.PartType.Cylinder
-	label(button, "SLAM", 20, 2, Color3.fromRGB(255, 120, 120))
+	-- big red arcade button on a hazard-striped box (the part keeps the Slam prompt)
+	local skin = placeTemplate("SlamButton", cf * CFrame.new(-20, 1.3, -13), Vector3.new(3.6, 3.0, 3.6), model)
+	local slamLabelY = 2
+	if skin then
+		skin.Name = "SlamButtonSkin" -- Base looks the button part up as model.SlamButton
+		decor(skin)
+		buttonBase.Transparency = 1
+		button.Transparency = 1
+		slamLabelY = 2.8
+	end
+	label(button, "SLAM", 20, slamLabelY, Color3.fromRGB(255, 120, 120))
 
 	-- Name sign above the back wall
 	local signPart = part("Sign", Vector3.new(16, 3.4, 0.6), cf * CFrame.new(0, L.WallH + 6, -L.BaseD / 2 + 0.5), Color3.fromRGB(255, 255, 255), Enum.Material.SmoothPlastic, model)
 	local signText = label(signPart, "Drawer " .. index .. " - FREE", 34, 0, Color3.fromRGB(40, 40, 60))
 	signText.Parent.Name = "SignGui"
+	if shell then
+		signPart.Transparency = 1 -- the floating name label stays; the plain white plank goes
+	end
 
 	model.Parent = folder
 	return model

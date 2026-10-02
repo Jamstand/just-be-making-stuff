@@ -112,9 +112,11 @@ function Base.SlotCFrame(record, slotIndex: number, model: Model?): CFrame
 	local leg = model and model.PrimaryPart
 	local halfHeight = if leg then leg.Size.Y / 2 else 1.6
 	-- the foot reaches 0.65 (sock units) below the Leg root, times the sock scale; sink 0.1 into
-	-- the cushion so the sock sits in it rather than on it
+	-- the cushion so the sock sits in it rather than on it. SeatLift: Map's puffy cushion mesh is
+	-- taller than the flat slot part.
 	local footDrop = 0.65 * S.Config.Economy.SockScale - 0.1
-	return slotPart.CFrame * CFrame.new(0, 0.3 + halfHeight + footDrop, 0)
+	local lift = slotPart:GetAttribute("SeatLift") or 0
+	return slotPart.CFrame * CFrame.new(0, 0.3 + halfHeight + footDrop + lift, 0)
 end
 
 -- Drawer volume (walls included). Used for ejecting on slam.
@@ -383,7 +385,8 @@ end
 function Base.SetShutter(record, closed: boolean)
 	local shutter = record.shutter
 	if closed then
-		shutter.Transparency = 0
+		-- a shutter with a mesh drawer front welded to it (Map) stays invisible itself
+		shutter.Transparency = if shutter:GetAttribute("Skinned") then 1 else 0
 		shutter.CanCollide = true
 		TweenService:Create(shutter, SHUTTER_TWEEN, { CFrame = record.shutterClosedCF }):Play()
 	else
