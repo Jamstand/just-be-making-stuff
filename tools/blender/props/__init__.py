@@ -11,7 +11,8 @@ Conventions every prop module follows:
 - Colours: `hexcol("<prop>_<what>", "#RRGGBB")` with a prop-prefixed name (the palette is keyed by
   name; the first registration wins). `props/common.py` holds a few shared colours, read-only.
 - Glow parts the game turns into Neon are exported untextured via `K.plain_object` and named
-  exactly as Map.luau expects (`LampGlow`, `DryerPortal`, `MoonGlow`).
+  exactly as Map.luau expects (`LampGlow`, `DryerPortal`, `MoonGlow`, `FanLight`). Parts the client spins
+  (`DryerVortex`, `DryerStars`, `FanBlades`) are separate textured objects turning about the `_Pin` marker.
 - Roblox limit: keep each exported object under ~10k triangles (body and outline separately).
 
 `EXPORT_DIR` says which folder the GLB goes to: "map" -> ReplicatedStorage.MapMeshes,
@@ -22,11 +23,13 @@ import importlib
 # module name = NAME.lower(); order = export order
 MODULE_NAMES = ["dryer", "bed", "nightstand", "lamp", "blocks", "duck", "teddy", "crayons", "basket", "drawer",
                 "window", "bookshelf", "picture", "clothespin", "cushion", "slambutton", "cointray", "drawerfront",
-                "alarmclock", "dresser", "toychest", "beachball", "toycar", "slippers", "bookstack"]
+                "alarmclock", "dresser", "toychest", "beachball", "toycar", "slippers", "bookstack", "ceilingfan",
+                "curtains", "door", "wardrobe", "desk", "deskchair", "beanbag", "plant", "hamper", "posterrocket",
+                "posterdino", "pennant", "trashcan"]
 
 
 # NAME -> module for props whose module name isn't just NAME.lower()
-ALIASES = {"slotcushion": "cushion", "collecttray": "cointray"}
+ALIASES = {"slotcushion": "cushion", "collecttray": "cointray", "pottedplant": "plant"}
 
 
 def load(name: str):
