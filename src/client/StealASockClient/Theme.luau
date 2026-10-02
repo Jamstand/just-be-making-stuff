@@ -188,6 +188,11 @@ end
 
 -- A candy button. `style` = a Theme.Styles key. Hook Anim.button(btn) for the press springs
 -- (Theme can't require Anim: Anim plays sounds and sounds read settings).
+-- A UIGradient tints its own object's text as well as its background, so the button's own text
+-- stays invisible and a child "Label" shows it: set btn.Text / TextColor3 / TextSize / Font as
+-- usual and the label follows.
+local MIRRORED = { "Text", "TextColor3", "TextSize", "Font", "TextWrapped", "TextScaled" }
+
 function Theme.button(parent: Instance?, text: string, style: string?, size: UDim2?, textSize: number?): TextButton
 	local st = Theme.Styles[style or "green"] or Theme.Styles.green
 	local b = Instance.new("TextButton")
@@ -199,9 +204,24 @@ function Theme.button(parent: Instance?, text: string, style: string?, size: UDi
 	b.TextSize = textSize or 24
 	b.TextColor3 = st.text
 	b.TextWrapped = true
+	b.TextTransparency = 1
 	Theme.candy(b, style or "green", 16, 3)
 	Theme.gloss(b, 16)
-	Theme.textStroke(b, st.stroke, 2).Enabled = Theme.IsLight(st.text)
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.BackgroundTransparency = 1
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Position = UDim2.fromScale(0.5, 0.5)
+	label.Size = UDim2.new(1, -10, 1, -4)
+	label.ZIndex = b.ZIndex + 2 -- over the gloss
+	for _, prop in ipairs(MIRRORED) do
+		(label :: any)[prop] = (b :: any)[prop]
+		b:GetPropertyChangedSignal(prop):Connect(function()
+			(label :: any)[prop] = (b :: any)[prop]
+		end)
+	end
+	Theme.textStroke(label, st.stroke, 2).Enabled = Theme.IsLight(st.text)
+	label.Parent = b
 	b.Parent = parent
 	return b
 end
@@ -219,10 +239,14 @@ function Theme.restyle(frame: GuiObject, style: string)
 	end
 	if frame:IsA("TextButton") or frame:IsA("TextLabel") then
 		(frame :: any).TextColor3 = st.text
-		for _, child in ipairs(frame:GetChildren()) do
-			if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Contextual then
-				child.Color = st.stroke
-				child.Enabled = Theme.IsLight(st.text)
+		-- the text outline sits on the button's Label (Theme.button) or on the frame itself
+		local label = frame:FindFirstChild("Label")
+		for _, holder in ipairs({ frame, label }) do
+			for _, child in ipairs(holder:GetChildren()) do
+				if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Contextual then
+					child.Color = st.stroke
+					child.Enabled = Theme.IsLight(st.text)
+				end
 			end
 		end
 	end
