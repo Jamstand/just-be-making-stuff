@@ -19,7 +19,22 @@ local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
-local ClientSettings = require(script.Parent:WaitForChild("ClientSettings"))
+-- Settings are optional here: the 3D effects must keep running even if the UI kit is missing or
+-- broken, so until ClientSettings loads every setting reads as its default (nil = off).
+local ClientSettings: any = {
+	Get = function(_key: string): any
+		return nil
+	end,
+}
+task.spawn(function()
+	local module = script.Parent:WaitForChild("ClientSettings", 15)
+	if module then
+		local ok, loaded = pcall(require, module)
+		if ok and type(loaded) == "table" then
+			ClientSettings = loaded
+		end
+	end
+end)
 
 local SockFX = {}
 
@@ -221,7 +236,7 @@ local function startFan(mapFolder: Instance)
 		return -- no fan mesh imported
 	end
 	local blades, pin
-	for _ = 1, 20 do -- parts can stream in after the model
+	for _ = 1, 120 do -- parts can stream in after the model (StreamingEnabled): wait up to a minute
 		local b = fan:FindFirstChild("FanBlades", true)
 		blades = if b and b:IsA("BasePart") then b else nil
 		pin = findSuffix(fan, "_Pin")
@@ -286,23 +301,27 @@ local function startField(mapFolder: Instance)
 		return
 	end
 	local walls = {} :: { FieldWall }
-	for _, w in ipairs(field:GetChildren()) do
-		if w:IsA("BasePart") then
-			local thinX = w.Size.X < w.Size.Z
-			table.insert(walls, {
-				part = w,
-				u = if thinX then w.CFrame.ZVector else w.CFrame.XVector,
-				n = if thinX then w.CFrame.XVector else w.CFrame.ZVector,
-				halfLen = (if thinX then w.Size.Z else w.Size.X) / 2,
-				halfThick = (if thinX then w.Size.X else w.Size.Z) / 2,
-				bottom = w.Position.Y - w.Size.Y / 2,
-				height = w.Size.Y,
-			})
+	local function collectWalls()
+		table.clear(walls)
+		for _, w in ipairs(field:GetChildren()) do
+			if w:IsA("BasePart") then
+				local thinX = w.Size.X < w.Size.Z
+				table.insert(walls, {
+					part = w,
+					u = if thinX then w.CFrame.ZVector else w.CFrame.XVector,
+					n = if thinX then w.CFrame.XVector else w.CFrame.ZVector,
+					halfLen = (if thinX then w.Size.Z else w.Size.X) / 2,
+					halfThick = (if thinX then w.Size.X else w.Size.Z) / 2,
+					bottom = w.Position.Y - w.Size.Y / 2,
+					height = w.Size.Y,
+				})
+			end
 		end
 	end
-	if #walls == 0 then
-		return
-	end
+	collectWalls()
+	-- with StreamingEnabled the wall parts can arrive after this runs (or stream out and back in)
+	field.ChildAdded:Connect(collectWalls)
+	field.ChildRemoved:Connect(collectWalls)
 
 	-- the cell pool: built once, moved only when the lit patch shifts to another cell
 	local folder = Instance.new("Folder")

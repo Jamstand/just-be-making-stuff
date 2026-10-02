@@ -13,32 +13,72 @@ local CollectionService = game:GetService("CollectionService")
 local player = Players.LocalPlayer
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
-local UISound = require(script:WaitForChild("UISound"))
-local ClientSettings = require(script:WaitForChild("ClientSettings"))
-local Menu = require(script:WaitForChild("Menu"))
-local HUD = require(script:WaitForChild("HUD"))
-local ShopUI = require(script:WaitForChild("ShopUI"))
-local StoreUI = require(script:WaitForChild("StoreUI"))
-local DexUI = require(script:WaitForChild("DexUI"))
-local SockCard = require(script:WaitForChild("SockCard"))
-local SettingsUI = require(script:WaitForChild("SettingsUI"))
-local Performance = require(script:WaitForChild("Performance"))
-local SockFX = require(script:WaitForChild("SockFX"))
+-- Every module loads and starts on its own: one that is missing or errors prints a warning and
+-- is skipped, instead of stopping everything after it (the 3D effects start first for that reason).
+local function load(name: string): any
+	local module = script:WaitForChild(name, 15)
+	if not module then
+		warn("[StealASockClient] ModuleScript " .. name .. " is missing - copy src/client/StealASockClient/" .. name .. ".luau into the place")
+		return nil
+	end
+	local ok, result = pcall(require, module)
+	if not ok then
+		warn("[StealASockClient] " .. name .. " failed to load: " .. tostring(result))
+		return nil
+	end
+	return result
+end
 
-Menu.Init()
-HUD.Init()
+local function run(name: string, mod: any, fn: string, ...: any)
+	if mod and type(mod[fn]) == "function" then
+		local ok, err = pcall(mod[fn], ...)
+		if not ok then
+			warn("[StealASockClient] " .. name .. "." .. fn .. " failed: " .. tostring(err))
+		end
+	end
+end
+
+-- 3D effects first (clothesline socks, dryer, ceiling fan, forcefield hexes); Init waits for the map
+local SockFX = load("SockFX")
+task.spawn(run, "SockFX", SockFX, "Init")
+
+-- the UI kit first: every screen requires these (with an endless WaitForChild), so if one is
+-- missing the screens are skipped instead of hanging the whole script
+local Theme = load("Theme")
+local Anim = load("Anim")
+local UISound = load("UISound")
+local ClientSettings = load("ClientSettings")
+local kit = Theme ~= nil and Anim ~= nil and UISound ~= nil and ClientSettings ~= nil
+if not kit then
+	warn("[StealASockClient] the UI kit (Theme, Anim, UISound, ClientSettings) is incomplete - the menus and HUD are skipped")
+end
+local function screen(name: string): any
+	return if kit then load(name) else nil
+end
+local Menu = screen("Menu")
+local HUD = screen("HUD")
+local ShopUI = screen("ShopUI")
+local StoreUI = screen("StoreUI")
+local DexUI = screen("DexUI")
+local SockCard = screen("SockCard")
+local SettingsUI = screen("SettingsUI")
+local Performance = screen("Performance")
+
+run("Menu", Menu, "Init")
+run("HUD", HUD, "Init")
 -- the left column, top to bottom; each screen registers its own panel in Init
-Menu.AddButton("Drawer", "🧦", "Drawer", "gold", 1, HUD.ToggleDrawer)
-ShopUI.Init() -- "Shop" button, order 2
-StoreUI.Init() -- "Store" button, order 3
-DexUI.Init() -- "Sockdex" button, order 4
-SettingsUI.Init() -- "Settings" button, order 5
-SockCard.Init()
-Performance.Init() -- Low graphics / Hide others' effects / Sock name tags (ClientSettings)
-SockFX.Init()
-UISound.StartMusic()
+if Menu and HUD then
+	run("Menu", Menu, "AddButton", "Drawer", "🧦", "Drawer", "gold", 1, HUD.ToggleDrawer)
+end
+run("ShopUI", ShopUI, "Init") -- "Shop" button, order 2
+run("StoreUI", StoreUI, "Init") -- "Store" button, order 3
+run("DexUI", DexUI, "Init") -- "Sockdex" button, order 4
+run("SettingsUI", SettingsUI, "Init") -- "Settings" button, order 5
+run("SockCard", SockCard, "Init")
+run("Performance", Performance, "Init") -- Low graphics / Hide others' effects / Sock name tags (ClientSettings)
+run("UISound", UISound, "StartMusic")
 
-local screens = { HUD, ShopUI, StoreUI, DexUI, SockCard }
+local screens = { HUD = HUD, ShopUI = ShopUI, StoreUI = StoreUI, DexUI = DexUI, SockCard = SockCard }
 Remotes:WaitForChild("State").OnClientEvent:Connect(function(state)
 	if type(state) ~= "table" then
 		return
@@ -52,35 +92,35 @@ Remotes:WaitForChild("State").OnClientEvent:Connect(function(state)
 		end
 	end
 	state.slots = slots
-	ClientSettings.Load(state.settings)
-	for _, screen in ipairs(screens) do
-		screen.SetState(state)
+	run("ClientSettings", ClientSettings, "Load", state.settings)
+	for name, screen in pairs(screens) do
+		run(name, screen, "SetState", state)
 	end
 end)
 Remotes:WaitForChild("Toast").OnClientEvent:Connect(function(text, kind)
-	HUD.Toast(text, kind)
+	run("HUD", HUD, "Toast", text, kind)
 end)
 Remotes:WaitForChild("Announce").OnClientEvent:Connect(function(text, color)
-	HUD.Announce(text, color)
+	run("HUD", HUD, "Announce", text, color)
 end)
 Remotes:WaitForChild("Carry").OnClientEvent:Connect(function(view)
-	HUD.SetCarry(view)
+	run("HUD", HUD, "SetCarry", view)
 end)
 Remotes:WaitForChild("Celebrate").OnClientEvent:Connect(function(kind, data)
 	if type(kind) == "string" and type(data) == "table" then
-		HUD.Celebrate(kind, data)
+		run("HUD", HUD, "Celebrate", kind, data)
 	end
 end)
 Remotes:WaitForChild("FX").OnClientEvent:Connect(function(kind, position, color)
 	if typeof(position) == "Vector3" then
-		SockFX.Burst(kind, position, color)
+		run("SockFX", SockFX, "Burst", kind, position, color)
 	end
 end)
 
 -- The padlocked back row of a drawer: its prompt opens the Store (only on your own drawer).
 ProximityPromptService.PromptTriggered:Connect(function(prompt)
 	if prompt.Name == "UnlockSlotsPrompt" then
-		Menu.Open("Store")
+		run("Menu", Menu, "Open", "Store")
 	end
 end)
 
