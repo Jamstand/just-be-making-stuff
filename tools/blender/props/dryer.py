@@ -9,8 +9,10 @@ vortex, and the round door swung open ~178 degrees to the viewer's left, lying j
 face (silver ring round a glass bowl). Body 3.4 W x 3.4 D x 4.2 H: 4.2 matches the art's W:H (~0.78)
 better than 3.6 would; Map.luau fits it uniformly, and the door's extra width is what limits that fit.
 
-Exported objects: `Dryer` (textured body), `Dryer_Outline` (inverted hull), `DryerPortal` (untextured
-back disc of the vortex - Map.luau makes it Neon purple; the textured spiral arms and stars sit just
+Exported objects: `Dryer` (textured body), `Dryer_Outline` (inverted hull), `DryerVortex` and
+`DryerStars` (the galaxy's spiral arms/void and its stars as two textured layers without outline -
+the client spins them about the porthole axis at different speeds), `DryerPortal` (untextured
+back disc of the vortex - Map.luau makes it Neon purple; the spiral arms and stars sit just
 in front of it, so the glow shows between the arms), `DryerGlass` (untextured glass bowl of the door,
 for a light-blue Glass material) and the markers: `Dryer_Base`, `Dryer_Unit` and `Dryer_Pin` at the
 porthole centre on the front plane (the open door makes the bounding box off-centre, so the game can
@@ -301,8 +303,10 @@ def _annulus(pal, r_in, r_out, y, off=(0.0, 0.0), seg=64, name="annulus"):
     return K.Piece(_mesh(verts, faces, name), pal, False, False, name)
 
 
-def _porthole(p):
-    """Bezel + galaxy vortex into `p`; returns the outline-only pieces for K.finish."""
+def _porthole(p, g, s):
+    """Bezel into `p`, the galaxy vortex into `g` (arms, lanes, void) and `s` (stars) - the game
+    spins those two layers about the porthole axis at different speeds; returns the outline-only
+    pieces for K.finish."""
     # thick blue bezel: a wide, nearly flat front ring with a short rounded inner lip and a straight
     # inner wall down to the galaxy (a deep sloping funnel would sit in its own shadow and read as a
     # second black ring round the vortex), and a rounded outer edge
@@ -355,19 +359,19 @@ def _porthole(p):
             return c - h, c + h
         return edges
 
-    p.append(_annulus(G_LANE, rim - 0.01, R_GAL + 0.01, FY - VZ - 0.025, name="gal_rim"))
+    g.append(_annulus(G_LANE, rim - 0.01, R_GAL + 0.01, FY - VZ - 0.025, name="gal_rim"))
     for a in range(n):
         th = math.radians(140) + a * per
         for ra, rb in ((rc, 0.34 * GS), (0.34 * GS, rg)):
-            p.append(_strip(lane_cols, th, ra, rb, tw, lambda r: (-lane(r), lane(r)), FY - VZ - 0.047, 0.0, PZ,
+            g.append(_strip(lane_cols, th, ra, rb, tw, lambda r: (-lane(r), lane(r)), FY - VZ - 0.047, 0.0, PZ,
                             steps=max(4, int(30 * (rb - ra) / (R_GAL - rc))), name="lane"))
-        p.append(_strip(arm_cols, th, 0.25 * GS, rg, tw, lambda r: (lane(r), lane(r) + per * ARM), FY - VZ - 0.037, 0.0, PZ,
+        g.append(_strip(arm_cols, th, 0.25 * GS, rg, tw, lambda r: (lane(r), lane(r) + per * ARM), FY - VZ - 0.037, 0.0, PZ,
                         steps=30, name="arm"))
-        p.append(_strip([G_PINK], th, 0.36 * GS, 0.86 * R_GAL, tw, core(0.36 * GS, 0.86 * R_GAL, 0.30), FY - VZ - 0.047, 0.0, PZ,
+        g.append(_strip([G_PINK], th, 0.36 * GS, 0.86 * R_GAL, tw, core(0.36 * GS, 0.86 * R_GAL, 0.30), FY - VZ - 0.047, 0.0, PZ,
                         steps=20, name="arm_core"))
-        p.append(_strip([G_PINK_L], th, 0.46 * GS, 0.76 * R_GAL, tw, core(0.46 * GS, 0.76 * R_GAL, 0.12, 0.6), FY - VZ - 0.057, 0.0, PZ,
+        g.append(_strip([G_PINK_L], th, 0.46 * GS, 0.76 * R_GAL, tw, core(0.46 * GS, 0.76 * R_GAL, 0.12, 0.6), FY - VZ - 0.057, 0.0, PZ,
                         steps=14, name="arm_core_l"))
-    p.append(_disc(G_CORE, 0.23 * GS, 0.0, PZ, FY - VZ - 0.067, seg=24, name="core"))
+    g.append(_disc(G_CORE, 0.23 * GS, 0.0, PZ, FY - VZ - 0.067, seg=24, name="core"))
     # stars: many tiny pinpoints (a third of them strung along the arms) and four larger twinkles
     rnd = random.Random(11)
     sy = FY - VZ - 0.077
@@ -379,7 +383,7 @@ def _porthole(p):
         else:
             a = rnd.uniform(0, math.tau)
         rad = 0.025 if k < 4 else rnd.choice((0.009, 0.010, 0.011, 0.012, 0.013))
-        p.append(_disc(G_STAR, rad, r * math.cos(a), PZ + r * math.sin(a), sy, seg=8 if rad > 0.02 else 6, name="star"))
+        s.append(_disc(G_STAR, rad, r * math.cos(a), PZ + r * math.sin(a), sy, seg=8 if rad > 0.02 else 6, name="star"))
     # the one thin ink line round the galaxy (its outer half is hidden inside the bezel wall)
     p.append(_disc(INK, R_GAL + 0.03, 0, PZ, FY - VZ - 0.087, r_in=R_GAL - 0.016, seg=64, name="gal_ink"))
     return [line]
@@ -432,13 +436,16 @@ def _door(p):
 
 
 def build():
-    p = []
+    p, g, s = [], [], []
     _cabinet(p)
-    lines = _porthole(p)
+    lines = _porthole(p, g, s)
     glass = _door(p)
     body, outline = K.finish(p, "Dryer", outline_width=0.055, outline_only=lines)
+    # the galaxy as two textured layers the game turns (client side) about the Dryer_Pin axis
+    vortex = K.textured_object(g, "DryerVortex")
+    stars = K.textured_object(s, "DryerStars")
     portal = K.plain_object([K.cylinder(0, R_GAL + 0.02, 0.01, M((0, FY - VZ - 0.008, PZ), rot=(math.pi / 2, 0, 0)), seg=40, smooth=False)], "DryerPortal")
     glass_obj = K.plain_object([glass], "DryerGlass")
     _preview_tint(portal, GLOW_TINT)
     _preview_tint(glass_obj, GLASS_TINT)
-    return [body, outline, portal, glass_obj] + K.markers("Dryer", pin=(0.0, FY, PZ))
+    return [body, outline, vortex, stars, portal, glass_obj] + K.markers("Dryer", pin=(0.0, FY, PZ))

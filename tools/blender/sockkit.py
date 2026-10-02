@@ -298,6 +298,16 @@ def finish(pieces: list[Piece], name: str, outline_width=0.05, outline_only: lis
     return body, outline
 
 
+def textured_object(pieces: list[Piece], name: str) -> bpy.types.Object:
+    """Merges pieces into one textured object WITHOUT an outline hull - for parts the game moves on
+    their own, e.g. the dryer's spinning galaxy layers (an outline would spin with them)."""
+    obj = _merge([(p, 0.0, False) for p in pieces], name)
+    for p in pieces:
+        if p.mesh.users == 0:
+            bpy.data.meshes.remove(p.mesh)
+    return obj
+
+
 def marker(name: str, loc) -> bpy.types.Object:
     """A tiny hidden tetrahedron the game reads by name (see Factory/Map `_Base`, `_Unit`, `_Pin`)."""
     bm = bmesh.new()
