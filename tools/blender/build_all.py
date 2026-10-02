@@ -106,18 +106,19 @@ def render_sheets():
 
     fresh_scene()
     objs = []
-    x = 0.0
-    for name, fn in BUILDERS.items():
+    # 5-column grid, each prop scaled to fill a 9 x 8 cell (sizes vary wildly in model units)
+    for i, (name, fn) in enumerate(BUILDERS.items()):
         built = [o for o in fn() if not o.hide_render]
-        xs = [(o.matrix_world @ v.co).x for o in built for v in o.data.vertices]
-        span = max(xs) - min(xs)
-        s = 9.0 / max(span, 1e-3) if span > 9.0 else 1.0  # big props shrink to fit a 9-unit cell
+        ws = [o.matrix_world @ v.co for o in built for v in o.data.vertices]
+        lo = [min(w[k] for w in ws) for k in range(3)]
+        hi = [max(w[k] for w in ws) for k in range(3)]
+        s = min(9.0 / max(hi[0] - lo[0], 1e-3), 8.0 / max(hi[2] - lo[2], 1e-3))
+        cx = (lo[0] + hi[0]) / 2
         for o in built:
             o.scale = (s, s, s)
-            o.location = (x - min(xs) * s, 0, 0)
-        x += span * s + 1.5
+            o.location = ((i % 5) * 11.0 - cx * s, 0, -(i // 5) * 10.5 - lo[2] * s)
         objs += built
-    K.render_preview(objs, os.path.join(RENDERS, "furniture.jpg"), res=1400, angle=-0.45, elev=0.35)
+    K.render_preview(objs, os.path.join(RENDERS, "furniture.jpg"), res=1400, angle=-0.3, elev=0.12)
 
 
 if __name__ == "__main__":
