@@ -1,6 +1,8 @@
 -- Base: the 8 drawers. Assigns one per player, places socks in slots, runs the Collect pad,
 -- the Slam Drawer lock (with a physical shutter the owner can walk through) and keeps the
--- player's profile in sync with what is in the drawer.
+-- player's profile in sync with what is in the drawer. The back row of slots stays padlocked
+-- until the +4 Drawer Slots pass opens it; saved socks that don't fit yet wait in
+-- record.overflow and stay in the save.
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local PhysicsService = game:GetService("PhysicsService")
@@ -54,6 +56,8 @@ function Base.Init(s)
 			signText = model:FindFirstChild("Sign"):FindFirstChild("SignGui"):FindFirstChildOfClass("TextLabel"),
 			lastCollect = 0,
 			charConn = nil,
+			overflow = {}, -- saved SockData that has no slot yet (kept in the save, placed by RefreshSlots)
+			slamPrompt = nil,
 		}
 		for _, slotPart in ipairs(model.Slots:GetChildren()) do
 			record.slotParts[slotPart:GetAttribute("Index")] = slotPart
@@ -67,7 +71,6 @@ function Base.Init(s)
 		local prompt = Instance.new("ProximityPrompt")
 		prompt.Name = "SlamPrompt"
 		prompt.ActionText = "Slam Drawer"
-		prompt.ObjectText = "Locks your drawer for " .. S.Config.Economy.LockSeconds .. "s"
 		prompt.HoldDuration = 0.4
 		prompt.MaxActivationDistance = 8
 		prompt.RequiresLineOfSight = false
@@ -75,6 +78,10 @@ function Base.Init(s)
 		prompt.Triggered:Connect(function(player)
 			Base.TryLock(player, record)
 		end)
+		record.slamPrompt = prompt
+		model:SetAttribute("OwnerId", 0)
+		Base.UpdateSlamPrompt(record)
+		Base.RefreshSlots(record)
 	end
 end
 
@@ -92,10 +99,15 @@ function Base.ByIndex(index: number)
 	return bases[index]
 end
 
+-- Usable slots: the base rows, + the padlocked back row with the +4 Drawer Slots pass (only the
+-- pass opens it). Phase 3 rebirth slots (SlotsPerRebirth) need rows of their own in Map first.
 function Base.SlotCount(record): number
-	local profile = record.player and S.Data.Get(record.player)
-	local rebirths = if profile then profile.Data.rebirths else 0
-	return math.min(#record.slotParts, S.Config.Economy.BaseSlots + rebirths * S.Config.Economy.SlotsPerRebirth)
+	local player = record.player
+	local count = S.Config.Economy.BaseSlots
+	if player and S.Monetize and S.Monetize.Owns(player, "ExtraSlots") then
+		count += S.Config.Store.ExtraSlots
+	end
+	return math.min(#record.slotParts, count)
 end
 
 function Base.FirstEmptySlot(record): number?
@@ -240,7 +252,75 @@ function Base.SyncToProfile(record)
 			table.insert(out, S.Registry.ToData(sock))
 		end
 	end
+	for _, data in ipairs(record.overflow) do
+		table.insert(out, data)
+	end
 	profile.Data.socks = out
+end
+
+-- Places saved socks that had no slot at join (the back row before +4 Slots was known).
+local function placeOverflow(record)
+	local player = record.player
+	if not player or #record.overflow == 0 then
+		return
+	end
+	local keep = {}
+	local placed = false
+	for _, data in ipairs(record.overflow) do
+		local slot = Base.FirstEmptySlot(record)
+		local sock = slot and S.Registry.FromData(data)
+		if slot and sock then
+			S.Factory.Build(sock)
+			Base.PlaceInSlot(record, sock, slot, false)
+			S.Dex.Record(player, sock, true)
+			placed = true
+		else
+			table.insert(keep, data) -- no room yet, or a type no longer in the roster
+		end
+	end
+	record.overflow = keep
+	if placed then
+		S.Pair.Recompute(record, true)
+		Base.SyncToProfile(record)
+	end
+end
+
+local function setPadlock(padlock: Instance, shown: boolean)
+	local transparency = if shown then 0 else 1
+	if padlock:IsA("BasePart") then
+		padlock.Transparency = transparency
+	end
+	for _, d in ipairs(padlock:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Transparency = transparency
+		end
+	end
+end
+
+-- Shows which slots are usable: slots past SlotCount get their padlock, the drawer's LockSign
+-- lights up and its UnlockSlotsPrompt gets Locked = true (the client shows it to the owner only).
+-- Also places waiting overflow socks. Map builds the padlock parts; an old place without them is fine.
+function Base.RefreshSlots(record)
+	placeOverflow(record)
+	local count = Base.SlotCount(record)
+	local anyLocked = false
+	for i, slotPart in pairs(record.slotParts) do
+		local locked = i > count
+		anyLocked = anyLocked or locked
+		local padlock = slotPart:FindFirstChild("Padlock")
+		if padlock then
+			setPadlock(padlock, locked)
+		end
+	end
+	local sign = record.model:FindFirstChild("LockSign")
+	local gui = sign and sign:FindFirstChild("LockGui")
+	if gui and gui:IsA("BillboardGui") then
+		gui.Enabled = anyLocked
+	end
+	local prompt = record.model:FindFirstChild("UnlockSlotsPrompt", true)
+	if prompt and prompt:IsA("ProximityPrompt") then
+		prompt:SetAttribute("Locked", anyLocked)
+	end
 end
 
 -- ---------- assignment ----------
@@ -281,28 +361,32 @@ function Base.Assign(player: Player): boolean
 	record.ownerId = player.UserId
 	byPlayer[player] = record
 	byOwnerId[player.UserId] = record
+	record.model:SetAttribute("OwnerId", player.UserId)
 	record.signText.Text = player.DisplayName .. "'s Drawer"
 	record.uncollected = 0
 	record.rate = 0
+	record.overflow = {}
 	Base.UpdatePad(record)
 
-	-- Restore saved socks
+	-- Restore saved socks. The ones that don't fit yet (back-row socks before Monetize.Setup knows
+	-- about +4 Slots, or a type no longer in the roster) wait in record.overflow and stay saved.
 	local profile = S.Data.Get(player)
 	if profile then
 		for _, data in ipairs(profile.Data.socks) do
 			local slot = Base.FirstEmptySlot(record)
-			if not slot then
-				break
-			end
-			local sock = S.Registry.FromData(data)
-			if sock then
+			local sock = slot and S.Registry.FromData(data)
+			if slot and sock then
 				S.Factory.Build(sock)
 				Base.PlaceInSlot(record, sock, slot, false)
+			else
+				table.insert(record.overflow, data)
 			end
 		end
 		Base.SyncToProfile(record)
 	end
 	S.Pair.Recompute(record, true)
+	Base.RefreshSlots(record)
+	Base.UpdateSlamPrompt(record)
 
 	record.charConn = player.CharacterAdded:Connect(function(character)
 		setupCharacter(record, character)
@@ -334,8 +418,10 @@ function Base.Unassign(player: Player)
 		S.Registry.Destroy(uid)
 	end
 	record.away = {}
+	record.overflow = {}
 	record.player = nil
 	record.ownerId = nil
+	record.model:SetAttribute("OwnerId", 0)
 	record.uncollected = 0
 	record.rate = 0
 	record.lockToken += 1
@@ -346,6 +432,8 @@ function Base.Unassign(player: Player)
 	Base.UpdatePad(record)
 	byPlayer[player] = nil
 	byOwnerId[player.UserId] = nil
+	Base.RefreshSlots(record) -- a free drawer shows the padlocked back row
+	Base.UpdateSlamPrompt(record)
 end
 
 -- ---------- collect pad ----------
@@ -356,6 +444,28 @@ function Base.UpdatePad(record)
 	if text then
 		text.Text = "COLLECT $" .. S.Util.FormatCash(math.floor(record.uncollected))
 	end
+end
+
+-- Pays out the pad: the whole cash amount waiting x the Coin Magnet bonus. `auto` = Coin Magnet
+-- auto-collect from Income.Tick (no toast, and Income pushes the state itself). Returns cash paid.
+function Base.Collect(record, auto: boolean?): number
+	local player = record.player
+	if not player then
+		return 0
+	end
+	local amount = math.floor(record.uncollected)
+	if amount < 1 then
+		return 0
+	end
+	record.uncollected -= amount
+	local paid = math.floor(amount * S.Upgrades.CollectMult(player))
+	S.Data.AddCash(player, paid)
+	Base.UpdatePad(record)
+	if not auto then
+		S.Toast(player, "+$" .. S.Util.FormatCash(paid) .. " collected", "good")
+		S.Income.Push(player)
+	end
+	return paid
 end
 
 function Base.OnPadTouched(record, hit: BasePart)
@@ -369,15 +479,7 @@ function Base.OnPadTouched(record, hit: BasePart)
 		return
 	end
 	record.lastCollect = now
-	local amount = math.floor(record.uncollected)
-	if amount < 1 then
-		return
-	end
-	record.uncollected -= amount
-	S.Data.AddCash(player, amount)
-	Base.UpdatePad(record)
-	S.Toast(player, "+$" .. S.Util.FormatCash(amount) .. " collected", "good")
-	S.Income.Push(player)
+	Base.Collect(record, false)
 end
 
 -- ---------- lock ----------
@@ -401,6 +503,52 @@ function Base.SetShutter(record, closed: boolean)
 	end
 end
 
+-- The Slam prompt says how long the owner's lock lasts (Sturdy Lock and rebirths add time).
+function Base.UpdateSlamPrompt(record)
+	local prompt = record.slamPrompt
+	if not prompt then
+		return
+	end
+	local seconds = if record.player then S.Upgrades.LockSeconds(record.player) else S.Config.Economy.LockSeconds
+	prompt.ObjectText = "Locks your drawer for " .. math.floor(seconds) .. "s"
+end
+
+-- Shuts the drawer for the owner's full lock time (a running lock restarts) and pushes out
+-- everyone else.
+local function lockNow(record, player: Player, relocked: boolean)
+	local now = workspace:GetServerTimeNow()
+	local seconds = S.Upgrades.LockSeconds(player)
+	record.lockedUntil = now + seconds
+	record.lockCooldownUntil = record.lockedUntil + S.Upgrades.LockCooldown(player)
+	record.lockToken += 1
+	local token = record.lockToken
+	Base.SetShutter(record, true)
+
+	-- Push out anyone who isn't the owner (they drop what they carry)
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player and other.Character then
+			local root = other.Character:FindFirstChild("HumanoidRootPart")
+			if root and Base.IsInside(record, root.Position) then
+				S.Steal.DropCarried(other, "ejected")
+				other.Character:PivotTo(Base.EjectCFrame(record))
+				S.Toast(other, player.DisplayName .. " slammed the drawer on you!", "bad")
+			end
+		end
+	end
+	S.Toast(player, (if relocked then "Drawer re-locked for " else "Drawer locked for ") .. math.floor(seconds) .. "s 🔒", "good")
+	S.Income.Push(player)
+
+	task.delay(seconds, function()
+		if record.lockToken == token then
+			Base.SetShutter(record, false)
+			if record.player then
+				S.Toast(record.player, "Your drawer is open again", "info")
+				S.Income.Push(record.player)
+			end
+		end
+	end)
+end
+
 function Base.TryLock(player: Player, record)
 	if not S.Ready or record.player ~= player then
 		S.Toast(player, "That's not your drawer!", "bad")
@@ -417,39 +565,18 @@ function Base.TryLock(player: Player, record)
 		S.Toast(player, "Drawer needs " .. math.ceil(record.lockCooldownUntil - now) .. "s to reset", "bad")
 		return
 	end
-	local Eco = S.Config.Economy
-	local profile = S.Data.Get(player)
-	local rebirths = if profile then profile.Data.rebirths else 0
-	local seconds = Eco.LockSeconds + rebirths * Eco.LockSecondsPerRebirth
-	record.lockedUntil = now + seconds
-	record.lockCooldownUntil = record.lockedUntil + Eco.LockCooldownSeconds
-	record.lockToken += 1
-	local token = record.lockToken
-	Base.SetShutter(record, true)
+	lockNow(record, player, false)
+end
 
-	-- Push out anyone who isn't the owner (they drop what they carry)
-	for _, other in ipairs(Players:GetPlayers()) do
-		if other ~= player and other.Character then
-			local root = other.Character:FindFirstChild("HumanoidRootPart")
-			if root and Base.IsInside(record, root.Position) then
-				S.Steal.DropCarried(other, "ejected")
-				other.Character:PivotTo(Base.EjectCFrame(record))
-				S.Toast(other, player.DisplayName .. " slammed the drawer on you!", "bad")
-			end
-		end
+-- Instant Re-lock (developer product): locks now, ignoring the cooldown; an already locked
+-- drawer starts its full lock time again. Returns false when the player has no drawer.
+function Base.ForceLock(player: Player): boolean
+	local record = byPlayer[player]
+	if not record then
+		return false
 	end
-	S.Toast(player, "Drawer locked for " .. seconds .. "s 🔒", "good")
-	S.Income.Push(player)
-
-	task.delay(seconds, function()
-		if record.lockToken == token then
-			Base.SetShutter(record, false)
-			if record.player then
-				S.Toast(record.player, "Your drawer is open again", "info")
-				S.Income.Push(record.player)
-			end
-		end
-	end)
+	lockNow(record, player, Base.IsLocked(record))
+	return true
 end
 
 return Base

@@ -22,12 +22,18 @@ local function isCapped(t): boolean
 	return (countByType[t.id] or 0) >= cap
 end
 
--- Rolls rarity -> type -> side. Returns typeId, side.
+local function rollSide(t): string
+	return if t.single then "S" else (if math.random() < 0.5 then "L" else "R")
+end
+
+-- Rolls rarity -> type -> side. Returns typeId, side. Server Luck (Monetize) multiplies each
+-- rarity's weight by luck^(rank - 1) while it runs.
 function Registry.RollType(): (string, string)
 	local Rarity = S.Config.Rarity
 	local weights = {}
 	for _, key in ipairs(Rarity.Order) do
-		weights[key] = Rarity.Tiers[key].weight
+		local tier = Rarity.Tiers[key]
+		weights[key] = tier.weight * (if S.Monetize then S.Monetize.LuckMult(tier.rank) else 1)
 	end
 	local rarity = S.Util.WeightedPick(weights, Rarity.Order)
 	local pool = {}
@@ -44,8 +50,35 @@ function Registry.RollType(): (string, string)
 		end
 	end
 	local t = pool[math.random(#pool)]
-	local side = if t.single then "S" else (if math.random() < 0.5 then "L" else "R")
-	return t.id, side
+	return t.id, rollSide(t)
+end
+
+-- Rolls a type whose rarity rank is at least `minRank` (Rare Sock Drop), with the RarityConfig
+-- weights among those ranks and the per-server caps respected. Returns typeId, side.
+function Registry.RollTypeAtLeast(minRank: number): (string, string)
+	local Rarity = S.Config.Rarity
+	local pools, weights, order = {}, {}, {}
+	for _, t in ipairs(S.Config.Sock.List) do
+		local tier = Rarity.Tiers[t.rarity]
+		if tier and tier.rank >= minRank and not isCapped(t) then
+			if not pools[t.rarity] then
+				pools[t.rarity] = {}
+				weights[t.rarity] = tier.weight
+			end
+			table.insert(pools[t.rarity], t)
+		end
+	end
+	for _, key in ipairs(Rarity.Order) do
+		if pools[key] then
+			table.insert(order, key)
+		end
+	end
+	if #order == 0 then
+		return Registry.RollType() -- every high type is capped (can't happen with the current roster)
+	end
+	local pool = pools[S.Util.WeightedPick(weights, order)]
+	local t = pool[math.random(#pool)]
+	return t.id, rollSide(t)
 end
 
 function Registry.RollMutation(): string
@@ -159,6 +192,11 @@ function Registry.PriceOf(sock): number
 	local tier = S.Config.Rarity.Tiers[t.rarity]
 	local m = S.Config.Mutation.Table[sock.mutation] or S.Config.Mutation.Table.None
 	return math.floor(t.income * m.mult * tier.payback)
+end
+
+-- What selling the sock back pays (the sock card's Sell button).
+function Registry.SellPriceOf(sock): number
+	return math.floor(Registry.PriceOf(sock) * S.Config.Economy.SellBack)
 end
 
 return Registry

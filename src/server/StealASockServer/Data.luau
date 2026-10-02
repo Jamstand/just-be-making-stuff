@@ -1,4 +1,4 @@
--- Data: ProfileStore (session-locked) persistence + leaderstats.
+-- Data: ProfileStore (session-locked) persistence + leaderstats, and the SaveSettings remote.
 -- Profile.Data layout is TEMPLATE below. Other modules never touch the DataStore directly.
 local Players = game:GetService("Players")
 
@@ -23,13 +23,68 @@ local TEMPLATE = {
 	dexClaimed = {}, -- DexConfig milestone key -> true
 }
 
+local SETTINGS_GAP = 1 -- seconds between SaveSettings calls per player
+
 local store = nil
 local profiles: { [Player]: any } = {}
+
+-- Is `value` allowed for this SettingsConfig entry?
+local function validSetting(setting, value: any): boolean
+	if setting.kind == "toggle" then
+		return type(value) == "boolean"
+	elseif setting.kind == "slider" then
+		return type(value) == "number" and value >= 0 and value <= 1 -- NaN fails both checks
+	elseif setting.kind == "choice" then
+		return type(value) == "string" and table.find(setting.choices or {}, value) ~= nil
+	end
+	return false
+end
+
+-- SaveSettings(settings): the changed settings only. Every key must be a SettingsConfig key with
+-- a value of the right kind, or nothing is saved. Default values are dropped.
+local function saveSettings(player: Player, settings: any)
+	if not S.Ready then
+		return { ok = false, err = "Starting up…" }
+	end
+	if type(settings) ~= "table" then
+		return { ok = false, err = "Bad request" }
+	end
+	if not S.RateLimit.Check(player, "saveSettings", SETTINGS_GAP) then
+		return { ok = false, err = "Slow down a little!" }
+	end
+	local profile = profiles[player]
+	if not profile then
+		return { ok = false, err = "Your drawer isn't ready yet" }
+	end
+	local Settings = S.Config.Settings
+	local clean = {}
+	local count = 0
+	for key, value in pairs(settings) do
+		count += 1
+		local setting = type(key) == "string" and Settings.Settings[key]
+		if count > #Settings.Order or not setting or not validSetting(setting, value) then
+			return { ok = false, err = "Bad request" }
+		end
+		if value ~= setting.default then
+			clean[key] = value
+		end
+	end
+	profile.Data.settings = clean
+	return { ok = true }
+end
 
 function Data.Init(s)
 	S = s
 	TEMPLATE.cash = S.Config.Economy.StartingCash
 	store = ProfileStore.New(STORE_NAME, TEMPLATE)
+	S.Remotes.SaveSettings.OnServerInvoke = function(player: Player, settings: any)
+		local ok, result = pcall(saveSettings, player, settings)
+		if not ok then
+			warn("[Data] SaveSettings failed: " .. tostring(result))
+			return { ok = false, err = "Something went wrong - try again" }
+		end
+		return result
+	end
 end
 
 local function buildLeaderstats(player: Player, profile)

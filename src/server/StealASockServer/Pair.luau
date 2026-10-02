@@ -154,6 +154,15 @@ function Pair.Recompute(record, quiet: boolean?)
 		end
 	end
 
+	-- the Sockdex remembers pairs (quietly: new-type rewards come from Dex.Record at buy/steal/drop)
+	if record.player and S.Dex then
+		for _, sock in pairs(socks) do
+			if sock.paired then
+				S.Dex.Record(record.player, sock, true)
+			end
+		end
+	end
+
 	if not quiet and record.player then
 		local profile = S.Data.Get(record.player)
 		for _, l in ipairs(formed) do

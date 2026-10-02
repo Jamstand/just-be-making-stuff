@@ -25,18 +25,19 @@ local function humanoid(player: Player): Humanoid?
 	return character and character:FindFirstChildOfClass("Humanoid")
 end
 
--- WalkSpeed for the player's current state (carrying or not).
+-- WalkSpeed for the player's current state (carrying or not). Speed Socks (Upgrades) add speed
+-- and take away part of the carry slowdown.
 function Steal.ApplySpeed(player: Player)
 	local h = humanoid(player)
 	if not h then
 		return
 	end
 	local carry = carriers[player]
-	local base = S.Config.Economy.BaseWalkSpeed
+	local speed = S.Upgrades.WalkSpeed(player)
 	if carry then
-		h.WalkSpeed = base * S.Registry.Tier(carry.sock).carrySpeed
+		h.WalkSpeed = speed * S.Upgrades.CarrySpeedMult(player, S.Registry.Tier(carry.sock).carrySpeed)
 	else
-		h.WalkSpeed = base
+		h.WalkSpeed = speed
 	end
 end
 
@@ -101,6 +102,7 @@ function Steal.Setup(player: Player)
 			diedConns[player] = h.Died:Connect(function()
 				Steal.Return(player, "died")
 			end)
+			Steal.ApplySpeed(player) -- a fresh character starts at the default WalkSpeed
 		end
 	end
 	player.CharacterAdded:Connect(hook)
@@ -215,6 +217,7 @@ function Steal.Claim(player: Player)
 	sock.ownerId = player.UserId
 	S.Base.PlaceInSlot(myBase, sock, slot, true)
 	S.Base.SyncToProfile(myBase)
+	S.Dex.Record(player, sock) -- before Pair: a new type earns its Sockdex reward
 	S.Pair.Recompute(myBase)
 	S.Base.SyncToProfile(myBase)
 	local profile = S.Data.Get(player)
