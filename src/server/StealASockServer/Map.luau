@@ -72,7 +72,7 @@ local C = {
 	Metal = Color3.fromRGB(233, 238, 245),
 	MetalDark = Color3.fromRGB(70, 90, 130),
 	Swirl = Color3.fromRGB(123, 63, 224),
-	Lint = Color3.fromRGB(165, 165, 172),
+	Lint = Color3.fromRGB(190, 187, 204), -- matches the Blender basket's lavender-white lint
 	Basket = Color3.fromRGB(200, 160, 100),
 	DryerBlue = Color3.fromRGB(109, 165, 227),
 }
