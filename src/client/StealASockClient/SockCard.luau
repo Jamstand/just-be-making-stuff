@@ -336,6 +336,160 @@ function SockCard.Icon(parent: Instance?, typeId: string, size: number, mutation
 		ring(band, INK, 1)
 	end
 
+	-- the second wave's bits (shown until their 3D templates are imported)
+	local left, right = cx - legW / 2, cx + legW / 2
+	local gold = Color3.fromRGB(242, 193, 78)
+	local dark = Color3.fromRGB(28, 26, 34)
+	local function tilt(f: Frame, degrees: number) -- turned the other way on a left sock
+		f.Rotation = if flip then -degrees else degrees
+	end
+	if has("polkadots") then
+		for _, p in ipairs({ { cx - 0.1, top + 0.48 }, { cx + 0.11, top + 0.6 }, { cx - 0.07, 0.7 }, { 0.55, 0.8 }, { 0.7, 0.66 } }) do
+			dot(p[1], p[2], 0.06, WHITE, 5)
+		end
+	end
+	if has("pajamas") or has("pinstripes") then
+		local line = if has("pajamas") then WHITE else Color3.fromRGB(150, 150, 165)
+		for _, x in ipairs({ cx - 0.12, cx, cx + 0.12 }) do
+			shape(x - 0.008, top + 0.12, 0.016, 0.72 - top, line, nil, 4)
+		end
+	end
+	if has("sailorstripes") then
+		for _, y in ipairs({ 0.56, 0.66 }) do
+			shape(left, y, legW, 0.045, accent, nil, 4)
+		end
+	end
+	if has("bandages") then
+		for i, y in ipairs({ 0.44, 0.55, 0.66 }) do
+			tilt(shape(left, y, legW, 0.03, accent:Lerp(WHITE, 0.6), nil, 4), if i % 2 == 0 then 8 else -8)
+		end
+	end
+	if has("stars") then
+		for _, p in ipairs({ { cx - 0.11, top + 0.5 }, { cx + 0.1, 0.62 }, { 0.62, 0.8 } }) do
+			tilt(shape(p[1] - 0.025, p[2] - 0.025, 0.05, 0.05, gold, 0.01, 5), 45)
+		end
+	end
+	if has("furcuff") then
+		local fur = shape(left - 0.05, top - 0.04, legW + 0.1, 0.14, WHITE, 0.06, 5)
+		ring(fur, INK, math.max(1, edge * 0.5))
+		dot(cx + 0.1, top + 0.03, 0.05, Color3.fromRGB(220, 30, 40), 6) -- holly berries
+		dot(cx + 0.14, top + 0.05, 0.05, Color3.fromRGB(220, 30, 40), 6)
+	end
+	if has("tricolor") then
+		for i, c in ipairs({ Color3.fromRGB(46, 160, 80), WHITE, Color3.fromRGB(217, 68, 63) }) do
+			shape(left - 0.03, top - 0.06 + i * 0.035, legW + 0.06, 0.035, c, nil, 5)
+		end
+	end
+	if has("spacehelmet") then
+		local silver = Color3.fromRGB(200, 205, 215)
+		ring(shape(left - 0.04, top - 0.03, legW + 0.08, 0.1, silver, 0.04, 5), INK, 1)
+		shape(cx + 0.1, top - 0.15, 0.015, 0.12, silver, nil, 8)
+		dot(cx + 0.107, top - 0.16, 0.05, Color3.fromRGB(230, 50, 50), 9)
+	end
+	if has("jinglebell") then
+		ring(dot(0.86, 0.84, 0.09, gold, 5), INK, 1)
+	end
+	if has("dragontail") then
+		shape(0.1, 0.82, 0.2, 0.05, body, 0.025, 1)
+		tilt(shape(0.06, 0.8, 0.07, 0.07, accent, 0.01, 1), 45)
+	end
+	if has("jetpack") then
+		shape(left - 0.08, top + 0.25, 0.09, 0.25, Color3.fromRGB(240, 242, 246), 0.03, 1)
+		shape(left - 0.075, top + 0.5, 0.08, 0.04, Color3.fromRGB(70, 72, 80), nil, 1)
+	end
+	if has("dragonwings") then
+		tilt(shape(left - 0.17, top + 0.12, 0.2, 0.17, Color3.fromRGB(200, 40, 40), 0.04, 1), -20)
+	end
+	if has("vampcape") then
+		tilt(shape(left - 0.05, top - 0.12, 0.09, 0.3, dark, 0.03, 1), -12)
+		tilt(shape(right - 0.04, top - 0.12, 0.09, 0.3, dark, 0.03, 1), 12)
+		shape(left, top - 0.02, legW, 0.06, dark, 0.02, 5) -- slicked-back hair
+		dot(cx, eyeY + 0.25, 0.05, gold, 7) -- the clasp
+	end
+	if has("ninjamask") then
+		local hood = body:Lerp(BLACK, 0.4)
+		shape(left, top, legW, eyeY - top - 0.07, hood, nil, 5)
+		shape(left, eyeY + 0.07, legW, 0.07, hood, nil, 5)
+	end
+	if has("headband") then
+		shape(left - 0.01, eyeY - 0.11, legW + 0.02, 0.035, accent, nil, 6)
+		tilt(shape(left - 0.1, eyeY - 0.1, 0.1, 0.03, accent, nil, 6), -25)
+	end
+	if has("nemes") then
+		shape(left - 0.03, top - 0.04, legW + 0.06, 0.14, gold, 0.04, 8)
+		shape(left - 0.03, top + 0.02, legW + 0.06, 0.025, Color3.fromRGB(38, 70, 160), nil, 9)
+		for _, x in ipairs({ left - 0.04, right - 0.02 }) do
+			shape(x, top + 0.1, 0.06, 0.24, gold, 0.02, 8)
+		end
+	end
+	if has("pacifier") then
+		dot(cx - 0.02, eyeY + 0.12, 0.1, accent, 7)
+		dot(cx - 0.02, eyeY + 0.12, 0.045, WHITE, 8)
+	end
+	if has("mustachio") then
+		for _, x in ipairs({ cx - 0.07, cx - 0.01, cx + 0.05 }) do
+			dot(x + 0.01, eyeY + 0.1, 0.07, BLACK, 7)
+		end
+	end
+	if has("pharaohbeard") then
+		shape(cx - 0.025, eyeY + 0.1, 0.05, 0.14, gold, 0.02, 7)
+	end
+	if has("pinstripes") then
+		shape(cx - 0.04, eyeY + 0.11, 0.08, 0.12, WHITE, 0.01, 5) -- the shirt
+		dot(cx - 0.03, eyeY + 0.11, 0.04, BLACK, 6) -- the bow tie
+		dot(cx + 0.03, eyeY + 0.11, 0.04, BLACK, 6)
+	end
+	if has("rose") then
+		dot(cx + 0.11, eyeY + 0.2, 0.06, Color3.fromRGB(211, 32, 63), 7)
+	end
+	if has("hairbow") then
+		dot(cx - 0.07, top - 0.05, 0.1, accent, 8)
+		dot(cx + 0.07, top - 0.05, 0.1, accent, 8)
+		dot(cx, top - 0.04, 0.06, accent:Lerp(BLACK, 0.2), 9)
+	end
+	if has("babycurl") then
+		local brown = Color3.fromRGB(150, 96, 50)
+		dot(cx, top - 0.05, 0.07, brown, 8)
+		dot(cx + 0.03, top - 0.1, 0.05, brown, 8)
+	end
+	if has("nightcap") then
+		shape(left, top - 0.08, legW, 0.09, accent, 0.03, 8)
+		tilt(shape(cx - 0.26, top - 0.17, 0.3, 0.11, accent, 0.05, 8), -20)
+		dot(cx - 0.28, top - 0.07, 0.09, WHITE, 9)
+	end
+	if has("horns") then
+		local cream = Color3.fromRGB(245, 232, 200)
+		tilt(shape(cx - 0.11, top - 0.09, 0.05, 0.1, cream, 0.02, 8), -15)
+		tilt(shape(cx + 0.06, top - 0.09, 0.05, 0.1, cream, 0.02, 8), 15)
+	end
+	if has("tricorn") then
+		shape(cx - 0.2, top - 0.09, 0.4, 0.08, dark, 0.03, 8)
+		shape(cx - 0.11, top - 0.17, 0.22, 0.1, dark, 0.03, 8)
+		shape(cx - 0.2, top - 0.02, 0.4, 0.02, gold, nil, 9)
+		dot(cx, top - 0.11, 0.05, WHITE, 9)
+	end
+	if has("toque") then
+		ring(shape(cx - 0.12, top - 0.12, 0.24, 0.12, WHITE, 0.02, 8), INK, 1)
+		ring(dot(cx, top - 0.19, 0.22, WHITE, 8), INK, 1)
+	end
+	if has("wizardhat") then
+		local hat = body:Lerp(BLACK, 0.1)
+		shape(cx - 0.2, top - 0.04, 0.4, 0.05, hat, 0.02, 8)
+		shape(cx - 0.1, top - 0.22, 0.2, 0.2, hat, 0.03, 8)
+		tilt(shape(cx - 0.03, top - 0.3, 0.12, 0.1, hat, 0.03, 8), 25)
+		dot(cx + 0.09, top - 0.27, 0.06, gold, 9)
+	end
+	if has("fedora") then
+		local grey = Color3.fromRGB(120, 120, 130)
+		shape(cx - 0.22, top - 0.03, 0.44, 0.05, grey, 0.02, 8)
+		shape(cx - 0.13, top - 0.16, 0.26, 0.14, grey, 0.04, 8)
+		shape(cx - 0.13, top - 0.06, 0.26, 0.03, BLACK, nil, 9)
+	end
+	if has("eyepatch") then
+		dot(eyes[1], eyeY, 0.12, BLACK, 8)
+		tilt(shape(left, eyeY - 0.08, legW, 0.015, BLACK, nil, 8), -10)
+	end
+
 	root.Parent = parent
 	return root
 end
