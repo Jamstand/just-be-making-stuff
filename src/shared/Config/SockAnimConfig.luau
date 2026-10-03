@@ -20,6 +20,9 @@ export type Personality = {
 	voice: number, -- pitch of its sounds (PlaybackSpeed multiplier)
 	bend: number?, -- most a leg joint may bend (radians); default Limits.Bend / BendSingle
 	hatTilt: number?, -- most its Hat bone may tilt (radians); default Limits.HatTilt
+	flair: { string }?, -- show-off moves to mix in instead of its rarity's flair list
+	noPanic: string?, -- a thief in your drawer doesn't scare it: "stance" (fighting stance) | "stare" (turns and stares at the thief)
+	sleepy: number?, -- dozes off this many times sooner than other socks when nobody is near (default 1)
 	blurb: string, -- one line for docs/ANIMATION.md
 }
 
@@ -87,6 +90,22 @@ local SockAnimConfig = {
 		HatTilt = 0.45, -- a hat on the head (a tight helm or wreath: Personality.hatTilt)
 		Tentacle = 0.45, -- per tentacle segment
 		JawTurn = 0.4, -- share of the rig's `turn` a full jaw-open uses (the rest is `slide`)
+		-- the floppy bits whose rig has no hint (SockRigConfig `swing` / `wobble` / `flap` win; those are degrees)
+		Swing = 0.6, -- 34 deg: a dangle bone (nightcap, cape, tail ...)
+		Wobble = 0.35, -- 20 deg: a spring bone (curl, antenna, moustache)
+		Flap = 0.5, -- 29 deg: a wing
+	},
+
+	-- Floppy bits: `dangle` bones swing like pendulums and `spring` bones wobble, both pushed around
+	-- by the sock's own motion (hops, spins, leans, being carried) and by gravity as the sock tips.
+	Soft = {
+		Gravity = 0.5, -- share of workspace.Gravity they feel (cartoon-slow, floaty swings)
+		DangleDamping = 0.22, -- 0..1: lower = more swings before a dangle settles
+		DangleDrag = 2.5, -- air drag: a carried sock's cape streams out behind it
+		SpringFreq = 22, -- radians per second a spring wobbles at
+		SpringDamping = 0.14,
+		Reset = 8, -- sock units: a jump bigger than this in one frame (a teleport) puts them back at rest
+		WingOpen = 1, -- set -1 if Dragonzola's wings fold in when they should spread (docs/ANIMATION.md)
 	},
 
 	Reactions = {
@@ -125,6 +144,11 @@ local SockAnimConfig = {
 		whoosh = { id = "rbxassetid://12222200", volume = 0.2, pitch = 1, gap = 0.5 }, -- spins and flips (swoosh.wav)
 		oof = { id = "rbxassetid://79348298352567", volume = 0.18, pitch = 1.2, gap = 1.5 }, -- flinch at a Towel Snap (Official OOF Sound Effect)
 		zap = { id = "", volume = 0.2, pitch = 1, gap = 1 }, -- Static zaps: silent (no Roblox-made zap fits)
+		jingle = { id = "rbxassetid://16480570986", volume = 0.16, pitch = 1.6, gap = 0.35 }, -- Jingleo's bell (Audio/Roblox_Pinball_Bumper_Low_Bells_02, a bell ding, raised)
+		roar = { id = "rbxassetid://96100733", volume = 0.2, pitch = 0.65, gap = 2 }, -- Dragonzola's little roar (Craw5, a creature call, slowed)
+		kiss = { id = "rbxassetid://17208204604", volume = 0.3, pitch = 1.3, gap = 1 }, -- the chef's "mwah!" (Roblox GUI - Bubble, a bubble pop)
+		jet = { id = "rbxassetid://12222065", volume = 0.12, pitch = 1.1, gap = 1.5 }, -- Sockstrong's jets (Launching rocket.wav)
+		magic = { id = "rbxassetid://15675046931", volume = 0.2, pitch = 1.2, gap = 0.8 }, -- Merlino's spells (Roblox_UI_Sweep)
 	} :: { [string]: SoundSpec },
 	SoundRange = 45, -- only socks this close to the camera make sounds
 	SoundRollOff = { 6, 45 }, -- {min, max} RollOff distance of every sock sound
@@ -164,29 +188,42 @@ SockAnimConfig.Personalities = {
 	AnkleBiter    = { idle = "chomp",     tempo = 1,   amp = 1,   fidgets = { "chomp", "lunge", "wiggle" },       showoff = "chompspin",   hang = "kick",      look = 1,   voice = 1.3,  blurb = "Bouncy little chomper: snaps its top, lunges playfully, spins chomping" },
 	CrustyCrew    = { idle = "stiff",     tempo = 1,   amp = 1,   fidgets = { "creak", "creakturn" },             showoff = "stiffbow",    hang = "stiff",     look = 0.4, voice = 0.75, blurb = "Dried rigid: moves in creaky steps, bends only at the ankle, stiff bows" },
 	GymGary       = { idle = "pump",      tempo = 1,   amp = 1,   fidgets = { "flex", "squats", "wipe" },         showoff = "flex",        hang = "kick",      look = 0.7, voice = 0.9,  blurb = "Bounces on the spot, flexes, does squats, wipes his brow" },
+	PolkaDottie   = { idle = "sway",      tempo = 1,   amp = 1,   fidgets = { "giggle", "twirl", "wiggle" },      showoff = "twirlspin",   hang = "kick",      look = 1,   voice = 1.25, blurb = "Bubbly and giggly: a happy sway with little heel lifts, giggles, half twirls; a full spin with a bow bounce" },
+	Pisolino      = { idle = "doze",      tempo = 0.8, amp = 1,   fidgets = { "yawn", "nodoff", "stretch" },      showoff = "sleepwalk",   hang = "limp",      look = 0.3, voice = 0.8,  sleepy = 2, blurb = "Always sleepy: nods off and snaps awake, yawns, stretches tall; sleepwalks; dozes off twice as fast" },
+	Bambino       = { idle = "toddle",    tempo = 1,   amp = 1,   fidgets = { "suck", "plop", "giggle" },         showoff = "babyhop",     hang = "babykick",  look = 1,   voice = 1.5,  blurb = "A wobbly toddler: sucks its pacifier, plops down on its bottom, three excited baby hops" },
 	-- Rare
 	Argylo        = { idle = "posh",      tempo = 1,   amp = 1,   fidgets = { "monocle", "nod", "lookaround" },   showoff = "bow",         hang = "posh",      look = 1,   voice = 0.9,  blurb = "Posh and upright, slow nods, adjusts his monocle, bows to players" },
 	ToeToe        = { idle = "wiggle",    tempo = 1,   amp = 1,   fidgets = { "toewiggle", "tiptoe", "wiggle" },  showoff = "tiptoe",      hang = "kick",      look = 0.8, voice = 1.2,  blurb = "Wiggles its five toes non-stop, tip-toe dances" },
 	Sockrates     = { idle = "ponder",    tempo = 0.8, amp = 1,   fidgets = { "ponder", "nod", "nod" },           showoff = "eureka",      hang = "ponder",    look = 0.6, voice = 0.85, bend = 0.15, hatTilt = 0.14, blurb = "Slow thoughtful nods and head tilts; a 'eureka!' hop" },
 	KneeHigh      = { idle = "noodle",    tempo = 1,   amp = 1,   fidgets = { "noodlewave", "wiggle", "lookaround" }, showoff = "noodlewave", hang = "noodle",  look = 0.8, voice = 0.95, blurb = "Long noodle: waves ripple up the whole leg" },
+	Jingleo       = { idle = "jolly",     tempo = 1,   amp = 1,   fidgets = { "jingle", "hoho", "wiggle" },       showoff = "sleighspin",  hang = "kick",      look = 0.8, voice = 1.1,  blurb = "Jolly 'ho-ho' double bounces, jingles the bell on its toe; a sleigh spin in a puff of snow" },
+	Ninjolino     = { idle = "stealth",   tempo = 1,   amp = 1,   fidgets = { "sneak", "dash", "lookaround" },    showoff = "vanish",      hang = "stealth",   look = 1,   voice = 1,    noPanic = "stance", blurb = "Low tense crouch, shifty looks, tip-toes and darts; vanishes in a smoke poof; never panics: takes a fighting stance" },
+	Sockbeard     = { idle = "deck",      tempo = 1,   amp = 1,   fidgets = { "arr", "spyglass", "laugh" },       showoff = "hatwave",     hang = "swing",     look = 0.8, voice = 0.85, blurb = "Rocks like a ship on the waves, lunges 'arr!', scans the horizon; waves his tricorn" },
 	-- Epic
 	Slipperino    = { idle = "skate",     tempo = 1,   amp = 1,   fidgets = { "glide", "wiggle" },                showoff = "skatespin",   hang = "skate",     look = 0.7, voice = 1.1,  blurb = "Skates side to side leaning into the glide; ice-skater spins" },
 	Compressio    = { idle = "tense",     tempo = 1,   amp = 1,   fidgets = { "crunch", "shiverburst" },          showoff = "crunchpop",   hang = "jitter",    look = 0.5, voice = 1.05, blurb = "Tense shivers, scrunches up tight, then pops" },
 	Sockhopper    = { idle = "pogo",      tempo = 1,   amp = 1,   fidgets = { "doublebounce", "lookaround" },     showoff = "pogoflip",    hang = "bounce",    look = 0.6, voice = 1,    blurb = "Never stops pogoing; big bounces and pogo flips" },
 	DJDryer       = { idle = "bop",       tempo = 1,   amp = 1,   fidgets = { "scratch", "headbang" },            showoff = "scratchspin", hang = "groove",    look = 0.5, voice = 1,    blurb = "Bops to a 120 BPM beat, scratches with its cuff, spins on the drop" },
+	Spaghettino   = { idle = "stir",      tempo = 1,   amp = 1,   fidgets = { "taste", "stachewiggle", "lookaround" }, showoff = "chefskiss", hang = "kick",     look = 0.9, voice = 0.95, blurb = "A slow stirring sway, twitchy moustache, tastes and hops; the chef's kiss: 'mwah!'" },
+	Sockula       = { idle = "brood",     tempo = 0.9, amp = 1,   fidgets = { "capeswirl", "bleh", "hide" },      showoff = "nightrise",   hang = "cape",      look = 0.8, voice = 0.8,  blurb = "Dramatic slow sway, cape billowing; swirls it, hides behind it, 'bleh!'; rises with the cape spread" },
 	-- Legendary
 	Socktopus     = { idle = "swim",      tempo = 1,   amp = 1,   fidgets = { "swimstroke", "wiggle", "lookaround" }, showoff = "swirl",     hang = "tentacles", look = 0.7, voice = 1.1,  blurb = "Tentacles wave like swimming while it bobs; a swirling tentacle twirl" },
 	Sockington    = { idle = "attention", tempo = 1,   amp = 1,   fidgets = { "salute", "march" },                showoff = "salute",      hang = "stiff",     look = 0.7, voice = 0.85, bend = 0.15, hatTilt = 0.14, blurb = "Stands to attention, salutes, marches in place" },
 	Stinkolino    = { idle = "slouch",    tempo = 0.8, amp = 1,   fidgets = { "waft", "slouch", "yawn" },         showoff = "waft",        hang = "limp",      look = 0.4, voice = 0.8,  blurb = "Lazy slouch, yawns, proudly wafts its stink around" },
+	Merlino       = { idle = "conjure",   tempo = 1,   amp = 1,   fidgets = { "spell", "levitate", "lookaround" }, showoff = "abracadabra", hang = "float",    look = 0.7, voice = 0.95, blurb = "A slow magical bob, the hat tip swaying; casts sparkly spells, levitates; spins up under a sparkle shower" },
+	Sockstrong    = { idle = "zerog",     tempo = 0.9, amp = 1,   fidgets = { "moonhop", "boost", "lookaround" }, showoff = "liftoff",     hang = "float",     look = 0.7, voice = 1,    blurb = "Slow-motion zero-g drift, floaty moon hops, little jet boosts; lift-off with a slow flip" },
 	-- Mythic
 	SockNess      = { idle = "serpent",   tempo = 0.9, amp = 1,   fidgets = { "lookaround", "dip" },              showoff = "rise",        hang = "serpent",   look = 0.9, voice = 0.8,  blurb = "Slow serpent sways of the long neck; looks all around; rises up tall" },
 	Shockini      = { idle = "jitter",    tempo = 1,   amp = 1,   fidgets = { "jolt", "jolt", "shiverburst" },    showoff = "overload",    hang = "jitter",    look = 0.6, voice = 1.15, blurb = "Can't keep still: jitters, electric jolts, a full overload" },
+	Dragonzola    = { idle = "breathe",   tempo = 1,   amp = 1,   fidgets = { "wingflap", "snort", "tailwag" },   showoff = "firebreath",  hang = "flap",      look = 0.9, voice = 0.9,  blurb = "Big slow breaths, wings flexing; flaps, snorts smoke, wags its tail; rears back and breathes fire" },
 	-- Sock God
 	Lintlord      = { idle = "regal",     tempo = 0.9, amp = 1,   fidgets = { "toeraise", "nod", "lookaround" },  showoff = "decree",      hang = "posh",      look = 0.8, voice = 0.8,  blurb = "Regal sway, chin up; raises its toe to command the room" },
 	Zillionaire   = { idle = "strut",     tempo = 1,   amp = 1,   fidgets = { "hattip", "lookaround" },           showoff = "hattip",      hang = "posh",      look = 0.9, voice = 0.9,  blurb = "Struts on the spot, tips his top hat, twirls" },
+	Toetankhamun  = { idle = "pharaoh",   tempo = 0.9, amp = 1,   fidgets = { "headslide", "mummyshuffle", "lookaround" }, showoff = "awaken", hang = "stiff",   look = 0.6, voice = 0.75, blurb = "Regal stance with an Egyptian head slide, stiff mummy shuffles; tips back like a board and rises" },
 	-- Secret
 	LostSock      = { idle = "haunt",     tempo = 1,   amp = 1,   fidgets = { "glitch", "stare" },                showoff = "phase",       hang = "float",     look = 0.3, voice = 0.7,  blurb = "Eerie float and slow turn, stares at you, glitchy twitches" },
 	PuppetSupreme = { idle = "talk",      tempo = 1,   amp = 1,   fidgets = { "chatter", "gesture", "yawn" },     showoff = "monologue",   hang = "bounce",    look = 1,   voice = 1.2,  blurb = "Never stops talking: jaw flaps, big gestures, a dramatic monologue" },
+	Sockfather    = { idle = "boss",      tempo = 0.8, amp = 1,   fidgets = { "nod", "hatbrim", "lookaround" },   showoff = "offer",       hang = "posh",      look = 1,   voice = 0.7,  flair = { "stare", "pose" }, noPanic = "stare", blurb = "Calm and still, slow knowing nods, tips his fedora; makes you an offer you can't refuse; stares thieves down" },
 }
 
 return SockAnimConfig

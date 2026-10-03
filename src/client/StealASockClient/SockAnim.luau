@@ -20,6 +20,11 @@
 -- Standing, the Foot keeps its own rotation whatever Leg1 does (planted) and the Root bone shifts so
 -- the foot stays put; hanging, forward kinematics finds where the clothespin point went and the Root
 -- bone shifts it back, so the cuff stays pinned and the foot swings.
+-- Floppy bits are simulated, not posed: each `dangle` bone (nightcap, cape, tail, bell ...) is a
+-- damped pendulum whose tip is pushed by its parent's real motion in the world (hops, spins, a
+-- thief running with it) and by gravity as the sock tips; `spring` bones (curl, antenna, moustache)
+-- are the same with a stiff spring. Moves only set where they'd rest (`flare`, `wag`, `springs`).
+-- `wing` bones flap about their own axis; `jet` bones carry a flame while a move fires them.
 -- Socks with no bones (Part-built ones, an old place), or farther than Perf.BoneRange from the
 -- camera, get the same layers folded into whole-body motion of the root part.
 --
@@ -134,7 +139,7 @@ local RIGID = 0.55 -- share of a leg bend that becomes whole-body tilt when the 
 
 type Slot = {
 	name: string,
-	role: string, -- root | leg | cuff | foot | toe | digit | eye | hat | jaw | pogo | tentacle | neck | head | fly | hump | tail | ground | accessory
+	role: string, -- root | leg | cuff | foot | toe | digit | eye | hat | jaw | pogo | tentacle | neck | head | fly | hump | tail | ground | accessory | dangle | spring | wing | jet
 	index: number, -- Leg number, or the segment's place in its chain
 	depth: number,
 	parent: Slot?,
@@ -159,7 +164,24 @@ type Slot = {
 	turnMax: number,
 	R: CFrame,
 	L: CFrame, -- this frame's motion (sock space), parents first
+	C: CFrame, -- this frame's motion with every parent's (floppy rigs only)
 	moved: boolean, -- its Transform isn't identity
+	-- floppy bits (dangle / spring) and wings
+	part: number, -- which dangle / wing / jet (the rig's `index`)
+	seg: number, -- place along its dangle, from where it hangs
+	limit: number, -- radians it may swing / wobble / flap
+	len: number, -- studs from its pivot to its tip
+	dir: Vector3, -- rest direction pivot -> tip (sock space)
+	side: number, -- -1 / +1: which side of the sock it hangs on (sock space x); wings: the turn that opens it
+	omega: number, -- spring rate (rad/s) and damping ratio of its tip
+	zeta: number,
+	drag: number,
+	grav: number, -- gravity it feels (studs/s^2)
+	q: Vector3, -- tip: offset from where a rigid bone would put it, velocity (world, studs)
+	w: Vector3,
+	tr: Vector3, -- where a rigid bone put the tip last frame, and how fast that moved
+	vr: Vector3,
+	live: boolean, -- false: starts again from rest
 }
 
 type Rig = {
@@ -202,6 +224,12 @@ type Rig = {
 	digits: { Slot },
 	critters: { Slot }, -- flies, humps, tails: always busy
 	grounds: { Slot }, -- stay on the floor whatever the sock does
+	soft: { Slot }, -- dangles and springs, parents first (simulated in solveBones)
+	dangles: { { Slot } }, -- each dangle from where it hangs to its tip
+	springList: { Slot },
+	wingList: { Slot },
+	jetList: { Slot },
+	frameInRoot: CFrame, -- the sock frame in the root part's space (menus: where the model really is)
 	bendMax: number, -- per leg joint (SockAnimConfig.Limits)
 	hatMax: number,
 	pupil0: number, -- where the pupil sits in the googly eye at rest (angle in the face plane)
@@ -245,6 +273,7 @@ type Rig = {
 	spin: number,
 	flip: number,
 	squash: number,
+	jetPower: number, -- this frame: how hard the jets fire (0 = off)
 	-- clips
 	actName: string?,
 	actT0: number,
@@ -288,6 +317,7 @@ type Rig = {
 	tPanic: number,
 	awayX: number,
 	awayZ: number,
+	threatYaw: number, -- noPanic socks: where the thief is (sock-space yaw, smoothed)
 	pairW: number,
 	tPairW: number,
 	pairYaw: number,
@@ -305,6 +335,10 @@ type Rig = {
 	sounds: { [string]: Sound },
 	soundAt: { [string]: number },
 	sparkle: ParticleEmitter?,
+	fx: { [string]: ParticleEmitter }, -- one pooled emitter per effect (smoke, fire, snow ...)
+	jetFx: { ParticleEmitter }, -- the jet flames, one per jet bone
+	jetAtt: { Attachment },
+	jetOn: boolean,
 	zzz: BillboardGui?,
 	zzzLabels: { TextLabel },
 	zzzIndex: number,
@@ -635,6 +669,51 @@ local function jiggle(r: Rig, t: number, amount: number)
 	end
 end
 
+-- wings: + opens both (each turns about its own hinge, mirrored), radians; the rig's `flap` caps it
+local function wings(r: Rig, open: number)
+	if r.bonesOn then
+		local way = Config.Soft.WingOpen
+		for _, s in ipairs(r.wingList) do
+			s.rl += open * s.side * way
+		end
+	end
+end
+
+-- where the dangles rest (they swing round it on their own): out = away from the sock's middle,
+-- back = toward its back (radians, at the top of each dangle)
+local function flare(r: Rig, out: number, back: number)
+	if r.bonesOn then
+		for _, list in ipairs(r.dangles) do
+			local s = list[1]
+			s.rx += back
+			s.rz += out * s.side
+		end
+	end
+end
+
+-- swings every dangle about the sock's up axis (a dragon's tail wagging), radians
+local function wag(r: Rig, yaw: number)
+	if r.bonesOn then
+		for _, list in ipairs(r.dangles) do
+			list[1].ry += yaw * r.dir
+		end
+	end
+end
+
+-- where the springs rest (curl, antenna, moustache: they wobble round it), like slotRot
+local function springs(r: Rig, nod: number, lean: number)
+	if r.bonesOn then
+		for _, s in ipairs(r.springList) do
+			slotRot(s, r.dir, nod, lean, 0)
+		end
+	end
+end
+
+-- fires the jetpack this frame (0 = off, 1 = full): flames at the jet bones
+local function jets(r: Rig, power: number)
+	r.jetPower += power
+end
+
 -- the never-still bits: Toe-Toe's five toes, Stinkolino's flies, the Sock Ness humps and tail
 local function critters(r: Rig, t: number, A: number)
 	if not r.bonesOn then
@@ -688,6 +767,17 @@ local function limitJoints(r: Rig)
 			s.rx = clamp(s.rx, -tentMax, tentMax)
 			s.rz = clamp(s.rz, -tentMax, tentMax)
 		end
+	end
+	-- jaws (a pacifier too): however many moves open one at once (an idle chomp under a fidget's),
+	-- it stays inside the rig's slide / turn
+	for _, s in ipairs(r.jaws) do
+		s.oy = max(s.oy, -s.slideMax * r.unit)
+		s.rx = clamp(s.rx, -s.turnMax, s.turnMax)
+	end
+	-- wings (dangles and springs keep inside theirs as they are simulated)
+	for _, s in ipairs(r.wingList) do
+		s.rx, s.ry, s.rz = 0, 0, 0
+		s.rl = clamp(s.rl, -s.limit, s.limit)
 	end
 end
 
@@ -864,6 +954,253 @@ local function poofAt(position: Vector3, color: Color3)
 	holder.Parent = workspace.CurrentCamera
 	e:Emit(if lowGraphics then 10 else 24)
 	Debris:AddItem(holder, 3)
+end
+
+-- ---------- effects: smoke, fire, snow, stars, sand and the jet flames ----------
+-- One pooled emitter per effect per sock, made the first time that sock needs it (an Attachment on
+-- the root part, whose space is the sock space), emptied in bursts; removed with the sock.
+
+-- a bone's pose this frame (sock space): its own motion after every parent's
+local function poseOf(s: Slot): CFrame
+	local q = s.L
+	local a = s.parent
+	while a do
+		q = a.L * q
+		a = a.parent
+	end
+	return q
+end
+
+-- the top leg bone (the face block) as it is posed now, or nothing when the bones aren't driven
+local function headPose(r: Rig): CFrame
+	if r.bonesOn then
+		local n = #r.chain
+		local s = r.heads[1] or (if r.cuff and n > 1 then r.chain[n - 1] else r.chain[n])
+		if s then
+			return poseOf(s)
+		end
+	end
+	return CFrame.identity
+end
+
+-- may this sock show particles now? Not in the menus (viewports can't draw them), not far away,
+-- and with Hide others' effects only other players' socks up close
+local function fxAllowed(r: Rig): boolean
+	if r.mode == "ui" or r.hidden or not r.root or r.camDist > 120 then
+		return false
+	end
+	return not (hideOthers and r.ownerId ~= myId and r.camDist > 30)
+end
+
+local function seq(a: number, b: number, c: number?): NumberSequence
+	if c then
+		return NumberSequence.new({ NumberSequenceKeypoint.new(0, a), NumberSequenceKeypoint.new(0.3, b), NumberSequenceKeypoint.new(1, c) })
+	end
+	return NumberSequence.new({ NumberSequenceKeypoint.new(0, a), NumberSequenceKeypoint.new(1, b) })
+end
+
+-- the emitter for one effect: "smoke" (a ninja poof), "snort" (nose smoke), "fire", "snow", "stars"
+-- (sparkles in any colour), "sand", "flame" (a jet nozzle, one per call)
+local function makeEmitter(r: Rig, kind: string, name: string): ParticleEmitter?
+	local root = r.root
+	if not root then
+		return nil
+	end
+	local k = r.unit * 0.5 -- particles are sized for a sock at the game's scale 2
+	local att = Instance.new("Attachment")
+	att.Name = name
+	att.Parent = root
+	local e = Instance.new("ParticleEmitter")
+	e.Rate = 0
+	e.EmissionDirection = Enum.NormalId.Top
+	e.LightInfluence = 0
+	e.Transparency = seq(0.1, 1)
+	if kind == "smoke" then
+		e.Color = ColorSequence.new(Color3.fromRGB(110, 104, 134), Color3.fromRGB(220, 216, 230))
+		e.Size = seq(0.8 * k, 1.8 * k, 2.4 * k)
+		e.Speed = NumberRange.new(3 * k, 8 * k)
+		e.Lifetime = NumberRange.new(0.6, 1.1)
+		e.SpreadAngle = Vector2.new(180, 180)
+		e.Drag = 4
+		e.Acceleration = Vector3.new(0, 2 * k, 0)
+	elseif kind == "snort" then
+		e.Color = ColorSequence.new(Color3.fromRGB(150, 146, 160), Color3.fromRGB(230, 228, 236))
+		e.Size = seq(0.2 * k, 0.6 * k, 0.9 * k)
+		e.Speed = NumberRange.new(2 * k, 4 * k)
+		e.Lifetime = NumberRange.new(0.6, 0.9)
+		e.SpreadAngle = Vector2.new(15, 15)
+		e.Drag = 2
+		e.Acceleration = Vector3.new(0, 2 * k, 0)
+	elseif kind == "fire" or kind == "flame" then
+		e.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 244, 150)),
+			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 150, 40)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(220, 50, 30)),
+		})
+		e.LightEmission = 1
+		e.Drag = 2
+		if kind == "fire" then
+			e.Size = seq(0.4 * k, 1.1 * k, 0)
+			e.Speed = NumberRange.new(14 * k, 20 * k)
+			e.Lifetime = NumberRange.new(0.3, 0.45)
+			e.SpreadAngle = Vector2.new(14, 14)
+			e.Acceleration = Vector3.new(0, 3 * k, 0)
+		else
+			e.Size = seq(0.45 * k, 0)
+			e.Speed = NumberRange.new(8 * k, 12 * k)
+			e.Lifetime = NumberRange.new(0.15, 0.3)
+			e.SpreadAngle = Vector2.new(10, 10)
+		end
+	elseif kind == "snow" then
+		e.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(200, 230, 255))
+		e.Size = seq(0, 0.3 * k, 0)
+		e.Speed = NumberRange.new(4 * k, 8 * k)
+		e.Lifetime = NumberRange.new(0.8, 1.4)
+		e.SpreadAngle = Vector2.new(180, 180)
+		e.Drag = 2
+		e.Acceleration = Vector3.new(0, -3 * k, 0)
+		e.LightEmission = 0.6
+	elseif kind == "sand" then
+		e.Color = ColorSequence.new(Color3.fromRGB(232, 208, 150), Color3.fromRGB(196, 166, 108))
+		e.Size = seq(0.5 * k, 1.4 * k, 1.8 * k)
+		e.Transparency = seq(0.3, 1)
+		e.Speed = NumberRange.new(4 * k, 9 * k)
+		e.Lifetime = NumberRange.new(0.6, 1.0)
+		e.SpreadAngle = Vector2.new(80, 80)
+		e.Drag = 5
+		e.Acceleration = Vector3.new(0, -2 * k, 0)
+	else -- "stars"
+		e.Size = seq(0, 0.4 * k, 0)
+		e.Speed = NumberRange.new(3 * k, 7 * k)
+		e.Lifetime = NumberRange.new(0.5, 0.9)
+		e.SpreadAngle = Vector2.new(180, 180)
+		e.Drag = 3
+		e.LightEmission = 1
+	end
+	e.Parent = att
+	return e
+end
+
+local X_AXIS = Vector3.xAxis
+
+-- turns an attachment so its +Y (where the emitter blows) points along `dir`
+local function aimAt(att: Attachment, at: Vector3, dir: Vector3)
+	local up = if dir.Magnitude > 1e-4 then dir.Unit else WORLD_UP
+	local right = up:Cross(if abs(up.Y) < 0.95 then WORLD_UP else X_AXIS).Unit
+	att.CFrame = CFrame.fromMatrix(at, right, up)
+end
+
+-- a puff of `kind` at `at` (sock space) blowing along `dir` (sock space)
+local function burst(r: Rig, kind: string, at: Vector3, dir: Vector3, count: number, color: Color3?)
+	if count <= 0 or not fxAllowed(r) then
+		return
+	end
+	local n = if lowGraphics then floor(count * 0.5) else count
+	if n <= 0 then
+		return
+	end
+	local e = r.fx[kind]
+	local att = e and e.Parent
+	if not e or not att or att.Parent ~= r.root then
+		if att then
+			att:Destroy()
+		end
+		e = makeEmitter(r, kind, "SockAnimFX_" .. kind)
+		if not e then
+			return
+		end
+		r.fx[kind] = e
+	end
+	local emitter = e :: ParticleEmitter
+	aimAt(emitter.Parent :: Attachment, at, dir)
+	if color then
+		emitter.Color = ColorSequence.new(color)
+	end
+	emitter:Emit(n)
+end
+
+-- points the effects come from (sock space), following the bones as they are posed now
+local function mouthPoint(r: Rig, up: number): Vector3
+	return headPose(r) * (r.eyeS + Vector3.new(0, (up - 0.45) * r.unit, 0.95 * r.unit))
+end
+
+local function facing(r: Rig, x: number, y: number, z: number): Vector3
+	return headPose(r):VectorToWorldSpace(Vector3.new(x, y, z))
+end
+
+-- the tip of whatever floppy bit hangs off the hat (Merlino's star), else the top of the hat
+local function hatTip(r: Rig): Vector3
+	if r.bonesOn then
+		for _, list in ipairs(r.dangles) do
+			local top = list[1].parent
+			if top and top.role == "hat" then
+				local s = list[#list]
+				return poseOf(s) * (s.p + s.dir * s.len)
+			end
+		end
+		local h = r.hats[1]
+		if h then
+			return poseOf(h) * (h.p + Vector3.new(0, 1.2 * r.unit, 0))
+		end
+	end
+	return r.pinS + Vector3.new(0, 1.6 * r.unit, 0.3 * r.unit)
+end
+
+local function rosePoint(r: Rig): Vector3
+	if r.bonesOn then
+		for _, s in ipairs(r.extras) do
+			if s.name == "Rose" then
+				return poseOf(s) * s.p
+			end
+		end
+	end
+	return headPose(r) * (r.eyeS + Vector3.new(0.35 * r.unit * r.dir, -1.0 * r.unit, 0.9 * r.unit))
+end
+
+-- the jet flames: on while a move fires the jets (jets()), at each `jet` bone pointing out of its
+-- nozzle (two behind the sock when it has none)
+local function updateJets(r: Rig)
+	local p = clamp(r.jetPower, 0, 1.5)
+	if p < 0.03 or not fxAllowed(r) then
+		if r.jetOn then
+			r.jetOn = false
+			for _, e in ipairs(r.jetFx) do
+				e.Rate = 0
+			end
+		end
+		return
+	end
+	local root = r.root
+	local first = r.jetFx[1]
+	if not first or not first.Parent or (first.Parent :: Instance).Parent ~= root then
+		for _, att in ipairs(r.jetAtt) do
+			att:Destroy()
+		end
+		table.clear(r.jetFx)
+		table.clear(r.jetAtt)
+		for i = 1, max(#r.jetList, 2) do
+			local e = makeEmitter(r, "flame", "SockAnimFX_Jet" .. i)
+			if e then
+				table.insert(r.jetFx, e)
+				table.insert(r.jetAtt, e.Parent :: Attachment)
+			end
+		end
+	end
+	local u = r.unit
+	for i, att in ipairs(r.jetAtt) do
+		local s = r.jetList[i]
+		if s and r.bonesOn then
+			att.CFrame = poseOf(s) * s.rest[1]
+		elseif not r.jetOn then
+			-- no bone: under the middle of the back, blowing down
+			aimAt(att, Vector3.new((if i % 2 == 0 then 0.35 else -0.35) * u, r.midS.Y - 0.5 * u, -0.95 * u), -WORLD_UP)
+		end
+	end
+	local rate = 70 * p * (if lowGraphics then 0.5 else 1)
+	for _, e in ipairs(r.jetFx) do
+		e.Rate = rate
+	end
+	r.jetOn = true
 end
 
 -- "Zzz": three letters floating up and fading, one every ~1.2 s
@@ -1082,6 +1419,126 @@ IDLES.talk = function(r, t, A)
 	body(r, 0, 0.06 * A * abs(sin(t * 2.2)), 0)
 end
 
+-- the second wave
+
+-- a happy side-to-side sway with a little heel lift at each end, the bow bobbing
+IDLES.sway = function(r, t, A)
+	local s = sin(t * 1.8)
+	local lift = max(0, sin(t * 3.6)) ^ 2
+	chain(r, 0.03 * A, 0.12 * A * s, 0.04 * A * sin(t * 0.9), EVEN)
+	bodyRot(r, 0, 0.03 * A * s, 0)
+	foot(r, -0.12 * A * lift, 0, 0)
+	body(r, 0, 0.05 * A * lift, 0)
+	hat(r, 0.06 * A * sin(t * 3.6 + 0.5), 0.05 * A * s, 0)
+end
+
+-- nods off lower and lower, then snaps awake and straightens (about 10 s a cycle)
+IDLES.doze = function(r, t, A)
+	local cyc = (t * 0.14) % 1
+	local d = ramp(cyc, 0, 0.85) * (1 - ramp(cyc, 0.86, 0.9))
+	local jolt = bump(cyc, 0.86, 0.96)
+	chain(r, (0.06 + 0.38 * d - 0.12 * jolt) * A, 0.06 * d * A, 0, TOP)
+	cuff(r, 0.2 * d * A, 0, 0)
+	squash(r, (0.03 * sin(t * 1.4) + 0.06 * d) * A)
+	body(r, 0, 0.12 * jolt * A, 0)
+end
+
+-- an unsteady toddler wobble, the pacifier bobbing
+IDLES.toddle = function(r, t, A)
+	local w = sin(t * 2.2) + 0.4 * sin(t * 3.7 + 1)
+	chain(r, 0.04 * A * sin(t * 3.1), 0.09 * A * w, 0, BASE)
+	bodyRot(r, 0, 0.04 * A * w, 0)
+	foot(r, 0.1 * A * max(0, sin(t * 2.2)), 0, 0.05 * A * sin(t * 2.2))
+	jaw(r, 0.35 + 0.35 * sin(t * 6))
+end
+
+-- "ho-ho!": a double bounce, then a pause (the bell swings along)
+IDLES.jolly = function(r, t, A)
+	local cyc = (t * 0.4) % 1
+	local hop = arc(cyc, 0, 0.16) + arc(cyc, 0.18, 0.34)
+	body(r, 0, 0.22 * A * hop, 0)
+	squash(r, (-0.05 * hop + 0.06 * (bump(cyc, 0.14, 0.2) + bump(cyc, 0.32, 0.4))) * A)
+	chain(r, -0.08 * A * hop, 0.04 * A * sin(t * 1.2), 0, TOP)
+	foot(r, 0.1 * A * hop, 0, 0)
+end
+
+-- a low, tense crouch with darting looks left and right
+IDLES.stealth = function(r, t, A)
+	local cyc = (t * 0.22) % 1
+	local look = ramp(cyc, 0.1, 0.16) - 2 * ramp(cyc, 0.45, 0.51) + ramp(cyc, 0.8, 0.86)
+	squash(r, 0.12 * A)
+	chain(r, 0.12 * A, 0, 0, LOW)
+	lookAt(r, 0.5 * look * A, 0, 1)
+	body(r, 0.06 * A * sin(t * 0.7), 0, 0)
+	foot(r, 0.03 * A * sin(t * 9), 0, 0)
+end
+
+-- rocks side to side like a ship on the waves; sea legs keep the head level-ish
+IDLES.deck = function(r, t, A)
+	local roll = sin(t * 1.1)
+	bodyRot(r, 0.03 * A * sin(t * 0.55), 0.09 * A * roll, 0)
+	chain(r, 0, -0.07 * A * roll, 0, LOW)
+	foot(r, 0.08 * A * roll, 0, 0)
+end
+
+-- a slow circular stirring sway, the moustache twitching now and then
+IDLES.stir = function(r, t, A)
+	local a = t * 1.3
+	chain(r, 0.08 * A * cos(a), 0.08 * A * sin(a), 0, EVEN)
+	bodyRot(r, 0, 0, 0.05 * A * sin(a))
+	springs(r, 0.15 * A * max(0, sin(t * 2.9)) ^ 8, 0.1 * A * max(0, sin(t * 2.3 + 1)) ^ 8)
+end
+
+-- a slow, dramatic sway, the cape billowing
+IDLES.brood = function(r, t, A)
+	local s = sin(t * 0.7)
+	chain(r, 0.06 * A + 0.04 * A * sin(t * 0.35), 0.1 * A * s, 0.08 * A * sin(t * 0.35), TOP)
+	bodyRot(r, 0, 0.03 * A * s, 0)
+	flare(r, 0.06 * A * (1 + sin(t * 1.3)), 0.08 * A * (1 + sin(t * 0.9 + 1)))
+	squash(r, -0.03 * A)
+end
+
+-- a slow magical bob with a circular sway (the hat tip swings along)
+IDLES.conjure = function(r, t, A)
+	local a = t * 0.9
+	body(r, 0, 0.12 * A * (0.5 + 0.5 * sin(t * 1.4)), 0)
+	chain(r, 0.07 * A * cos(a), 0.07 * A * sin(a), 0, EVEN)
+	hat(r, 0.04 * A * cos(a + 0.5), 0.04 * A * sin(a + 0.5), 0)
+end
+
+-- zero gravity: a slow-motion drift up and down with a slow turn
+IDLES.zerog = function(r, t, A)
+	bodyS(r, 0, (0.25 + 0.18 * sin(t * 0.6)) * A, 0)
+	r.bry += 0.3 * A * sin(t * 0.2)
+	bodyRot(r, 0.04 * A * sin(t * 0.45), 0.05 * A * sin(t * 0.33), 0)
+	chain(r, 0.04 * A * sin(t * 0.5), 0.05 * A * sin(t * 0.37), 0, EVEN)
+	foot(r, 0.1 * A * sin(t * 0.5 + 1), 0, 0)
+end
+
+-- big slow breaths: the belly swells, the wings flex, the tail sways
+IDLES.breathe = function(r, t, A)
+	local b = sin(t * 1.0)
+	squash(r, -0.05 * A * b)
+	chain(r, -0.05 * A * b, 0.03 * A * sin(t * 0.5), 0, TOP)
+	wings(r, 0.2 * A * (1 + b))
+	wag(r, 0.15 * A * sin(t * 0.8))
+end
+
+-- regal and still, with the slow head slide of an Egyptian dance (an S-curve: the head stays upright)
+IDLES.pharaoh = function(r, t, A)
+	local s = sin(t * 0.8)
+	squash(r, -0.03 * A)
+	chain(r, -0.03 * A, 0.09 * A * s, 0, BASE)
+	chain(r, 0, -0.09 * A * s, 0, TOP)
+end
+
+-- calm and confident: leans back a touch, tiny slow nods, very still
+IDLES.boss = function(r, t, A)
+	local nod = max(0, sin(t * 0.5)) ^ 8
+	chain(r, (-0.06 + 0.07 * nod) * A, 0, 0.03 * A * sin(t * 0.2), TOP)
+	squash(r, -0.02 * A)
+end
+
 -- hanging on the line: (r, t, A, beat); r.perk (0..1) is how excited it is about a nearby player
 local HANGS: { [string]: Loop } = {}
 
@@ -1157,6 +1614,44 @@ HANGS.ponder = function(r, t, A)
 	hangSwing(r, 0.06 * A * (1 + r.perk) * sin(t * 0.7), 0)
 	foot(r, 0.18 * A * max(0, sin(t * 2)) ^ 4, 0, 0)
 	chain(r, 0.04 * A * sin(t * 0.9), 0, 0, TOP)
+end
+
+-- fast, tiny baby kicks
+HANGS.babykick = function(r, t, A)
+	local P = 1 + r.perk
+	hangSwing(r, 0.05 * A * P * sin(t * 2.8), 0.02 * A * sin(t * 1.9))
+	foot(r, 0.28 * A * P * sin(t * (8 + r.perk * 3)), 0, 0)
+	toe(r, 0.15 * A * sin(t * 11))
+end
+
+-- very still, with darting glances
+HANGS.stealth = function(r, t, A)
+	local cyc = (t * 0.25) % 1
+	local look = ramp(cyc, 0.1, 0.14) - 2 * ramp(cyc, 0.5, 0.54) + ramp(cyc, 0.85, 0.89)
+	hangSwing(r, 0.02 * A * (1 + r.perk) * sin(t * 0.7), 0)
+	lookAt(r, 0.45 * look * A, 0, 1)
+end
+
+-- big wide swings, like on the rigging
+HANGS.swing = function(r, t, A)
+	hangSwing(r, 0.24 * A * (1 + r.perk * 0.5) * sin(t * 1.2), 0.07 * A * sin(t * 0.6))
+	foot(r, 0.2 * A * sin(t * 1.2 - 1.2), 0, 0)
+end
+
+-- hangs still, the cape fluttering
+HANGS.cape = function(r, t, A)
+	hangSwing(r, 0.03 * A * (1 + r.perk) * sin(t * 0.6), 0)
+	foot(r, -0.15 * A, 0, 0)
+	flare(r, 0.05 * A * (1 + sin(t * 2.3)), 0.06 * A * (1 + sin(t * 3.1 + 1)))
+end
+
+-- hangs flapping its wings, the tail swinging
+HANGS.flap = function(r, t, A)
+	local f = sin(t * 7)
+	wings(r, 0.45 * A * f)
+	hangSwing(r, 0.05 * A * (1 + r.perk) * sin(t * 1.4), 0.03 * A * f)
+	foot(r, 0.15 * A * sin(t * 3.5), 0, 0)
+	wag(r, 0.2 * A * sin(t * 2))
 end
 
 local CLIPS: { [string]: Clip } = {}
@@ -1602,6 +2097,481 @@ CLIPS.stiffbow = { dur = 2.6, suppress = 0.9, fn = function(r, u, A)
 	chain(r, 0.6 * lvl * A, 0, 0, BASE)
 end }
 
+-- the second wave: Polka Dottie
+
+CLIPS.giggle = { dur = 1.2, suppress = 0.5, fn = function(r, u, A)
+	local k = bump(u, 0, 1)
+	local g = abs(sin(u * TAU * 5))
+	body(r, 0, 0.1 * g * k * A, 0)
+	chain(r, -0.06 * k * A, 0.05 * sin(u * TAU * 10) * k * A, 0, TOP)
+	squash(r, 0.04 * g * k * A)
+	hat(r, 0.06 * sin(u * TAU * 5) * k * A, 0, 0)
+end }
+
+-- half a turn and back
+CLIPS.twirl = { dur = 1.6, suppress = 0.7, fn = function(r, u, A)
+	spin(r, PI * (ramp(u, 0.05, 0.4) - ramp(u, 0.55, 0.9)))
+	body(r, 0, 0.12 * (arc(u, 0.05, 0.4) + arc(u, 0.55, 0.9)) * A, 0)
+	chain(r, 0, 0.08 * sin(u * TAU * 2) * bump(u, 0, 1) * A, 0, EVEN)
+	hat(r, 0, 0.1 * sin(u * TAU * 2) * bump(u, 0, 1) * A, 0)
+end }
+
+-- a full spin, the bow bouncing, and a little curtsy
+CLIPS.twirlspin = { dur = 2.0, suppress = 0.9, fn = function(r, u, A, pu)
+	local air = arc(u, 0.1, 0.7)
+	body(r, 0, 0.6 * air * A, 0)
+	spin(r, TAU * ramp(u, 0.12, 0.68))
+	squash(r, (0.1 * bump(u, 0, 0.12) - 0.1 * air + 0.12 * bump(u, 0.68, 0.82)) * A)
+	hat(r, 0.2 * bump(u, 0.65, 0.95) * A, 0, 0.1 * bump(u, 0.7, 0.9))
+	chain(r, 0.15 * bump(u, 0.75, 1) * A, 0, 0, TOP)
+	cue(r, pu, u, 0.1, "boing")
+	cue(r, pu, u, 0.12, "whoosh")
+end }
+
+-- Pisolino
+
+CLIPS.nodoff = { dur = 2.6, suppress = 0.8, fn = function(r, u, A)
+	local d = ramp(u, 0, 0.7) * (1 - ramp(u, 0.72, 0.78))
+	local jerk = bump(u, 0.72, 0.9)
+	chain(r, (0.45 * d - 0.15 * jerk) * A, 0.1 * d * A, 0, HIGH)
+	cuff(r, 0.25 * d * A, 0, 0)
+	body(r, 0, 0.18 * jerk * A, 0)
+	chain(r, 0, 0.06 * sin(u * TAU * 8) * bump(u, 0.75, 1) * A, 0, TOP)
+end }
+
+-- grows tall on a big stretch, then sags
+CLIPS.stretch = { dur = 2.4, suppress = 0.8, fn = function(r, u, A)
+	local up = bump(u, 0, 0.6)
+	local sag = bump(u, 0.55, 1)
+	squash(r, (-0.16 * up + 0.12 * sag) * A)
+	chain(r, (-0.2 * up + 0.3 * sag) * A, 0.05 * sin(u * TAU * 3) * up * A, 0, TOP)
+	foot(r, -0.2 * up * A, 0, 0)
+end }
+
+-- eyes shut, head drooped: two slow hops toward the toe, turns round, two hops back, turns back
+CLIPS.sleepwalk = { dur = 4.0, suppress = 0.9, fn = function(r, u, A)
+	local hop = arc(u, 0.02, 0.17) + arc(u, 0.19, 0.34) + arc(u, 0.52, 0.67) + arc(u, 0.69, 0.84)
+	body(r, 0.5 * (ramp(u, 0.02, 0.34) - ramp(u, 0.52, 0.84)) * A, 0.25 * hop * A, 0)
+	spin(r, PI * (ramp(u, 0.36, 0.5) + ramp(u, 0.86, 0.98)))
+	chain(r, 0.25 * bump(u, 0, 1) * A, 0, 0, TOP)
+	squash(r, 0.05 * hop * A)
+end }
+
+-- Bambino
+
+CLIPS.suck = { dur = 1.4, suppress = 0.4, fn = function(r, u, A)
+	local k = bump(u, 0, 1)
+	local s = sin(u * TAU * 7)
+	jaw(r, (0.5 + 0.5 * s) * k)
+	chain(r, 0.03 * s * k * A, 0, 0, TOP)
+	squash(r, 0.02 * s * k * A)
+end }
+
+-- plops down on its bottom, wobbles, gets back up
+CLIPS.plop = { dur = 2.2, suppress = 0.9, fn = function(r, u, A, pu)
+	local sit = ramp(u, 0.05, 0.15) * (1 - ramp(u, 0.75, 0.9))
+	local wob = bump(u, 0.15, 0.7)
+	squash(r, 0.25 * sit * A)
+	chain(r, -0.12 * sit * A, 0, 0, BASE)
+	chainS(r, 0.06 * sin(u * TAU * 4) * wob * A, 0, 0.08 * sin(u * TAU * 3) * wob * A, EVEN)
+	foot(r, 0.3 * sit * A, 0, 0)
+	body(r, 0, 0.12 * arc(u, 0.8, 0.95) * A, 0)
+	cue(r, pu, u, 0.12, "boing")
+end }
+
+-- three excited little hops, the last one biggest
+CLIPS.babyhop = { dur = 2.0, suppress = 0.9, fn = function(r, u, A, pu)
+	local hop = arc(u, 0.05, 0.3) + arc(u, 0.35, 0.6) + 1.3 * arc(u, 0.65, 0.95)
+	local land = bump(u, 0.28, 0.37) + bump(u, 0.58, 0.67) + bump(u, 0.93, 1)
+	body(r, 0, 0.45 * hop * A, 0)
+	squash(r, (-0.08 * hop + 0.1 * land) * A)
+	foot(r, 0.25 * hop * A, 0, 0)
+	jaw(r, 0.6 * min(hop, 1))
+	cue(r, pu, u, 0.05, "boing")
+	cue(r, pu, u, 0.35, "boing")
+	cue(r, pu, u, 0.65, "boing")
+end }
+
+-- Jingleo
+
+-- shakes its foot so the bell on the toe rings
+CLIPS.jingle = { dur = 1.2, suppress = 0.5, fn = function(r, u, A, pu)
+	local k = bump(u, 0, 1)
+	foot(r, 0.3 * sin(u * TAU * 6) * k * A, 0.1 * sin(u * TAU * 6 + 1) * k * A, 0.12 * sin(u * TAU * 5) * k * A)
+	chain(r, 0, 0.05 * sin(u * TAU * 6) * k * A, 0, BASE)
+	cue(r, pu, u, 0.12, "jingle")
+	cue(r, pu, u, 0.5, "jingle")
+end }
+
+-- leans back in a laughing bounce
+CLIPS.hoho = { dur = 1.6, suppress = 0.7, fn = function(r, u, A)
+	local k = bump(u, 0, 1)
+	local b = abs(sin(u * TAU * 3))
+	chain(r, -0.25 * k * A, 0, 0, EVEN)
+	body(r, 0, 0.12 * b * k * A, 0)
+	squash(r, 0.04 * b * k * A)
+end }
+
+-- a hop and a spin, the bell jingling, in a puff of snow sparkles
+CLIPS.sleighspin = { dur = 2.2, suppress = 0.9, fn = function(r, u, A, pu)
+	local air = arc(u, 0.1, 0.75)
+	body(r, 0, 0.9 * air * A, 0)
+	spin(r, TAU * ramp(u, 0.12, 0.72))
+	foot(r, 0.3 * sin(u * TAU * 5) * bump(u, 0.1, 0.8) * A, 0, 0)
+	squash(r, (0.1 * bump(u, 0, 0.12) - 0.1 * air + 0.12 * bump(u, 0.74, 0.88)) * A)
+	cue(r, pu, u, 0.1, "boing")
+	cue(r, pu, u, 0.15, "jingle")
+	cue(r, pu, u, 0.55, "jingle")
+	if pu < 0.4 and u >= 0.4 then
+		burst(r, "snow", r.midS, WORLD_UP, 22)
+	end
+end }
+
+-- Ninjolino
+
+-- tip-toes sideways and back, low, glancing round
+CLIPS.sneak = { dur = 2.4, suppress = 0.8, fn = function(r, u, A)
+	local k = ramp(u, 0, 0.1) * (1 - ramp(u, 0.9, 1))
+	foot(r, -0.35 * k * A, 0, 0)
+	body(r, 0.5 * bump(u, 0.05, 0.95) * A, (0.1 + 0.06 * abs(sin(u * TAU * 4))) * k * A, 0)
+	squash(r, 0.08 * k * A)
+	chain(r, 0.1 * k * A, 0, 0, LOW)
+	lookAt(r, 0.4 * sin(u * TAU) * k * A, 0, 1)
+end }
+
+-- a quick darting lean (the headband tails stream out)
+CLIPS.dash = { dur = 1.0, suppress = 0.8, fn = function(r, u, A, pu)
+	local go = bump(u, 0.05, 0.45)
+	local back = bump(u, 0.45, 0.95)
+	body(r, (0.5 * go - 0.15 * back) * A, 0, 0)
+	chain(r, 0, (0.3 * go - 0.1 * back) * A, 0, EVEN)
+	squash(r, 0.1 * go * A)
+	flare(r, 0.2 * go * A, 0.3 * go * A)
+	cue(r, pu, u, 0.05, "whoosh")
+end }
+
+-- crouch, a quick spin, a smoke poof... and it pops up in a karate pose
+CLIPS.vanish = { dur = 2.6, suppress = 1, fn = function(r, u, A, pu)
+	squash(r, 0.2 * bump(u, 0, 0.3) * A)
+	spin(r, TAU * 2 * ramp(u, 0.2, 0.45))
+	r.fade = max(r.fade, 0.9 * bump(u, 0.33, 0.6))
+	local pose = ramp(u, 0.55, 0.65) * (1 - ramp(u, 0.9, 1))
+	body(r, 0, 0.5 * arc(u, 0.5, 0.7) * A, 0)
+	chain(r, -0.05 * pose * A, 0.3 * pose * A, 0.2 * pose * A, EVEN)
+	foot(r, 0.5 * pose * A, 0, 0)
+	flare(r, 0.2 * pose * A, 0.2 * pose * A)
+	cue(r, pu, u, 0.2, "whoosh")
+	if pu < 0.36 and u >= 0.36 then
+		burst(r, "smoke", r.midS, WORLD_UP, 26)
+		playSound(r, "poof")
+	end
+end }
+
+-- a fighting-stance chop at the thief (what Ninjolino does instead of flailing)
+CLIPS.hiyah = { dur = 0.8, suppress = 0.7, fn = function(r, u, A, pu)
+	local go = bump(u, 0.1, 0.5)
+	bendToward(r, sin(r.threatYaw), cos(r.threatYaw), 0.35 * go * A, EVEN)
+	foot(r, 0.4 * go * A, 0, 0)
+	squash(r, -0.06 * go * A)
+	flare(r, 0.15 * go, 0.25 * go)
+	cue(r, pu, u, 0.1, "whoosh")
+end }
+
+-- Captain Sockbeard
+
+-- "arr!": lunges forward
+CLIPS.arr = { dur = 1.4, suppress = 0.8, fn = function(r, u, A)
+	local go = bump(u, 0.1, 0.8)
+	chain(r, 0.35 * go * A, 0, 0, EVEN)
+	body(r, 0, 0, 0.25 * go * A)
+	hat(r, 0.1 * go * A, 0, 0)
+	foot(r, -0.15 * go * A, 0, 0)
+end }
+
+-- a long look far to one side, then far to the other
+CLIPS.spyglass = { dur = 3.2, suppress = 0.7, fn = function(r, u, A)
+	local k = bump(u, 0.05, 0.95)
+	local yaw = 0.9 * (ramp(u, 0.05, 0.2) - 2 * ramp(u, 0.45, 0.6) + ramp(u, 0.85, 0.97))
+	lookAt(r, yaw * A, 0.1 * k * A, 1)
+	chain(r, 0.08 * k * A, 0, 0, TOP)
+	foot(r, 0.15 * k * A, 0, 0)
+end }
+
+-- a hearty belly laugh
+CLIPS.laugh = { dur = 1.6, suppress = 0.7, fn = function(r, u, A)
+	local k = bump(u, 0, 1)
+	local b = abs(sin(u * TAU * 4))
+	chain(r, -0.18 * k * A, 0.08 * sin(u * TAU * 4) * k * A, 0, TOP)
+	body(r, 0, 0.1 * b * k * A, 0)
+	hat(r, -0.1 * k * A, 0, 0.05 * b * k)
+end }
+
+-- the tricorn lifts off and waves, then a hearty bounce
+CLIPS.hatwave = { dur = 2.2, suppress = 0.9, fn = function(r, u, A, pu)
+	local lift = bump(u, 0.1, 0.7)
+	local air = arc(u, 0.6, 0.85)
+	hat(r, 0.3 * lift * A, 0.2 * sin(u * TAU * 3) * lift * A, 0.6 * lift)
+	chain(r, -0.12 * lift * A, 0, 0, TOP)
+	body(r, 0, 0.5 * air * A, 0)
+	squash(r, (-0.08 * air + 0.1 * bump(u, 0.83, 0.95)) * A)
+	cue(r, pu, u, 0.6, "boing")
+end }
+
+-- Chef Spaghettino
+
+-- leans in for a taste, a little happy hop
+CLIPS.taste = { dur = 1.8, suppress = 0.7, fn = function(r, u, A, pu)
+	local lean = bump(u, 0, 0.5)
+	local air = arc(u, 0.55, 0.8)
+	chain(r, 0.3 * lean * A, 0, 0, TOP)
+	springs(r, 0.12 * sin(u * TAU * 6) * lean * A, 0)
+	body(r, 0, 0.3 * air * A, 0)
+	squash(r, (-0.06 * air + 0.06 * bump(u, 0.78, 0.9)) * A)
+	cue(r, pu, u, 0.55, "boing")
+end }
+
+CLIPS.stachewiggle = { dur = 1.2, suppress = 0.3, fn = function(r, u, A)
+	local k = bump(u, 0, 1)
+	springs(r, 0.15 * sin(u * TAU * 4) * k * A, 0.25 * sin(u * TAU * 5) * k * A)
+	chain(r, 0, 0.03 * sin(u * TAU * 5) * k * A, 0, TOP)
+end }
+
+-- rises up, tilts back... "mwah!" (a bounce, a kiss-pop and a sparkle)
+CLIPS.chefskiss = { dur = 2.4, suppress = 0.9, fn = function(r, u, A, pu)
+	local rise = bump(u, 0, 0.55)
+	local mwah = bump(u, 0.5, 0.75)
+	squash(r, -0.14 * rise * A)
+	foot(r, -0.3 * rise * A, 0, 0)
+	chain(r, (-0.2 * rise + 0.3 * mwah) * A, 0, 0, TOP)
+	springs(r, -0.2 * mwah * A, 0)
+	body(r, 0, 0.35 * arc(u, 0.55, 0.8) * A, 0)
+	if pu < 0.55 and u >= 0.55 then
+		burst(r, "stars", mouthPoint(r, 0), facing(r, 0, 0.5, 1), 12, Color3.fromRGB(255, 150, 190))
+		playSound(r, "kiss")
+	end
+end }
+
+-- Count Sockula
+
+-- a turn with a sweep of the cape
+CLIPS.capeswirl = { dur = 2.0, suppress = 0.85, fn = function(r, u, A, pu)
+	local k = bump(u, 0, 1)
+	spin(r, TAU * ramp(u, 0.15, 0.7))
+	flare(r, 0.3 * k * A, 0.25 * k * A)
+	chain(r, -0.06 * k * A, 0, 0, TOP)
+	cue(r, pu, u, 0.15, "whoosh")
+end }
+
+-- leans forward, mouth open: "bleh!"
+CLIPS.bleh = { dur = 1.4, suppress = 0.8, fn = function(r, u, A)
+	local k = bump(u, 0.05, 0.85)
+	chain(r, 0.3 * k * A, 0, 0, EVEN)
+	body(r, 0, 0, 0.15 * k * A)
+	jaw(r, ramp(u, 0.2, 0.35) * (1 - ramp(u, 0.7, 0.85)))
+	flare(r, 0.1 * k * A, 0.15 * k * A)
+end }
+
+-- hunches and turns away behind its cape
+CLIPS.hide = { dur = 2.4, suppress = 0.9, fn = function(r, u, A)
+	local k = ramp(u, 0, 0.25) * (1 - ramp(u, 0.75, 1))
+	r.bry += 1.1 * k * A * r.dir
+	chain(r, 0.3 * k * A, 0, 0, HIGH)
+	squash(r, 0.1 * k * A)
+	flare(r, 0.25 * k * A, -0.1 * k * A)
+end }
+
+-- rises on tip-toe, the cape spreads wide, a spin... "bleh!"
+CLIPS.nightrise = { dur = 3.0, suppress = 1, fn = function(r, u, A, pu)
+	local up = ramp(u, 0, 0.25) * (1 - ramp(u, 0.85, 1))
+	local bl = bump(u, 0.62, 0.9)
+	foot(r, -0.45 * up * A, 0, 0)
+	squash(r, -0.15 * up * A)
+	body(r, 0, 0.35 * up * A, 0)
+	flare(r, 0.5 * up * A, 0.3 * up * A)
+	spin(r, TAU * ramp(u, 0.3, 0.6))
+	chain(r, 0.3 * bl * A, 0, 0, EVEN)
+	jaw(r, bl)
+	cue(r, pu, u, 0.3, "whoosh")
+	if pu < 0.62 and u >= 0.62 then
+		sparkle(r, 10, Color3.fromRGB(200, 40, 70))
+	end
+end }
+
+-- Merlino Magnifico
+
+-- leans back, then thrusts forward: a burst of sparkles from the star on the hat
+CLIPS.spell = { dur = 1.6, suppress = 0.8, fn = function(r, u, A, pu)
+	local back = bump(u, 0, 0.45)
+	local thrust = bump(u, 0.4, 0.8)
+	chain(r, (-0.2 * back + 0.35 * thrust) * A, 0, 0, EVEN)
+	hat(r, (-0.1 * back + 0.15 * thrust) * A, 0, 0)
+	if pu < 0.5 and u >= 0.5 then
+		burst(r, "stars", hatTip(r), facing(r, 0, 0.3, 1), 14, Color3.fromRGB(255, 220, 110))
+		playSound(r, "magic")
+	end
+end }
+
+-- rises a little, hovers, settles
+CLIPS.levitate = { dur = 2.8, suppress = 0.7, fn = function(r, u, A)
+	local k = ramp(u, 0, 0.3) * (1 - ramp(u, 0.7, 1))
+	bodyS(r, 0, (0.5 + 0.06 * sin(u * TAU * 3)) * k * A, 0)
+	foot(r, -0.2 * k * A, 0, 0)
+	chain(r, 0.03 * sin(u * TAU * 2) * k * A, 0.03 * sin(u * TAU * 1.5) * k * A, 0, EVEN)
+end }
+
+-- spins up into the air under a shower of sparkles, and lands
+CLIPS.abracadabra = { dur = 3.2, suppress = 1, fn = function(r, u, A, pu)
+	local up = ramp(u, 0.1, 0.45) * (1 - ramp(u, 0.7, 0.9))
+	bodyS(r, 0, 1.4 * up * A, 0)
+	spin(r, TAU * 2 * ramp(u, 0.1, 0.8))
+	squash(r, (0.1 * bump(u, 0, 0.1) - 0.08 * up + 0.12 * bump(u, 0.88, 0.98)) * A)
+	cue(r, pu, u, 0.1, "magic")
+	cue(r, pu, u, 0.12, "whoosh")
+	cue(r, pu, u, 0.88, "boing")
+	for i = 0, 3 do
+		local at = 0.2 + i * 0.15
+		if pu < at and u >= at then
+			burst(r, "stars", hatTip(r), WORLD_UP, 10, Color3.fromRGB(255, 220, 110))
+		end
+	end
+end }
+
+-- Neil Sockstrong
+
+-- a slow-motion, floaty high hop
+CLIPS.moonhop = { dur = 2.6, suppress = 0.9, fn = function(r, u, A, pu)
+	local air = arc(u, 0.12, 0.88)
+	body(r, 0, 1.3 * air * A, 0)
+	squash(r, (0.12 * bump(u, 0, 0.15) - 0.06 * air + 0.12 * bump(u, 0.85, 1)) * A)
+	foot(r, 0.2 * air * A, 0, 0)
+	chain(r, 0.05 * sin(u * TAU) * air * A, 0.06 * sin(u * PI) * air * A, 0, EVEN)
+	cue(r, pu, u, 0.12, "boing")
+end }
+
+-- a short puff of the jets: it rises a little on two little flames
+CLIPS.boost = { dur = 1.6, suppress = 0.7, fn = function(r, u, A, pu)
+	local p = bump(u, 0.05, 0.5)
+	jets(r, p)
+	body(r, 0, 0.4 * ramp(u, 0.05, 0.4) * (1 - ramp(u, 0.6, 1)) * A, 0)
+	chain(r, 0.05 * p * A, 0, 0, EVEN)
+	cue(r, pu, u, 0.05, "jet")
+end }
+
+-- crouch, a countdown shake, rockets up on its flames, a slow flip, floats back down
+CLIPS.liftoff = { dur = 3.6, suppress = 1, fn = function(r, u, A, pu)
+	local crouch = ramp(u, 0, 0.1) * (1 - ramp(u, 0.25, 0.3))
+	local shake = bump(u, 0.05, 0.3)
+	local h = ramp(u, 0.28, 0.5) * (1 - ramp(u, 0.65, 0.95))
+	squash(r, (0.15 * crouch - 0.08 * h) * A)
+	body(r, 0.03 * sin(u * TAU * 40) * shake * A, 0, 0)
+	jets(r, 0.3 * shake + bump(u, 0.25, 0.6))
+	bodyS(r, 0, 2.2 * h * A, 0)
+	flip(r, TAU * ramp(u, 0.45, 0.7) * r.dir)
+	foot(r, -0.2 * h * A, 0, 0)
+	cue(r, pu, u, 0.25, "jet")
+	cue(r, pu, u, 0.93, "boing")
+end }
+
+-- Dragonzola
+
+-- fast flaps and a little hop
+CLIPS.wingflap = { dur = 1.4, suppress = 0.7, fn = function(r, u, A)
+	local k = bump(u, 0, 1)
+	wings(r, 0.9 * sin(u * TAU * 5) * k)
+	body(r, 0, 0.35 * arc(u, 0.2, 0.8) * A, 0)
+	squash(r, -0.05 * arc(u, 0.2, 0.8) * A)
+end }
+
+-- a breath in... and a puff of smoke from the nose
+CLIPS.snort = { dur = 1.2, suppress = 0.6, fn = function(r, u, A, pu)
+	local inhale = bump(u, 0, 0.5)
+	local s = bump(u, 0.4, 0.7)
+	chain(r, (-0.15 * inhale + 0.2 * s) * A, 0, 0, TOP)
+	squash(r, -0.05 * inhale * A)
+	if pu < 0.45 and u >= 0.45 then
+		burst(r, "snort", mouthPoint(r, 0.25), facing(r, 0, 0.3, 1), 8)
+	end
+end }
+
+CLIPS.tailwag = { dur = 1.8, suppress = 0.4, fn = function(r, u, A)
+	local k = bump(u, 0, 1)
+	wag(r, 0.6 * sin(u * TAU * 4) * k * A)
+	chain(r, 0, 0.04 * sin(u * TAU * 4 + 1) * k * A, 0, BASE)
+end }
+
+-- rears back flapping, then breathes fire forward with a little roar
+CLIPS.firebreath = { dur = 3.0, suppress = 1, fn = function(r, u, A, pu)
+	local rear = bump(u, 0, 0.42)
+	local fire = bump(u, 0.4, 0.85)
+	chain(r, (-0.3 * rear + 0.3 * fire) * A, 0, 0, EVEN)
+	squash(r, -0.1 * rear * A)
+	wings(r, 0.9 * sin(u * TAU * 4) * bump(u, 0.05, 0.45) + 0.4 * fire)
+	body(r, 0, 0, 0.15 * fire * A)
+	wag(r, 0.3 * rear * A)
+	cue(r, pu, u, 0.38, "roar")
+	for i = 0, 4 do
+		local at = 0.45 + i * 0.07
+		if pu < at and u >= at then
+			burst(r, "fire", mouthPoint(r, 0), facing(r, 0, -0.1, 1), 9)
+		end
+	end
+end }
+
+-- King Toetankhamun
+
+-- the Egyptian head slide, bigger
+CLIPS.headslide = { dur = 2.0, suppress = 0.7, fn = function(r, u, A)
+	local k = bump(u, 0, 1)
+	local s = sin(u * TAU * 2)
+	chain(r, 0, 0.18 * s * k * A, 0, BASE)
+	chain(r, 0, -0.18 * s * k * A, 0, TOP)
+end }
+
+-- a stiff mummy shuffle: the whole sock rocks, the leg doesn't bend
+CLIPS.mummyshuffle = { dur = 2.6, suppress = 0.8, fn = function(r, u, A)
+	local k = bump(u, 0, 1)
+	local s = sin(u * TAU * 3)
+	body(r, 0.25 * sin(u * TAU) * k * A, 0.05 * abs(s) * k * A, 0)
+	bodyRot(r, 0, 0.06 * s * k * A, 0)
+	foot(r, 0.15 * max(0, s) * k * A, 0, 0)
+end }
+
+-- tilts back stiff as a board... then rises straight up: gold sparkles and a puff of sand
+CLIPS.awaken = { dur = 3.4, suppress = 1, fn = function(r, u, A, pu)
+	local tilt = ramp(u, 0.05, 0.3) * (1 - ramp(u, 0.45, 0.6))
+	local rise = ramp(u, 0.45, 0.6) * (1 - ramp(u, 0.85, 1))
+	bodyRot(r, -0.9 * tilt * A, 0, 0)
+	bodyS(r, 0, 0.5 * rise * A, 0)
+	squash(r, -0.06 * rise * A)
+	if pu < 0.55 and u >= 0.55 then
+		sparkle(r, 16, Color3.fromRGB(255, 215, 90))
+		burst(r, "sand", r.baseS + Vector3.new(0, 0.1 * r.unit, 0), WORLD_UP, 20)
+		playSound(r, "whoosh")
+	end
+end }
+
+-- The Sockfather
+
+-- tips the fedora down over his eyes
+CLIPS.hatbrim = { dur = 2.2, suppress = 0.7, fn = function(r, u, A)
+	local k = ramp(u, 0.05, 0.3) * (1 - ramp(u, 0.7, 0.95))
+	hat(r, 0.4 * k * A, 0, -0.05 * k)
+	chain(r, 0.08 * k * A, 0, 0, TOP)
+end }
+
+-- leans in toward you, a slow nod, a hat tilt, a rose sparkle: an offer you can't refuse
+CLIPS.offer = { dur = 3.4, suppress = 0.95, fn = function(r, u, A, pu)
+	local k = ramp(u, 0, 0.2) * (1 - ramp(u, 0.85, 1))
+	local nod = bump(u, 0.3, 0.55)
+	lookAt(r, r.actYaw * k, r.actPitch * k, 1)
+	bendToward(r, sin(r.actYaw), cos(r.actYaw), 0.25 * k * A, EVEN)
+	chain(r, 0.15 * nod * A, 0, 0, TOP)
+	hat(r, 0.25 * bump(u, 0.55, 0.8) * A, 0.1 * bump(u, 0.55, 0.8) * A, 0)
+	if pu < 0.6 and u >= 0.6 then
+		burst(r, "stars", rosePoint(r), WORLD_UP, 10, Color3.fromRGB(230, 40, 70))
+	end
+end }
+
 -- rarity flair (generic show-offs)
 
 CLIPS.spin = { dur = 1.4, suppress = 0.9, fn = function(r, u, A, pu)
@@ -1855,6 +2825,7 @@ local function resetBones(r: Rig)
 			end
 			s.moved = false
 		end
+		s.live = false -- floppy bits start again from rest
 	end
 	r.bonesDirty = false
 end
@@ -1869,6 +2840,7 @@ local function clearChannels(r: Rig)
 	r.brx, r.bry, r.brz = 0, 0, 0
 	r.spin, r.flip, r.squash = 0, 0, 0
 	r.fade = 0
+	r.jetPower = 0
 end
 
 -- the whole-body transform in sock space: flip about the middle, turn about `pivot`, then offset
@@ -1882,10 +2854,76 @@ local function bodyCFrame(r: Rig, pivot: Vector3): CFrame
 	return cf
 end
 
+-- One floppy bone (dangle / spring) for this frame. Its tip is a damped spring toward where a rigid
+-- bone would hold it: on its parent as the parent really moves in the world (so a hop, a spin or a
+-- thief running off leaves it behind and it swings back), posed as the moves asked (`target`).
+-- Gravity pulls it back toward hanging as it hung at rest when the parent tips; air drag trails it.
+-- The tip stays `len` from the pivot and the bone inside its `limit`. Returns the bone's rotation
+-- (sock space, about its pivot). `W` = the parent's pose in the world.
+local function simulate(r: Rig, s: Slot, target: CFrame, W: CFrame, dt: number): CFrame
+	local pivot = W * s.p
+	local tipR = W * (s.p + target * (s.dir * s.len)) -- where a rigid bone puts the tip
+	if not s.live or dt <= 0 or (tipR - s.tr).Magnitude > Config.Soft.Reset * r.unit then
+		s.live = true
+		s.q = Vector3.zero
+		s.w = Vector3.zero
+		s.tr = tipR
+		s.vr = Vector3.zero
+		return target
+	end
+	-- the rigid tip's change of speed is what the floppy tip feels as inertia (its own speed carries on)
+	local vr = (tipR - s.tr) / dt
+	local w = s.w + s.vr - vr
+	s.tr = tipR
+	s.vr = vr
+	local q = s.q
+	local k = s.omega * s.omega
+	local c = 2 * s.zeta * s.omega + s.drag
+	-- gravity, relative to the parent standing upright (zero then: it hangs as modelled), and drag
+	local force = (W.UpVector - WORLD_UP) * s.grav - vr * s.drag
+	local n = min(4, max(1, math.ceil(dt * 60)))
+	local h = dt / n
+	for _ = 1, n do
+		-- implicit Euler: stable however stiff the spring or long the frame
+		w = (w + (force - q * k) * h) / (1 + c * h + k * h * h)
+		q += w * h
+	end
+	-- keep the tip on its sphere round the pivot
+	local arm = tipR + q - pivot
+	if arm.Magnitude < 1e-4 then
+		arm = tipR - pivot
+	end
+	local dirW = arm.Unit
+	w -= dirW * w:Dot(dirW)
+	-- the turn from the rest direction to where the tip is now, in the parent's sock space
+	local u = s.dir
+	local d = W:VectorToObjectSpace(dirW)
+	local axis = u:Cross(d)
+	local sinA = axis.Magnitude
+	local ang = atan2(sinA, u:Dot(d))
+	if sinA < 1e-6 then
+		s.q = pivot + dirW * s.len - tipR
+		s.w = w
+		return CFrame.identity
+	end
+	axis /= sinA
+	if ang > s.limit then
+		-- at its limit: a soft stop
+		ang = s.limit
+		d = CFrame.fromAxisAngle(axis, ang) * u
+		dirW = W:VectorToWorldSpace(d)
+		w *= 0.5
+	end
+	s.q = pivot + dirW * s.len - tipR
+	s.w = w
+	return CFrame.fromAxisAngle(axis, ang)
+end
+
 -- Writes every Bone.Transform. `standing`: the foot is planted; else the clothespin point is.
 -- `pre` (menus): the body motion, carried by the root-level bones. `bodyWorld`: the body motion the
--- root part got this frame (the Sock Ness lake undoes it to stay on the floor).
-local function solveBones(r: Rig, standing: boolean, pre: CFrame?, bodyWorld: CFrame?)
+-- root part got this frame (the Sock Ness lake undoes it to stay on the floor). `rootWorld`: where
+-- the sock frame really is in the world this frame (the floppy bits feel its motion).
+local function solveBones(r: Rig, standing: boolean, pre: CFrame?, bodyWorld: CFrame?, rootWorld: CFrame, dt: number)
 	local slots = r.slots
 	-- squash / stretch: every leg bone above Leg1 slides down its share
 	local sq = r.squash
@@ -1944,7 +2982,13 @@ local function solveBones(r: Rig, standing: boolean, pre: CFrame?, bodyWorld: CF
 	if shift.Magnitude > 1e-5 then
 		head0 = (pre or CFrame.identity) * CFrame.new(shift)
 	end
+	-- floppy rigs keep every bone's whole pose (C), so each floppy bone knows where its parent is
+	local floppy = #r.soft > 0
 	for _, s in ipairs(slots) do
+		if floppy and (s.role == "dangle" or s.role == "spring") then
+			local par = s.parent
+			s.R = simulate(r, s, s.R, if par then rootWorld * par.C else rootWorld, dt)
+		end
 		local R = s.R
 		local still = R == CFrame.identity and s.ox == 0 and s.oy == 0 and s.oz == 0
 		local L = if still then CFrame.identity else R + (Vector3.new(s.ox, s.oy, s.oz) + s.p - R * s.p)
@@ -1964,6 +3008,10 @@ local function solveBones(r: Rig, standing: boolean, pre: CFrame?, bodyWorld: CF
 			L = head0 * L
 		end
 		s.L = L
+		if floppy then
+			local par = s.parent
+			s.C = if par then par.C * L else L
+		end
 		if L == CFrame.identity then
 			if s.moved then
 				for _, b in ipairs(s.insts) do
@@ -2014,6 +3062,14 @@ end
 
 local HAT_WORDS = { "hat", "crown", "helm", "hair", "mop", "plume", "headphone", "laurel", "halo" }
 
+-- the second wave's bones by exact name, and the floppy chains' name patterns (checked before the
+-- common words: a HatTip is no hat, an Antenna no tentacle; plain `Tail` stays the Sock Ness tail)
+local NAMED_ROLES: { [string]: string } = {
+	Bell = "dangle", Earring = "dangle", Curl = "spring", Antenna = "spring", Stache = "spring",
+	Bow = "hat", Paci = "jaw", Rose = "accessory", Fork = "accessory",
+}
+local DANGLE_NAMES = { "^Cap(%d+)$", "^Noodle(%d+)$", "^HatTip(%d+)$", "^Lappet(%d+)$", "^Wrap(%d+)$", "^Tail(%d+)$" }
+
 -- role from the bone's name: core names first, then common words
 local function roleFromName(name: string): (string, number)
 	if name == "Root" then
@@ -2054,6 +3110,31 @@ local function roleFromName(name: string): (string, number)
 	if seg then
 		return "tentacle", tonumber(seg) or 1
 	end
+	local named = NAMED_ROLES[name]
+	if named then
+		return named, 1
+	end
+	for _, pattern in ipairs(DANGLE_NAMES) do
+		local n = string.match(name, pattern)
+		if n then
+			return "dangle", tonumber(n) or 1
+		end
+	end
+	local _, dseg = string.match(name, "^Band(%d+)_(%d+)$")
+	if not dseg then
+		_, dseg = string.match(name, "^Cape(%d+)_(%d+)$")
+	end
+	if dseg then
+		return "dangle", tonumber(dseg) or 1
+	end
+	local wing = string.match(name, "^Wing(%d+)$")
+	if wing then
+		return "wing", tonumber(wing) or 1
+	end
+	local jet = string.match(name, "^Jet(%d+)$")
+	if jet then
+		return "jet", tonumber(jet) or 1
+	end
 	local lower = string.lower(name)
 	for _, word in ipairs(HAT_WORDS) do
 		if string.find(lower, word, 1, true) then
@@ -2077,6 +3158,7 @@ end
 local KNOWN_ROLES = {
 	root = true, leg = true, cuff = true, foot = true, toe = true, digit = true, eye = true, hat = true, jaw = true,
 	pogo = true, tentacle = true, neck = true, head = true, fly = true, hump = true, tail = true, ground = true, accessory = true,
+	dangle = true, spring = true, wing = true, jet = true,
 }
 
 local function normaliseRole(v: any): string?
@@ -2220,6 +3302,91 @@ local function segmentLengths(list: { Slot }, tip: Vector3?): { number }
 	return lens
 end
 
+local FLOPPY_ROLES = { dangle = true, spring = true, wing = true, jet = true }
+
+-- which way a wing turns about its hinge (its own axis) to open: the way that takes its membrane
+-- (out to its side and back) farther out to the side, so the two wings open as mirror images
+local function wingOpens(s: Slot): number
+	local arm = Vector3.new(s.side, 0, -1)
+	arm -= s.dir * arm:Dot(s.dir)
+	if arm.Magnitude < 0.05 then
+		return s.side
+	end
+	local turned = CFrame.fromAxisAngle(s.dir, 0.1) * arm
+	return if abs(turned.X) > abs(arm.X) then 1 else -1
+end
+
+-- The floppy bits: each dangle from where it hangs to its tip, the springs, wings and jets, and
+-- how long, stiff and free each one is. `slots` is sorted parents first.
+local function buildFloppy(r: Rig, slots: { Slot })
+	r.soft, r.dangles, r.springList, r.wingList, r.jetList = {}, {}, {}, {}, {}
+	local u = r.unit
+	local soft = Config.Soft
+	local g = workspace.Gravity
+	g = (if type(g) == "number" and g > 0 then g else 196.2) * soft.Gravity
+	-- a floppy bone's own continuation (the next segment of the same dangle)
+	local nextOf = {} :: { [Slot]: Slot }
+	for _, s in ipairs(slots) do
+		local par = s.parent
+		if par and par.role == s.role and not nextOf[par] then
+			nextOf[par] = s
+		end
+	end
+	local byTop = {} :: { [Slot]: { Slot } }
+	for _, s in ipairs(slots) do
+		local role = s.role
+		if FLOPPY_ROLES[role] then
+			local x = s.p.X
+			s.side = if x < -0.02 * u then -1 elseif x > 0.02 * u then 1 elseif s.part == 1 then -1 else 1
+			if s.len <= 0 then
+				local nxt = nextOf[s]
+				s.len = if nxt then (nxt.p - s.p).Magnitude else 0.5 * u
+			end
+			s.len = max(s.len, 0.05 * u)
+		end
+		if role == "dangle" then
+			-- a pendulum: longer bits swing slower
+			s.grav = g
+			s.omega = clamp(sqrt(g / s.len), 3, 30)
+			s.zeta = soft.DangleDamping
+			s.drag = soft.DangleDrag
+			table.insert(r.soft, s)
+			local top = s
+			while top.parent and (top.parent :: Slot).role == "dangle" do
+				top = top.parent :: Slot
+			end
+			local list = byTop[top]
+			if not list then
+				list = {}
+				byTop[top] = list
+				table.insert(r.dangles, list)
+			end
+			table.insert(list, s)
+		elseif role == "spring" then
+			s.grav = g
+			s.omega = soft.SpringFreq
+			s.zeta = soft.SpringDamping
+			s.drag = 0
+			table.insert(r.soft, s)
+			table.insert(r.springList, s)
+		elseif role == "wing" then
+			s.axis = s.dir -- flaps about its own Y (the hinge)
+			s.side = wingOpens(s)
+			table.insert(r.wingList, s)
+		elseif role == "jet" then
+			table.insert(r.jetList, s)
+		end
+	end
+	local function byPart(a: Slot, b: Slot): boolean
+		if a.part ~= b.part then
+			return a.part < b.part
+		end
+		return a.name < b.name
+	end
+	table.sort(r.wingList, byPart)
+	table.sort(r.jetList, byPart)
+end
+
 local function underClothespin(inst: Instance, model: Model): boolean
 	local p = inst.Parent
 	while p and p ~= model do
@@ -2290,6 +3457,7 @@ local function buildRig(r: Rig, ropeOffset: number?)
 		r.frame = model:GetPivot()
 	end
 	r.pivotOffset = r.frame:ToObjectSpace(model:GetPivot())
+	r.frameInRoot = if root then root.CFrame:ToObjectSpace(r.frame) else CFrame.identity
 	-- size: studs per sock unit
 	if baseM and unitM then
 		r.unit = max((unitM.Position - baseM.Position).Magnitude, 0.05)
@@ -2409,16 +3577,48 @@ local function buildRig(r: Rig, ropeOffset: number?)
 				turnMax = math.rad(6),
 				R = CFrame.identity,
 				L = CFrame.identity,
+				C = CFrame.identity,
 				moved = false,
+				part = index,
+				seg = 1,
+				limit = 0,
+				len = 0,
+				dir = rests[1].YVector, -- a bone's own +Y runs along it, head -> tip
+				side = 1,
+				omega = 1,
+				zeta = 1,
+				drag = 0,
+				grav = 0,
+				q = Vector3.zero,
+				w = Vector3.zero,
+				tr = Vector3.zero,
+				vr = Vector3.zero,
+				live = false,
 			}
-			-- the jaw's clean range, from the rig's own tests
+			-- clean ranges from the rig's own tests: the jaw's slide / turn, how far a floppy bit
+			-- swings / wobbles / flaps (degrees), and which part / segment it is
 			local info = if type(entry) == "table" then entry[name] else nil
+			local lim = Config.Limits
+			slot.limit = if role == "dangle" then lim.Swing elseif role == "spring" then lim.Wobble elseif role == "wing" then lim.Flap else 0
 			if type(info) == "table" then
 				if type(info.slide) == "number" then
 					slot.slideMax = info.slide
 				end
 				if type(info.turn) == "number" then
 					slot.turnMax = math.rad(info.turn)
+				end
+				local hint = if role == "dangle" then info.swing elseif role == "spring" then info.wobble elseif role == "wing" then info.flap else nil
+				if type(hint) == "number" and hint > 0 then
+					slot.limit = math.rad(hint)
+				end
+				if type(info.index) == "number" then
+					slot.part = info.index
+				end
+				if type(info.seg) == "number" then
+					slot.seg = info.seg
+				end
+				if type(info.length) == "number" and info.length > 0 then
+					slot.len = info.length * r.unit -- studs at sock scale 1
 				end
 			end
 			table.insert(slots, slot)
@@ -2500,7 +3700,7 @@ local function buildRig(r: Rig, ropeOffset: number?)
 				table.insert(tentRoots, top.name)
 			end
 			table.insert(list, s)
-		elseif role ~= "root" then
+		elseif role ~= "root" and not FLOPPY_ROLES[role] then -- floppy bits: buildFloppy, never jiggled
 			table.insert(r.extras, s)
 		end
 	end
@@ -2553,6 +3753,7 @@ local function buildRig(r: Rig, ropeOffset: number?)
 		table.insert(r.tentKX, k.X)
 		table.insert(r.tentKZ, k.Z)
 	end
+	buildFloppy(r, slots)
 	r.slots = slots
 	r.hasBones = #slots > 0
 	-- outline hulls (OutlineMode "highlight" hides them)
@@ -2619,6 +3820,12 @@ local function newRig(model: Model, mode: string, typeId: string, side: string, 
 		digits = {},
 		critters = {},
 		grounds = {},
+		soft = {},
+		dangles = {},
+		springList = {},
+		wingList = {},
+		jetList = {},
+		frameInRoot = CFrame.identity,
 		bendMax = if type(pers.bend) == "number" then pers.bend elseif side == "S" then Config.Limits.BendSingle else Config.Limits.Bend,
 		hatMax = if type(pers.hatTilt) == "number" then pers.hatTilt else Config.Limits.HatTilt,
 		-- the Blender kit draws each pupil down and toward the toe: (0.26 x toe side, -0.46)
@@ -2661,6 +3868,7 @@ local function newRig(model: Model, mode: string, typeId: string, side: string, 
 		spin = 0,
 		flip = 0,
 		squash = 0,
+		jetPower = 0,
 		actName = nil,
 		actT0 = 0,
 		actDur = 1,
@@ -2702,6 +3910,7 @@ local function newRig(model: Model, mode: string, typeId: string, side: string, 
 		tPanic = 0,
 		awayX = 0,
 		awayZ = 1,
+		threatYaw = 0,
 		pairW = 0,
 		tPairW = 0,
 		pairYaw = 0,
@@ -2718,6 +3927,10 @@ local function newRig(model: Model, mode: string, typeId: string, side: string, 
 		sounds = {},
 		soundAt = {},
 		sparkle = nil,
+		fx = {},
+		jetFx = {},
+		jetAtt = {},
+		jetOn = false,
 		zzz = nil,
 		zzzLabels = {},
 		zzzIndex = 0,
@@ -2766,6 +3979,15 @@ local function removeRig(r: Rig)
 	local att = sp and sp.Parent
 	if att then
 		att:Destroy()
+	end
+	for _, e in pairs(r.fx) do
+		local holder = e.Parent
+		if holder then
+			holder:Destroy()
+		end
+	end
+	for _, a in ipairs(r.jetAtt) do
+		a:Destroy()
 	end
 	local z = r.zzz
 	if z then
@@ -2818,7 +4040,7 @@ end
 local function startShowoff(r: Rig)
 	local e = r.energy
 	local name = r.pers.showoff or "spin"
-	local flair = e.flair
+	local flair = r.pers.flair or e.flair -- a personality may bring its own (The Sockfather: stare / pose)
 	if flair and #flair > 0 and math.random() < (e.flairChance or 0) then
 		local pick = flair[math.random(#flair)]
 		if not (r.reduce and (pick == "spin" or pick == "flip")) then
@@ -3097,9 +4319,12 @@ local function update(r: Rig, dt: number, beat: number)
 		r.lookYaw = approach(r.lookYaw, r.tLookYaw, lookRate, dt)
 		r.lookPitch = approach(r.lookPitch, r.tLookPitch, lookRate, dt)
 		r.perk = approach(r.perk, r.tPerk, 3, dt)
-		r.panic = approach(r.panic, r.tPanic, if r.tPanic > r.panic then 8 else 2, dt)
+		-- (The Sockfather turns to face a thief slowly)
+		local panicIn = if pers.noPanic == "stare" then 1 else 8
+		r.panic = approach(r.panic, r.tPanic, if r.tPanic > r.panic then panicIn else 2, dt)
 		r.pairW = approach(r.pairW, r.tPairW, 2, dt)
-		local wantSleep = state == "drawer" and clockNow - r.lastNear > R.SleepAfter
+		local sleepy = if type(pers.sleepy) == "number" and pers.sleepy > 0 then pers.sleepy else 1
+		local wantSleep = state == "drawer" and clockNow - r.lastNear > R.SleepAfter / sleepy
 		if r.sleep > 0.5 then
 			r.asleep = true
 		end
@@ -3109,7 +4334,7 @@ local function update(r: Rig, dt: number, beat: number)
 				startMoment(r, "wake")
 			end
 		end
-		r.sleep = approach(r.sleep, if wantSleep then 1 else 0, if wantSleep then 0.5 else 6, dt)
+		r.sleep = approach(r.sleep, if wantSleep then 1 else 0, if wantSleep then 0.5 * sleepy else 6, dt)
 	end
 
 	-- moment / fidget bookkeeping
@@ -3155,10 +4380,11 @@ local function update(r: Rig, dt: number, beat: number)
 			r.nextFidget = clockNow + r.actDur + between(energy.fidgetEvery, 8)
 		end
 	end
-	-- a thief in your drawer: flail now and then
-	if r.panic > 0.5 and not r.momName and not r.actName and clockNow >= r.nextFlail then
-		r.nextFlail = clockNow + between(R.PanicFlailEvery, 2)
-		startAct(r, "flail", false)
+	-- a thief in your drawer: flail now and then (a ninja chops at them instead; a boss just stares)
+	if r.panic > 0.5 and not r.momName and not r.actName and clockNow >= r.nextFlail and pers.noPanic ~= "stare" then
+		local stance = pers.noPanic == "stance"
+		r.nextFlail = clockNow + between(R.PanicFlailEvery, 2) * (if stance then 1.6 else 1)
+		startAct(r, if stance then "hiyah" else "flail", false)
 	end
 
 	-- LOD: bones near the camera, whole-body motion beyond
@@ -3264,10 +4490,32 @@ local function update(r: Rig, dt: number, beat: number)
 		end
 		if r.panic > 0.001 then
 			local p = r.panic
-			bendToward(r, r.awayX, r.awayZ, R.PanicLean * p * E, EVEN)
-			chain(r, R.PanicShiver * p * sin(clockNow * 31), R.PanicShiver * p * sin(clockNow * 27 + 1), 0, EVEN)
-			squash(r, 0.05 * p)
-			tentacles(r, clockNow * 9, 0.25 * p, 0.2 * p, 0.8)
+			local np = pers.noPanic
+			if np == "stance" or np == "stare" then
+				-- not scared: it turns to face the thief (smoothly, wherever they walk)
+				r.threatYaw = approach(r.threatYaw, clamp(atan2(-r.awayX, -r.awayZ), -2.5, 2.5), 3, dt)
+				local yaw = r.threatYaw
+				if np == "stance" then
+					-- a fighting stance: low, leaning in, bouncing on its toes, headband tails flying
+					r.bry += yaw * 0.5 * p
+					lookAt(r, yaw * 0.5, 0, p)
+					squash(r, 0.14 * p * E)
+					bendToward(r, sin(yaw), cos(yaw), 0.12 * p * E, LOW)
+					body(r, 0, 0.06 * p * E * abs(sin(clockNow * 5)), 0)
+					foot(r, 0.1 * p * E * sin(clockNow * 10), 0, 0)
+					flare(r, 0.1 * p, 0.15 * p)
+				else
+					-- slowly turns and stares them down, very still
+					r.bry += yaw * 0.6 * p
+					lookAt(r, yaw * 0.4, 0, p)
+					chain(r, -0.05 * p * E, 0, 0, TOP)
+				end
+			else
+				bendToward(r, r.awayX, r.awayZ, R.PanicLean * p * E, EVEN)
+				chain(r, R.PanicShiver * p * sin(clockNow * 31), R.PanicShiver * p * sin(clockNow * 27 + 1), 0, EVEN)
+				squash(r, 0.05 * p)
+				tentacles(r, clockNow * 9, 0.25 * p, 0.2 * p, 0.8)
+			end
 		end
 		if r.sleep > 0.001 then
 			local sl = r.sleep
@@ -3316,14 +4564,15 @@ local function update(r: Rig, dt: number, beat: number)
 	local bodyCF = bodyCFrame(r, pivot)
 	if mode == "world" or mode == "goodbye" then
 		local moveRoot = canMove and not carried
+		local placed = if moveRoot then f * bodyCF else nil
 		if r.bonesOn then
-			solveBones(r, standing, nil, if moveRoot then bodyCF else nil)
+			solveBones(r, standing, nil, if moveRoot then bodyCF else nil, placed or root.CFrame, dt)
 		end
-		if moveRoot then
-			root.CFrame = f * bodyCF
+		if placed then
+			root.CFrame = placed
 		end
 	elseif r.bonesOn then
-		solveBones(r, standing, bodyCF, nil)
+		solveBones(r, standing, bodyCF, nil, root.CFrame * r.frameInRoot, dt)
 	else
 		-- a menu sock without bones: move the model, unless someone else moved it since
 		local current = model:GetPivot()
@@ -3337,6 +4586,9 @@ local function update(r: Rig, dt: number, beat: number)
 	end
 	if r.fade ~= r.fadeShown then
 		applyFade(r)
+	end
+	if r.jetPower > 0 or r.jetOn then
+		updateJets(r)
 	end
 end
 
@@ -3848,7 +5100,7 @@ function SockAnim.Goodbye(uid: number)
 	CollectionService:RemoveTag(clone, "Sock")
 	clone:SetAttribute("State", "goodbye")
 	for _, d in ipairs(clone:GetDescendants()) do
-		if d:IsA("ProximityPrompt") or d:IsA("BillboardGui") or d:IsA("Beam") or d:IsA("Highlight") or d:IsA("Sound") or d.Name == "SockAnimSparkle" or d.Name == "CarryWeld" then
+		if d:IsA("ProximityPrompt") or d:IsA("BillboardGui") or d:IsA("Beam") or d:IsA("Highlight") or d:IsA("Sound") or d.Name == "SockAnimSparkle" or string.sub(d.Name, 1, 10) == "SockAnimFX" or d.Name == "CarryWeld" then
 			d:Destroy()
 		end
 	end

@@ -1,6 +1,6 @@
 # Sock animation — every sock is alive
 
-Every sock moves on its own, in a way that depends on its **type** (21 personalities), its
+Every sock moves on its own, in a way that depends on its **type** (34 personalities), its
 **rarity**, its **mutation**, its **situation** and **what is happening around it**. All of it is
 procedural (no animation assets) and client-side: `Bone.Transform` and the client-moved root part
 are never replicated, so it costs the server nothing.
@@ -39,9 +39,13 @@ written to the bones and the root part.
 - **Bones are found by name** anywhere under the sock model (the importer may nest the meshes a
   level deeper, and the body and its `_Outline` hull may each carry their own copy of the
   skeleton). Every Bone with the same name gets the same motion.
-- Roles come from `SockRigConfig` (`Types[typeId][boneName].role`); without it, from the names
-  (`Root`, `Leg1..4`, `Cuff`, `Foot`, `Toe`, `Toe1..5`, `Eye1/2`, `Tent<i>_<j>`, `Neck1..4`, `Head`,
-  `Jaw`, `Hat`, `Pogo`, `Fly1..3`, `Hump1/2`, `Tail`, `Lake`, anything else = accessory).
+- Roles come from `SockRigConfig` (`Types[typeId][boneName].role`, plus its `index` / `seg` and the
+  hints `slide` / `turn` / `swing` / `wobble` / `flap`); without it, from the names (`Root`,
+  `Leg1..4`, `Cuff`, `Foot`, `Toe`, `Toe1..5`, `Eye1/2`, `Tent<i>_<j>`, `Neck1..4`, `Head`, `Jaw`,
+  `Hat`, `Pogo`, `Fly1..3`, `Hump1/2`, `Tail`, `Lake`; the second wave's `Cap1..`, `Noodle1..`,
+  `HatTip1..`, `Lappet1..`, `Wrap1..`, `Tail1..` (with a number: the plain `Tail` is the Sock Ness
+  tail), `Band<i>_<j>`, `Cape<i>_<j>`, `Bell`, `Earring` = dangle; `Curl`, `Antenna`, `Stache` =
+  spring; `Wing1/2` = wing; `Jet1/2` = jet; `Bow` = hat; `Paci` = jaw; anything else = accessory).
 - Every move is written as rotations in the **sock's own axes** — up (toward the cuff), face (+Z,
   where the eyes look) and toe (+X on a right sock, -X on a left one, so **L and R are mirrored
   automatically**) — about each bone's rest pivot. Each Bone's `Transform` is
@@ -59,8 +63,10 @@ written to the bones and the root part.
   carries it instead (the menus may turn the model themselves).
 - **Joint limits** (`SockAnimConfig.Limits`, from the rig's own tests): 15° per leg joint (10° for
   Socktopus / The Lost Sock, 8.6° for Sockrates and Sir Sockington, whose beard / armour are long and
-  rigid), 10° of twist per joint (more turns the whole sock), tight hats < 8°, the jaws inside the
-  rig's `slide` / `turn` (talking is mostly a slide).
+  rigid), 10° of twist per joint (more turns the whole sock), tight hats < 8°, the jaws (and Bambino's
+  pacifier) inside the rig's `slide` / `turn` however many moves open them at once (talking is mostly
+  a slide), each floppy bit inside its own `swing` / `wobble` / `flap` hint (34° / 20° / 29° when the
+  rig has none).
 - **Special bones**: `Eye1/2` carry only the pupils — rolling them makes **googly eyes** that stay
   "down" as the sock tips, rattle when it hops and **swing toward the player it looks at**;
   Toe-Toe's five toes never stop wiggling; Stinkolino's flies buzz round; the Sock Ness humps and
@@ -69,7 +75,20 @@ written to the bones and the root part.
 - **No bones** (Part-built socks, an old place) or **far away**: the same layers fold into
   whole-body motion of the root part, so a far sock still bobs, sways and spins like itself.
 
-## The 21 personalities
+## Floppy bits, wings and jets (the second wave's bones)
+
+| Role | Bones | What drives it |
+| --- | --- | --- |
+| `dangle` | Pisolino's nightcap `Cap1-3`, Ninjolino's headband tails `Band1_1..2_2`, Sockbeard's `Earring`, Jingleo's `Bell`, Spaghettino's spaghetti strand `Noodle1-2`, Sockula's cape halves `Cape1_1..2_2`, Merlino's hat tip `HatTip1-2`, Dragonzola's tail `Tail1-3`, Toetankhamun's `Lappet1/2` and loose bandage `Wrap1-2` | **simulated**: each bone's tip is a damped pendulum on its parent as the parent really moves in the world. A hop, a spin, a lean or a thief running off with the sock leaves it behind and it swings back; when the sock tips (a flip, hanging, a bow) gravity pulls it back toward hanging as modelled; air drag makes a carried sock's cape stream out behind. It settles back to rest when the sock stops, and never passes its `swing` limit (a soft stop). Moves only say where it should rest (`flare`: spread out / back, `wag`: swing about the sock's up axis) |
+| `spring` | Bambino's `Curl`, Sockstrong's `Antenna`, Spaghettino's `Stache` | the same with a stiff spring: a quick wobble that follows every move, inside `wobble` (moves can twitch it: `springs`) |
+| `wing` | Dragonzola's `Wing1/2` | flaps about the bone's own axis (its hinge), the two mirrored, inside `flap`: slow flexing while it breathes, fast flaps in its moves and on the line |
+| `jet` | Sockstrong's `Jet1/2` | carries a flame (a ParticleEmitter blowing out of the nozzle, the bone's +Y) while a move fires the jets (`boost`, `liftoff`) |
+
+Tuning: `SockAnimConfig.Soft` (gravity, damping, air drag, spring speed) and `Limits.Swing` /
+`Wobble` / `Flap` for bones whose rig has no hint. Floppy bits start again from rest after a teleport
+(a jump of more than `Soft.Reset`) and whenever the sock's bones switch off and on (distance).
+
+## The 34 personalities
 
 | Sock | Idle loop | Fidgets | Signature show-off | On the line |
 | --- | --- | --- | --- | --- |
@@ -77,27 +96,42 @@ written to the bones and the root part.
 | Ankle Biter | bouncy, snapping its top (fangs chomp) | chomps, playful lunges, wiggles | spin while chomping | kicks |
 | Crusty Crew | stiff, moves in creaky steps, bends only at the ankle | creaky leans and turns | a creaky stepped bow | swings like a plank |
 | Gym Class Gary | bounces on the spot | flexes, squats, wipes his brow | the flex | kicks |
+| Polka Dottie | a happy side-to-side sway with little heel lifts, the bow bobbing | giggles, half twirls, wiggles | a full spin with a bow bounce and a curtsy | kicks |
+| Pisolino Pigiamino | nods off lower and lower, then snaps awake (dozes off twice as fast as anyone) | yawns, nods off, a big stretch | sleepwalks: slow hops away, turns, hops back | limp, a dozing pendulum |
+| Bambino Calzino | an unsteady toddler wobble, the pacifier bobbing | sucks the pacifier, plops down on its bottom, giggles | three excited baby hops | fast tiny baby kicks |
 | Argylo Bargylo | posh, upright, slow glances | adjusts monocle, nods, looks around | a deep bow toward you | dignified sway, toe pointed |
 | Toe-Toe Wiggletto | toes wiggle non-stop, side bounce | toe wiggles, tip-toes | tip-toe dance with a pirouette | kicks |
 | Sockrates | slow thoughtful nods, head tilts | ponders, nods | "eureka!" hop with a sparkle | slow sway, toe taps |
 | Knee-High Kevin | waves ripple up the long leg | big noodle waves, looks around | the big noodle wave | a wave down the leg |
+| Jingleo Bellini | a "ho-ho" double bounce, then a pause (the bell swings) | jingles the bell on its toe, leans back laughing, wiggles | a hop and spin in a puff of snow sparkles, jingling | kicks |
+| Ninjolino Stealthini | a low tense crouch, darting looks left and right | tip-toes sideways, darts (headband tails streaming), looks around | a spin, a smoke poof... it pops up in a karate pose | very still, darting glances |
+| Captain Sockbeard | rocks like a ship on the waves | "arr!" lunges, a long look far left and far right, belly laughs | waves his tricorn, a hearty bounce | big wide swings, like on the rigging |
 | Slipperino | skates side to side leaning into it | glides | ice-skater double spin | wide "wheee" swing |
 | Compressio | tense shivers, scrunches up | crunches, shiver bursts | crunch, then pop up spinning | jittery |
 | Sockhopper | never stops pogoing | double bounce, looks around | pogo flip | springy bounce |
 | DJ Dryer Sheet | bops to a 120 BPM beat (same beat for everyone) | cuff scratches, headbangs | scratch then spin on the drop | bops to the beat |
+| Chef Spaghettino | a slow stirring sway, the moustache twitching | tastes and hops, wiggles the moustache, looks around | the chef's kiss: rises, tilts back, "mwah!" (a pop and a sparkle) | kicks |
+| Count Sockula | a slow dramatic sway, the cape billowing | swirls the cape, "bleh!", hides behind the cape | rises on tip-toe, cape spread wide, a spin, "bleh!" | hangs still, the cape fluttering |
 | Socktopus | tentacles wave like swimming, bobbing | swim strokes, tentacle wiggles | tentacle twirl | tentacles dangle and swirl |
 | Sir Sockington III | stands to attention | salutes, marches in place | the salute | stiff plank |
 | Stinkolino Pestilini | lazy slouch | wafts its stink, slouches, yawns | the proud waft | limp |
+| Merlino Magnifico | a slow magical bob and circle, the hat tip swaying | casts a spell (sparkles from the hat star), levitates, looks around | spins up into the air under a sparkle shower | slow floaty turns |
+| Neil Sockstrong | a slow-motion zero-g drift and turn | a floaty moon hop, a little jet boost (flames), looks around | lift-off: crouch, countdown shake, rockets up on flames, a slow flip, floats down | slow floaty turns |
 | The Sock Ness Monster | slow serpent sways of the neck, head looks around | looks around, neck dips | rises up tall and looks round | neck sways |
 | Static Shockini | can't keep still: jitters, mini jolts | electric jolts (blue sparks) | full overload: three jolts and a spin | jittery |
+| Dragonzola | big slow breaths, the belly swelling, wings flexing | fast flaps and a hop, snorts smoke, wags its tail | rears back flapping, breathes fire with a little roar | hangs flapping |
 | Lintlord | regal sway, chin up | raises its toe to command, nods | "decree": toe raised, slow regal turn | dignified sway |
 | Sockzillionaire | struts on the spot, hat bobbing | tips his top hat, looks around | the hat tip | dignified sway |
+| King Toetankhamun | regal stillness with an Egyptian head slide | bigger head slides, a stiff mummy shuffle, looks around | tips back stiff as a board, rises straight up: gold sparkles and a puff of sand | stiff plank |
 | The Lost Sock | eerie float and slow turn | glitchy twitches, slowly turns to stare at you | twitch, flicker out, stare | slow eerie turns |
 | Sock Puppet Supreme | never stops talking (jaw), gesturing | chatters, gestures, yawns | a dramatic monologue ending in a bow | springy bounce |
+| The Sockfather | calm and confident: leans back a touch, tiny slow nods | slow knowing nods, tips his fedora down over his eyes, a slow look around | leans in toward you, a slow nod, a hat tilt, a rose sparkle: an offer you can't refuse | dignified sway |
 
 Personalities live in `SockAnimConfig.Personalities` (`idle`, `tempo`, `amp`, `fidgets`, `showoff`,
-`hang`, `look`, `voice`, and optional `bend` / `hatTilt` limits). The moves themselves are the
-`IDLES`, `HANGS` and `CLIPS` tables in `SockAnim.luau`.
+`hang`, `look`, `voice`, and optional `bend` / `hatTilt` limits, `flair` (its own show-off flair
+instead of its rarity's: The Sockfather stares and poses, he doesn't glitch), `noPanic` (`"stance"`:
+Ninjolino; `"stare"`: The Sockfather) and `sleepy` (Pisolino: 2 = dozes off twice as fast)). The moves
+themselves are the `IDLES`, `HANGS` and `CLIPS` tables in `SockAnim.luau`.
 
 ## Rarity = energy and flair
 
@@ -109,7 +143,7 @@ Personalities live in `SockAnimConfig.Personalities` (`idle`, `tempo`, `amp`, `f
 | Legendary | 1.1 | 1.05 | 5–9 s | 22–38 s | spin, pose (40%) | 12 |
 | Mythic | 1.2 | 1.1 | 4–8 s | 18–30 s | spin, flip, pose (45%) | 16 |
 | Sock God | 1.3 | 1.1 | 4–7 s | 14–24 s | spin, flip, pose (50%) | 24 |
-| Secret | 1.1 | 0.9 | 4–8 s | 16–28 s | glitch, stare, phase (60%) | 14 |
+| Secret | 1.1 | 0.9 | 4–8 s | 16–28 s | glitch, stare, phase (60%); The Sockfather: stare, pose | 14 |
 
 ## Mutation flavour
 
@@ -129,11 +163,11 @@ Personalities live in `SockAnimConfig.Personalities` (`idle`, `tempo`, `amp`, `f
 | --- | --- | --- |
 | Look | the nearest player within 30 studs | the upper body turns toward them, the face tips to meet their eyes, the googly pupils swing toward them; a little "oh, hi!" hop when someone new comes into view |
 | Perk up | clothesline sock, a player within 16 studs | kicks faster and swings toward them |
-| Panic | another player is inside **your** drawer (only your socks) | shiver, lean away from the thief, flail now and then (squeak) |
+| Panic | another player is inside **your** drawer (only your socks) | shiver, lean away from the thief, flail now and then (squeak). Two never panic: **Ninjolino** takes a fighting stance (low, turned to the thief, bouncing on its toes) and chops at them now and then; **The Sockfather** slowly turns and stares them down |
 | Pair bop | `Paired` with its other half in the same drawer | turn toward each other and bop together on a shared 96 BPM beat |
 | Flinch | a Towel Snap (FX `"snap"`) within 25 studs | jerk away from it; the nearest one says "oof" |
 | Cheer | a Legendary+ sock bought or stolen anywhere (FX `"buy"` / `"claim"` in that tier's colour) | every sock near you jumps and waves, a ripple not a chorus line; the two nearest make the noise |
-| Sleep | drawer sock, nobody within 40 studs for 45 s | droops, slow breathing, floating "Zzz", a soft snore (the nearest one) |
+| Sleep | drawer sock, nobody within 40 studs for 45 s (Pisolino: 22 s, and it nods off twice as fast) | droops, slow breathing, floating "Zzz", a soft snore (the nearest one) |
 | Wake | someone comes back near a dozing sock | a startled hop and squeak |
 
 ## Moments
@@ -148,6 +182,26 @@ Personalities live in `SockAnimConfig.Personalities` (`idle`, `tempo`, `amp`, `f
 | `goodbye` | `SockAnim.Goodbye(uid)` (the sock card's Sell) | a local copy waves, bows, rises spinning and poofs; the real one is hidden until the server removes it (it comes back if the sale fails) |
 | `cheer`, `flinch`, `wake` | see Reactions | |
 | `showoff` | `SockAnim.Moment(model, "showoff")` (the menus) | its signature show-off |
+
+## Effects
+
+Small, short-lived particle puffs from one pooled emitter per effect per sock (made the first time it
+is needed, removed with the sock), only for socks within 120 studs, never in the menus:
+
+| Effect | Who | Where |
+| --- | --- | --- |
+| smoke poof | Ninjolino's `vanish` | the whole sock (it fades out inside it) |
+| fire breath | Dragonzola's `firebreath` | five bursts from the mouth, forward |
+| nose smoke | Dragonzola's `snort` | a little grey puff from the nose |
+| spell sparkles | Merlino's `spell`, `abracadabra` | gold stars from the star on the hat tip |
+| snow sparkles | Jingleo's `sleighspin` | round the sock, drifting down |
+| jet flames | Sockstrong's `boost`, `liftoff` | at each `Jet` bone, out of the nozzle (two behind the sock without bones) |
+| sand puff | Toetankhamun's `awaken` | from the floor, with a gold sparkle |
+| rose sparkle | The Sockfather's `offer` | red sparkles from the rose |
+| kiss sparkle | Spaghettino's `chefskiss` | pink sparkles from the mouth |
+
+**Low graphics** halves every puff (and the jet flames); **Hide others' effects** shows none on other
+players' socks farther than 30 studs from the camera.
 
 ## Sounds
 
@@ -168,6 +222,16 @@ the personality's `voice`. All are Roblox's own audio (creator "Roblox"), checke
 | whoosh | 12222200 | swoosh.wav | spins and flips |
 | oof | 79348298352567 | Official OOF Sound Effect | flinching at a Towel Snap |
 | zap | — | (silent) | Static zaps: no Roblox-made zap fits |
+| jingle | 16480570986 | Audio/Roblox_Pinball_Bumper_Low_Bells_02 (a bell ding, at 1.6x) | Jingleo's bell |
+| roar | 96100733 | Craw5 (a creature call, at 0.65x) | Dragonzola's little roar before the fire |
+| kiss | 17208204604 | Roblox GUI - Bubble (a bubble pop) | the chef's "mwah!" |
+| jet | 12222065 | Launching rocket.wav | Sockstrong's jets |
+| magic | 15675046931 | Roblox_UI_Sweep | Merlino's spells |
+
+The second wave also reuses `poof` (Ninjolino's smoke), `whoosh` (spins, dashes, the sand puff) and
+`boing` (hops). The five new ids were checked the same way on 2026-10-03 (creator "Roblox", id 1,
+`IsPublicDomain = true`); nobody has listened to them in the game yet, so give them a listen in Studio
+(`roar` especially: it is a slowed-down creature call, not a real roar).
 
 Swap any id in `SockAnimConfig.Sounds` (`""` = silent).
 
@@ -175,6 +239,8 @@ Swap any id in `SockAnimConfig.Sounds` (`""` = silent).
 
 - One `RenderStepped` loop for every sock (and the menu socks). No per-frame tables or closures;
   bones whose motion is zero are skipped; a bone shared by the body and its hull is solved once.
+  Floppy bits cost a few CFrame sums each (a sock has at most six) and only on socks that have them.
+  Effects make no instances per frame: their emitters are pooled per sock.
 - Bones only within **120 studs** of the camera (whole-body motion beyond), **every other frame
   beyond 60**, whole-body motion every 4th frame beyond 250. At most **40** socks bend at once:
   past that the bone range shrinks until it fits (with a little hysteresis, so nothing flickers).
@@ -226,13 +292,22 @@ and the odd show-off play; no reactions, no sounds.
    8 with Low graphics; menu viewports can't draw Highlights, so menu socks then have none).
 4. **Clothesline**: a hanging sock's clothespin should stay on the rope while its foot swings.
 5. **Creases**: if a joint creases, lower `Limits.Bend` (or that type's `bend`) a little.
-6. **Output**: `[SockAnim]` warnings name anything it couldn't animate (it hands those socks back to
+6. **The new socks' floppy bits** (after the second wave's meshes are imported): in Play, watch
+   Count Sockula in a drawer and in its Sockdex card (a card plays the show-off as it opens): the cape
+   halves should swing out and settle, never poke through the body.
+   Pisolino's nightcap, Merlino's hat tip and Dragonzola's tail should sway and settle; Jingleo's
+   bell should swing when it jingles. If one pokes through, lower that bone's `swing` in the rig
+   (tools/blender) or `Limits.Swing`; if they feel too floaty or too stiff, change `Soft.Gravity` /
+   `Soft.DangleDamping`. Dragonzola's wings must **spread** while it breathes fire: if they fold in,
+   set `Soft.WingOpen = -1`. Sockstrong's `boost`: the flames must come out of the nozzles, pointing
+   down.
+7. **Output**: `[SockAnim]` warnings name anything it couldn't animate (it hands those socks back to
    SockFX, so the game keeps working).
-7. **Performance**: with a full server, check the MicroProfiler (`Ctrl+F6`) for `RenderStepped`. If
+8. **Performance**: with a full server, check the MicroProfiler (`Ctrl+F6`) for `RenderStepped`. If
    it is heavy on phones, lower `Perf.MaxBoneSocks` or `Perf.BoneRange`.
 
 Paste-ready prompt for the local Claude:
 
 ```text
-Read docs/ANIMATION.md. In the open place, check that ReplicatedStorage.SockMeshes.Argylo_R has Bone instances (Root, Leg1-Leg4, Cuff, Foot, Toe, Eye1, Eye2) under its MeshParts. Start a Play test, buy a sock, stand next to it in your drawer for 10 seconds, then stand still far away for a minute and come back. Report any [SockAnim] warnings from Output, and take screenshots of a drawer sock and a clothesline sock up close so I can check that the leg bends, the foot stays planted, the clothespin stays on the rope and the black outline bends with the body.
+Read docs/ANIMATION.md. In the open place, check that ReplicatedStorage.SockMeshes.Argylo_R has Bone instances (Root, Leg1-Leg4, Cuff, Foot, Toe, Eye1, Eye2) under its MeshParts, and that Sockula_R has Cape1_1, Cape1_2, Cape2_1, Cape2_2 and Dragonzola_R has Wing1, Wing2, Tail1-Tail3. Start a Play test, buy a sock, stand next to it in your drawer for 10 seconds, then stand still far away for a minute and come back. If you have found Count Sockula, Dragonzola, Merlino Magnifico or Neil Sockstrong, open their Sockdex cards (a card plays the sock's show-off as it opens). Report any [SockAnim] warnings from Output, and take screenshots of a drawer sock and a clothesline sock up close so I can check that the leg bends, the foot stays planted, the clothespin stays on the rope and the black outline bends with the body, and of Sockula's cape mid-swirl.
 ```
