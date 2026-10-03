@@ -504,6 +504,36 @@ local function openShop()
 	end
 end
 
+-- ---------- holding the towel down (ItemClient.Press / Release: it keeps cracking while held) ----------
+
+local towelPresses: { [any]: boolean } = {} -- the presses holding the towel slot down: an input's source
+
+local function canHold(): boolean
+	return client ~= nil and type(client.Press) == "function" and type(client.Release) == "function"
+end
+
+local function pressTowel(slot: Slot, source: any, fromKey: boolean)
+	if towelPresses[source] then
+		return
+	end
+	towelPresses[source] = true
+	if fromKey then
+		Anim.bump(slot.tile, 0.88)
+	end
+	if slot.cooling then
+		Anim.bump(slot.seconds, 1.3) -- it starts snapping as soon as it's ready
+	end
+	clientCall("Press", "Towel", source)
+	task.defer(refreshKey, "Towel")
+end
+
+local function releaseTowel(source: any)
+	if towelPresses[source] then
+		towelPresses[source] = nil
+		clientCall("Release", "Towel", source)
+	end
+end
+
 local function useSlot(slot: Slot, fromKey: boolean)
 	if not built then
 		return
@@ -696,7 +726,16 @@ local function buildSlot(index: number, size: number): Slot
 	}
 	Anim.button(tile, "none") -- press springs; using an item makes its own sounds (ItemFX)
 	tile.Activated:Connect(function()
+		if slot.key == "Towel" and canHold() then
+			return -- the towel goes down on the press (InputBegan) and keeps snapping while held
+		end
 		useSlot(slot, false)
+	end)
+	tile.InputBegan:Connect(function(input)
+		local kind = input.UserInputType
+		if slot.key == "Towel" and built and canHold() and (kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch) then
+			pressTowel(slot, if kind == Enum.UserInputType.Touch then input else "mouse", false)
+		end
 	end)
 	if not Theme.IsTouch then
 		tile.MouseEnter:Connect(function()
@@ -890,8 +929,21 @@ function ItemBar.Init(itemClient: any?)
 		-- position in `slots` (1 = the towel)
 		local at = if code == TOWEL_KEY then 1 else (table.find(NUMBER_KEYS, code) or table.find(KEYPAD_KEYS, code) or table.find(PAD_KEYS, code))
 		local slot = if at then slots[at] else nil
-		if slot then
+		if slot and slot.key == "Towel" and built and canHold() then
+			pressTowel(slot, code, true) -- held: keeps snapping
+		elseif slot then
 			useSlot(slot, true)
+		end
+	end)
+	-- let go of the towel (a key, the mouse anywhere, a finger anywhere: it may have slid off the slot)
+	UserInputService.InputEnded:Connect(function(input)
+		local kind = input.UserInputType
+		if kind == Enum.UserInputType.MouseButton1 then
+			releaseTowel("mouse")
+		elseif kind == Enum.UserInputType.Touch then
+			releaseTowel(input)
+		else
+			releaseTowel(input.KeyCode)
 		end
 	end)
 	UserInputService.LastInputTypeChanged:Connect(function(inputType)

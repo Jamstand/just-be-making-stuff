@@ -20,6 +20,7 @@ local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 
 local ItemRig = require(script.Parent:WaitForChild("ItemRig"))
+local ItemConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("ItemConfig"))
 
 local ItemFX = {}
 
@@ -64,6 +65,7 @@ local SOUNDS_PER_SECOND = 10
 local HIDE_OTHERS_RANGE = 30
 local POLL = 0.2 -- seconds between attribute polls
 local CRACK_T = 0.22 -- seconds into a swing when the towel cracks (the burst waits for it)
+local HELD_WAIT = ItemConfig.Items.Towel.cooldown + 0.35 -- another player's held loop stays up this long for their next crack
 local FONT = Enum.Font.FredokaOne
 local INK = Color3.fromRGB(40, 22, 60)
 local YELLOW = Color3.fromRGB(255, 225, 60)
@@ -908,6 +910,9 @@ HANDLERS.swing = function(data)
 		return -- your own swing was predicted the moment you pressed
 	end
 	lastSwing[p] = os.clock()
+	-- a held swing: the towel goes back up over the shoulder for the next crack, which should come
+	-- one cooldown later; if it doesn't (they let go), it drops a moment after that
+	ItemRig.SetWhipHold(p.Character, data.held == true, HELD_WAIT)
 	ItemRig.Play(p.Character, "swing")
 	ItemFX.PlayAt("swing", rootPos(p))
 end
@@ -1262,6 +1267,14 @@ end
 -- ---------- API ----------
 
 -- The player's own use, the moment they press (ItemClient). Shows what will happen right away.
+-- Your towel button is held down (ItemClient repeats the snap): the towel loops overhead cracks.
+function ItemFX.SetHold(on: boolean)
+	local character = me and me.Character
+	if character then
+		ItemRig.SetWhipHold(character, on)
+	end
+end
+
 function ItemFX.Predict(key: string)
 	local character = me and me.Character
 	if not character then

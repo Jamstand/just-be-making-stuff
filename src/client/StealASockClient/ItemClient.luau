@@ -2,6 +2,11 @@
 -- server decides everything (Items.luau) and this only asks, predicts and shows.
 -- API (the contract with ItemBar; docs/ITEMS.md):
 --   ItemClient.Use(key)             hold it and use it now: local prediction + UseItem; nothing while cooling down
+--   ItemClient.Press(key, source?) / ItemClient.Release(key, source?)
+--                                   a button / key / click going down and up. Most items are used once on
+--                                   Press; the Towel keeps snapping while any source is held (an overhead-
+--                                   crack loop, one snap per cooldown). `source` tells holds apart (a key,
+--                                   a touch's InputObject, "tool" for a click in the world).
 --   ItemClient.Hold(key?)           hold that item's tool (nil = put it away); a click / tap in the world then uses it
 --   ItemClient.Held(): string?
 --   ItemClient.CooldownUntil(key): number   workspace:GetServerTimeNow() it's ready again (0 = ready)
@@ -18,6 +23,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 local ItemConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("ItemConfig"))
 local ItemFX = require(script.Parent:WaitForChild("ItemFX"))
@@ -37,6 +43,9 @@ local predicted: { [string]: number } = {} -- key -> ready time we expect (serve
 local predictedActive: { [string]: boolean? } = {}
 local busy: { [string]: boolean } = {}
 local held: string? = nil
+local towelSources: { [any]: boolean } = {} -- whatever is holding the towel button down right now
+local towelLoop = 0 -- bumped to stop the current loop
+local towelFromClick = false -- a held click in the world aims each snap at the mouse
 local hooked: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 
 local function now(): number
@@ -242,7 +251,7 @@ local function aimFor(root: BasePart, fromClick: boolean): Vector3?
 	return flat(root.CFrame.LookVector)
 end
 
-local function ask(key: string, aim: Vector3?, onAnswer: (boolean, any) -> ())
+local function ask(key: string, aim: Vector3?, onAnswer: (boolean, any) -> (), heldDown: boolean?)
 	local fn = remote()
 	if not fn then
 		onAnswer(false, nil)
@@ -251,14 +260,14 @@ local function ask(key: string, aim: Vector3?, onAnswer: (boolean, any) -> ())
 	busy[key] = true
 	task.spawn(function()
 		local ok, result = pcall(function()
-			return fn:InvokeServer(key, aim)
+			return fn:InvokeServer(key, aim, if heldDown then true else nil)
 		end)
 		busy[key] = nil
 		onAnswer(ok and type(result) == "table" and result.ok == true, if ok then result else nil)
 	end)
 end
 
-local function use(key: any, fromClick: boolean)
+local function use(key: any, fromClick: boolean, heldDown: boolean?)
 	if type(key) ~= "string" or not ItemConfig.Items[key] or busy[key] then
 		return
 	end
@@ -309,11 +318,77 @@ local function use(key: any, fromClick: boolean)
 		end
 		changed(key)
 		whenReady(key)
-	end)
+	end, heldDown)
 end
 
 function ItemClient.Use(key: string)
 	use(key, false)
+end
+
+-- ---------- holding the towel down: an overhead-crack loop ----------
+
+local function towelHeld(): boolean
+	return next(towelSources) ~= nil
+end
+
+local function stopTowelLoop()
+	towelLoop += 1
+	table.clear(towelSources)
+	towelFromClick = false
+	ItemFX.SetHold(false)
+end
+
+-- snaps whenever the towel is ready, until every source lets go (the first snap is at once), then
+-- checks again when the cooldown ends
+local function towelTick(token: number)
+	if token ~= towelLoop or not towelHeld() then
+		return
+	end
+	local _, humanoid = body()
+	if not humanoid then
+		stopTowelLoop()
+		return
+	end
+	if ItemClient.CooldownUntil("Towel") == 0 and not busy.Towel then
+		use("Towel", towelFromClick, true)
+	end
+	task.delay(math.clamp(ItemClient.CooldownUntil("Towel") - now(), 0.03, 2), towelTick, token)
+end
+
+function ItemClient.Press(key: string, source: any?)
+	if key ~= "Towel" then
+		use(key, source == "tool")
+		return
+	end
+	local src = if source ~= nil then source else "api"
+	if towelSources[src] then
+		return
+	end
+	local first = not towelHeld()
+	towelSources[src] = true
+	if src == "tool" then
+		towelFromClick = true
+	end
+	if first then
+		towelLoop += 1
+		ItemFX.SetHold(true)
+		towelTick(towelLoop)
+	end
+end
+
+function ItemClient.Release(key: string, source: any?)
+	if key ~= "Towel" then
+		return
+	end
+	local src = if source ~= nil then source else "api"
+	towelSources[src] = nil
+	if src == "tool" then
+		towelFromClick = false
+	end
+	if not towelHeld() then
+		towelLoop += 1 -- the loop ends; the arm settles after the swing that's playing
+		ItemFX.SetHold(false)
+	end
 end
 
 function ItemClient.Hold(key: string?)
@@ -364,9 +439,13 @@ local function hookTool(tool: Instance)
 		return
 	end
 	hooked[tool] = true
-	-- a click / tap in the world with the item in hand uses it, aimed at where you clicked
+	-- a click / tap in the world with the item in hand uses it, aimed at where you clicked (the towel
+	-- keeps snapping while the click is held)
 	tool.Activated:Connect(function()
-		use(key, true)
+		ItemClient.Press(key, "tool")
+	end)
+	tool.Deactivated:Connect(function()
+		ItemClient.Release(key, "tool")
 	end)
 end
 
@@ -384,6 +463,9 @@ local function updateHeld()
 	if key ~= held then
 		local old = held
 		held = key
+		if old == "Towel" and towelSources.tool then
+			ItemClient.Release("Towel", "tool") -- put away mid-click: no Deactivated comes
+		end
 		changed(old)
 		changed(key)
 	end
@@ -409,6 +491,7 @@ end
 local function onCharacter(character: Model)
 	stopDash()
 	stopGlide(false)
+	stopTowelLoop()
 	watchContainer(character)
 	updateHeld()
 	character:GetAttributeChangedSignal("Gliding"):Connect(function()
@@ -454,6 +537,8 @@ function ItemClient.Init()
 		task.spawn(onCharacter, me.Character)
 	end
 	me.CharacterAdded:Connect(onCharacter)
+	-- a hold that never sees its release (the window lost focus mid-press) mustn't snap forever
+	UserInputService.WindowFocusReleased:Connect(stopTowelLoop)
 end
 
 ItemClient.Init()

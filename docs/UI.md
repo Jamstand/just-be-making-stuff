@@ -30,7 +30,8 @@ The candy bar along the bottom of the screen replaces Roblox's own hotbar (`Item
 First the **towel** slot - the biggest, because on phones it is the main button - showing your
 towel's current look, then the **3 items** you picked in the Item Shop.
 
-- **Use:** tap / click a slot, or press **1-4** (**Q** also snaps the towel). A gamepad uses **Y**
+- **Use:** tap / click a slot, or press **1-4** (**Q** also snaps the towel). **Hold** the towel slot
+  (or Q / 1 / Y) to keep cracking it: one snap per cooldown until you let go. A gamepad uses **Y**
   (towel) and the **d-pad** left / up / right (items). Key hints show on keyboards and gamepads,
   not on touch screens; hovering a slot with the mouse shows its name.
 - **Cooldown:** a dark sweep clears clockwise with the seconds left; when the item is ready again

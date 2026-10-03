@@ -20,7 +20,10 @@
 --   Items.RefreshTowel(player)                   (Towel.Refresh: new Towel Snap level / Royal Towel)
 --   Items.OnCarryChanged(player)                 (Steal: a sock picked up / claimed / sent home)
 --   Items.Knock / Stun / CanShove / SendSockHome / PopOut / FX (used by Towel and the rules)
--- Remotes: UseItem(key, aim?), BuyItem(key), SetLoadout(keys) -> Types.Result
+--   Items.TowelHeld(player) -> boolean           (Towel: is this snap part of a held loop? for the swing FX)
+-- Remotes: UseItem(key, aim?, held?), BuyItem(key), SetLoadout(keys) -> Types.Result
+--   (held: the towel button is being held down, so the client repeats the snap; every client then
+--   plays the swings as one overhead-crack loop)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
@@ -48,6 +51,7 @@ export type PlayerState = {
 	glide: any?, -- Rules: gliding on the dryer sheet
 	glideEnded: number, -- server time the last glide ended
 	encase: any?, -- Rules: floating in a bubble
+	towelHeld: boolean, -- the last Towel use came with the button held down
 }
 
 local states: { [Player]: PlayerState } = {}
@@ -250,6 +254,12 @@ end
 
 -- WalkSpeed multiplier from items: stunned / floating in a bubble = 0, the Softener Cloud slows
 -- (thieves more), the Laundry Basket shuffles.
+-- Was this Towel snap asked for with the button held down? (the swing FX tells every client to loop it)
+function Items.TowelHeld(player: Player): boolean
+	local st = states[player]
+	return st ~= nil and st.towelHeld
+end
+
 function Items.SpeedMult(player: Player): number
 	local st = states[player]
 	if not st then
@@ -410,7 +420,7 @@ local function validAim(aim: any): boolean
 	return finite(v.X) and finite(v.Y) and finite(v.Z) and Vector3.new(v.X, 0, v.Z).Magnitude > 1e-3
 end
 
-local function useItem(player: Player, key: any, aim: any)
+local function useItem(player: Player, key: any, aim: any, held: any)
 	if not S.Ready then
 		return { ok = false, err = "Starting up…" }
 	end
@@ -418,6 +428,9 @@ local function useItem(player: Player, key: any, aim: any)
 		return BAD
 	end
 	if aim ~= nil and not validAim(aim) then
+		return BAD
+	end
+	if held ~= nil and type(held) ~= "boolean" then
 		return BAD
 	end
 	if not S.RateLimit.Check(player, "useItem:" .. key, USE_GAP) then
@@ -464,6 +477,9 @@ local function useItem(player: Player, key: any, aim: any)
 		local look = root.CFrame.LookVector
 		local flat = Vector3.new(look.X, 0, look.Z)
 		dir = if flat.Magnitude > 1e-3 then flat.Unit else Vector3.new(0, 0, -1)
+	end
+	if key == "Towel" then
+		st.towelHeld = held == true
 	end
 	local ok, err, msg = Rules.Use(player, st, key, dir)
 	if not ok then
@@ -629,6 +645,7 @@ function Items.Setup(player: Player)
 		glide = nil,
 		glideEnded = 0,
 		encase = nil,
+		towelHeld = false,
 	}
 	states[player] = st
 	table.insert(st.conns, player.CharacterAdded:Connect(function(character)

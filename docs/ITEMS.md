@@ -31,9 +31,16 @@ with Robux; `Income.Push` puts `items`, `loadout` and `towelLook` in the StateVi
 - **A thief:** full knockback + `TowelStunSeconds` stun + a somersault, and the stolen sock flies
   home on an arc (`Steal.Return(…, "snapped")` + the `sockhome` effect). The socks nearby still
   flinch (`S.FX("snap")`).
-- **Feel (every client):** a swing on every use, hit or miss — the arm winds up over the shoulder and
-  lashes down, the towel curls back, unrolls and cracks at the tip (its `Seg1…Seg6` bones, or the
-  Part towel's `Seg1…Seg6` motors), with a whoosh. On a hit, at the moment of the crack: a crack
+- **Hold to keep cracking:** a tap is one snap; **holding** the towel slot, **Q** / **1**, gamepad
+  **Y**, or the mouse / a finger in the world keeps snapping, one snap each time the 1 s cooldown is
+  ready (`ItemClient.Press` / `Release`; `UseItem`'s `held` flag tells every other client to play
+  the swings as one loop). Letting go stops it; so does the window losing focus or respawning.
+- **Feel (every client):** an overhead crack on every use, hit or miss — the arm takes the towel up
+  and back over the shoulder and lashes it down in front, the towel curls back, unrolls and cracks
+  at the tip (its `Seg1…Seg6` bones, or the Part towel's `Seg1…Seg6` motors), with a whoosh. While
+  held, the arm lifts the towel straight back over the shoulder after each crack, so the next crack
+  starts from up there: one continuous back-and-forth loop. Holding the towel between swings, the
+  arm rests lower and the towel hangs and sways. On a hit, at the moment of the crack: a crack
   sound, a comic **SNAP!** (BOP! for a shove) with stars and a shockwave ring, and a tiny screen shake
   for the snapper (off with Reduce motion). Your own swing starts the instant you press (prediction);
   everyone else sees it when the server says so.
@@ -86,7 +93,7 @@ second; the bar only shakes); the Item Shop shows `BuyItem` / `SetLoadout` error
 
 | Remote | Arguments | Rules |
 | --- | --- | --- |
-| `UseItem` | `key`, `aim?` (horizontal, finite, non-zero) | the towel, or unlocked AND in the bar; not cooling down (server clock); not stunned / floating; 0.12 s per item. Answers `{ ok, err?, cooldownUntil? }`. A second use ends a glide / pops the basket. |
+| `UseItem` | `key`, `aim?` (horizontal, finite, non-zero), `held?` (boolean: the towel button is held down) | the towel, or unlocked AND in the bar; not cooling down (server clock); not stunned / floating; 0.12 s per item. Answers `{ ok, err?, cooldownUntil? }`. A second use ends a glide / pops the basket. |
 | `BuyItem` | `key` | not the towel, not already unlocked, enough cash (`Data.TrySpend`); celebrates `"item" { key, display }`; fills the first empty bar slot. 0.25 s. |
 | `SetLoadout` | `{ keys }` | at most `LoadoutSize` entries at indices 1…LoadoutSize, strings only, `""` allowed, unlocked, no repeats, no towel. 0.25 s. Items leaving the bar stop (glide, basket). |
 | `StorePurchase("product", "Item_<Key>")` | (Monetize) | refused when that item is already unlocked; the grant (`Monetize.GrantProduct`) calls `Items.Unlock` (a second grant just says "already unlocked" — never an error, so a re-delivered receipt can't loop). |
@@ -129,7 +136,8 @@ studs the moves are skipped. A held towel droops and sways within 70 studs.
 
 The **towel whip** bends `Seg1…Seg6` about one axis in the handle's space (tip down = positive, with
 a little sideways sweep): it curls back for `WIND` (0.12 s), unrolls from the handle to the tip and
-cracks ~0.22 s in, wobbles and settles into the droop. On the Blender towel `Seg1` is the folded
+cracks ~0.22 s in, wobbles and settles into the droop (or, held, curls back over the shoulder again
+with the arm for the next crack). On the Blender towel `Seg1` is the folded
 handle in the fist, so it stays nearly rigid, and every joint is kept inside the rig's clean range
 (45°, 75° for the thin `Seg5` / `Seg6`).
 

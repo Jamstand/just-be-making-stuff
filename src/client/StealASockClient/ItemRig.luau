@@ -5,12 +5,18 @@
 --     AFTER the Animator each frame: our rotation is laid on top of whatever the default Animate
 --     script plays (walk, idle, toolnone), so the two never fight; when a move ends we stop writing
 --     and the Animator's own pose is back the next frame (or we put back the last one it wrote).
+--   * the Towel Snap is an overhead crack: the towel goes up and back over the shoulder and is
+--     lashed down in front. Holding the button keeps it going: after each crack the arm lifts the
+--     towel back over the shoulder and the next crack comes as soon as the cooldown allows
+--     (SetWhipHold; other players' holds arrive with their swings). Held but not swinging, the arm
+--     rests lower and the towel hangs.
 --   * the towel's whip: its Seg1..Seg6 Bones (Blender towel) or Seg1..Seg6 Motor6Ds (Part towel)
 --     are bent in a wave that curls back, unrolls and cracks at the tip, then droops and sways.
 --   * the Laundry Basket's wobble (its BasketJoint Motor6D) while someone shuffles under it.
 -- Poses are rotations in the character's own axes (x right, y up, z back) about each joint, so R15
 -- and R6 share every move (R6 has no elbows / waist: the waist folds into the root).
 -- API: ItemRig.Play(character, kind, data?), ItemRig.Stop(character, kind), ItemRig.Has(character, kind),
+--      ItemRig.SetWhipHold(character, on, seconds?),
 --      ItemRig.SetReduced(on), ItemRig.Count() -> active rigs (tests)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -23,8 +29,10 @@ local TAU = math.pi * 2
 
 local RANGE = 160 -- studs from the camera: farther characters skip the moves (they'd be dots)
 local TOWEL_RANGE = 70 -- studs: a held towel droops and sways only this close
-local WIND = 0.12 -- swing: wind-up seconds; the crack comes ~0.15 s later
-local DROOP = 0.11 -- radians per towel segment at rest (the tip hangs a little)
+local WIND = 0.12 -- swing: wind-up seconds; the crack comes ~0.1 s later (ItemFX.CRACK_T = 0.22)
+local DROOP = 0.2 -- radians per towel segment at rest (the towel hangs from the hand)
+local LIFT = 0.32 -- swing: when the follow-through ends and, while held, the arm lifts the towel again
+local HELD_ARM = -0.5 -- radians the arm rests lower than Roblox's "holding a tool" pose
 
 -- ---------- small maths ----------
 
@@ -80,6 +88,10 @@ type Rig = {
 	towelBuilt: number,
 	towelSegs: { TowelSeg },
 	towelSwing: number, -- os.clock() of the last swing (0 = none)
+	towelChained: boolean, -- that swing started with the towel already up (a held loop)
+	whipHoldUntil: number, -- os.clock() until which the towel button counts as held (0 = not)
+	holdW: number, -- 0..1, eased toward "held": lifts the towel again after a crack
+	idleW: number, -- 0..1, eased toward "holding the towel, not swinging": the lowered arm
 	basket: Motor6D?,
 	tumbleAxis: Vector3?,
 	turn: Vector3?, -- this frame's tumble: axis * angle in the root's space
@@ -143,6 +155,10 @@ local function getRig(character: Model): Rig
 			towelBuilt = 0,
 			towelSegs = {},
 			towelSwing = 0,
+			towelChained = false,
+			whipHoldUntil = 0,
+			holdW = 0,
+			idleW = 0,
 			basket = nil,
 			tumbleAxis = nil,
 			turn = nil,
@@ -162,16 +178,32 @@ end
 
 local MOVES: { [string]: (pose: Pose, t: number, layer: Layer, rig: Rig) -> () } = {}
 
--- the Towel Snap: wind up over the shoulder, lash down and across, follow through
-MOVES.swing = function(pose, t)
-	add(pose, "RShoulder",
-		keys(t, { { 0, 0 }, { WIND, 1.45 }, { 0.22, -0.8 }, { 0.32, -0.6 }, { 0.55, 0 } }),
-		keys(t, { { 0, 0 }, { WIND, -0.3 }, { 0.22, 0.35 }, { 0.55, 0 } }),
-		keys(t, { { 0, 0 }, { WIND, 0.45 }, { 0.22, -0.25 }, { 0.55, 0 } }))
-	add(pose, "RElbow", keys(t, { { 0, 0 }, { WIND, 0.9 }, { 0.2, 0 }, { 0.3, 0.2 }, { 0.55, 0 } }), 0, 0)
-	add(pose, "LShoulder", keys(t, { { 0, 0 }, { WIND, 0.35 }, { 0.24, -0.25 }, { 0.55, 0 } }), 0, 0)
-	add(pose, "Waist", keys(t, { { 0, 0 }, { WIND, 0.06 }, { 0.24, -0.12 }, { 0.55, 0 } }), keys(t, { { 0, 0 }, { WIND, -0.35 }, { 0.24, 0.3 }, { 0.55, 0 } }), 0)
-	add(pose, "Neck", 0, keys(t, { { 0, 0 }, { WIND, -0.12 }, { 0.24, 0.12 }, { 0.55, 0 } }), 0)
+-- the Towel Snap: an overhead crack. Up and back over the shoulder, lashed down in front, a
+-- follow-through; then either back to the hold (let go) or up over the shoulder again (held: the
+-- next swing of the loop starts from there, `chain`). Rotations about x raise the arm forward/up.
+local SWING_UP = { RShoulder = Vector3.new(2.2, -0.25, 0.3), RElbow = Vector3.new(1.05, 0, 0), LShoulder = Vector3.new(0.3, 0, 0), Waist = Vector3.new(0.14, -0.2, 0), Neck = Vector3.new(0.1, -0.08, 0) }
+local SWING_DOWN = { RShoulder = Vector3.new(-1.0, 0.25, -0.15), RElbow = Vector3.new(0, 0, 0), LShoulder = Vector3.new(-0.25, 0, 0), Waist = Vector3.new(-0.2, 0.18, 0), Neck = Vector3.new(-0.12, 0.08, 0) }
+local SWING_FOLLOW = { RShoulder = Vector3.new(-0.75, 0.15, -0.1), RElbow = Vector3.new(0.25, 0, 0), LShoulder = Vector3.new(-0.1, 0, 0), Waist = Vector3.new(-0.1, 0.1, 0), Neck = Vector3.new(-0.05, 0.04, 0) }
+
+MOVES.swing = function(pose, t, layer, rig)
+	local chain = layer.data.chain == true
+	for joint, up in pairs(SWING_UP) do
+		local down, follow = SWING_DOWN[joint], SWING_FOLLOW[joint]
+		local v: Vector3
+		if t < WIND then
+			v = if chain then up else up * ease(t / WIND) -- a held loop is already up there
+		elseif t < 0.22 then
+			v = up:Lerp(down, ease((t - WIND) / (0.22 - WIND))) -- the lash: the crack lands at 0.22
+		elseif t < LIFT then
+			v = down:Lerp(follow, ease((t - 0.22) / (LIFT - 0.22)))
+		else
+			-- let go: settle back to the hold; held: lift it over the shoulder again for the next crack
+			local rest = follow * (1 - ease((t - LIFT) / 0.25))
+			local again = follow:Lerp(up, ease((t - LIFT) / 0.55))
+			v = rest:Lerp(again, rig.holdW)
+		end
+		add(pose, joint, v.X, v.Y, v.Z)
+	end
 end
 
 -- drop a peel / set the duck down: bend, reach down, come back up
@@ -286,7 +318,7 @@ MOVES.static = function(pose, t, layer)
 end
 
 local DURATION: { [string]: number } = {
-	swing = 0.55, place = 0.6, shoot = 0.42, spray = 0.75, zap = 1.0, dash = 0.35, tumble = 0.8, slip = 1.2, float = 2,
+	swing = LIFT + 0.25, place = 0.6, shoot = 0.42, spray = 0.75, zap = 1.0, dash = 0.35, tumble = 0.8, slip = 1.2, float = 2,
 }
 local PERSISTENT: { [string]: boolean } = { glide = true, sleepy = true, static = true }
 
@@ -360,12 +392,18 @@ local function buildTowel(rig: Rig, tool: Instance)
 	end
 end
 
--- radians segment i bends at time t after a swing started (math.huge: no swing)
-local function whip(t: number, i: number, sway: number): number
+-- how far segment i curls back while the towel is up over the shoulder
+local function curledOf(i: number): number
+	return -0.62 * (0.5 + 0.5 * i / 6)
+end
+
+-- radians segment i bends at time t after a swing started (math.huge: no swing); `chain`: the towel
+-- was already curled back over the shoulder (a held loop)
+local function whip(t: number, i: number, sway: number, chain: boolean?): number
 	local w = i / 6
-	local curled = -0.62 * (0.5 + 0.5 * w)
+	local curled = curledOf(i)
 	if t < WIND then
-		return DROOP + (curled - DROOP) * ease(t / WIND)
+		return if chain then curled else DROOP + (curled - DROOP) * ease(t / WIND)
 	end
 	local tl = t - WIND - (i - 1) * 0.018 -- the lash reaches each segment a little later
 	if tl <= 0 then
@@ -393,13 +431,18 @@ local function updateTowel(rig: Rig, t: number, near: boolean)
 		return
 	end
 	local since = os.clock() - rig.towelSwing
-	local swinging = rig.towelSwing > 0 and since < 0.8
+	local swinging = rig.towelSwing > 0 and (since < 0.8 or rig.holdW > 0.02)
 	if not swinging and not near then
 		return
 	end
+	-- held: after the follow-through the towel curls back over the shoulder with the arm
+	local again = if swinging then rig.holdW * ease((since - LIFT) / 0.55) else 0
 	for _, seg in ipairs(rig.towelSegs) do
 		local sway = 0.05 * sin(t * 2.1 + seg.index * 0.7)
-		local a = if swinging then whip(since, seg.index, sway) else DROOP + sway
+		local a = if swinging then whip(since, seg.index, sway, rig.towelChained) else DROOP + sway
+		if again > 0 then
+			a += (curledOf(seg.index) - a) * again
+		end
 		a = clamp(a * seg.weight, -seg.limit, seg.limit)
 		if seg.bone then
 			local q = CFrame.fromAxisAngle(seg.axis, a)
@@ -426,6 +469,7 @@ local function step(dt: number)
 			local pose: Pose = {}
 			local any = false
 			rig.turn = nil
+			rig.holdW += ((if now < rig.whipHoldUntil then 1 else 0) - rig.holdW) * min(1, dt * 10)
 			for i = #rig.layers, 1, -1 do
 				local layer = rig.layers[i]
 				local t = now - layer.t0
@@ -437,8 +481,8 @@ local function step(dt: number)
 						table.remove(rig.layers, i)
 						continue
 					end
-				elseif t >= layer.dur then
-					table.remove(rig.layers, i)
+				elseif t >= layer.dur and not (layer.kind == "swing" and rig.holdW > 0.02) then
+					table.remove(rig.layers, i) -- (a held swing stays: the towel is up for the next crack)
 					continue
 				end
 				if dist <= RANGE then
@@ -448,6 +492,15 @@ local function step(dt: number)
 						any = true
 					end
 				end
+			end
+			-- holding the towel between swings: the arm rests lower, the towel hangs (updateTowel)
+			local tool = rig.towelTool
+			local holding = tool ~= nil and tool.Parent == character and not ItemRig.Has(character, "swing")
+			rig.idleW += ((if holding then 1 else 0) - rig.idleW) * blend
+			if rig.idleW > 0.01 and dist <= RANGE then
+				add(pose, "RShoulder", HELD_ARM * rig.idleW, 0, 0.08 * rig.idleW)
+				add(pose, "RElbow", 0.3 * rig.idleW, 0, 0)
+				any = true
 			end
 			-- the root turn of a tumble is an axis-angle, the rest are Euler sums
 			local axisAngle = rig.turn
@@ -523,7 +576,12 @@ function ItemRig.Play(character: Model?, kind: string, data: { [string]: any }?)
 	end
 	local dur = DURATION[kind]
 	if kind == "swing" then
+		-- a swing while the last one is still held up over the shoulder starts from up there
+		local chain = rig.holdW > 0.5 and ItemRig.Has(character, "swing")
+		opts = table.clone(opts)
+		opts.chain = chain
 		rig.towelSwing = os.clock()
+		rig.towelChained = chain
 	end
 	if not dur then
 		return -- a towel-only swing for a kind with no body move
@@ -551,6 +609,19 @@ function ItemRig.Play(character: Model?, kind: string, data: { [string]: any }?)
 		end
 	end
 	table.insert(rig.layers, { kind = kind, t0 = os.clock(), dur = dur, data = opts })
+end
+
+-- The towel button is held (on) or let go. `seconds`: how long it counts as held without being told
+-- again (other players: each of their held swings renews it); nil = until told otherwise.
+function ItemRig.SetWhipHold(character: Model?, on: boolean, seconds: number?)
+	if not character then
+		return
+	end
+	if not on and not rigs[character] then
+		return
+	end
+	local rig = getRig(character)
+	rig.whipHoldUntil = if not on then 0 elseif seconds then os.clock() + seconds else math.huge
 end
 
 function ItemRig.Stop(character: Model?, kind: string)

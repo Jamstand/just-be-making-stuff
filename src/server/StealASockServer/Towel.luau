@@ -89,7 +89,7 @@ function Towel.Snap(player: Player, facing: Vector3?): Player?
 	end
 	local target = thief or other
 	local look = Towel.Look(player)
-	S.Items.FX("swing", { player = player, key = "Towel", look = look, hit = target ~= nil })
+	S.Items.FX("swing", { player = player, key = "Towel", look = look, hit = target ~= nil, held = S.Items.TowelHeld(player) })
 	if not target then
 		return nil
 	end
