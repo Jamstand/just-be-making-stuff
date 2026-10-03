@@ -8,9 +8,11 @@
 -- above the menu column at Menu.ColumnTop = 120); the drawer panel at (Menu.ColumnRight + 8, 120);
 -- top-centre lanes, top to bottom: Server Luck chip, announcement banner, toasts (on screens too
 -- narrow to fit them beside the chips they start under the chip row); the carry banner
--- bottom-centre, above the hotbar and clear of the jump button. The top bar, the top-right (Roblox
--- menu / player list) and the bottom-right stay free. Toasts and celebration cards live in a second
--- screen (SockHUDTop, above the menus) so purchase feedback shows over an open panel.
+-- bottom-centre, just above the item bar (ItemBarLayout says where the bar is on this screen, so it
+-- is also clear of the jump button), and the drawer list stops above the bar where they'd meet. The
+-- top bar, the top-right (Roblox menu / player list) and the bottom-right stay free. Toasts and
+-- celebration cards live in a second screen (SockHUDTop, above the menus) so purchase feedback
+-- shows over an open panel.
 --
 -- Settings honoured: Reduce motion (through Anim, and the HUD's own loops restart when it flips),
 -- Pop-up messages (off = only "bad" toasts), Server announcements (off = no banner).
@@ -25,12 +27,28 @@ local RarityConfig = require(Config:WaitForChild("RarityConfig"))
 local MutationConfig = require(Config:WaitForChild("MutationConfig"))
 local ShopConfig = require(Config:WaitForChild("ShopConfig"))
 local StoreConfig = require(Config:WaitForChild("StoreConfig"))
+local ItemConfig = require(Config:WaitForChild("ItemConfig"))
 
 local Theme = require(script.Parent:WaitForChild("Theme"))
 local Anim = require(script.Parent:WaitForChild("Anim"))
 local UISound = require(script.Parent:WaitForChild("UISound"))
 local Menu = require(script.Parent:WaitForChild("Menu"))
 local ClientSettings = require(script.Parent:WaitForChild("ClientSettings"))
+
+-- the item bar's helpers: optional (a missing file must not hang the HUD; it then keeps its old
+-- bottom spacing and shows emoji instead of 3D items)
+local function optional(name: string): any
+	local module = script.Parent:WaitForChild(name, 5)
+	local ok, result = pcall(function()
+		return if module then require(module) else nil
+	end)
+	if not ok then
+		warn("[HUD] " .. name .. " failed to load: " .. tostring(result))
+	end
+	return if ok then result else nil
+end
+local ItemBarLayout = optional("ItemBarLayout")
+local ItemIcon = optional("ItemIcon")
 
 local HUD = {}
 
@@ -55,7 +73,9 @@ local PENDING_H = 30
 local LUCK_W, LUCK_H = 210, 38
 local ANN_H = 52
 local CARRY_H = 58
-local CARRY_BOTTOM = 84 -- above the Roblox hotbar (the Towel is a Tool)
+local CARRY_BOTTOM = 84 -- without ItemBarLayout: above where Roblox's hotbar would be
+local CARRY_BOTTOM_PORTRAIT = 170 -- ...and above the jump button on portrait phones
+local ART_H = 112 -- a celebration card's item picture (CardSpec.art)
 
 local TOAST_MAX = 4
 local TOAST_TIME = 3
@@ -91,6 +111,7 @@ type CardSpec = {
 	icon: string?,
 	tag: string?,
 	big: boolean?,
+	art: ((Frame) -> ())?, -- draws a picture (an item) into the frame it's given; it springs in
 }
 
 local built = false
@@ -1424,6 +1445,31 @@ local function makeCard(spec: CardSpec): TextButton
 	if spec.icon then
 		line(spec.icon, 40, 46, WHITE, nil)
 	end
+	local art: Frame? = nil
+	if spec.art then
+		-- a soft halo with the picture on it, springing in after the card
+		order += 1
+		local artLine = Instance.new("Frame")
+		artLine.Name = "Art"
+		artLine.BackgroundTransparency = 1
+		artLine.LayoutOrder = order
+		artLine.Size = UDim2.new(1, 0, 0, ART_H)
+		artLine.Parent = stack
+		local stage = Instance.new("Frame")
+		stage.Name = "Stage"
+		stage.AnchorPoint = Vector2.new(0.5, 0.5)
+		stage.Position = UDim2.fromScale(0.5, 0.5)
+		stage.Size = UDim2.fromOffset(ART_H, ART_H)
+		stage.BackgroundColor3 = WHITE
+		stage.BackgroundTransparency = 0.55
+		stage.BorderSizePixel = 0
+		Theme.corner(stage, UDim.new(0.5, 0))
+		Theme.stroke(stage, WHITE, 3, 0.3)
+		stage.Parent = artLine
+		spec.art(stage)
+		height += ART_H + 2
+		art = stage
+	end
 	line(spec.title, if spec.big then 36 else 32, if spec.big then 44 else 38, WHITE, edge)
 	if spec.sub then
 		line(spec.sub, 18, 24, WHITE, edge)
@@ -1451,6 +1497,11 @@ local function makeCard(spec: CardSpec): TextButton
 
 	card.Parent = celebLayer
 	Anim.shine(card, 1.8)
+	if art then
+		local pop = Anim.scale(art)
+		pop.Scale = if Anim.Reduced then 0.9 else 0
+		Anim.tween(pop, 0.6, { Scale = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0.2)
+	end
 	return card
 end
 
@@ -1580,6 +1631,35 @@ CELEBRATE.rareDrop = function(data)
 	end)
 end
 
+-- An item unlocked (cash in the Item Shop, or its Robux shortcut): the item springs onto the card.
+CELEBRATE.item = function(data)
+	local key = tostring(data.key)
+	local item = ItemConfig.Items[key]
+	local display = tostring(data.display or (if item then item.display else "New item"))
+	UISound.Play("confetti")
+	Anim.confetti(nil, 90)
+	playCard({
+		color = if item then item.color else C.Gold2,
+		tag = "NEW ITEM!",
+		title = display,
+		sub = if item then item.desc else nil,
+		art = function(stage: Frame)
+			if ItemIcon then
+				local icon = ItemIcon.new(stage)
+				icon:Set(key)
+				icon.Frame.Size = UDim2.fromScale(0.86, 0.86)
+			else
+				local glyph = Theme.label(stage, if item then item.icon else "🎁", 60, WHITE)
+				glyph.Size = UDim2.fromScale(1, 1)
+			end
+		end,
+		big = true,
+	}, 3.4, function(card)
+		Anim.confetti(Anim.centerOf(card), 50)
+		UISound.Play("success")
+	end)
+end
+
 CELEBRATE.upgrade = function(data)
 	local key = tostring(data.key)
 	local upgrade = ShopConfig.Upgrades[key]
@@ -1632,7 +1712,18 @@ local function measureLaneClear(): number
 	return math.max(row, EDGE + PILL_W) + 10
 end
 
--- Fits the HUD to the screen width (phones, portrait, UI size setting).
+-- Where the item bar is on this screen (nil without ItemBarLayout).
+local function barLayout(): any
+	if not ItemBarLayout then
+		return nil
+	end
+	local refHeight = root.AbsoluteSize.Y / refScale()
+	local column = if type(Menu.ColumnBottom) == "function" then { right = Menu.ColumnRight, bottom = Menu.ColumnBottom(refHeight) } else nil
+	local ok, result = pcall(ItemBarLayout.Compute, refWidth, refHeight, refScale(), Theme.IsTouch, ItemConfig.LoadoutSize, column)
+	return if ok then result else nil
+end
+
+-- Fits the HUD to the screen size (phones, portrait, UI size setting, the item bar).
 local function relayout()
 	refWidth = root.AbsoluteSize.X / refScale()
 	local room = refWidth - 2 * laneClear
@@ -1645,15 +1736,21 @@ local function relayout()
 		toastW = math.min(460, room)
 		annW = math.min(560, room)
 	end
-	if refWidth < 640 then -- portrait phone: full width, above the jump button
-		carryW = refWidth - 2 * EDGE
-		carryBottom = 170
-	else
-		carryW = math.clamp(refWidth - 2 * 260, 340, 500)
-		carryBottom = CARRY_BOTTOM
-	end
+	local portrait = refWidth < 640
+	carryW = if portrait then refWidth - 2 * EDGE else math.clamp(refWidth - 2 * 260, 340, 500)
 	drawerW = math.max(math.min(DRAWER_W, refWidth - DRAWER_X - EDGE), 200)
-	drawer.Size = UDim2.new(0, drawerW, 1, -(DRAWER_Y + EDGE))
+	local drawerBottom = EDGE
+	local bar = barLayout()
+	if bar then
+		-- the carry banner sits just above the item bar; the drawer list stops above it where they'd meet
+		carryBottom = bar.top + ItemBarLayout.CarryGap
+		if DRAWER_X < bar.right and DRAWER_X + drawerW > bar.left then
+			drawerBottom = bar.top + 10
+		end
+	else
+		carryBottom = if portrait then CARRY_BOTTOM_PORTRAIT else CARRY_BOTTOM
+	end
+	drawer.Size = UDim2.new(0, drawerW, 1, -(DRAWER_Y + drawerBottom))
 	if not drawerOpen then
 		drawer.Position = drawerPos(false)
 	end
@@ -1724,6 +1821,10 @@ function HUD.Init()
 	local uiScale = root:FindFirstChild("SettingsScale")
 	if uiScale and uiScale:IsA("UIScale") then
 		uiScale:GetPropertyChangedSignal("Scale"):Connect(relayout) -- the UI size setting
+	end
+	local columnChanged = (Menu :: any).ColumnChanged
+	if typeof(columnChanged) == "RBXScriptSignal" then
+		columnChanged:Connect(relayout) -- the item bar fits itself under the menu column
 	end
 
 	ClientSettings.Changed:Connect(function(key, value)

@@ -98,6 +98,7 @@ export type Result = {
 --   "milestone" { key, display, cash }             a Sockdex milestone was claimed
 --   "rareDrop"  { name, rarity }                   a Rare Sock Drop landed in your drawer
 --   "upgrade"   { key, level }                     an Item Shop upgrade was bought
-export type CelebrateKind = "dexNew" | "pass" | "product" | "milestone" | "rareDrop" | "upgrade"
+--   "item"      { key, display }                   an item was unlocked (cash or Robux)
+export type CelebrateKind = "dexNew" | "pass" | "product" | "milestone" | "rareDrop" | "upgrade" | "item"
 
 return {}

@@ -4,7 +4,11 @@
 --
 -- UI modules: Theme (look + factories), Anim (all motion), UISound (all UI sounds), ClientSettings
 -- (the player's settings), Menu (column + panel manager), HUD, ShopUI, StoreUI, DexUI, SockCard,
--- SettingsUI, Performance (the settings that change the 3D world). Every screen gets SetState(state) with the StateView (Shared.Types) once a second.
+-- SettingsUI, Performance (the settings that change the 3D world), ItemBar (the item bar that
+-- replaces Roblox's hotbar; ItemBarLayout and ItemIcon are its helpers). Every screen gets
+-- SetState(state) with the StateView (Shared.Types) once a second.
+-- Items: ItemClient is the item bar's engine (using items, cooldowns; it starts ItemFX, the item
+-- effects, itself). It loads on its own thread, so a slow or broken start can't hold up the menus.
 -- 3D: SockFX (clothesline, dryer, fan, forcefield, bursts, outlines) and SockAnim (every sock's
 -- bone animation, personality and reactions; it takes the sock motion over from SockFX).
 local Players = game:GetService("Players")
@@ -68,6 +72,7 @@ local DexUI = screen("DexUI")
 local SockCard = screen("SockCard")
 local SettingsUI = screen("SettingsUI")
 local Performance = screen("Performance")
+local ItemBar = screen("ItemBar")
 
 run("Menu", Menu, "Init")
 run("HUD", HUD, "Init")
@@ -81,9 +86,34 @@ run("DexUI", DexUI, "Init") -- "Sockdex" button, order 4
 run("SettingsUI", SettingsUI, "Init") -- "Settings" button, order 5
 run("SockCard", SockCard, "Init")
 run("Performance", Performance, "Init") -- Low graphics / Hide others' effects / Sock name tags (ClientSettings)
+run("ItemBar", ItemBar, "Init") -- bottom-centre; hides Roblox's hotbar (it stays if the bar can't load)
+run("ItemBar", ItemBar, "SetShopOpener", function() -- an empty "+" slot opens the Item Shop's Items tab
+	if ShopUI and type(ShopUI.OpenItems) == "function" then
+		run("ShopUI", ShopUI, "OpenItems")
+	elseif Menu then
+		run("Menu", Menu, "Open", "Shop")
+	end
+end)
 run("UISound", UISound, "Preload")
 
-local screens = { HUD = HUD, ShopUI = ShopUI, StoreUI = StoreUI, DexUI = DexUI, SockCard = SockCard }
+local screens = { HUD = HUD, ShopUI = ShopUI, StoreUI = StoreUI, DexUI = DexUI, SockCard = SockCard, ItemBar = ItemBar }
+local latestState: any = nil
+local ItemClient: any = nil
+
+-- the item bar's engine: on its own thread (it may wait for its remotes); the bar works without it
+task.spawn(function()
+	local mod = load("ItemClient")
+	if not mod then
+		return
+	end
+	ItemClient = mod
+	run("ItemClient", mod, "Init")
+	run("ItemBar", ItemBar, "SetClient", mod)
+	if latestState then
+		run("ItemClient", mod, "SetState", latestState)
+	end
+end)
+
 local musicStarted = false
 Remotes:WaitForChild("State").OnClientEvent:Connect(function(state)
 	if type(state) ~= "table" then
@@ -105,6 +135,10 @@ Remotes:WaitForChild("State").OnClientEvent:Connect(function(state)
 	end
 	for name, screen in pairs(screens) do
 		run(name, screen, "SetState", state)
+	end
+	latestState = state
+	if ItemClient then
+		run("ItemClient", ItemClient, "SetState", state)
 	end
 end)
 Remotes:WaitForChild("Toast").OnClientEvent:Connect(function(text, kind)

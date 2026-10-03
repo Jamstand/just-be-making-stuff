@@ -20,6 +20,18 @@ Menu.ColumnTop = 120 -- y of the first column button
 Menu.ColumnLeft = 12
 Menu.ColumnRight = 12 + 76 -- x just right of the column (HUD side panels start here + 8)
 
+local TILE, TILE_SHORT = 72, 60 -- column tiles; short screens (phones in landscape) get the small ones
+local TILE_GAP = 8
+local SHORT_SCREEN = 600 -- reference px
+
+local function tileFor(refHeight: number): number
+	return if refHeight < SHORT_SCREEN then TILE_SHORT else TILE
+end
+
+-- fires after a column button is added (the item bar keeps clear of the column)
+local columnChangedEvent = Instance.new("BindableEvent")
+Menu.ColumnChanged = columnChangedEvent.Event
+
 type Entry = {
 	key: string,
 	button: TextButton?,
@@ -72,9 +84,9 @@ function Menu.Init()
 	column.Name = "Column"
 	column.BackgroundTransparency = 1
 	column.Position = UDim2.fromOffset(Menu.ColumnLeft, Menu.ColumnTop)
-	column.Size = UDim2.new(0, 72, 1, -Menu.ColumnTop - 12)
+	column.Size = UDim2.new(0, TILE, 1, -Menu.ColumnTop - 12)
 	column.Parent = menuRoot
-	local list = Theme.list(column, 8)
+	local list = Theme.list(column, TILE_GAP)
 	list.HorizontalAlignment = Enum.HorizontalAlignment.Left
 
 	local _, modalRoot = Theme.screen("SockModal", 20)
@@ -97,7 +109,7 @@ function Menu.Init()
 	-- short screens (phones in landscape) get smaller column tiles so all five fit
 	local function fitColumn()
 		local refHeight = menuRoot.AbsoluteSize.Y / math.max(Theme.Scale(), 0.01)
-		local tile = if refHeight < 600 then 60 else 72
+		local tile = tileFor(refHeight)
 		for _, e in pairs(entries) do
 			local cell = e.button and e.button.Parent
 			if cell and cell:IsA("Frame") then
@@ -133,7 +145,7 @@ function Menu.AddButton(key: string, icon: string, label: string, style: string,
 	local cell = Instance.new("Frame")
 	cell.Name = key .. "Cell"
 	cell.BackgroundTransparency = 1
-	cell.Size = UDim2.fromOffset(72, 72)
+	cell.Size = UDim2.fromOffset(TILE, TILE)
 	cell.LayoutOrder = order
 	cell.Parent = column
 	local tile = Theme.button(cell, "", style, UDim2.fromScale(1, 1))
@@ -181,7 +193,20 @@ function Menu.AddButton(key: string, icon: string, label: string, style: string,
 		end
 	end)
 	Anim.popIn(tile, 0.15 + order * 0.06)
+	columnChangedEvent:Fire()
 	return tile
+end
+
+-- The y (reference px) just under the last column button on a screen `refHeight` reference px tall.
+function Menu.ColumnBottom(refHeight: number): number
+	local count = 0
+	for _, e in pairs(entries) do
+		if e.button then
+			count += 1
+		end
+	end
+	local tile = tileFor(refHeight)
+	return Menu.ColumnTop + count * (tile + TILE_GAP) - TILE_GAP
 end
 
 -- Shows a small red bubble on a column button ("!", "3", "NEW"); nil hides it.
