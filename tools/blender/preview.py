@@ -62,13 +62,15 @@ def build(target, groups=None):
         tid, _, side = rest.partition(":")
         side = side or ("S" if socks.SPECS[tid].get("single") else "R")
         objs = socks.build_sock(tid, side)
-        groups.append((objs[0].name, objs, dict(sock_id=tid, sock_side=side)))
+        mats = getattr(socks.feature_module(tid), "MATERIALS", None)   # optional texture hints
+        groups.append((objs[0].name, objs, dict(materials=mats, sock_id=tid, sock_side=side)))
     elif kind == "socks":
         ids = list(socks.SPECS) if rest == "all" else rest.split(",")
         for i, tid in enumerate(ids):
             side = "S" if socks.SPECS[tid].get("single") else "R"
             built = socks.build_sock(tid, side)
-            groups.append((built[0].name, built, dict(sock_id=tid, sock_side=side)))
+            mats = getattr(socks.feature_module(tid), "MATERIALS", None)
+            groups.append((built[0].name, built, dict(materials=mats, sock_id=tid, sock_side=side)))
             for o in built:
                 o.location.x += (i % 7) * 6.5
                 o.location.z += -(i // 7) * 10.0
