@@ -1232,7 +1232,7 @@ end
 -- limited, and the socks may use some).
 local TOWEL_INK = Color3.fromRGB(42, 24, 56) -- the kit's ink colour
 local TOWEL_INK_RANGE = 70
-local TOWEL_INK_MAX = 8 -- 4 with Low graphics
+local TOWEL_INK_MAX = 6 -- 3 with Low graphics (Roblox draws 31 Highlights at most; Part socks may use 22)
 local towelInk: { [Instance]: Highlight } = {}
 
 local function updateTowelInk(cam: Vector3)

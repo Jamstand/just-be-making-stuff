@@ -36,7 +36,7 @@ local VIEWS = {
 	DryerSheet = { pitch = math.rad(34) },
 	StaticBalloon = { top = 0.48 },
 } :: { [string]: { pitch: number?, roll: number?, top: number? } }
-local TOWEL_VIEW = { roll = math.rad(-38) }
+local TOWEL_VIEW = { pitch = math.rad(50), roll = math.rad(-38) } -- a flat towel: from above, not edge-on
 local AMBIENT = rgb(172, 166, 182) -- soft and even, like the sock pictures (SockCard)
 local LIGHT = rgb(128, 120, 110)
 local MARKERS = { "_Base", "_Unit", "_Grip", "_Tip", "_Pin" }

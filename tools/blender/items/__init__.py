@@ -4,7 +4,8 @@ style as the socks and props: the Towel Snap's towels and the eight items player
 
 Conventions every item module follows (like props/, with three additions):
 - `BUILDERS = {NAME: build}`: one module may build several GLBs (towel.py builds one per look).
-  Each build() returns `[body, body_Outline, (extra parts...), *K.markers(NAME), grip marker]`.
+  Each build() returns `[body, body_Outline, (extra parts...), *K.markers(NAME), grip marker]` - or
+  just the body when the item has no outline mesh (the towels: see docs/ITEMS.md).
 - Blender Z-up, origin = the item's floor centre (placed items: where it rests on the floor),
   FRONT faces -Y (becomes +Z in Roblox). Sizes are in units = studs (the game does not rescale
   items except to its own sizes in ItemConfig).
@@ -18,6 +19,8 @@ Conventions every item module follows (like props/, with three additions):
 - `MATERIALS` / `TEXTURE_SIZE` as in props; optional `rig(name, objs) -> armature or None`, called
   after the bake (bones + weights only, like rigging.rig_sock), for items that bend (the towel).
 - Keep each exported object under ~10k triangles (body and outline separately).
+- No long, smooth, rounded rod or tube shapes, least of all as a bare outline hull: Roblox's
+  automatic mesh check judges each mesh on its own and removed the old rolled towel's outline.
 
 build_all.py builds every item AFTER the socks and props in its first pass (palette order: older
 GLBs keep their colours' cells). Append new modules to MODULE_NAMES; never reorder it.

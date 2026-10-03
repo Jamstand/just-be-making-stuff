@@ -353,9 +353,10 @@ end
 
 -- the swing axis in the handle's space: tip down = positive, with a little sideways sweep
 local SWING_AXIS = Vector3.new(1, 0.3, 0).Unit
--- The Blender towel (tools/blender/items/towel.py): Root at the grip, then Seg1 = the folded handle
--- in the fist (kept nearly rigid) and Seg2..Seg6 along the roll; its clean range is 45 degrees per
--- joint (75 for the thin Seg5 / Seg6). The Part towel's Seg1..Seg6 are all roll.
+-- The Blender towel (tools/blender/items/towel.py): a flat cloth, Root at the grip, then Seg1 = the
+-- end gathered in the fist (kept nearly rigid) and Seg2..Seg6 along the cloth; across the cloth it
+-- bends cleanly far past these limits (45 degrees per joint, 75 for Seg5 / Seg6), sideways only
+-- ~20 (SWING_AXIS stays mostly across). The Part towel's Seg1..Seg6 are flat strips.
 local BONE_WEIGHT = { 0.1, 1, 1, 1, 1, 1 }
 local BONE_LIMIT = { 0.3, 0.78, 0.78, 0.78, 1.25, 1.25 }
 

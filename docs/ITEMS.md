@@ -137,15 +137,15 @@ studs the moves are skipped. A held towel droops and sways within 70 studs.
 The **towel whip** bends `Seg1…Seg6` about one axis in the handle's space (tip down = positive, with
 a little sideways sweep): it curls back for `WIND` (0.12 s), unrolls from the handle to the tip and
 cracks ~0.22 s in, wobbles and settles into the droop (or, held, curls back over the shoulder again
-with the arm for the next crack). On the Blender towel `Seg1` is the folded
-handle in the fist, so it stays nearly rigid, and every joint is kept inside the rig's clean range
-(45°, 75° for the thin `Seg5` / `Seg6`).
+with the arm for the next crack). On the Blender towel (a flat cloth) `Seg1` is the end gathered in the fist, so it stays nearly rigid, and
+every joint is kept inside 45° (75° for `Seg5` / `Seg6`); the cloth itself bends cleanly to ~120°
+across it but only ~20° sideways.
 
 ## Models (`ReplicatedStorage.ItemMeshes`, from `tools/blender/items`)
 
 | Name | Used as | If it's missing |
 | --- | --- | --- |
-| `Towel_Plain` … `Towel_Champion`, `Towel_Royal` | the towel in your hand (by look): a flat bath towel held at one end, with NO outline mesh (its ink line is a Highlight on the nearest 8 held towels, 4 with Low graphics) | a flat Part towel in the look's colours, with Motor6D segments that whip the same way |
+| `Towel_Plain` … `Towel_Champion`, `Towel_Royal` | the towel in your hand (by look): a flat bath towel held at one end, with NO outline mesh (a painted ink edge, plus a Highlight outline on the nearest 6 held towels, 3 with Low graphics) | a flat Part towel in the look's colours, with Motor6D segments that whip the same way |
 | `DashSlippers`, `BananaPeel`, `BubbleBlaster`, `AlarmDuck`, `SoftenerBottle`, `StaticBalloon`, `DryerSheet`, `LaundryBasket` | the held tools (the basket at 0.32 scale) | Part builds of each |
 | `BananaPeel`, `AlarmDuck`, `SoftenerPuff`, `DryerSheet`, `LaundryBasket` | the world objects (peel, duck, cloud puffs, canopy, basket over a hider) | Part builds |
 

@@ -1,69 +1,94 @@
 """
-items/towel.py - the Towel Snap's towels (ReplicatedStorage.ItemMeshes.Towel_<Look>): a bath towel
-rolled up and twisted into a locker-room whip, held at its fat folded end. One shape, seven looks
-(ItemConfig.TowelLooks by Towel Snap level, plus the Royal Towel pass), see LOOKS.
-See items/__init__.py for the conventions every item follows.
+items/towel.py - the Towel Snap's towels (ReplicatedStorage.ItemMeshes.Towel_<Look>): a flat bath
+towel held bunched at the middle of one short end. One shape, seven looks (ItemConfig.TowelLooks by
+Towel Snap level, plus the Royal Towel pass), see LOOKS. See items/__init__.py for the conventions
+every item follows, with ONE exception: the towels have no `_Outline` hull. Roblox's automatic
+moderation removed the old rolled towel's outline mesh (a bare silhouette, seen on its own, can be
+misread), so the game draws the towel's cartoon outline with a Highlight and the ink edge is painted
+on the cloth instead. Every GLB holds just the body, its skeleton and the markers.
 
-The shape (grip at the origin, the towel pointing -Y; 4.6 studs from the fold to the tip, the
-Spa's pom-pom and the Royal's tassel hang on past it):
-- the roll: one tube twisted into two fat strands (LOBES) that holds its thickness, then tapers into
-  a thin "rat-tail" ending in a little bulb (the towel's corner). Its vertex columns follow the
-  twist, so helical stripes (the terry hem beside the groove, candy stripes) are whole face columns;
-  rings across it (the towel's border stripes) are cut along clean iso-lines (wavy for the Beach);
-- the handle: the roll's thick end with the towel's end folded back over its top (the flap), round
-  the back of the fist in a U and tucked under; its free end, pressed on the roll ahead of the fist,
-  shows the border stripes; ~0.73 thick;
-- per look: colours, stripes, a sewn-on badge on top of the roll just ahead of the fist (star, sun,
-  flower, crown; its top points to the tip) and the Spa's pom-pom / the Royal's gold tassel.
-The light top tone is cut along an iso-line of the surface normal like the props; the bake paints
-the rest (soft "felt" fuzz for terry, "fluff" for the Spa). The roll gets its own outline hull (same
-mesh, ink thinning toward the tip), and the hull is smooth-shaded (see build_towel).
+The shape (grip at the origin, the towel pointing -Y, its flat side up; Blender studs):
+- the cloth: one thin closed slab (THICK, its long hems a little thicker), a rectangle 2 * HALF_W
+  wide and LENGTH long, flat side up. Its near edge (Y_NEAR, just behind the grip) is held bunched
+  in the fist at its middle: pinched a little narrower (PINCH, easing out by L_FAN), its corners
+  hanging a touch lower (TENT), deeper pleats there, held flat up to L_GATHER. Soft folds run along
+  it (waves across the width, calmer under the emblem), it ripples gently along its length like a
+  flag and sags a little toward the far end; seen edge-on it is an even, thin wavy strip from the
+  hand to the fringe. Nothing on it is round: no roll, no knob, no ball, no tassel, no taper;
+- the far end: a straight, square-cornered hem with a flat fringe (FRINGE_N short flat strips with
+  square ends);
+- per look: colours, hem stripes and bands ACROSS it and stripes along it (cut along clean iso-lines
+  of the cloth coordinates, wavy for the Beach's sea), an ink line painted along every edge (the
+  slab's rim plus a thin border on both faces) and a printed emblem lying flat on both faces (star,
+  sun, flower, crown: one flat multi-colour layer, upright when the towel hangs from the hand,
+  fringe down; underneath it is mirrored so it reads the same from below). Folds facing the cartoon
+  key light (KEY) take a colour's light tone; the bake paints the rest (fuzzy "felt" for terry
+  cloth, soft "fluff" for the Spa, which is also thicker with puffier hems).
+Each look is ~2.7k-3.7k triangles in ONE mesh (the old roll + its hull were 4.5k-6k).
 
-The skeleton (`rig`, the same for every look): `Root` at the grip (unweighted), `Seg1` = the handle
-(grip to the joint just ahead of the flap: the flap rides it whole), `Seg2`...`Seg6` along the roll to
-the towel's tip. Every bone points along -Y with no rest rotation (head -> tail = local +Y toward the
-tip, local +Z = up, local +X = model -X), so turning a Seg about model +X curls everything past it
-down, about -X up, about Z sideways. The roll is weighted smoothly by length (two bones blended over
-a band round each joint, the bands touching), badges ride the bone under their centre, the pom-pom
-and the tassel ride Seg6; the outline hull gets the same weights from the same field. Tested clean:
-45 degrees at every flexible joint at once (a 225 degree curl), sideways too; 60 bunches the thick
-joints' inner side like cloth (no tears); a 30 degree twist per joint about its own Y. `POSES` holds
-preview.py's test poses.
+The skeleton (`rig`, the same for every look): `Root` at the grip (unweighted), `Seg1` = the part
+bunched in the fist (grip to just ahead of the fist, weighted 100% back to y = -0.3: rigid), then
+`Seg2`...`Seg6` along the cloth to the end of the fringe. Every bone points along -Y with no rest
+rotation beyond that (head -> tail = local +Y toward the far end, local +Z = up, local +X = model -X),
+so turning a Seg about model +X curls everything past it down (across the cloth's thin side, the way
+cloth bends), about -X up. The whole body (cloth, fringe, emblems) is weighted by one smooth field
+along the length: two bones blended over a band round each joint, the bands touching, so the cloth
+bends as a continuous curve. Tested (one joint at a time, Plain): bending across the cloth (about X)
+is clean to 120 degrees at Seg3..Seg6 and 90 at Seg2 (just ahead of the fist); bending in the cloth's
+own plane (about Z) only to ~20 degrees (30 shows an elbow, 45 creases the inside edge: a 1.5 wide
+sheet can't bend sideways), so on ItemRig's swing axis (1, 0.3, 0), whose sideways part is 0.29 of
+the turn, ~70 degrees per joint; a 20 degree twist per joint is clean. `POSES` holds preview.py's
+test poses.
 """
 import math
 
 import bmesh
 from mathutils import Vector
+from mathutils.geometry import delaunay_2d_cdt
 
 import items
 import rigging
 import sockkit as K
 from sockkit import hexcol
 
-# ---------------------------------------------------------------- layout (studs; grip at the origin, tip at -Y)
-OUT_W = 0.045           # ink width at the handle (flap, badge, tassel)
-TIP_W = 0.026           # ... the roll's own hull thins to this at the tip
-N_AROUND = 12           # vertex columns round the roll
-LOBES = 2               # twisted strands
-PER = N_AROUND // LOBES  # face columns per strand (helical stripes are whole columns)
-RING_STEP = 0.09        # ring spacing along the roll
-Y_BACK = 0.3            # centre of the roll's rounded back end (under the fold)
-Y_FLAP = -0.64          # the flap's free end
-S_TIP = 3.86            # the very tip of the towel (s = -y)
-R_TIP = 0.078           # the soft corner bulb at the tip
-# roll radius stations (s = -y, radius at the strands' crest): a rope that holds its thickness,
-# then tapers into a thin rat-tail ending in a little bulb (the towel's corner)
-RADII = [(-0.4, 0.27), (0.0, 0.27), (0.45, 0.28), (0.8, 0.31), (1.2, 0.32), (1.75, 0.305), (2.25, 0.26),
-         (2.7, 0.19), (3.05, 0.125), (3.35, 0.085), (3.55, 0.066), (3.68, 0.07), (S_TIP - R_TIP, R_TIP)]
-TWIST = 1.9             # twist rate: d(angle)/ds = TWIST / (R + TWIST_R0)
-TWIST_R0 = 0.2
-GROOVE = 0.27           # groove depth (share of the radius)
-LUMP = 0.045            # soft lumps along the roll (share of the radius)
-TONE_CUT = 0.52         # normal z above which a colour takes its light tone
+# ---------------------------------------------------------------- layout (studs; grip at the origin, far end at -Y)
+HALF_W = 0.75           # half the towel's width (1.5 across)
+LENGTH = 4.0            # cloth length from the near edge (behind the fist) to the far hem
+Y_NEAR = 0.24           # the near edge
+THICK = 0.1             # cloth thickness (a soft hem a little thicker, HEM_PUFF)
+HEM_PUFF = 0.18
+PINCH = 0.1             # the near edge is pinched this much narrower (share of the width) ...
+TENT = 0.06             # ... and its corners hang this far below the fist
+L_GATHER = 0.3          # held flat in the fist up to here (cloth length from the near edge) ...
+L_FAN = 1.1             # ... the pinch has fanned out to the full width by here
+FOLD_K = 2.5            # half waves of the soft folds across the width
+FOLD_A = 0.042          # their height on the free cloth ...
+PLEAT_A = 0.05          # ... and where it is bunched ...
+CALM = 0.35             # ... and this share lower under the emblem (so the print lies calm)
+WAVE_A = 0.07           # the gentle ripple along the length ...
+WAVE_L = 2.3            # ... its wavelength
+SAG = 0.1               # the far end sags this much
+EDGE_A = 0.018          # the long edges flutter a little
+FRINGE_N = 13           # flat fringe strips across the far end (odd: one on the centre line)
+FRINGE_L = 0.17         # their length past the hem
+FRINGE_W = 0.068        # their width
+INK_U = 0.034           # the painted ink line along the long edges (share of the half width) ...
+INK_L = 0.026           # ... and across the ends (studs)
+STEP_L = 0.15           # grid rows along the towel (at most this far apart)
+N_U = 12                # grid columns across (at least)
+KEY = Vector((-0.42, -0.3, 0.86)).normalized()   # cartoon key light: folds facing it take the light tone
+TONE_CUT = 0.8
+L_TIP = LENGTH + FRINGE_L                         # the end of the fringe (cloth length)
+Y_TIP = Y_NEAR - L_TIP
+L_EMBLEM = 2.25         # the printed emblem's centre (cloth length), one flat layer ...
+PRINT_LIFT = 0.016      # ... lying this far off the cloth (just clear of the cloth's facets)
 
-# the skeleton: bone heads (y) of Seg1..Seg6 (the last tail is the tip); blend half widths at each joint
-JOINTS = [0.0, -0.86, -1.6, -2.26, -2.84, -3.36]
-BLEND = [None, 0.2, 0.33, 0.29, 0.26, 0.25]
+# the skeleton: bone heads (y) of Seg1..Seg6 (the last tail is the end of the fringe); blend half
+# widths at each joint (Seg1's blend starts at y = -0.3: everything in the fist rides it alone)
+JOINTS = [0.0, -0.5, -1.3, -2.04, -2.72, -3.34]
+BLEND = [None, 0.2, 0.38, 0.35, 0.32, 0.29]
+
+TOP, BOTTOM, RIM = 1, -1, 0
 
 
 def _smooth(e0, e1, x):
@@ -71,20 +96,47 @@ def _smooth(e0, e1, x):
     return t * t * (3 - 2 * t)
 
 
-def _interp(s, rows):
-    """Catmull-Rom through rows[i] = (s, value)."""
-    if s <= rows[0][0]:
-        return rows[0][1]
-    if s >= rows[-1][0]:
-        return rows[-1][1]
-    i = max(k for k in range(len(rows) - 1) if rows[k][0] <= s)
-    a, b, c, d = (rows[min(max(k, 0), len(rows) - 1)][1] for k in (i - 1, i, i + 1, i + 2))
-    t = (s - rows[i][0]) / (rows[i + 1][0] - rows[i][0])
-    return 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t ** 3)
+# ---------------------------------------------------------------- the cloth's surface
+def _near(L):
+    """1 at the pinched near edge, easing to 0 where the cloth has fanned out to its full width."""
+    return 1.0 - _smooth(0.0, L_FAN, L)
 
 
-def radius(s):
-    return _interp(s, RADII)
+def half_width(L):
+    """Half width of the cloth at cloth length L (pinched at the near edge, full width ahead of it)."""
+    return HALF_W * (1.0 - PINCH * _near(L))
+
+
+def _height(u, L):
+    """Height of the cloth's middle surface at (u across -1..1, L along): folds, the pinch's
+    hanging corners, ripple, sag, flutter."""
+    free = _smooth(L_GATHER, L_FAN + 0.4, L)              # 0 in the fist (held flat), 1 on the free cloth
+    amp = PLEAT_A + (FOLD_A - PLEAT_A) * _smooth(L_GATHER, L_FAN + 0.5, L)
+    amp *= 1.0 - CALM * (1.0 - _smooth(0.3, 0.75, abs(u))) * (1.0 - _smooth(0.45, 0.95, abs(L - L_EMBLEM)))
+    z = amp * math.sin(math.pi * FOLD_K * u + 0.6 + 0.5 * math.sin(0.9 * L))
+    z -= TENT * u * u * _near(L)
+    t = max(0.0, L - L_GATHER) / (LENGTH - L_GATHER)
+    z += free * WAVE_A * math.sin(2 * math.pi * (L - 1.0) / WAVE_L) - SAG * t * t
+    z += free * EDGE_A * u ** 4 * math.sin(2 * math.pi * L / 1.7 + (1.0 if u > 0 else 3.2))
+    return z
+
+
+def _mid(u, L):
+    """The cloth's middle surface (its faces are THICK / 2 straight above and below it)."""
+    return Vector((u * half_width(L), Y_NEAR - L, _height(u, L)))
+
+
+def _normal(u, L):
+    e = 1e-3
+    du = _mid(u + e, L) - _mid(u - e, L)
+    dl = _mid(u, L + e) - _mid(u, L - e)
+    return dl.cross(du).normalized()       # (-Y) x (+X) = +Z: the top side
+
+
+def _half_t(u, thick, puff):
+    """Half thickness (the faces are offset straight up / down: no fold ever pinches through); the
+    long hems are `puff` thicker."""
+    return thick * 0.5 * (1.0 + puff * _smooth(0.8, 1.0, abs(u)))
 
 
 # ---------------------------------------------------------------- looks
@@ -100,7 +152,6 @@ def _palette(look):
     if look == "Plain":
         P["body"] = _tones(L, "body", "#8CCBF5", "#B4E0FF")
         P["hem"] = _tones(L, "hem", "#F6FAFD", "#FFFFFF")
-        P["edge"] = _tones(L, "edge", "#B9E1FB", "#D8F0FF")
     elif look == "Striped":
         P["body"] = _tones(L, "body", "#F7F5EF", "#FFFFFF")
         P["blue"] = _tones(L, "blue", "#3D7DE0", "#6CA2F2")
@@ -109,11 +160,11 @@ def _palette(look):
         P["body"] = _tones(L, "body", "#FFCB2E", "#FFE36E")
         P["orange"] = _tones(L, "orange", "#FF8A2A", "#FFAA5C")
         P["teal"] = _tones(L, "teal", "#1FB3AE", "#52D6CF")
-        P["hem"] = _tones(L, "hem", "#FFF6DD", "#FFFFFF")
-        P["sun"] = hexcol("towel_beach_sun", "#FFE14D")
-        P["ray"] = hexcol("towel_beach_ray", "#FF7A1F")
+        P["foam"] = _tones(L, "foam", "#F4FBFA", "#FFFFFF")
+        P["sun"] = hexcol("towel_beach_sun", "#FFE680")
+        P["ray"] = hexcol("towel_beach_ray", "#FF6A1F")
     elif look == "Spa":
-        P["body"] = _tones(L, "body", "#FBF7F8", "#FFFFFF")
+        P["body"] = _tones(L, "body", "#F3E8EC", "#FFFFFF")
         P["hem"] = _tones(L, "hem", "#F7A8C8", "#FFC6DD")
         P["petal"] = hexcol("towel_spa_petal", "#FF86B8")
         P["centre"] = hexcol("towel_spa_centre", "#FFD24D")
@@ -134,65 +185,69 @@ def _palette(look):
         P["crown_light"] = hexcol("towel_royal_crown_light", "#FFEC94")
         P["stitch"] = hexcol("towel_royal_stitch", "#9A5A10")
         P["gem"] = hexcol("towel_royal_gem", "#E8334E")
-        P["tassel"] = _tones(L, "tassel", "#F2BE36", "#FFE07A")
-        P["cord"] = hexcol("towel_royal_tassel_cord", "#C08420")
     P["ink"] = hexcol(f"towel_{L}_ink", "#2A1838")
     return P
 
 
+def _hems(fam, near=((0.64, 0.72), (0.78, 0.83)), far=((0.36, 0.44), (0.25, 0.3))):
+    """Hem stripes across the towel near both ends (near: from the near edge; far: from the far hem)."""
+    return [(a, b, fam) for a, b in near] + [(LENGTH - b, LENGTH - a, fam) for a, b in far]
+
+
+def _candy():
+    out = []
+    for k in range(6):
+        s = 0.62 + 0.53 * k
+        out += [(s, s + 0.15, "blue"), (s + 0.24, s + 0.32, "red")]
+    return out
+
+
 # per look:
-#   cols   face column of a strand (0 = just after the groove ... PER - 1 = just before it) -> family:
-#          helical stripes (the terry hem running beside the groove, candy stripes)
-#   bands  (s from, s to, family): rings across the roll (the towel's border stripes); win over cols
-#   wave   (amplitude, waves round) makes the band edges wavy
-#   flap   (from, to, family) stripes across the folded flap, measured from its free end
-#   tip    family of the tip bulb; badge; fluffy (Spa); tassel (Royal)
+#   bands   (from, to, family[, "w"]) across the towel, by cloth length (or by the wavy field "w");
+#           the last match wins; bands win over cols
+#   cols    (from, to, family): stripes along the towel, by |u| (0 = the centre line, 1 = the edge)
+#   wave    (amplitude, half waves across, phase) of the "w" field: w = L + amplitude * sin(...)
+#   fringe  family of the fringe strips; emblem: the printed badge; thick: cloth thickness, puff: hem
 LOOKS = {
-    "Plain": dict(cols={0: "edge"}, bands=[(0.8, 0.88, "hem"), (0.95, 1.03, "hem"), (2.92, 2.99, "hem"),
-                                           (3.05, 3.12, "hem")],
-                  flap=[(0.07, 0.12, "hem"), (0.17, 0.22, "hem")], tip="body"),
-    "Striped": dict(cols={1: "blue", 2: "blue", 4: "red", 5: "red"}, bands=[],
-                    flap=[(0.06, 0.12, "red"), (0.16, 0.22, "blue")], tip="red"),
-    "Beach": dict(cols={0: "hem"}, bands=[(0.78, 0.86, "orange"), (2.15, 2.5, "teal"), (2.5, 2.58, "hem"),
-                                          (2.58, 9.0, "teal")], wave=(0.06, 3),
-                  flap=[(0.06, 0.12, "teal"), (0.16, 0.21, "orange")], tip="teal", badge="sun"),
-    "Spa": dict(cols={0: "hem"}, bands=[(0.78, 0.9, "hem"), (2.95, 3.06, "hem")], flap=[(0.0, 0.1, "hem")],
-                tip="hem", badge="flower", fluffy=True),
-    "Sports": dict(cols={2: "hem", 3: "hem"}, bands=[(0.78, 0.92, "hem")],
-                   flap=[(0.07, 0.12, "hem"), (0.17, 0.22, "hem")], tip="hem", badge="star"),
-    "Champion": dict(cols={0: "hem"}, bands=[(0.78, 0.86, "hem"), (2.95, 3.03, "hem")],
-                     flap=[(0.0, 0.06, "hem"), (0.12, 0.16, "hem")], tip="hem", badge="star"),
-    "Royal": dict(cols={0: "hem"}, bands=[(0.78, 0.84, "hem"), (0.9, 0.96, "hem"), (2.95, 3.01, "hem")],
-                  flap=[(0.0, 0.06, "hem"), (0.12, 0.16, "hem")], tip="hem", badge="crown", tassel=True),
+    "Plain": dict(bands=_hems("hem"), cols=[], fringe="body"),
+    "Striped": dict(bands=_candy(), cols=[], fringe="red"),
+    "Beach": dict(bands=[(0.62, 0.78, "orange"), (2.96, 9.0, "teal", "w"), (2.96, 3.03, "foam", "w"),
+                         (3.33, 3.38, "foam", "w")],
+                  cols=[], wave=(0.075, 4.0, 0.5), fringe="teal", emblem="sun"),
+    "Spa": dict(bands=[(0.6, 0.8, "hem"), (LENGTH - 0.42, LENGTH, "hem")], cols=[(0.86, 1.0, "hem")],
+                fringe="hem", emblem="flower", thick=0.13, puff=0.35),
+    "Sports": dict(bands=[(0.62, 0.78, "hem"), (LENGTH - 0.46, LENGTH - 0.3, "hem")], cols=[(0.66, 0.74, "hem")],
+                   fringe="hem", emblem="bigstar"),
+    "Champion": dict(bands=_hems("hem", far=((0.38, 0.46), (0.26, 0.3))), cols=[(0.85, 0.91, "hem")],
+                     fringe="hem", emblem="goldstar"),
+    "Royal": dict(bands=[(0.6, 0.8, "hem"), (LENGTH - 0.52, LENGTH - 0.3, "hem"),
+                         (LENGTH - 0.22, LENGTH - 0.17, "hem")],
+                  cols=[(0.84, 0.91, "hem")], fringe="hem", emblem="crown"),
 }
 
 
 # ---------------------------------------------------------------- mesh helpers
-def _outward(bm):
-    """Turns a closed mesh's faces outward (by its signed volume)."""
-    vol = 0.0
-    for f in bm.faces:
-        vs = [v.co for v in f.verts]
-        for i in range(1, len(vs) - 1):
-            vol += vs[0].dot(vs[i].cross(vs[i + 1]))
-    if vol < 0:
-        bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
-
-
-def _iso_cut(bm, vals, cuts):
-    """Splits the faces of `bm` along the iso-lines vals == c for every c in `cuts` (vals: vert ->
-    float, extended to the new verts), so a colour step drawn at c is a clean curve instead of a
-    stair of whole faces (as props/slippers.py does). The surface itself is unchanged."""
+def _iso_cut(bm, F, key, cuts, same_side=False):
+    """Splits the faces of `bm` along the iso-lines F[key] == c for every c in `cuts`, so a colour
+    step drawn at c is a clean line instead of a stair of whole faces. F: {field: {vert: value}};
+    every field is interpolated onto the new verts. same_side: never split an edge between the top
+    and the bottom face (the tone field flips sign there). The surface itself is unchanged."""
+    vals = F[key]
     for c in cuts:
         for v in bm.verts:
-            if abs(vals[v] - c) < 1e-5:
-                vals[v] = c + 1e-5
+            if abs(vals[v] - c) < 1e-6:
+                vals[v] = c + 1e-6
         new = set()
         for e in list(bm.edges):
             a, b = e.verts
+            if same_side and F["s"][a] != F["s"][b]:
+                continue
             va, vb = vals[a], vals[b]
             if (va - c) * (vb - c) < 0:
-                _, nv = bmesh.utils.edge_split(e, a, (c - va) / (vb - va))
+                t = (c - va) / (vb - va)
+                _, nv = bmesh.utils.edge_split(e, a, t)
+                for d in F.values():
+                    d[nv] = d[a] + (d[b] - d[a]) * t
                 vals[nv] = c
                 new.add(nv)
         for f in list(bm.faces):
@@ -207,253 +262,165 @@ def _iso_cut(bm, vals, cuts):
                             break
 
 
-def _tone(tones, nz):
+def _slab(us, Ls, thick, puff=HEM_PUFF):
+    """A closed thin slab over the cloth surface: top and bottom grids over us x Ls joined by a rim.
+    -> (bmesh with an int face layer "side" (TOP / BOTTOM / RIM), fields {u, L, s, t: {vert: value}})."""
+    bm = bmesh.new()
+    side = bm.faces.layers.int.new("side")
+    F = {"u": {}, "L": {}, "s": {}, "t": {}}
+    top, bot = {}, {}
+    for i, u in enumerate(us):
+        for j, L in enumerate(Ls):
+            m, n = _mid(u, L), _normal(u, L)
+            h = _half_t(u, thick, puff)
+            for grid, s in ((top, 1.0), (bot, -1.0)):
+                v = bm.verts.new(m + Vector((0.0, 0.0, s * h)))
+                grid[i, j] = v
+                F["u"][v], F["L"][v], F["s"][v], F["t"][v] = u, L, s, s * n.dot(KEY)
+    ni, nj = len(us) - 1, len(Ls) - 1
+    for i in range(ni):
+        for j in range(nj):
+            f = bm.faces.new((top[i, j], top[i, j + 1], top[i + 1, j + 1], top[i + 1, j]))
+            f[side] = TOP
+            g = bm.faces.new((bot[i, j], bot[i + 1, j], bot[i + 1, j + 1], bot[i, j + 1]))
+            g[side] = BOTTOM
+    ring = [(i, 0) for i in range(ni)] + [(ni, j) for j in range(nj)] + [(i, nj) for i in range(ni, 0, -1)] \
+        + [(0, j) for j in range(nj, 0, -1)]
+    for k in range(len(ring)):
+        a, b = ring[k], ring[(k + 1) % len(ring)]
+        f = bm.faces.new((top[a], top[b], bot[b], bot[a]))
+        f[side] = RIM
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    bm.normal_update()
+    if sum(f.normal.z for f in bm.faces if f[side] == TOP) < 0:   # inside out: turn it round
+        bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+    return bm, F
+
+
+def _tone(tones, t, side):
     if isinstance(tones, int):
         return tones
-    return tones[0] if nz > TONE_CUT else tones[1]
+    return tones[0] if side == TOP and t > TONE_CUT else tones[1]
 
 
-def _loft(rings, cap0=None, cap1=None):
-    """bmesh from rings of equal size (lists of Vectors), closed round; optional pole points."""
-    bm = bmesh.new()
-    vr = [[bm.verts.new(p) for p in ring] for ring in rings]
-    n = len(rings[0])
-    for a, b in zip(vr, vr[1:]):
-        for j in range(n):
-            k = (j + 1) % n
-            bm.faces.new((a[j], a[k], b[k], b[j]))
-    for pole, ring in ((cap0, vr[0]), (cap1, vr[-1])):
-        if pole is not None:
-            pv = bm.verts.new(pole)
-            for j in range(n):
-                bm.faces.new((ring[j], ring[(j + 1) % n], pv))
-    _outward(bm)
-    # twisted quads aren't flat: split each along its better diagonal (else the silhouette saws)
-    bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method="BEAUTY", ngon_method="BEAUTY")
-    bm.normal_update()
-    return bm
-
-
-# ---------------------------------------------------------------- the roll
-class Roll:
-    """The twisted roll's surface: ring stations along s = -y, the twist phase and the radius."""
-
-    def __init__(self, fluffy=False):
-        self.fluffy = fluffy
-        self.s0 = -Y_BACK
-        self.s_tip = S_TIP
-        # twist phase, integrated on a fine grid
-        self.grid = [self.s0 - 0.3 + 0.01 * i for i in range(int((self.s_tip - self.s0 + 0.6) / 0.01) + 2)]
-        ph, acc = [], 0.0
-        for i, s in enumerate(self.grid):
-            if i:
-                acc += TWIST / (radius(s) + TWIST_R0) * 0.01
-            ph.append(acc)
-        self.ph = ph
-
-    def phase(self, s):
-        k = min(max(int((s - self.grid[0]) / 0.01), 0), len(self.grid) - 2)
-        t = (s - self.grid[k]) / 0.01
-        return self.ph[k] * (1 - t) + self.ph[k + 1] * t
-
-    def groove(self, s):
-        """Groove depth at s: full along the roll, fading out on the rounded ends."""
-        g = GROOVE * _smooth(self.s0 - 0.2, self.s0 + 0.05, s) * (1.0 - _smooth(3.35, 3.7, s))
-        return g * (1.15 if self.fluffy else 1.0)
-
-    def profile(self, u):
-        """0 in the groove, 1 on the strand's crest."""
-        return math.sin(math.pi * u) ** (0.36 if self.fluffy else 0.42)
-
-    def lump(self, s, th):
-        k = _smooth(self.s0, self.s0 + 0.4, s) * (1.0 - _smooth(3.2, 3.6, s))
-        w = math.sin(2 * math.pi * s / 0.83 + 0.7) * math.sin(2 * math.pi * s / 1.37 + 2.1)
-        if self.fluffy:      # extra fluffy: puffs all over, not just along the roll
-            w += 1.4 * math.sin(2 * th + 9.0 * s) * math.sin(6.0 * s - th + 1.0)
-        return 1.0 + LUMP * k * w
-
-    def point(self, s, j, n, scale=1.0, extra=0.0):
-        """Vertex j of n round the ring at s (scale: the end caps' shrink)."""
-        th = 2 * math.pi * j / n + self.phase(s)
-        u = (LOBES * j / n) % 1.0
-        r = radius(s) * (1.0 + self.groove(s) * (self.profile(u) - 1.0)) * self.lump(s, th)
-        if self.fluffy:
-            r *= 1.1
-        r = (r + extra) * scale
-        return Vector((r * math.cos(th), -s, r * math.sin(th)))
-
-    def column(self, p):
-        """Face column (0..PER-1 of a strand) of the point p on the roll."""
-        s = -p.y
-        th = math.atan2(p.z, p.x) - self.phase(s)
-        u = (LOBES * th / (2 * math.pi)) % 1.0
-        return min(int(u * PER), PER - 1)
-
-    def stations(self, step, e_tip=0.0):
-        """[(s, scale)] - the back cap (by angle), the roll, the tip bulb's cap - and the two poles.
-        e_tip: the tip cap's radius change (the hull's thinner ink)."""
-        rb = radius(self.s0)
-        out = [(self.s0 - rb * math.cos(a), math.sin(a)) for a in (math.radians(d) for d in (28, 50, 70))]
-        L = (self.s_tip - R_TIP) - self.s0
-        n = max(int(L / step), 2)
-        out += [(self.s0 + L * i / n, 1.0) for i in range(n + 1)]
-        rt = R_TIP + e_tip
-        out += [(self.s_tip - R_TIP + rt * math.sin(a), math.cos(a)) for a in (math.radians(d) for d in (35, 62, 80))]
-        return out, (self.s0 - rb), self.s_tip - R_TIP + rt
-
-    def mesh(self, n, step, extra_fn=None):
-        st, s_back, s_tip = self.stations(step, extra_fn(self.s_tip) if extra_fn else 0.0)
-        rings = [[self.point(s, j, n, sc, extra_fn(s) if extra_fn else 0.0) for j in range(n)] for s, sc in st]
-        return _loft(rings, Vector((0, -s_back, 0)), Vector((0, -s_tip, 0)))
-
-
-def _band_value(look, p):
-    """The field the ring bands are cut along: s, made wavy round the roll for a `wave` look."""
-    amp, k = LOOKS[look].get("wave", (0.0, 0))
-    return -p.y + amp * math.sin(k * math.atan2(p.z, p.x)) if amp else -p.y
-
-
-def _roll_piece(roll, P, look):
-    spec = LOOKS[look]
-    bm = roll.mesh(N_AROUND, RING_STEP)
-    vals = {v: v.normal.z for v in bm.verts}
-    _iso_cut(bm, vals, (TONE_CUT,))
-    bands = spec["bands"]
-    cuts = sorted({x for a, b, _f in bands for x in (a, b) if x < S_TIP} | {S_TIP - R_TIP * 1.1})
-    bv = {v: _band_value(look, v.co) for v in bm.verts}
-    _iso_cut(bm, bv, cuts)
-    tip_s = S_TIP - R_TIP * 1.1
-    fp = []
-    for f in bm.faces:
-        c = f.calc_center_median()
-        b = _band_value(look, c)
-        fam = spec["cols"].get(roll.column(c), "body")
-        for a0, a1, fm in bands:
-            if a0 <= b < a1:
-                fam = fm
-        if b >= tip_s:
-            fam = spec.get("tip", fam)
-        nz = sum(vals.get(v, 0.0) for v in f.verts) / len(f.verts)
-        fp.append(_tone(P[fam], nz))
-    p = K.Piece(K._bm_to_mesh(bm, "roll"), fp, False, True, "roll")
-    p.rig = ("skin",)
+def _piece(bm, pals, flat, name):
+    p = K.Piece(K._bm_to_mesh(bm, name), pals, False, True, name)
+    p.flat_faces = flat
     return p
 
 
-def _roll_hull(roll):
-    """The roll's outline hull (same columns and rings as the roll, without the colour cuts), its
-    ink thinning from OUT_W at the handle to TIP_W at the tip: K.finish inflates it by OUT_W, so it
-    is built that much smaller where the ink is thinner."""
-    def extra(s):
-        return (TIP_W - OUT_W) * _smooth(0.6, roll.s_tip, s)
-    bm = roll.mesh(N_AROUND, RING_STEP, extra)
-    p = K.Piece(K._bm_to_mesh(bm, "rollhull"), K.OUTLINE, True, True, "rollhull")
-    p.rig = ("skin",)
-    return p
+# ---------------------------------------------------------------- the cloth
+def _family(spec, u, L, w):
+    if abs(u) > 1.0 - INK_U or L < INK_L or L > LENGTH - INK_L:
+        return "ink"
+    fam = "body"
+    for a, b, fm in spec["cols"]:
+        if a <= abs(u) < b:
+            fam = fm
+    for band in spec["bands"]:
+        a, b, fm = band[:3]
+        val = w if band[3:] == ("w",) else L
+        if a <= val < b:
+            fam = fm
+    return fam
 
 
-# ---------------------------------------------------------------- the folded flap
-FLAP_A = 0.32           # half width (along the surface)
-FLAP_B = 0.12           # half thickness
-FLAP_GAP = -0.05        # sunk into the roll a little: no gap under it
-FLAP_ROUND = 0.16       # the free end's rounding (path length)
+def _wave_of(spec, u):
+    amp, k, ph = spec.get("wave", (0.0, 0.0, 0.0))
+    return amp * math.sin(math.pi * k * u + ph) if amp else 0.0
 
 
-def _flap_frame(t, d0):
-    """Path parameter t (from the flap's free end) -> (axis point, outward normal N, distance d)."""
-    la = Y_BACK - Y_FLAP
-    if t <= la:
-        return Vector((0.0, Y_FLAP + t, 0.0)), Vector((0.0, 0.0, 1.0)), d0
-    t -= la
-    lb = math.pi * d0
-    if t <= lb:
-        a = t / d0
-        return Vector((0.0, Y_BACK, 0.0)), Vector((0.0, math.sin(a), math.cos(a))), d0
-    t -= lb
-    k = _smooth(0.0, 0.3, t)
-    return Vector((0.0, Y_BACK - t, 0.0)), Vector((0.0, 0.0, -1.0)), d0 - 0.13 * k
-
-
-def _flap_piece(P, look):
-    rb = radius(-Y_BACK)
-    d0 = rb + FLAP_B + FLAP_GAP
-    la, lb, lc = Y_BACK - Y_FLAP, math.pi * d0, 0.3
-    total = la + lb + lc
-    stripes = LOOKS[look]["flap"]
-    # stations: rounded free end, every stripe boundary, then evenly
-    ts = {0.01, 0.035, 0.07, 0.11}
-    for a, b, _fam in stripes:
-        ts.update((a, b))
-    t = 0.16
-    while t < total - 0.02:
-        ts.add(round(t, 4))
-        t += 0.14
-    ts = sorted(x for x in ts if 0.0 < x < total - 0.01)
-    M = 12
-    sec = []
-    for k in range(M):
-        ph = 2 * math.pi * k / M
-        c, s = math.cos(ph), math.sin(ph)
-        sec.append((math.copysign(abs(c) ** 0.75, c), math.copysign(abs(s) ** 0.85, s)))
-    X = Vector((1.0, 0.0, 0.0))
-    rings = []
-    for t in ts:
-        axis, N, d = _flap_frame(t, d0)
-        e0 = math.sqrt(max(0.0, 1.0 - (1.0 - min(t, FLAP_ROUND) / FLAP_ROUND) ** 2))   # rounded free end
-        e1 = 1.0 - _smooth(total - lc, total, t)                                # tucked in under the roll
-        thin = 0.45 + 0.55 * _smooth(0.0, 0.45, t)                              # the fabric end is thinner
-        a, b = FLAP_A * e0 * (0.35 + 0.65 * e1), FLAP_B * thin * (0.6 + 0.4 * e0) * max(e1, 0.15)
-        d = d - 0.07 * (1.0 - _smooth(0.0, 0.35, t))                           # the free end lies pressed on the roll
-        ring = []
-        for x, n in sec:
-            beta = (x * a) / d
-            ring.append(axis + (d + n * b) * (math.cos(beta) * N + math.sin(beta) * X))
-        rings.append(ring)
-    a0, N0, d_0 = _flap_frame(0.0, d0)
-    a1, N1, d_1 = _flap_frame(total, d0)
-    bm = _loft(rings, a0 + N0 * (d_0 - 0.07) + Vector((0, -0.004, 0)), a1 + N1 * (d_1 - 0.02))
-    vals = {v: v.normal.z for v in bm.verts}
-    _iso_cut(bm, vals, (TONE_CUT,))
-    fp = []
-    for f in bm.faces:
-        c = f.calc_center_median()
-        # the face's path distance: along the top strand it is y - Y_FLAP
-        tt = c.y - Y_FLAP if c.z > 0.05 and c.y < Y_BACK else 9.0
-        fam = "body"
-        for a, b, fm in stripes:
-            if a <= tt <= b:
-                fam = fm
-        nz = sum(vals[v] for v in f.verts) / len(f.verts)
-        fp.append(_tone(P[fam], nz))
-    p = K.Piece(K._bm_to_mesh(bm, "flap"), fp, True, True, "flap")
-    p.rig = ("bone", "Seg1")
-    return p
-
-
-# ---------------------------------------------------------------- badges (sewn-on patches on top of the roll)
-Y_BADGE = -1.2
-
-
-def _star2d(r_out, r_in, n=5, rot=0.0):
-    pts = []
-    for i in range(2 * n):
-        r = r_out if i % 2 == 0 else r_in
-        a = math.pi / 2 + rot + math.pi * i / n
-        pts.append((r * math.cos(a), r * math.sin(a)))
-    return pts
-
-
-def _circle2d(cx, cy, r, n=12, sx=1.0, rot=0.0):
-    out = []
-    for i in range(n):
-        a = 2 * math.pi * i / n
-        x, y = r * sx * math.cos(a), r * math.sin(a)
-        out.append((cx + x * math.cos(rot) - y * math.sin(rot), cy + x * math.sin(rot) + y * math.cos(rot)))
+def _fill(points, step):
+    """Sorted grid positions: every one of `points`, with even steps no longer than `step` between."""
+    pts = sorted(points)
+    out = [pts[0]]
+    for a, b in zip(pts, pts[1:]):
+        n = max(1, int(math.ceil((b - a) / step - 1e-6)))
+        out += [a + (b - a) * k / n for k in range(1, n + 1)]
     return out
 
 
+def _cloth(P, spec):
+    thick, puff = spec.get("thick", THICK), spec.get("puff", HEM_PUFF)
+    # straight colour steps lie on grid lines (no extra cuts); the wavy ones and the tone are cut
+    ucuts = {-1.0, 1.0, 1.0 - INK_U, INK_U - 1.0}
+    for a, b, _fm in spec["cols"]:
+        ucuts |= {x * s for x in (a, b) if 0.0 < x < 1.0 - INK_U for s in (1.0, -1.0)}
+    lcuts, wcuts = {0.0, LENGTH, INK_L, LENGTH - INK_L}, set()
+    for band in spec["bands"]:
+        for x in band[:2]:
+            if INK_L < x < LENGTH - INK_L:
+                (wcuts if band[3:] == ("w",) else lcuts).add(x)
+    bm, F = _slab(_fill(ucuts, 2.0 / N_U), _fill(lcuts, STEP_L), thick, puff)
+    F["w"] = {v: F["L"][v] + _wave_of(spec, F["u"][v]) for v in bm.verts}
+    _iso_cut(bm, F, "w", sorted(wcuts))
+    _iso_cut(bm, F, "t", (TONE_CUT,), same_side=True)
+    side = bm.faces.layers.int["side"]
+    pals, flat = [], []
+    for i, f in enumerate(bm.faces):
+        vs = f.verts
+        if f[side] == RIM:
+            pals.append(P["ink"])
+            flat.append(i)
+            continue
+        u, L, w, t = (sum(F[k][v] for v in vs) / len(vs) for k in ("u", "L", "w", "t"))
+        pals.append(_tone(P[_family(spec, u, L, w)], t, f[side]))
+    return _piece(bm, pals, flat, "cloth")
+
+
+def _fringe(P, spec):
+    """Flat strips with square ends past the far hem (they start a little inside the cloth)."""
+    thick = spec.get("thick", THICK) * 0.6
+    tones = P[spec["fringe"]]
+    out = []
+    du = FRINGE_W * 0.5 / HALF_W
+    for i in range(FRINGE_N):
+        uc = -1.0 + (2 * i + 1) / FRINGE_N
+        end = LENGTH + FRINGE_L * (1.0 - 0.12 * (0.5 + 0.5 * math.sin(i * 2.4 + 0.7)) if i != FRINGE_N // 2 else 1.0)
+        bm, F = _slab([uc - du, uc + du], [LENGTH - 0.03, (LENGTH + end) * 0.5, end], thick, 0.0)
+        side = bm.faces.layers.int["side"]
+        pals, flat = [], []
+        for k, f in enumerate(bm.faces):
+            if f[side] == RIM:
+                pals.append(P["ink"])
+                flat.append(k)
+            else:
+                t = sum(F["t"][v] for v in f.verts) / len(f.verts)
+                pals.append(_tone(tones, t, f[side]))
+        out.append(_piece(bm, pals, flat, "fringe"))
+    return out
+
+
+# ---------------------------------------------------------------- printed emblems (flat on both faces)
+def _densify(poly, step):
+    out = []
+    n = len(poly)
+    for i in range(n):
+        a, b = Vector(poly[i]), Vector(poly[(i + 1) % n])
+        k = max(1, int(math.ceil((b - a).length / step)))
+        out += [a.lerp(b, j / k) for j in range(k)]
+    return out
+
+
+def _inside(poly, q):
+    c = False
+    n = len(poly)
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        if (a[1] > q[1]) != (b[1] > q[1]):
+            if q[0] < a[0] + (q[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1]):
+                c = not c
+    return c
+
+
+def _seg_dist(q, a, b):
+    ab = b - a
+    t = max(0.0, min(1.0, (q - a).dot(ab) / max(ab.length_squared, 1e-12)))
+    return (q - (a + ab * t)).length
+
+
 def _grow(pts, d):
-    """Polygon pushed out by ~d from its centroid (the ink border under a patch)."""
+    """Polygon pushed out by ~d from its centroid (the ink border under a print)."""
     cx = sum(p[0] for p in pts) / len(pts)
     cy = sum(p[1] for p in pts) / len(pts)
     out = []
@@ -464,166 +431,127 @@ def _grow(pts, d):
     return out
 
 
-def _patch(pts, pal, h0, h1, y_c, roll, name, rig, centre=None, solid=True):
-    """A flat 2D star-shaped polygon `pts` (a = sideways, b = toward the tip) wrapped onto the top
-    of the roll at y_c, h1 above the strands' crest, fan-triangulated; `solid`: with side walls down
-    to h0 (inside the roll, so no bottom), else just the top (a layer lying on another one)."""
-    r0 = radius(-y_c)
-    cx = sum(p[0] for p in pts) / len(pts) if centre is None else centre[0]
-    cy = sum(p[1] for p in pts) / len(pts) if centre is None else centre[1]
-
-    def wrap(a, b, h):
-        y = y_c - b
-        r = radius(-y) + h
-        th = math.pi / 2 + a / r0
-        return Vector((r * math.cos(th), y, r * math.sin(th)))
-    bm = bmesh.new()
-    top = [bm.verts.new(wrap(x, y, h1)) for x, y in pts]
-    bot = [bm.verts.new(wrap(x, y, h0)) for x, y in pts] if solid else None
-    ct = bm.verts.new(wrap(cx, cy, h1))
-    n = len(pts)
-    for j in range(n):
-        k = (j + 1) % n
-        bm.faces.new((top[j], top[k], ct))
-        if solid:
-            bm.faces.new((top[k], top[j], bot[j], bot[k]))
-    bm.normal_update()
-    if sum(f.normal.z for f in bm.faces) < 0:      # face up, out of the roll
-        bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
-    p = K.Piece(K._bm_to_mesh(bm, name), pal, False, False, name)
-    p.rig = rig
-    return p
+def _star2d(r_out, r_in, n=5):
+    return [((r_out if i % 2 == 0 else r_in) * math.cos(math.pi / 2 + math.pi * i / n),
+             (r_out if i % 2 == 0 else r_in) * math.sin(math.pi / 2 + math.pi * i / n)) for i in range(2 * n)]
 
 
-def _badge(kind, P, roll):
-    """The look's sewn-on badge: an ink border patch with the coloured design on it."""
-    anchor = Vector((0.0, Y_BADGE, radius(-Y_BADGE)))
-    rig = ("stuck", anchor)
-    base, top = -0.035, 0.03
-    ink = P["ink"]
+def _circle2d(cx, cy, r, n=14, sx=1.0, rot=0.0):
     out = []
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        x, y = r * sx * math.cos(a), r * math.sin(a)
+        out.append((cx + x * math.cos(rot) - y * math.sin(rot), cy + x * math.sin(rot) + y * math.cos(rot)))
+    return out
 
-    def layer(pts, pal, h, name="badge", centre=None):
-        out.append(_patch(pts, pal, base, h, Y_BADGE, roll, name, rig, centre, solid=name == "badge_ink"))
 
-    if kind == "star":
-        r = 0.25 if "towel_sports_star" in K.PALETTE and P.get("star") == K.color("towel_sports_star") else 0.21
+def _print(regions, thick, puff, step=0.085, inner=0.136):
+    """The emblem as ONE flat layer: `regions` = [(polygon, palette index)] in paint order (a later
+    region covers an earlier one), in emblem coordinates (x = right, y = up = toward the hand, as
+    seen from above with the hand end up: upright when the towel hangs from the hand, and in the
+    item icon, which shows the fringe at the bottom). They are triangulated together (every colour step an exact
+    edge, nothing stacked, so nothing can show through) with interior points so the print follows the
+    cloth's folds, then laid PRINT_LIFT off both faces of the cloth round (0, L_EMBLEM); underneath
+    it is mirrored, so it reads the same from below."""
+    rings = [_densify(poly, step) for poly, _pal in regions]
+    pts, faces, edges = [], [], []
+    for ring in rings:
+        faces.append(list(range(len(pts), len(pts) + len(ring))))
+        edges += [(ring[i], ring[(i + 1) % len(ring)]) for i in range(len(ring))]
+        pts += [Vector((p.x, p.y)) for p in ring]
+    xs, ys = [p.x for p in pts], [p.y for p in pts]
+    x = min(xs) + inner * 0.5
+    while x < max(xs):
+        y = min(ys) + inner * 0.5
+        while y < max(ys):
+            q = Vector((x, y))
+            if any(_inside(poly, q) for poly, _pal in regions) \
+                    and min(_seg_dist(q, a, b) for a, b in edges) > inner * 0.45:
+                pts.append(q)
+            y += inner
+        x += inner
+    verts2d, _edges, tris, _ov, _oe, orig = delaunay_2d_cdt(pts, [], faces, 1, 1e-7, True)
+    out = []
+    for s in (1.0, -1.0):
+        bm = bmesh.new()
+        vs = []
+        for q in verts2d:
+            L = L_EMBLEM - q.y
+            u = (q.x * s) / half_width(L)        # seen from above with the hand end up, right = +X
+            p = _mid(u, L) + Vector((0.0, 0.0, s * _half_t(u, thick, puff))) + _normal(u, L) * (s * PRINT_LIFT)
+            vs.append(bm.verts.new(p))
+        pals = []
+        for f, o in zip(tris, orig):
+            if not o:
+                continue
+            try:
+                bm.faces.new([vs[i] for i in f])
+            except ValueError:
+                continue
+            pals.append(regions[max(o)][1])
+        bm.normal_update()
+        for f in bm.faces:
+            if f.normal.z * s < 0:
+                f.normal_flip()
+        out.append(K.Piece(K._bm_to_mesh(bm, "print"), pals, False, True, "print"))
+    return out
+
+
+def _emblem(kind, P):
+    """The look's printed badge as regions for _print (and its edge step): an ink border with the
+    coloured design on it."""
+    ink = P["ink"]
+    R = []
+    if kind in ("bigstar", "goldstar"):
+        r = 0.5 if kind == "bigstar" else 0.43
         star = _star2d(r, r * 0.46)
-        layer(_grow(star, 0.035), ink, top - 0.012, "badge_ink")
-        layer(star, P["star"], top)
-        if "star_light" in P:          # a raised bevel highlight on the gold star
-            layer([(x * 0.55, y * 0.55 + 0.012) for x, y in star], P["star_light"], top + 0.008)
+        R += [(_grow(star, 0.045), ink), (star, P["star"])]
+        if "star_light" in P:          # a lighter inner star (the gold's sheen)
+            R.append(([(x * 0.5, y * 0.5 + 0.015) for x, y in star], P["star_light"]))
     elif kind == "sun":
         rays = []
         for i in range(10):
             a = 2 * math.pi * i / 10 + math.pi / 2
-            a1, a2 = a - 0.2, a + 0.2
-            rays += [(0.13 * math.cos(a1), 0.13 * math.sin(a1)), (0.215 * math.cos(a), 0.215 * math.sin(a)),
-                     (0.13 * math.cos(a2), 0.13 * math.sin(a2))]
-        layer(_grow(rays, 0.03), ink, top - 0.012, "badge_ink")
-        layer(rays, P["ray"], top - 0.004)
-        disc = _circle2d(0.0, 0.0, 0.125, 16)
-        layer(_grow(disc, 0.02), ink, top + 0.002, "badge_ink")
-        layer(disc, P["sun"], top + 0.01)
+            a1, a2 = a - 0.19, a + 0.19
+            rays += [(0.23 * math.cos(a1), 0.23 * math.sin(a1)), (0.4 * math.cos(a), 0.4 * math.sin(a)),
+                     (0.23 * math.cos(a2), 0.23 * math.sin(a2))]
+        disc = _circle2d(0.0, 0.0, 0.24, 16)
+        R += [(_grow(rays, 0.04), ink), (rays, P["ray"]), (_grow(disc, 0.035), ink), (disc, P["sun"])]
     elif kind == "flower":
-        petals = []
-        for i in range(5):
-            a = math.pi / 2 + 2 * math.pi * i / 5
-            petals.append(_circle2d(0.085 * math.cos(a), 0.085 * math.sin(a), 0.07, 10, sx=0.75, rot=a + math.pi / 2))
-        for pet in petals:
-            layer(_grow(pet, 0.022), ink, top - 0.012, "badge_ink")
-        for k, a in enumerate((-2.3, -0.84)):
-            leaf = _circle2d(0.16 * math.cos(a), 0.16 * math.sin(a), 0.055, 10, sx=1.7, rot=a)
-            layer(_grow(leaf, 0.02), ink, top - 0.014, "badge_ink")
-            layer(leaf, P["leaf"], top - 0.006, "leaf")
-        for pet in petals:
-            layer(pet, P["petal"], top)
-        c = _circle2d(0.0, 0.0, 0.05, 10)
-        layer(_grow(c, 0.018), ink, top + 0.004, "badge_ink")
-        layer(c, P["centre"], top + 0.012)
+        for a in (-2.25, -0.89):
+            leaf = _circle2d(0.33 * math.cos(a), 0.33 * math.sin(a), 0.11, 10, sx=1.8, rot=a)
+            R += [(_grow(leaf, 0.03), ink), (leaf, P["leaf"])]
+        flower = []                     # five round petals in one outline
+        for k in range(40):
+            a = 2 * math.pi * k / 40 + math.pi / 2
+            r = 0.3 * (0.62 + 0.38 * abs(math.cos(2.5 * (a - math.pi / 2))) ** 0.8)
+            flower.append((r * math.cos(a), r * math.sin(a)))
+        R += [(_grow(flower, 0.035), ink), (flower, P["petal"])]
+        c = _circle2d(0.0, 0.0, 0.09, 10)
+        R += [(_grow(c, 0.025), ink), (c, P["centre"])]
     elif kind == "crown":
-        w, h = 0.2, 0.17
-        crown = [(-w, -0.09), (w, -0.09), (w, 0.0), (w * 1.05, h), (w * 0.52, 0.05), (0.0, h * 1.1), (-w * 0.52, 0.05),
-                 (-w * 1.05, h), (-w, 0.0)]
-        ctr = (0.0, -0.01)
-        layer(_grow(crown, 0.035), ink, top - 0.012, "badge_ink", centre=ctr)
-        layer(crown, P["crown"], top, centre=ctr)
-        band = [(-w * 0.92, -0.075), (w * 0.92, -0.075), (w * 0.92, -0.025), (-w * 0.92, -0.025)]
-        layer(band, P["crown_light"], top + 0.006)
-        for bx, by in ((-w * 1.05, h), (0.0, h * 1.1), (w * 1.05, h)):
-            ball = _circle2d(bx, by + 0.01, 0.035, 8)
-            layer(_grow(ball, 0.02), ink, top - 0.004, "badge_ink")
-            layer(ball, P["crown"], top + 0.004)
-        for gx in (-0.11, 0.0, 0.11):
-            gem = _circle2d(gx, -0.05, 0.022, 8)
-            layer(gem, P["gem"], top + 0.012, "gem")
-        # the stitching: little dashes just inside the crown's edge
-        edge = _grow(crown, -0.03)
+        w = 0.34
+        crown = [(-w, -0.2), (w, -0.2), (w * 1.18, 0.26), (w * 0.5, 0.05), (0.0, 0.3), (-w * 0.5, 0.05),
+                 (-w * 1.18, 0.26)]
+        R += [(_grow(crown, 0.045), ink), (crown, P["crown"])]
+        R.append(([(-w * 0.94, -0.17), (w * 0.94, -0.17), (w * 0.94, -0.08), (-w * 0.94, -0.08)], P["crown_light"]))
+        for gx in (-0.19, 0.0, 0.19):           # flat diamond gems on the band
+            R.append(([(gx, -0.165), (gx + 0.045, -0.125), (gx, -0.085), (gx - 0.045, -0.125)], P["gem"]))
+        # the stitching: little dashes just inside the crown's edge (above the band)
+        edge = _grow(crown, -0.04)
         for i in range(len(edge)):
             x0, y0 = edge[i]
             x1, y1 = edge[(i + 1) % len(edge)]
             L = math.hypot(x1 - x0, y1 - y0)
-            nd = max(1, int(L / 0.05))
+            nd = max(1, int(L / 0.09))
             for q in range(nd):
-                t0, t1 = (q + 0.2) / nd, (q + 0.65) / nd
+                t0, t1 = (q + 0.2) / nd, (q + 0.7) / nd
                 ax, ay = x0 + (x1 - x0) * t0, y0 + (y1 - y0) * t0
-                bx2, by2 = x0 + (x1 - x0) * t1, y0 + (y1 - y0) * t1
-                nx, ny = -(y1 - y0) / L * 0.007, (x1 - x0) / L * 0.007
-                layer([(ax - nx, ay - ny), (bx2 - nx, by2 - ny), (bx2 + nx, by2 + ny), (ax + nx, ay + ny)],
-                      P["stitch"], top + 0.01, "stitch")
-    return out
-
-
-# ---------------------------------------------------------------- the Royal's tassel
-def _tassel(P):
-    tip = Vector((0.0, (-S_TIP), 0.0))
-    out = []
-    bead = K.sphere(P["tassel"][1], 0.075, K.M((0, (-S_TIP) + 0.01, 0), scale=(1, 1.15, 1)), seg=10, rings=7,
-                    name="tassel_bead")
-    out.append(bead)
-    # the skirt: a flared fluted tube hanging on along -Y
-    rings, n = [], 16
-    stations = [(0.04, 0.045), (0.09, 0.07), (0.17, 0.095), (0.27, 0.112), (0.36, 0.118), (0.4, 0.11)]
-    for d, r in stations:
-        ring = []
-        for j in range(n):
-            th = 2 * math.pi * j / n
-            rr = r * (1.0 + 0.12 * math.cos(n / 2 * th) * _smooth(0.05, 0.2, d))
-            ring.append(Vector((rr * math.cos(th), (-S_TIP) - 0.04 - d, rr * math.sin(th))))
-        rings.append(ring)
-    bm = _loft(rings, tip + Vector((0, -0.04, 0)), tip + Vector((0, -0.46, 0)))
-    vals = {v: v.normal.z for v in bm.verts}
-    fp = [_tone(P["tassel"], sum(vals[v] for v in f.verts) / len(f.verts)) for f in bm.faces]
-    out.append(K.Piece(K._bm_to_mesh(bm, "tassel"), fp, True, True, "tassel"))
-    collar = K.torus(P["cord"], 0.06, 0.022, K.M((0, (-S_TIP) - 0.08, 0), rot=(math.pi / 2, 0, 0)), seg=14, mseg=6,
-                     name="tassel_collar")
-    out.append(collar)
-    for p in out:
-        p.rig = ("bone", "Seg6")
-    return out, Vector((0.0, (-S_TIP) - 0.46, 0.0))
-
-
-# ---------------------------------------------------------------- the Spa's pom-pom
-def _pompom(P):
-    """A fluffy ball on the tip: a sphere with soft lumps (a few smooth lobes), so its outline is
-    scalloped (like props/slippers.py's pom-pom)."""
-    r, c = 0.16, Vector((0.0, -S_TIP - 0.04, 0.0))
-    lobes = [Vector(d).normalized() for d in ((1, 0.2, 0.3), (-0.8, 0.4, 0.5), (0.1, 1, 0.2), (0.3, -0.2, 1),
-                                              (-0.4, -0.9, 0.1), (0.5, 0.6, -0.6), (-0.6, 0.1, -0.7), (0.9, -0.6, -0.2),
-                                              (-0.3, 0.8, 0.9), (0.2, -1, -0.5))]
-    bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=10, v_segments=7, radius=1.0)
-    for v in bm.verts:
-        d = v.co.normalized()
-        bump = sum(math.exp(-(1 - d.dot(l)) / 0.08) for l in lobes)
-        v.co = c + d * r * (0.85 + 0.22 * min(1.0, bump))
-    bm.normal_update()
-    vals = {v: v.normal.z for v in bm.verts}
-    _iso_cut(bm, vals, (TONE_CUT,))
-    fp = [_tone(P["hem"], sum(vals[v] for v in f.verts) / len(f.verts)) for f in bm.faces]
-    p = K.Piece(K._bm_to_mesh(bm, "pompom"), fp, True, True, "pompom")
-    p.rig = ("bone", "Seg6")
-    return p, Vector((0.0, -S_TIP - 0.04 - r, 0.0))
+                bx, by = x0 + (x1 - x0) * t1, y0 + (y1 - y0) * t1
+                nx, ny = -(y1 - y0) / L * 0.009, (x1 - x0) / L * 0.009
+                dash = [(ax - nx, ay - ny), (bx - nx, by - ny), (bx + nx, by + ny), (ax + nx, ay + ny)]
+                R.append((dash, P["stitch"]))
+    return R, (0.2 if kind == "sun" else 0.085)    # the sun's short rays need no extra edge points
 
 
 # ---------------------------------------------------------------- build
@@ -631,37 +559,25 @@ def build_towel(look):
     name = "Towel_" + look
     P = _palette(look)
     spec = LOOKS[look]
-    roll = Roll(fluffy=spec.get("fluffy", False))
-    pieces = [_roll_piece(roll, P, look), _flap_piece(P, look)]
-    if spec.get("badge"):
-        pieces += _badge(spec["badge"], P, roll)
-    tip = Vector((0.0, -S_TIP, 0.0))
-    if spec.get("tassel"):
-        tp, tip = _tassel(P)
-        pieces += tp
-    if spec.get("fluffy"):
-        pp, tip = _pompom(P)
-        pieces.append(pp)
-    body, outline = K.finish(pieces, name, outline_width=OUT_W, outline_only=[_roll_hull(roll)])
-    # K.finish leaves the hull flat-shaded, so the GLB splits every face's corners into their own
-    # vertices (~3x the skinned vertices); the ink needs no facets: share them
-    outline.data.polygons.foreach_set("use_smooth", [True] * len(outline.data.polygons))
-    for attr in ("visible_shadow", "visible_diffuse", "visible_glossy", "visible_transmission", "visible_volume_scatter"):
-        if hasattr(outline, attr):  # preview only: the hull must not block light (it doesn't in Roblox)
-            setattr(outline, attr, False)
-    return [body, outline] + K.markers(name) + [items.grip(name, (0.0, 0.0, 0.0)), K.marker(name + "_Tip", tip)]
+    pieces = [_cloth(P, spec)] + _fringe(P, spec)
+    if spec.get("emblem"):
+        regions, step = _emblem(spec["emblem"], P)
+        pieces += _print(regions, spec.get("thick", THICK), spec.get("puff", HEM_PUFF), step)
+    body = K.textured_object(pieces, name)       # the body only: NO outline hull (see the top)
+    tip = _mid(0.0, L_TIP)
+    return [body] + K.markers(name) + [items.grip(name, (0.0, 0.0, 0.0)), K.marker(name + "_Tip", tip)]
 
 
 BUILDERS = {"Towel_" + look: (lambda look=look: build_towel(look)) for look in LOOKS}
 
-# texture classes for tools/blender/texturing.py: the towels are soft terry cloth
-MATERIALS = {"towel": "felt", "towel_spa": "fluff", "towel_royal_tassel": "rope", "towel_royal_crown": "felt",
-             "towel_royal_gem": "glass"}
+# texture classes for tools/blender/texturing.py: the towels are soft terry cloth (fuzzy felt), the
+# Spa extra fluffy; the prints are part of the cloth
+MATERIALS = {"towel": "felt", "towel_spa": "fluff"}
 
 
 # ---------------------------------------------------------------- skeleton
 def _field(y):
-    """Seg weights along the towel at height y (toward the tip = smaller y)."""
+    """Seg weights along the towel at height y (toward the far end = smaller y)."""
     w = {"Seg1": 1.0}
     for k in range(1, 6):
         J, h = JOINTS[k], BLEND[k]
@@ -671,59 +587,35 @@ def _field(y):
     return {b: v for b, v in w.items() if v > 0.0}
 
 
-def _weights(tag, p):
-    kind = tag[0] if tag else "skin"
-    if kind == "bone":
-        return {tag[1]: 1.0}
-    if kind == "stuck":
-        return _field(tag[1].y)
-    return _field(p[1])
-
-
 def rig(name, objs):
-    """`<Name>_Rig`: Root at the grip + Seg1..Seg6 to the tip; skins the body and the outline."""
+    """`<Name>_Rig`: Root at the grip + Seg1..Seg6 to the end of the fringe; skins the body (the only
+    mesh: the towels have no outline hull)."""
     body = objs[0]
-    outline = next(o for o in objs if o.name == name + "_Outline")
-    info = K.PIECE_MAP[name]
-    W = [None] * len(body.data.vertices)
-    for i, r in enumerate(info["body"]):
-        if r is None:
-            continue
-        s, cnt = r
-        tag = info["tags"][i]
-        for k in range(cnt):
-            W[s + k] = rigging._finalise(_weights(tag, body.data.vertices[s + k].co))
-    assert all(w is not None for w in W), "body vertices without weights"
-    WO = [None] * len(outline.data.vertices)
-    for pi, s, n in info["outline"]:
-        br = info["body"][pi]
-        for k in range(n):
-            if br is not None:
-                WO[s + k] = W[br[0] + k]
-            else:
-                WO[s + k] = rigging._finalise(_weights(info["tags"][pi], outline.data.vertices[s + k].co))
-    assert all(w is not None for w in WO), "outline vertices without weights"
+    W = [rigging._finalise(_field(v.co.y)) for v in body.data.vertices]
     bones = {"Root": rigging.Bone("Root", None, (0, 0, 0), (0, -0.3, 0), "root")}
-    heads = JOINTS + [-S_TIP]          # the same skeleton for every look (a tassel / pom-pom rides Seg6)
+    heads = JOINTS + [Y_TIP]
     for k in range(6):
         bones[f"Seg{k + 1}"] = rigging.Bone(f"Seg{k + 1}", "Root" if k == 0 else f"Seg{k}", (0, heads[k], 0),
                                             (0, heads[k + 1], 0), "seg", index=k + 1)
     ao = rigging.build_armature(name + "_Rig", bones)
     ao.matrix_world = body.matrix_world.copy()      # preview.py moves items apart before rigging
     rigging._skin(body, ao, W)
-    rigging._skin(outline, ao, WO)
     return ao
 
 
-# test poses for preview.py --pose (rigging.apply_pose: world axes; +X turns the towel down)
+# test poses for preview.py --pose (rigging.apply_pose: world axes; +X turns the towel down).
+# GAME = ItemRig's swing axis (Vector3.new(1, 0.3, 0) in the handle's space) in Blender axes.
+GAME = (1.0, 0.0, 0.3)
 POSES = {
     "rest": {},
-    "windup": {"Seg1": [((1, 0, 0), -25)], "Seg2": [((1, 0, 0), -30)], "Seg3": [((1, 0, 0), -35)],
-               "Seg4": [((1, 0, 0), -35)], "Seg5": [((1, 0, 0), -30)], "Seg6": [((1, 0, 0), -25)]},
-    "crack": {"Seg2": [((0, 0, 1), 25)], "Seg3": [((0, 0, 1), 30)], "Seg4": [((0, 0, 1), -40)],
-              "Seg5": [((0, 0, 1), -45)], "Seg6": [((0, 0, 1), 40)]},
+    "windup": {"Seg1": [((1, 0, 0), -17)], "Seg2": [((1, 0, 0), -35)], "Seg3": [((1, 0, 0), -35)],
+               "Seg4": [((1, 0, 0), -35)], "Seg5": [((1, 0, 0), -40)], "Seg6": [((1, 0, 0), -40)]},
+    # the lash at the game's own limits, about its own axis (a little sideways in the cloth's plane)
+    "crack": {"Seg2": [(GAME, 45)], "Seg3": [(GAME, 45)], "Seg4": [(GAME, -45)],
+              "Seg5": [(GAME, -72)], "Seg6": [(GAME, 72)]},
     "droop": {"Seg2": [((1, 0, 0), 35)], "Seg3": [((1, 0, 0), 30)], "Seg4": [((1, 0, 0), 18)],
               "Seg5": [((1, 0, 0), 10)], "Seg6": [((1, 0, 0), 6)]},
-    # the clean limit: 45 degrees at every flexible joint (a 225 degree curl)
-    "curl": {f"Seg{k}": [((1, 0, 0), 45)] for k in range(2, 7)},
+    # rolled down across the cloth: 60 degrees at every flexible joint (300 degrees, just short of
+    # touching itself; every joint takes 90+ cleanly on its own)
+    "curl": {f"Seg{k}": [((1, 0, 0), 60)] for k in range(2, 7)},
 }
