@@ -888,7 +888,22 @@ POSES = {
                "Neck4": [((1, 0, 0), -10)], "Head": [((0, 0, 1), 25)],
                **{f"Toe{k}": [(("side", 0, 1, 0), 30 if k % 2 else -20)] for k in range(1, 6)},
                **{f"Tent{i}_{j}": [((1, 0, 0), 22 if i % 2 else -22)] for i in range(1, 7) for j in (1, 2, 3)},
-               **{f"Fly{k}": [((0, 0, 1), 30)] for k in (1, 2, 3)}},
+               **{f"Fly{k}": [((0, 0, 1), 30)] for k in (1, 2, 3)},
+               # the second wave (sockfeat_d / sockfeat_e): dangles swing, springs tilt, wings flap
+               # about their hinge (own Y), jets stay put
+               "Bow": [((0, 1, 0), -15)], "Paci": [((1, 0, 0), 5)], "Curl": [((0, 1, 0), 20)],
+               "Bell": [((1, 0, 0), 30)], "Earring": [((1, 0, 0), 30)], "Stache": [((0, 1, 0), 10)],
+               "Fork": [((0, 1, 0), 10)], "Antenna": [((1, 0, 0), 25)], "Rose": [((0, 1, 0), 10)],
+               **{f"Cap{k}": [((0, 1, 0), 20)] for k in (1, 2, 3)},
+               **{f"Noodle{k}": [((1, 0, 0), 25)] for k in (1, 2)},
+               **{f"HatTip{k}": [((1, 0, 0), 20)] for k in (1, 2)},
+               **{f"Tail{k}": [((0, 0, 1), 20)] for k in (1, 2, 3)},
+               **{f"Lappet{k}": [((1, 0, 0), 20)] for k in (1, 2)},
+               **{f"Wrap{k}": [((1, 0, 0), 25)] for k in (1, 2)},
+               "Wing1": [("own", 30)], "Wing2": [("own", -30)],
+               **{f"Band{i}_{j}": [((0, 0, 1), 25 if i == 1 else -25)] for i in (1, 2) for j in (1, 2)},
+               **{f"Cape{i}_{j}": [((1, 0, 0), 20), ((0, 0, 1), 15 if i == 1 else -15)]
+                  for i in (1, 2) for j in (1, 2)}},
 }
 
 
