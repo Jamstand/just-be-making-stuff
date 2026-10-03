@@ -28,6 +28,15 @@ local PITCH = math.rad(14) -- the camera stands a little above
 local YAW = math.rad(28) -- the 3/4 view
 local YAW_SIDE = math.rad(68) -- long items (front-to-back) are seen from the side
 local MARGIN = 1.12
+-- models that read badly from the usual 3/4 view: pitch = how far the camera looks down, roll = turns
+-- the picture (the long thin towel lies diagonally across its square), top = frame only this top
+-- share of the model (the balloon, not its long string)
+local VIEWS = {
+	BananaPeel = { pitch = math.rad(42) },
+	DryerSheet = { pitch = math.rad(34) },
+	StaticBalloon = { top = 0.48 },
+} :: { [string]: { pitch: number?, roll: number?, top: number? } }
+local TOWEL_VIEW = { roll = math.rad(-38) }
 local AMBIENT = rgb(172, 166, 182) -- soft and even, like the sock pictures (SockCard)
 local LIGHT = rgb(128, 120, 110)
 local MARKERS = { "_Base", "_Unit", "_Grip", "_Tip", "_Pin" }
@@ -62,7 +71,7 @@ end
 
 -- ---------- preparing a model ----------
 
-type Prepared = { master: Model, minV: Vector3, maxV: Vector3 }
+type Prepared = { master: Model, minV: Vector3, maxV: Vector3, name: string }
 
 local prepared = {} :: { [Instance]: Prepared | false } -- false: that template can't be used
 
@@ -163,7 +172,7 @@ local function prepare(template: Instance): Prepared?
 		model:Destroy()
 		return nil
 	end
-	return { master = model, minV = minV, maxV = maxV }
+	return { master = model, minV = minV, maxV = maxV, name = template.Name }
 end
 
 local function folder(): Instance?
@@ -189,10 +198,14 @@ local function preparedFor(name: string): Prepared?
 end
 
 -- A camera that fits the box into a square viewport and centres its picture.
-local function frameCamera(minV: Vector3, maxV: Vector3): CFrame
+local function frameCamera(minV: Vector3, maxV: Vector3, name: string?): CFrame
+	local view = (name and (VIEWS[name] or (string.sub(name, 1, 6) == "Towel_" and TOWEL_VIEW))) or {}
+	if view.top then
+		minV = Vector3.new(minV.X, maxV.Y - (maxV.Y - minV.Y) * view.top, minV.Z)
+	end
 	local size = maxV - minV
 	local yaw = if size.Z > size.X * 1.4 then YAW_SIDE else YAW
-	local rot = CFrame.Angles(0, yaw, 0) * CFrame.Angles(-PITCH, 0, 0)
+	local rot = CFrame.Angles(0, yaw, 0) * CFrame.Angles(-(view.pitch or PITCH), 0, 0) * CFrame.Angles(0, 0, view.roll or 0)
 	local corners = {}
 	for _, x in ipairs({ minV.X, maxV.X }) do
 		for _, y in ipairs({ minV.Y, maxV.Y }) do
@@ -385,7 +398,7 @@ function ItemIcon.new(parent: Instance?, opts: { [string]: any }?)
 		local copy = p.master:Clone()
 		copy.Parent = world
 		model = copy
-		local cf = frameCamera(p.minV, p.maxV)
+		local cf = frameCamera(p.minV, p.maxV, p.name)
 		if cam then
 			cam.CFrame = cf
 		end
