@@ -71,6 +71,7 @@ local SockAnim = {}
 
 local PI = math.pi
 local TAU = math.pi * 2
+local WORLD_UP = Vector3.yAxis -- a local: selene errors on Vector3.yAxis:Cross() (it reads :Cross as a missing std field)
 local sin, cos, abs, exp, sqrt = math.sin, math.cos, math.abs, math.exp, math.sqrt
 local clamp, max, min, floor = math.clamp, math.max, math.min, math.floor
 local atan2 = math.atan2
@@ -2281,7 +2282,7 @@ local function buildRig(r: Rig, ropeOffset: number?)
 		local flat = Vector3.new(front.X, 0, front.Z)
 		if flat.Magnitude > 1e-4 then
 			local fz = flat.Unit
-			r.frame = CFrame.fromMatrix(baseM.Position, Vector3.yAxis:Cross(fz), Vector3.yAxis)
+			r.frame = CFrame.fromMatrix(baseM.Position, WORLD_UP:Cross(fz), WORLD_UP)
 		else
 			r.frame = model:GetPivot()
 		end
@@ -2547,7 +2548,7 @@ local function buildRig(r: Rig, ropeOffset: number?)
 		if out.Magnitude < 1e-3 then
 			out = Vector3.new(cos(c / nT * TAU), 0, sin(c / nT * TAU))
 		end
-		local k = Vector3.yAxis:Cross(out.Unit)
+		local k = WORLD_UP:Cross(out.Unit)
 		table.insert(r.tents, list)
 		table.insert(r.tentKX, k.X)
 		table.insert(r.tentKZ, k.Z)
