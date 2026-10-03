@@ -5,6 +5,8 @@
 -- UI modules: Theme (look + factories), Anim (all motion), UISound (all UI sounds), ClientSettings
 -- (the player's settings), Menu (column + panel manager), HUD, ShopUI, StoreUI, DexUI, SockCard,
 -- SettingsUI, Performance (the settings that change the 3D world). Every screen gets SetState(state) with the StateView (Shared.Types) once a second.
+-- 3D: SockFX (clothesline, dryer, fan, forcefield, bursts, outlines) and SockAnim (every sock's
+-- bone animation, personality and reactions; it takes the sock motion over from SockFX).
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -41,6 +43,9 @@ end
 -- 3D effects first (clothesline socks, dryer, ceiling fan, forcefield hexes); Init waits for the map
 local SockFX = load("SockFX")
 task.spawn(run, "SockFX", SockFX, "Init")
+-- living socks: personalities, bones, reactions (after SockFX, which it takes the motion over from)
+local SockAnim = load("SockAnim")
+task.spawn(run, "SockAnim", SockAnim, "Init")
 
 -- the UI kit first: every screen requires these (with an endless WaitForChild), so if one is
 -- missing the screens are skipped instead of hanging the whole script

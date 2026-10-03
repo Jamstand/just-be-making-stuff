@@ -11,12 +11,16 @@
 --  * The ceiling fan's blades turn; the invisible forcefield round the play area lights up a
 --    patch of glowing hexagon cells only where the player walks up to it.
 -- One Heartbeat loop for the socks; carried socks are left to physics.
+-- SockAnim (bones, personalities, reactions) takes the sock motion over through SetDriver: every
+-- sock it animates is skipped here, every sock it can't (no SockAnim, or a rig that failed) keeps
+-- the motion below. SockAnim reads the clothesline position from LinePin / PinOffset.
 -- Settings (ClientSettings): "Hide others' effects" skips bursts away from you and outlines only your
 -- own socks (+ the dryer); "Low graphics" makes bursts smaller, drops their flash light and outlines
 -- fewer socks.
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 -- Settings are optional here: the 3D effects must keep running even if the UI kit is missing or
@@ -36,7 +40,25 @@ task.spawn(function()
 	end
 end)
 
+-- SockAnimConfig.OutlineMode "highlight": mesh socks hide their outline hull (SockAnim) and get a
+-- Highlight here like Part socks. Optional: until it loads (or without it) the hull is used.
+local outlineMode = "hull"
+task.spawn(function()
+	local shared = ReplicatedStorage:WaitForChild("Shared", 15)
+	local folder = shared and shared:WaitForChild("Config", 15)
+	local module = folder and folder:WaitForChild("SockAnimConfig", 15)
+	if module and module:IsA("ModuleScript") then
+		local ok, loaded = pcall(require, module)
+		if ok and type(loaded) == "table" and type(loaded.OutlineMode) == "string" then
+			outlineMode = loaded.OutlineMode
+		end
+	end
+end)
+
 local SockFX = {}
+
+-- SockAnim's hand-off: returns true for a sock model it moves itself this frame
+local driver: ((Model) -> boolean)? = nil
 
 local lineStartX, lineEndX, lineY, pinOffset = 0, 0, 0, 2.4
 local lineRise, riseLength = 0, 50 -- the rope starts this much higher, in the dryer's void (Map.riseAt)
@@ -88,9 +110,11 @@ local function refreshOutlines()
 	end)
 	local shown = 0
 	for _, entry in ipairs(list) do
-		-- Blender meshes have the outline baked in; only Part-built socks need a Highlight.
-		-- "Hide others' effects": only your own socks keep theirs.
-		if entry.model:GetAttribute("FromMesh") or (onlyMine and entry.model:GetAttribute("OwnerId") ~= me) then
+		-- Blender meshes have the outline baked in (unless OutlineMode is "highlight"); Part-built
+		-- socks need a Highlight. "Hide others' effects": only your own socks keep theirs. A sock
+		-- SockAnim is waving goodbye (AnimHidden) is hidden locally.
+		local hull = entry.model:GetAttribute("FromMesh") and outlineMode ~= "highlight"
+		if hull or entry.model:GetAttribute("AnimHidden") or (onlyMine and entry.model:GetAttribute("OwnerId") ~= me) then
 			local h = highlights[entry.model]
 			if h then
 				h.Enabled = false
@@ -140,21 +164,46 @@ local MOTIONS: { [string]: (t: number, p: number) -> CFrame } = {
 	end,
 }
 
-local function lineCFrame(model: Model, now: number, phase: number): CFrame?
+-- Where the clothespin holds the sock on the rope right now (no sway, no turn), and how far along
+-- the line it is (0..1.1; past 0.965 it drops into the Lint Trap).
+local function linePin(model: Model, now: number): (CFrame?, number)
 	local t0 = model:GetAttribute("LineStart")
 	local dur = model:GetAttribute("LineDuration")
 	if typeof(t0) ~= "number" or typeof(dur) ~= "number" or dur <= 0 then
-		return nil
+		return nil, 0
 	end
 	local progress = math.clamp((now - t0) / dur, 0, 1.1)
 	local along = math.min(progress, 1) * (lineEndX - lineStartX)
 	local x = lineStartX + along
 	-- out of the centre of the dryer's void, easing down to the line (same curve as Map.riseAt)
 	local rise = lineRise * (1 + math.cos(math.pi * math.clamp(along / riseLength, 0, 1))) / 2
-	local sway = math.sin(now * 2.2 + phase) * 0.1
 	local drop = if progress > 0.965 then ((progress - 0.965) / 0.035) ^ 2 * 9 else 0
+	return CFrame.new(x, lineY + rise - drop + pinOffset, 0), progress
+end
+
+local function lineCFrame(model: Model, now: number, phase: number): CFrame?
+	local pin = linePin(model, now)
+	if not pin then
+		return nil
+	end
+	local sway = math.sin(now * 2.2 + phase) * 0.1
 	-- rotate around the clothespin (top of the sock) so it swings, not slides
-	return CFrame.new(x, lineY + rise - drop, 0) * CFrame.new(0, pinOffset, 0) * CFrame.Angles(0, 0, sway) * CFrame.new(0, -pinOffset, 0)
+	return pin * CFrame.Angles(0, 0, sway) * CFrame.new(0, -pinOffset, 0)
+end
+
+-- SockAnim takes over the motion of every sock model `fn` returns true for (nil: hand it back).
+function SockFX.SetDriver(fn: ((Model) -> boolean)?)
+	driver = fn
+end
+
+-- The clothespin's point on the rope for a line sock right now, and its progress (see linePin).
+function SockFX.LinePin(model: Model): (CFrame?, number)
+	return linePin(model, workspace:GetServerTimeNow())
+end
+
+-- Leg centre -> clothespin, in studs (the Line folder's PinOffset).
+function SockFX.PinOffset(): number
+	return pinOffset
 end
 
 -- ---------- the Great Dryer's galaxy ----------
@@ -544,12 +593,15 @@ function SockFX.Init()
 	RunService.Heartbeat:Connect(function()
 		local now = workspace:GetServerTimeNow()
 		local clock = os.clock()
+		local drive = driver
 		for model in pairs(active) do
 			local leg = model.PrimaryPart
-			if leg then
+			local rainbow = rainbowParts[model]
+			-- SockAnim moves the socks it animates; only the rainbow colour stays here for those
+			if leg and (rainbow or not (drive and drive(model))) then
 				local uid = model:GetAttribute("Uid") or 0
 				local phase = (uid % 17) * 0.7
-				local state = model:GetAttribute("State")
+				local state = if drive and drive(model) then nil else model:GetAttribute("State")
 				if state == "line" then
 					local cf = lineCFrame(model, now, phase)
 					if cf then
@@ -563,7 +615,6 @@ function SockFX.Init()
 						leg.CFrame = rest * motion(clock, phase)
 					end
 				end
-				local rainbow = rainbowParts[model]
 				if rainbow then
 					local color = Color3.fromHSV((clock * 0.25 + phase) % 1, 0.75, 1)
 					for _, p in ipairs(rainbow) do

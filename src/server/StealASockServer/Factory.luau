@@ -447,6 +447,13 @@ local function buildFromMesh(template: Instance, model: Model, sock): (BasePart?
 	if not holder then
 		return nil, nil
 	end
+	-- Rigged meshes keep their Bones (each client's SockAnim bends them through Bone.Transform);
+	-- an Animator from the import would overwrite those every frame, so it goes.
+	for _, d in ipairs(holder:GetDescendants()) do
+		if d:IsA("Animator") or d:IsA("AnimationController") then
+			d:Destroy()
+		end
+	end
 	local leg
 	if info.hasMarkers and info.base then
 		local base = info.base :: Vector3

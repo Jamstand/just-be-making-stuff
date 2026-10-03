@@ -143,6 +143,11 @@ function Steal.TryPickup(player: Player, sock)
 	local wasPaired = sock.paired
 	local victim = victimBase.player
 	S.Base.RemoveFromSlot(victimBase, sock)
+	if sock.model then
+		-- out of the drawer, out of its pair (SockAnim dances when it pairs up again)
+		sock.model:SetAttribute("Paired", false)
+		sock.model:SetAttribute("PairUid", 0)
+	end
 	victimBase.away[sock.uid] = true
 	sock.state = "carried"
 	sock.carrierId = player.UserId

@@ -1,6 +1,7 @@
 -- Pair: THE HOOK. Owning both halves of a type in one drawer pairs them (x2.5 each); same
 -- mutation on both halves makes a Perfect Pair (x2 more). Draws a thread Beam between the halves
--- and a PAIRED badge. Recompute() runs after every drawer change.
+-- and a PAIRED badge, and sets the model attributes Paired / PairUid (SockAnim, on the client).
+-- Recompute() runs after every drawer change.
 local Pair = {}
 local S
 
@@ -151,6 +152,14 @@ function Pair.Recompute(record, quiet: boolean?)
 					end
 				end
 			end
+		end
+	end
+
+	-- the client's SockAnim reads these: a pair that forms dances, paired socks bop together
+	for _, sock in pairs(socks) do
+		if sock.model then
+			sock.model:SetAttribute("Paired", sock.paired == true)
+			sock.model:SetAttribute("PairUid", sock.pairWith or 0)
 		end
 	end
 
