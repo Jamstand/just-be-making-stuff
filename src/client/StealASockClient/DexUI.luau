@@ -4,9 +4,13 @@
 --    claim (ClaimDex remote -> pop, coins fly to the cash pill, confetti), green tick = claimed.
 --    Hover or tap a chest for its name and reward.
 --  * Grid: every sock type in rarity order (RarityConfig.Order, then SockConfig order). Found types
---    are cream cards with a rarity band, the sock, its name and L / R (or 1) badges for the halves
---    you've had, plus ★ paired / ★★ perfect; the rest are dark silhouettes with only a rarity hint.
---    Tap a found card for its SockCard. Cards stagger in when the book opens.
+--    are cream cards with a rarity band, the real 3D sock on a soft rarity glow (SockCard.Viewer),
+--    its name and L / R (or 1) badges for the halves you've had, plus ★ paired / ★★ perfect; the
+--    rest are dark silhouettes of their 3D model with a "?" and only a rarity hint. Tap a found card
+--    for its SockCard. Cards stagger in when the book opens.
+--  * The 3D socks are made the first time the book opens (not at join) and stand still: only the
+--    card under the mouse (not on touch screens) and the newest find play their idle animation,
+--    and nothing animates while the book is closed. Without a sock's template the drawn icon stays.
 --  * NEW: types found this session (State diff + the "dexNew" Celebrate) wear a swaying NEW! tag
 --    until the book has been looked at; the column button's bubble counts those plus milestones
 --    waiting to be claimed.
@@ -36,7 +40,8 @@ local CARD_MIN_W = 132
 local GAP = 10
 local PAD = 8
 local SCROLLBAR = 8
-local ICON = 70
+local ICON = 70 -- the drawn fallback sock
+local VIEW = 80 -- the 3D sock's square
 local REMOTE_TIMEOUT = 12
 
 type Card = {
@@ -46,6 +51,7 @@ type Card = {
 	body: Frame?,
 	sig: string,
 	tag: Frame?,
+	viewer: any, -- SockCard.Viewer, made the first time the book opens
 }
 
 type Marker = {
@@ -106,6 +112,10 @@ local lastCellW = -1
 local lastPct = -1
 local tipOwner: Marker? = nil
 local tipToken = 0
+local everOpened = false -- the 3D socks are only made once the book has been opened
+local hoverCard: Card? = nil
+local newestId: string? = nil -- the latest find this session: its sock plays while the book is open
+local moving = {} :: { [Card]: boolean } -- cards whose 3D sock is animating
 
 -- ---------- helpers ----------
 
@@ -228,6 +238,62 @@ local function signature(entry): string
 		.. (if entry.paired then "p" else "") .. (if entry.perfect then "P" else "")
 end
 
+local function isFound(card: Card): boolean
+	return card.sig ~= "" and card.sig ~= "-"
+end
+
+-- The card's 3D sock (a dark silhouette until found). Waits until the book has been opened once.
+local function ensureViewer(card: Card)
+	if not everOpened then
+		return
+	end
+	local found = isFound(card)
+	if card.viewer then
+		card.viewer:SetSilhouette(not found)
+		return
+	end
+	local sockType = SockConfig.ById[card.typeId]
+	local single = sockType ~= nil and sockType.single == true
+	local viewer = SockCard.Viewer(card.face, card.typeId, if single then "S" else "R", {
+		size = VIEW,
+		iconSize = ICON,
+		silhouette = not found,
+		rarityGlow = true,
+		zIndex = 1, -- under the card's band, name and badges
+	})
+	viewer.Frame.AnchorPoint = Vector2.new(0.5, 0)
+	viewer.Frame.Position = UDim2.new(0.5, 0, 0, 22)
+	card.viewer = viewer
+end
+
+-- Animates at most the hovered card and the newest find, and only while the book is open.
+local function refreshMotion()
+	local want = {} :: { [Card]: boolean }
+	if viewing then
+		if hoverCard and isFound(hoverCard) then
+			want[hoverCard] = true
+		end
+		local newest = if newestId and unseen[newestId] then cards[newestId] else nil
+		if newest and isFound(newest) then
+			want[newest] = true
+		end
+	end
+	for card in pairs(moving) do
+		if not want[card] then
+			moving[card] = nil
+			if card.viewer then
+				card.viewer:SetAnimated(false)
+			end
+		end
+	end
+	for card in pairs(want) do
+		if not moving[card] and card.viewer then
+			moving[card] = true
+			card.viewer:SetAnimated(true)
+		end
+	end
+end
+
 -- Rebuilds a card's contents when its Sockdex entry changed. Returns true if it changed after the
 -- first paint (so the caller can make it bounce).
 local function paint(card: Card, entry): boolean
@@ -270,6 +336,7 @@ local function paint(card: Card, entry): boolean
 	body.Name = "Body"
 	body.BackgroundTransparency = 1
 	body.Size = UDim2.fromScale(1, 1)
+	body.ZIndex = 2 -- over the 3D sock (which lives outside the body, so a repaint keeps it)
 	body.Parent = face
 	card.body = body
 
@@ -294,8 +361,7 @@ local function paint(card: Card, entry): boolean
 	bandText.TextTransparency = if found then 0 else 0.25
 	Theme.textStroke(bandText, rarityColor:Lerp(Theme.Color.Ink, 0.65), 1.5)
 
-	local art = SockCard.Icon(body, card.typeId, ICON, nil, if sockType.single then "S" else "R", not found)
-	art.Position = UDim2.new(0.5, -ICON / 2, 0, 27)
+	ensureViewer(card)
 
 	local name = Theme.label(body, if found then sockType.name else "???", 16, if found then Theme.Color.Text else Color3.fromRGB(184, 172, 214))
 	name.Name = "SockName"
@@ -339,7 +405,7 @@ local function paint(card: Card, entry): boolean
 end
 
 local function onCardTap(card: Card)
-	if card.sig == "-" or card.sig == "" then
+	if not isFound(card) then
 		Anim.wiggle(card.face, 6) -- not found yet
 		return
 	end
@@ -348,6 +414,8 @@ local function onCardTap(card: Card)
 		setNew(card, false)
 		refreshBadge()
 	end
+	hoverCard = nil -- its SockCard shows the animated sock now
+	refreshMotion()
 	SockCard.ShowType(card.typeId)
 end
 
@@ -369,11 +437,27 @@ local function buildCard(t, order: number): Card
 	Theme.gradient(face, WHITE, WHITE)
 	face.Parent = cell
 	cell.Parent = grid
-	local card: Card = { typeId = t.id, cell = cell, face = face, body = nil, sig = "", tag = nil }
+	local card: Card = { typeId = t.id, cell = cell, face = face, body = nil, sig = "", tag = nil, viewer = nil }
 	Anim.button(face, "click")
 	face.Activated:Connect(function()
 		onCardTap(card)
 	end)
+	-- hover plays the sock's idle (mouse only: on a phone a touch is a tap or a scroll)
+	if not Theme.IsTouch then
+		face.MouseEnter:Connect(function()
+			if SockCard.IsOpen() then
+				return -- the pointer is over the sock card on top, not this one
+			end
+			hoverCard = card
+			refreshMotion()
+		end)
+		face.MouseLeave:Connect(function()
+			if hoverCard == card then
+				hoverCard = nil
+				refreshMotion()
+			end
+		end)
+	end
 	return card
 end
 
@@ -623,14 +707,22 @@ local function markNew(typeId: string)
 		return
 	end
 	unseen[typeId] = true
+	newestId = typeId
 	setNew(card, true)
 	refreshBadge()
+	refreshMotion()
 end
 
 local function onOpen()
 	viewing = true
 	relayout()
 	paintAll(false)
+	if not everOpened then
+		everOpened = true -- first open: now make the 3D socks
+		for _, card in ipairs(cardList) do
+			ensureViewer(card)
+		end
+	end
 	-- the bar refills from empty and the count rolls up every time the book opens
 	lastPct = -1
 	fill.Size = UDim2.fromScale(0, 1)
@@ -644,11 +736,15 @@ local function onOpen()
 	end
 	Anim.stagger(faces, 0.02)
 	refreshBadge()
+	refreshMotion()
 end
 
 local function onClose()
 	viewing = false
 	hideTip()
+	hoverCard = nil
+	newestId = nil
+	refreshMotion() -- every sock stands still while the book is closed
 	for typeId in pairs(unseen) do
 		local card = cards[typeId]
 		if card then
@@ -822,6 +918,7 @@ function DexUI.SetState(state)
 	if built then
 		paintAll(viewing)
 		updateProgress(viewing)
+		refreshMotion() -- a find that just turned from silhouette to sock may be the newest
 	end
 	refreshBadge()
 end

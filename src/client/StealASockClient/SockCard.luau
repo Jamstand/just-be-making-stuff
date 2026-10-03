@@ -1,22 +1,27 @@
--- SockCard: the sock pop-up, and the procedural sock icon the Sockdex shares.
---  * ShowSlot(i): a sock in your drawer - big swaying sock on a little sunburst, rarity ribbon,
---    mutation / side / stink chips, income counting up, pair status, the Sockdex halves you have,
---    and a two-tap "Sell for $X" button (SellSock remote). If the sock leaves your drawer while the
---    card is open (stolen), the card says so and closes itself.
+-- SockCard: the sock pop-up, and the sock pictures the Sockdex shares.
+--  * ShowSlot(i): a sock in your drawer - the real 3D sock, animated (SockAnim), on a little
+--    sunburst, rarity ribbon, mutation / side / stink chips, income counting up, pair status, the
+--    Sockdex halves you have, and a two-tap "Sell for $X" button (SellSock remote; the sock in your
+--    drawer waves goodbye first). If the sock leaves your drawer while the card is open (stolen),
+--    the card says so and closes itself.
 --  * ShowType(typeId): a Sockdex entry - the same card, info only.
 -- It is an overlay (Menu.ShowOverlay), so it opens over the Sockdex panel or straight from the HUD's
 -- drawer list without closing anything. On short screens the whole card scales down to fit.
 --
--- Shared helpers (no image assets anywhere): SockCard.Icon draws a cartoon sock from Frames in the
--- type's colours (silhouette + "?" for unfound types), SockCard.RarityStyle / Paint give rarity
--- candy colours, SockCard.HalfBadge draws the little L / R / 1 badges.
+-- Shared helpers (no image assets anywhere): SockCard.Viewer shows the sock's 3D model (the template
+-- in ReplicatedStorage.SockMeshes) in a ViewportFrame, falling back to SockCard.Icon - a cartoon
+-- sock drawn from Frames in the type's colours (silhouette + "?" for unfound types) - while the
+-- template is missing. SockCard.RarityStyle / Paint give rarity candy colours, SockCard.HalfBadge
+-- draws the little L / R / 1 badges.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = Shared:WaitForChild("Config")
 local Util = require(Shared:WaitForChild("Util"))
 local SockConfig = require(Config:WaitForChild("SockConfig"))
+local RarityConfig = require(Config:WaitForChild("RarityConfig"))
 local MutationConfig = require(Config:WaitForChild("MutationConfig"))
 local DexConfig = require(Config:WaitForChild("DexConfig"))
 
@@ -335,6 +340,743 @@ function SockCard.Icon(parent: Instance?, typeId: string, size: number, mutation
 	return root
 end
 
+-- ---------- SockAnim (optional) ----------
+
+-- SockAnim brings the 3D socks to life (bones, or the whole model when a mesh has none). It is
+-- optional here: it loads in the background and every call into it is guarded, so if it is missing
+-- or broken the menus still work and just show still socks.
+local sockAnimModule: any = nil
+local sockAnimState = "idle" -- "idle" | "loading" | "ready" | "failed"
+
+local function loadSockAnim()
+	if sockAnimState ~= "idle" then
+		return
+	end
+	local module = script.Parent:FindFirstChild("SockAnim")
+	if not (module and module:IsA("ModuleScript")) then
+		return -- not there (yet): the next sockAnim() looks again
+	end
+	sockAnimState = "loading"
+	local ok, loaded = pcall(require, module)
+	if ok and type(loaded) == "table" then
+		sockAnimModule = loaded
+		sockAnimState = "ready"
+	else
+		sockAnimState = "failed"
+		warn("[SockCard] SockAnim failed to load - menu socks stay still: " .. tostring(loaded))
+	end
+end
+
+-- The SockAnim module, or nil. Never yields: the first call starts loading it in the background.
+local function sockAnim(): any
+	if sockAnimState == "idle" then
+		task.spawn(loadSockAnim)
+	end
+	return sockAnimModule
+end
+
+-- ---------- the 3D sock viewer ----------
+
+local FOV = 30 -- narrow: little perspective distortion on a small sock
+local YAW = math.rad(24) -- the 3/4 view: the camera stands a little toward the toe
+local PITCH = math.rad(9) -- and a little above
+local AMBIENT = Color3.fromRGB(172, 166, 182) -- soft and even: the textures already carry painted shading
+local LIGHT = Color3.fromRGB(128, 120, 110) -- a warm key light from the upper left
+local NEON_AMBIENT = Color3.fromRGB(236, 230, 242) -- Glow / Static / Lint Galaxy: lit flat and bright
+local NEON_LIGHT = Color3.fromRGB(60, 56, 52)
+local UNKNOWN_TEXT = Color3.fromRGB(196, 178, 228)
+local TEMPLATE_WAIT = 6 -- seconds a viewer keeps looking for a template that isn't there yet
+-- never copied into a menu model: nothing may run or play there (lights and particles don't
+-- render in a ViewportFrame anyway)
+local STRIP = { "LuaSourceContainer", "Sound", "Light", "ParticleEmitter", "Beam", "Trail", "Fire", "Smoke", "Sparkles", "Highlight", "ProximityPrompt", "ClickDetector" }
+
+type Prepared = { master: Model, minV: Vector3, maxV: Vector3, toe: number }
+
+local preparedCache = {} :: { [Instance]: Prepared }
+local gaveUp = {} :: { [string]: boolean } -- "<TypeId>_<Side>" waited for in vain: don't wait again
+
+local function endsWith(name: string, suffix: string): boolean
+	return #name >= #suffix and string.sub(name, -#suffix) == suffix
+end
+
+local function isMarker(name: string): boolean
+	return endsWith(name, "_Base") or endsWith(name, "_Unit") or endsWith(name, "_Pin")
+end
+
+-- The rarity's glow colour (SECRET's own colour is near black, so it glows lilac).
+local function rarityTint(rarity: string): Color3
+	return if rarity == "Secret" then Color3.fromRGB(170, 150, 255) else Theme.RarityColor(rarity)
+end
+
+-- World-axis bounds of the parts you see (the outline hull included: it is the visible rim).
+local function visibleBounds(model: Model): (Vector3?, Vector3?)
+	local minV: Vector3? = nil
+	local maxV: Vector3? = nil
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") and d.Transparency < 1 and not isMarker(d.Name) then
+			local cf, h = d.CFrame, d.Size / 2
+			for _, sx in ipairs({ -1, 1 }) do
+				for _, sy in ipairs({ -1, 1 }) do
+					for _, sz in ipairs({ -1, 1 }) do
+						local p = cf * Vector3.new(h.X * sx, h.Y * sy, h.Z * sz)
+						minV = if minV then minV:Min(p) else p
+						maxV = if maxV then maxV:Max(p) else p
+					end
+				end
+			end
+		end
+	end
+	return minV, maxV
+end
+
+-- A menu copy of a template. The templates in ReplicatedStorage.SockMeshes are raw imports, so this
+-- does what the server's MeshTemplate.Prepare does: turn the model so its front (_Base -> _Unit)
+-- faces +Z, scale 1 unit to 1 stud, and hide the markers. It also stands the floor point (_Base) on
+-- the origin with a world-aligned pivot there, and anchors everything. Templates without markers
+-- get the Part sock's height and stand on their bounding box. Nil when the template is unusable.
+local function prepare(template: Instance): Prepared?
+	local ok, clone = pcall(function()
+		return template:Clone()
+	end)
+	if not ok or clone == nil then
+		return nil -- Archivable is off
+	end
+	local model: Model
+	if clone:IsA("Model") then
+		model = clone
+	elseif clone:IsA("BasePart") then
+		model = Instance.new("Model")
+		model.Name = clone.Name
+		clone.Parent = model
+		model.PrimaryPart = clone
+	else
+		clone:Destroy()
+		return nil
+	end
+	for _, d in ipairs(model:GetDescendants()) do
+		for _, class in ipairs(STRIP) do
+			if d:IsA(class) then
+				d:Destroy()
+				break
+			end
+		end
+	end
+	local base: BasePart? = nil
+	local unit: BasePart? = nil
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			if base == nil and endsWith(d.Name, "_Base") then
+				base = d
+			elseif unit == nil and endsWith(d.Name, "_Unit") then
+				unit = d
+			end
+		end
+	end
+	local origin: Vector3
+	if base and unit then
+		local offset = unit.Position - base.Position
+		local flat = Vector3.new(offset.X, 0, offset.Z)
+		if flat.Magnitude > 1e-4 then
+			-- turn about the Base marker so the front points along +Z
+			local angle = math.atan2(flat.X, flat.Z)
+			local pivot = CFrame.new(base.Position)
+			model:PivotTo(pivot * CFrame.Angles(0, -angle, 0) * pivot:Inverse() * model:GetPivot())
+		end
+		if offset.Magnitude > 1e-4 then
+			model:ScaleTo(model:GetScale() / offset.Magnitude)
+		end
+		origin = base.Position
+	else
+		local lo, hi = visibleBounds(model)
+		local height = if lo and hi then hi.Y - lo.Y else 0
+		if height <= 1e-3 then
+			model:Destroy()
+			return nil
+		end
+		model:ScaleTo(model:GetScale() * (4.5 / height)) -- leg + foot of the Part sock
+		lo, hi = visibleBounds(model)
+		if not (lo and hi) then
+			model:Destroy()
+			return nil
+		end
+		origin = Vector3.new((lo.X + hi.X) / 2, lo.Y, (lo.Z + hi.Z) / 2)
+	end
+	model:PivotTo(CFrame.new(-origin) * model:GetPivot())
+	-- world-aligned pivot on the floor point (now the origin), like the server's Prepare
+	local primary = model.PrimaryPart
+	if primary then
+		primary.PivotOffset = primary.CFrame:Inverse()
+	else
+		model.WorldPivot = CFrame.new()
+	end
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			d.CanCollide = false
+			d.CanQuery = false
+			d.CanTouch = false
+			d.CastShadow = false
+			if isMarker(d.Name) then
+				d.Transparency = 1
+			end
+		end
+	end
+	local minV, maxV = visibleBounds(model)
+	if not (minV and maxV) then
+		model:Destroy()
+		return nil
+	end
+	-- which way the toe points (+1 = +X, a right sock): the 3/4 camera stands on that side
+	local midX = (minV.X + maxV.X) / 2
+	local toe = if midX < -0.05 * (maxV.X - minV.X) then -1 else 1
+	return { master = model, minV = minV, maxV = maxV, toe = toe }
+end
+
+-- The template for a sock: "<TypeId>_<Side>", else "<TypeId>" (what the Factory looks for), else
+-- the other half (a 3D sock pointing the wrong way still beats the drawn one).
+local function findTemplate(typeId: string, side: string?): Instance?
+	local folder = ReplicatedStorage:FindFirstChild("SockMeshes")
+	if not folder then
+		return nil
+	end
+	local s = side or "R"
+	local found = folder:FindFirstChild(typeId .. "_" .. s) or folder:FindFirstChild(typeId)
+	if not found and s ~= "S" then
+		found = folder:FindFirstChild(typeId .. (if s == "L" then "_R" else "_L"))
+	end
+	return found
+end
+
+local function preparedFor(typeId: string, side: string?): Prepared?
+	local template = findTemplate(typeId, side)
+	if not template then
+		return nil
+	end
+	local cached = preparedCache[template]
+	if not cached then
+		local ok, fresh = pcall(prepare, template)
+		if not ok then
+			warn("[SockCard] couldn't prepare " .. template:GetFullName() .. " for the menus: " .. tostring(fresh))
+			return nil
+		elseif not fresh then
+			return nil
+		end
+		cached = fresh
+		preparedCache[template] = fresh
+	end
+	return cached
+end
+
+-- A camera that fits the box (plus `headroom` x its height on top, room for hops) into a square
+-- viewport from the 3/4 angle with `margin` to spare, and centres it.
+local function frameCamera(minV: Vector3, maxV: Vector3, yaw: number, margin: number, headroom: number): CFrame
+	local top = maxV + Vector3.new(0, (maxV.Y - minV.Y) * headroom, 0)
+	local corners = {}
+	for _, x in ipairs({ minV.X, top.X }) do
+		for _, y in ipairs({ minV.Y, top.Y }) do
+			for _, z in ipairs({ minV.Z, top.Z }) do
+				table.insert(corners, Vector3.new(x, y, z))
+			end
+		end
+	end
+	local rot = CFrame.Angles(0, yaw, 0) * CFrame.Angles(-PITCH, 0, 0)
+	local t = math.tan(math.rad(FOV) / 2) / margin
+	local focus = (minV + top) / 2
+	local dist = 1
+	for pass = 1, 3 do
+		-- far enough that every corner fits: |x|, |y| <= (dist - z) * t (camera space, +z toward the camera)
+		dist = 1
+		for _, c in ipairs(corners) do
+			local p = rot:VectorToObjectSpace(c - focus)
+			dist = math.max(dist, p.Z + math.max(math.abs(p.X), math.abs(p.Y)) / t, p.Z + 1)
+		end
+		if pass == 3 then
+			break
+		end
+		-- then aim so the box's picture sits in the middle
+		local loX, hiX, loY, hiY = math.huge, -math.huge, math.huge, -math.huge
+		for _, c in ipairs(corners) do
+			local p = rot:VectorToObjectSpace(c - focus)
+			local depth = math.max(dist - p.Z, 1e-3)
+			loX = math.min(loX, p.X / depth)
+			hiX = math.max(hiX, p.X / depth)
+			loY = math.min(loY, p.Y / depth)
+			hiY = math.max(hiY, p.Y / depth)
+		end
+		focus += rot:VectorToWorldSpace(Vector3.new((loX + hiX) / 2, (loY + hiY) / 2, 0) * dist)
+	end
+	return CFrame.new(focus) * rot * CFrame.new(0, 0, dist)
+end
+
+local function circle(parent: Instance, scale: number, z: number): Frame
+	local f = Instance.new("Frame")
+	f.Name = "Glow"
+	f.AnchorPoint = Vector2.new(0.5, 0.5)
+	f.Position = UDim2.fromScale(0.5, 0.52)
+	f.Size = UDim2.fromScale(scale, scale)
+	f.BackgroundColor3 = WHITE
+	f.BackgroundTransparency = 1
+	f.BorderSizePixel = 0
+	f.ZIndex = z
+	f.Visible = false
+	Theme.corner(f, UDim.new(0.5, 0))
+	f.Parent = parent
+	return f
+end
+
+-- SockCard.Viewer(parent, typeId?, side?, opts?) -> viewer: the sock's real 3D model in a
+-- ViewportFrame (inside a WorldModel, which bones need to deform), turned to face the camera from a
+-- slight 3/4 angle and framed to fill the square.
+--   opts: size (px, default 100), iconSize (the drawn fallback, default 83% of size), mutation,
+--   silhouette (an unfound type: dark shape + "?"), rarityGlow (a soft glow in the rarity colour
+--   behind it), roomy (extra room round the sock for SockAnim's hops and show-offs), zIndex.
+--   viewer.Frame: the transparent square to place.
+--   viewer:SetSock(typeId?, side?, mutation?), :SetSilhouette(on), :SetAnimated(on) (SockAnim's
+--   "ui" idle while on; a still pose when off, with Reduce motion or without SockAnim),
+--   :Moment(kind) (a SockAnim one-shot, e.g. "showoff"), :Is3D(), :Destroy().
+-- Mutations are approximated (the server's effects aren't on the template): a tint on the render,
+-- a coloured halo, sparks / stars, and Rainbow cycles its hue while animated. Until the template is
+-- in ReplicatedStorage.SockMeshes (it may still be arriving, or was never imported) the viewer
+-- shows the drawn SockCard.Icon instead.
+function SockCard.Viewer(parent: Instance?, typeId: string?, side: string?, opts: { [string]: any }?)
+	local o = opts or {}
+	local size: number = if type(o.size) == "number" then o.size else 100
+	local iconSize: number = if type(o.iconSize) == "number" then o.iconSize else math.floor(size * 0.83)
+	local roomy = o.roomy == true
+	local rarityGlow = o.rarityGlow == true
+
+	local root = Instance.new("Frame")
+	root.Name = "SockViewer"
+	root.BackgroundTransparency = 1
+	root.Size = UDim2.fromOffset(size, size)
+	root.ZIndex = if type(o.zIndex) == "number" then o.zIndex else 1
+	local glowOuter = circle(root, 1, 1)
+	local glowInner = circle(root, 0.7, 1)
+	local decor = Instance.new("Frame") -- sparks / stars over the sock
+	decor.Name = "Decor"
+	decor.BackgroundTransparency = 1
+	decor.Size = UDim2.fromScale(1, 1)
+	decor.ZIndex = 4
+	decor.Parent = root
+	root.Parent = parent
+
+	local vp: ViewportFrame? = nil
+	local world: WorldModel? = nil
+	local cam: Camera? = nil
+	local prep: Prepared? = nil
+	local model: Model? = nil
+	local fallback: Frame? = nil
+	local question: TextLabel? = nil
+
+	local curType: string? = nil
+	local curSide: string? = nil
+	local curMutation: string? = nil
+	local silhouette = o.silhouette == true
+	local animated = false
+	local loading = false
+	local handle: any = nil -- SockAnim.Attach's handle
+	local idleConn: RBXScriptConnection? = nil -- the stand-in idle when SockAnim is missing
+	local rainbowConn: RBXScriptConnection? = nil
+	local pendingMoment: string? = nil
+	local pendingAt = 0
+	local token = 0
+	local destroyed = false
+
+	local function stopRainbow()
+		if rainbowConn then
+			rainbowConn:Disconnect()
+			rainbowConn = nil
+		end
+	end
+
+	local function paintRainbow(hue: number)
+		glowOuter.BackgroundColor3 = Color3.fromHSV(hue, 0.7, 1)
+		glowInner.BackgroundColor3 = Color3.fromHSV((hue + 0.15) % 1, 0.7, 1)
+		if vp and not silhouette then
+			vp.ImageColor3 = Color3.fromHSV(hue, 0.4, 1)
+		end
+	end
+
+	local function spark(x: number, y: number, w: number, h: number, color: Color3, rotation: number)
+		local f = Instance.new("Frame")
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromScale(x, y)
+		f.Size = UDim2.fromScale(w, h)
+		f.BackgroundColor3 = color
+		f.BorderSizePixel = 0
+		f.Rotation = rotation
+		Theme.corner(f, UDim.new(0.2, 0))
+		f.Parent = decor
+	end
+
+	local function setQuestion(on: boolean)
+		if on and not question then
+			local q = Theme.label(root, "?", math.floor(iconSize * 0.34), UNKNOWN_TEXT)
+			q.Name = "Unknown"
+			q.AnchorPoint = Vector2.new(0.5, 0.5)
+			q.Position = UDim2.fromScale(0.5, 0.52)
+			q.Size = UDim2.fromScale(0.6, 0.6)
+			q.ZIndex = 5
+			question = q
+		elseif not on and question then
+			question:Destroy()
+			question = nil
+		end
+	end
+
+	-- glow, tint, lighting and sparks for the current sock / mutation / silhouette state
+	local function applyLook()
+		stopRainbow()
+		decor:ClearAllChildren()
+		local sockType = if curType then SockConfig.ById[curType] else nil
+		local m = if curMutation and not silhouette then MutationConfig.Table[curMutation] else nil
+		if m and m.display == "" then
+			m = nil -- "None"
+		end
+		local glow: Color3? = nil
+		local strength = 0
+		if m then
+			glow = m.color or (if sockType then sockType.color else WHITE)
+			strength = if m.material == Enum.Material.Neon then 1 else 0.7
+		elseif rarityGlow and sockType and not silhouette then
+			glow = rarityTint(sockType.rarity)
+			local tier = RarityConfig.Tiers[sockType.rarity]
+			strength = if tier then math.clamp((tier.rank - 1) / 6, 0, 1) else 0
+		end
+		glowOuter.Visible = glow ~= nil
+		glowInner.Visible = glow ~= nil
+		if glow then
+			glowOuter.BackgroundColor3 = glow
+			glowInner.BackgroundColor3 = glow
+			glowOuter.BackgroundTransparency = 0.9 - 0.12 * strength
+			glowInner.BackgroundTransparency = 0.84 - 0.18 * strength
+		end
+		if vp then
+			if silhouette then
+				-- black where the sock is, a little see-through: a dark shape on the dark card
+				vp.Ambient = AMBIENT
+				vp.LightColor = LIGHT
+				vp.ImageColor3 = BLACK
+				vp.ImageTransparency = 0.35
+			else
+				local neon = m ~= nil and m.material == Enum.Material.Neon
+				vp.Ambient = if neon then NEON_AMBIENT else AMBIENT
+				vp.LightColor = if neon then NEON_LIGHT else LIGHT
+				vp.ImageColor3 = if m and m.color then WHITE:Lerp(m.color, 0.45) else WHITE
+				vp.ImageTransparency = 0
+			end
+		end
+		setQuestion(silhouette and model ~= nil)
+		if not m or fallback then
+			return -- the drawn icon has its own mutation bits
+		end
+		if curMutation == "Static" then
+			for _, p in ipairs({ { 0.17, 0.3 }, { 0.84, 0.42 }, { 0.14, 0.64 } }) do
+				spark(p[1], p[2], 0.035, 0.1, Color3.fromRGB(255, 240, 120), 25) -- lightning
+			end
+		elseif curMutation == "LintGalaxy" or curMutation == "GoldenThread" then
+			local color = if curMutation == "LintGalaxy" then WHITE else Color3.fromRGB(255, 226, 120)
+			for _, p in ipairs({ { 0.24, 0.24 }, { 0.78, 0.3 }, { 0.82, 0.72 }, { 0.2, 0.7 } }) do
+				spark(p[1], p[2], 0.04, 0.04, color, 45) -- twinkles
+			end
+		elseif curMutation == "Rainbow" then
+			paintRainbow(0.85)
+			if animated and not Anim.Reduced then
+				local last = 0
+				rainbowConn = RunService.Heartbeat:Connect(function()
+					local now = os.clock()
+					if now - last >= 0.05 then
+						last = now
+						paintRainbow((now * 0.25) % 1)
+					end
+				end)
+			end
+		end
+	end
+
+	local function ensureViewport(): (ViewportFrame, WorldModel, Camera)
+		if vp and world and cam then
+			return vp, world, cam
+		end
+		local f = Instance.new("ViewportFrame")
+		f.Name = "Viewport"
+		f.BackgroundTransparency = 1
+		f.Size = UDim2.fromScale(1, 1)
+		f.ZIndex = 2
+		f.Ambient = AMBIENT
+		f.LightColor = LIGHT
+		f.Parent = root
+		local w = Instance.new("WorldModel")
+		w.Parent = f
+		local c = Instance.new("Camera")
+		c.FieldOfView = FOV
+		c.Parent = f
+		f.CurrentCamera = c
+		vp, world, cam = f, w, c
+		return f, w, c
+	end
+
+	local function clearModel()
+		if model then
+			model:Destroy()
+			model = nil
+		end
+	end
+
+	-- a fresh copy of the prepared model, in its rest pose
+	local function placeModel()
+		clearModel()
+		if prep and world then
+			local copy = prep.master:Clone()
+			copy.Parent = world
+			model = copy
+		end
+	end
+
+	local function show3D(p: Prepared)
+		prep = p
+		local f, _, c = ensureViewport()
+		f.Visible = true
+		placeModel()
+		local cf = frameCamera(p.minV, p.maxV, YAW * p.toe, if roomy then 1.22 else 1.1, if roomy then 0.14 else 0)
+		c.CFrame = cf
+		f.LightDirection = cf:VectorToWorldSpace(Vector3.new(0.55, -0.8, -0.6)).Unit -- from the upper left, in front
+		if fallback then
+			fallback:Destroy()
+			fallback = nil
+		end
+		applyLook()
+	end
+
+	local function showFallback()
+		if fallback then
+			fallback:Destroy()
+			fallback = nil
+		end
+		clearModel()
+		prep = nil
+		if vp then
+			vp.Visible = false
+		end
+		if curType then
+			local icon = SockCard.Icon(root, curType, iconSize, curMutation, curSide, silhouette)
+			icon.AnchorPoint = Vector2.new(0.5, 0.5)
+			icon.Position = UDim2.fromScale(0.5, 0.52)
+			icon.ZIndex = 3
+			fallback = icon
+		end
+		applyLook()
+	end
+
+	local function playMoment(kind: string)
+		local anim = sockAnim()
+		if handle and model and anim and type(anim.Moment) == "function" then
+			local ok, err = pcall(anim.Moment, model, kind)
+			if not ok then
+				warn("[SockCard] SockAnim.Moment failed: " .. tostring(err))
+			end
+		elseif not Anim.Reduced then
+			Anim.bump(root, 1.08)
+		end
+	end
+
+	-- `reset`: put a fresh copy back, so the still pose is the rest pose whatever the animation left
+	local function stopMotion(reset: boolean)
+		if handle then
+			local h = handle
+			handle = nil
+			local ok, err = pcall(function()
+				h:Destroy()
+			end)
+			if not ok then
+				warn("[SockCard] SockAnim handle:Destroy failed: " .. tostring(err))
+			end
+			if reset then
+				placeModel()
+			end
+		end
+		if idleConn then
+			idleConn:Disconnect()
+			idleConn = nil
+			if reset and model then
+				model:PivotTo(CFrame.new())
+			end
+		end
+		if fallback then
+			Anim.stop(fallback, "sway")
+			Anim.stop(fallback, "pulse")
+			fallback.Rotation = 0
+			Anim.scale(fallback).Scale = 1
+		end
+	end
+
+	local function startMotion()
+		if not animated or destroyed or silhouette or Anim.Reduced or handle or idleConn then
+			return
+		end
+		local m = model
+		if m and curType then
+			local anim = sockAnim()
+			if anim and type(anim.Attach) == "function" then
+				local sockType = SockConfig.ById[curType]
+				local info = { typeId = curType, side = curSide, rarity = if sockType then sockType.rarity else nil, mutation = curMutation }
+				local ok, result = pcall(anim.Attach, m, "ui", info)
+				if ok and result ~= nil then
+					handle = result
+				elseif not ok then
+					warn("[SockCard] SockAnim.Attach failed: " .. tostring(result))
+				end
+			end
+			if not handle then
+				-- no SockAnim: a gentle rock and bob, so the card still feels alive
+				local t0 = os.clock()
+				idleConn = RunService.Heartbeat:Connect(function()
+					local t = os.clock() - t0
+					m:PivotTo(CFrame.new(0, math.abs(math.sin(t * 2.4)) * 0.12, 0) * CFrame.Angles(0, math.sin(t * 1.3) * 0.2, math.sin(t * 2.4) * 0.04))
+				end)
+			end
+			if pendingMoment and os.clock() - pendingAt < 2 then
+				playMoment(pendingMoment)
+			end
+			pendingMoment = nil
+		elseif fallback then
+			Anim.sway(fallback, 5, 2.6)
+			Anim.pulse(fallback, 1.04, 2.2)
+		end
+	end
+
+	local function cleanup()
+		token += 1
+		stopMotion(false)
+		stopRainbow()
+	end
+
+	local viewer = {}
+	viewer.Frame = root
+
+	function viewer:SetSock(newType: string?, newSide: string?, newMutation: string?)
+		if destroyed then
+			return
+		end
+		token += 1
+		local myToken = token
+		stopMotion(false)
+		pendingMoment = nil
+		loading = false
+		curType, curSide, curMutation = newType, newSide, newMutation
+		if not newType then
+			showFallback()
+			return
+		end
+		local id: string = newType
+		local p = preparedFor(id, newSide)
+		if p then
+			show3D(p)
+		else
+			showFallback()
+			local key = id .. "_" .. (newSide or "R")
+			if not gaveUp[key] then
+				-- the template may still be arriving: keep looking for a few seconds
+				loading = true
+				task.spawn(function()
+					local deadline = os.clock() + TEMPLATE_WAIT
+					while os.clock() < deadline do
+						task.wait(0.5)
+						if destroyed or token ~= myToken then
+							return
+						end
+						local later = preparedFor(id, newSide)
+						if later then
+							loading = false
+							stopMotion(false)
+							show3D(later)
+							startMotion()
+							return
+						end
+					end
+					gaveUp[key] = true
+					if token == myToken then
+						loading = false
+						pendingMoment = nil
+					end
+				end)
+			end
+		end
+		startMotion()
+	end
+
+	function viewer:SetSilhouette(on: boolean)
+		if destroyed or silhouette == on then
+			return
+		end
+		silhouette = on
+		if on then
+			stopMotion(true)
+		end
+		if fallback then
+			showFallback() -- redraw the drawn icon dark (or in colour)
+		else
+			applyLook()
+		end
+		startMotion()
+	end
+
+	function viewer:SetAnimated(on: boolean)
+		if destroyed or animated == on then
+			return
+		end
+		animated = on
+		if on then
+			startMotion()
+		else
+			pendingMoment = nil
+			stopMotion(true)
+		end
+		if curMutation == "Rainbow" then
+			applyLook() -- the hue only cycles while animated
+		end
+	end
+
+	function viewer:Moment(kind: string)
+		if destroyed or silhouette or Anim.Reduced then
+			return
+		end
+		if loading and animated then
+			pendingMoment = kind -- the 3D sock is still on its way: show off when it arrives
+			pendingAt = os.clock()
+		else
+			playMoment(kind)
+		end
+	end
+
+	function viewer:Is3D(): boolean
+		return model ~= nil
+	end
+
+	function viewer:Destroy()
+		if destroyed then
+			return
+		end
+		destroyed = true
+		cleanup()
+		root:Destroy()
+	end
+
+	root.Destroying:Once(function()
+		if not destroyed then
+			destroyed = true
+			cleanup()
+		end
+	end)
+
+	if typeId then
+		viewer:SetSock(typeId, side, o.mutation)
+	else
+		applyLook()
+	end
+	return viewer
+end
+
 -- ---------- remotes ----------
 
 -- Calls a menu RemoteFunction without ever erroring, and gives up after REMOTE_TIMEOUT seconds,
@@ -381,7 +1123,7 @@ local rays: Frame
 local rayBars = {} :: { Frame }
 local disc: Frame
 local discStroke: UIStroke
-local icon: Frame? = nil
+local sockView: any = nil -- SockCard.Viewer: the 3D sock on the stage
 local nameLabel: TextLabel
 local chips: Frame
 local rowKeys = {} :: { TextLabel }
@@ -550,6 +1292,9 @@ local function setPair(sockType, paired: boolean, perfect: boolean, side: string
 	end
 	if pairValue.Text ~= text and isOpen and mode ~= nil and pairValue.Text ~= "" then
 		Anim.bump(pairValue, 1.15)
+		if (paired or perfect) and sockView then
+			sockView:Moment("paired") -- it just found its other half while you watch
+		end
 	end
 	pairValue.Text = text
 	pairValue.TextColor3 = color
@@ -645,6 +1390,16 @@ local function doSell()
 	local uid = shownUid
 	local token = showToken
 	local price = sellPrice
+	-- the real sock in your drawer waves goodbye and poofs (SockAnim, optional) as it is sold
+	local anim = sockAnim()
+	if anim and type(anim.Goodbye) == "function" then
+		task.spawn(function()
+			local ok, err = pcall(anim.Goodbye, uid)
+			if not ok then
+				warn("[SockCard] SockAnim.Goodbye failed: " .. tostring(err))
+			end
+		end)
+	end
 	task.spawn(function()
 		local res = invoke("SellSock", uid)
 		sell.busy = false
@@ -686,9 +1441,8 @@ local function onHidden(token: number)
 	sell.armed = false
 	sell.token += 1
 	sellTimer.Visible = false
-	if icon then
-		Anim.stop(icon, "sway")
-		Anim.stop(icon, "pulse")
+	if sockView then
+		sockView:SetAnimated(false) -- no animation while nobody can see the card
 	end
 end
 
@@ -707,22 +1461,11 @@ local function present(typeId: string, rarity: string, displayName: string, muta
 	updateFit()
 
 	buildRibbon(rarity)
-	local tint = if rarity == "Secret" then Color3.fromRGB(170, 150, 255) else Theme.RarityColor(rarity)
+	local tint = rarityTint(rarity)
 	for _, bar in ipairs(rayBars) do
 		bar.BackgroundColor3 = tint
 	end
 	discStroke.Color = tint:Lerp(INK, 0.25)
-
-	if icon then
-		icon:Destroy()
-	end
-	local newIcon = SockCard.Icon(disc, typeId, 124, mutation, side, false)
-	newIcon.AnchorPoint = Vector2.new(0.5, 0.5)
-	newIcon.Position = UDim2.fromScale(0.5, 0.52)
-	newIcon.ZIndex = 3
-	icon = newIcon
-	Anim.sway(newIcon, 5, 2.6)
-	Anim.pulse(newIcon, 1.04, 2.2)
 	Anim.sway(rays, 12, 9)
 
 	nameLabel.Text = displayName
@@ -737,6 +1480,13 @@ local function present(typeId: string, rarity: string, displayName: string, muta
 	Menu.ShowOverlay(holder, function()
 		onHidden(token)
 	end)
+	-- the real sock: its idle animation while the card is up, and a show-off as it opens (after the
+	-- card is up, so nothing SockAnim does can hold the card back)
+	if sockView then
+		sockView:SetSock(typeId, side, mutation)
+		sockView:SetAnimated(true)
+		sockView:Moment("showoff")
+	end
 	-- a hide animation still finishing could hide the card again; make sure it stays up
 	task.delay(0.25, function()
 		if isOpen and token == showToken then
@@ -852,6 +1602,11 @@ function SockCard.Init()
 	Theme.gradient(disc, WHITE, Color3.fromRGB(236, 224, 206))
 	discStroke = Theme.stroke(disc, Theme.Color.Stroke, 4)
 	disc.Parent = stage
+	-- the 3D sock stands in front of the disc, a little bigger than it so a hop can peek out
+	sockView = SockCard.Viewer(stage, nil, nil, { size = 176, iconSize = 124, roomy = true, zIndex = 3 })
+	sockView.Frame.AnchorPoint = Vector2.new(0.5, 0.5)
+	sockView.Frame.Position = UDim2.fromScale(0.5, 0.5)
+	task.defer(loadSockAnim) -- load SockAnim now, so it is ready when the first card opens
 
 	nameLabel = Theme.label(card, "", 30, Theme.Color.Text)
 	nameLabel.Name = "SockName"
@@ -993,6 +1748,11 @@ function SockCard.SetState(state)
 			setHalves(shownType)
 		end
 	end
+end
+
+-- True while the card is up (the Sockdex keeps its own socks still under it).
+function SockCard.IsOpen(): boolean
+	return isOpen
 end
 
 -- A sock in your drawer, by slot number (does nothing for an empty slot).
