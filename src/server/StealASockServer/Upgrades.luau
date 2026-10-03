@@ -127,6 +127,8 @@ local function buy(player: Player, key: any)
 		if record then
 			S.Base.UpdateSlamPrompt(record)
 		end
+	elseif key == "Towel" then
+		S.Towel.Refresh(player) -- every level has its own towel look (ItemConfig.TowelLooks)
 	end
 
 	S.Celebrate(player, "upgrade", { key = key, level = nextLevel })

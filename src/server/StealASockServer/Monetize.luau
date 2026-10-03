@@ -4,6 +4,9 @@
 -- Test passes live only in this server's memory for the session; they are never saved.
 -- ProcessReceipt follows the ProfileStore pattern: grant once, remember the PurchaseId in
 -- profile.Data.receipts, and answer PurchaseGranted only after a save that contains it.
+-- Item unlocks (StoreConfig products with `item`, bought from the Item Shop's Items tab) unlock that
+-- item for good through Items.Unlock; a second grant just says it's already unlocked, and
+-- StorePurchase won't prompt an item the player already has.
 -- API: Monetize.Setup(player), Monetize.OnPlayerRemoving(player), Monetize.Owns(player, key),
 --      Monetize.IncomeMult(player), Monetize.LuckUntil(), Monetize.LuckMult(rank),
 --      Monetize.OnPassGranted(player, key), Monetize.GrantProduct(player, key) -> message,
@@ -297,6 +300,12 @@ function Monetize.GrantProduct(player: Player, key: string): string
 		after(S.Celebrate, player, "product", { key = key, display = product.display })
 		after(S.Income.Push, player)
 		return "Drawer slammed!"
+	elseif product.item then
+		-- Items.Unlock celebrates ("item") and pushes the state itself; already unlocked = nothing to do
+		if not S.Items.Unlock(player, product.item) then
+			return product.display .. " is already unlocked"
+		end
+		return product.display .. " unlocked!"
 	end
 	error("no grant for product " .. key)
 end
@@ -413,6 +422,9 @@ local function storePurchase(player: Player, kind: any, key: any)
 	if kind == "pass" and Monetize.Owns(player, key) then
 		return { ok = false, err = "You already own this!" }
 	end
+	if kind == "product" and item.item and S.Items.IsUnlocked(player, item.item) then
+		return { ok = false, err = "You already unlocked this!" }
+	end
 
 	if item.id == 0 then
 		if not RunService:IsStudio() then
@@ -460,7 +472,19 @@ function Monetize.Init(s)
 			table.insert(missing, key)
 		end
 	end
-	for _, key in ipairs(Store.ProductOrder) do
+	-- every product: the Store's tabs (ProductOrder) and the ones only the Item Shop sells (Item_*)
+	local productKeys = table.clone(Store.ProductOrder)
+	local extra = {}
+	for key in pairs(Store.Products) do
+		if not table.find(productKeys, key) then
+			table.insert(extra, key)
+		end
+	end
+	table.sort(extra)
+	for _, key in ipairs(extra) do
+		table.insert(productKeys, key)
+	end
+	for _, key in ipairs(productKeys) do
 		local product = Store.Products[key]
 		if product.id ~= 0 then
 			productKeyById[product.id] = key

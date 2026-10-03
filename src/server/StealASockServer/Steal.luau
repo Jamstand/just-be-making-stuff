@@ -1,6 +1,8 @@
 -- Steal: hold E on a sock in someone else's open drawer, carry it on your head (slower by
--- rarity), reach your own drawer's claim zone to keep it. Dying, leaving, a Towel Snap or a
--- slammed drawer sends it home. The victim's save keeps the sock until the thief claims it.
+-- rarity), reach your own drawer's claim zone to keep it. Dying, leaving, a Towel Snap, a slammed
+-- drawer or an item (banana peel, bubble, static balloon) sends it home. The victim's save keeps
+-- the sock until the thief claims it. Items can slow, stop or hide a player (Items.SpeedMult,
+-- Items.OnCarryChanged: picking up, keeping or dropping a sock pops you out of the Laundry Basket).
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
@@ -26,14 +28,14 @@ local function humanoid(player: Player): Humanoid?
 end
 
 -- WalkSpeed for the player's current state (carrying or not). Speed Socks (Upgrades) add speed
--- and take away part of the carry slowdown.
+-- and take away part of the carry slowdown; items multiply it (stun, Softener Cloud, Laundry Basket).
 function Steal.ApplySpeed(player: Player)
 	local h = humanoid(player)
 	if not h then
 		return
 	end
 	local carry = carriers[player]
-	local speed = S.Upgrades.WalkSpeed(player)
+	local speed = S.Upgrades.WalkSpeed(player) * (if S.Items then S.Items.SpeedMult(player) else 1)
 	if carry then
 		h.WalkSpeed = speed * S.Upgrades.CarrySpeedMult(player, S.Registry.Tier(carry.sock).carrySpeed)
 	else
@@ -159,6 +161,9 @@ function Steal.TryPickup(player: Player, sock)
 		return
 	end
 	carriers[player] = { sock = sock, victimBase = victimBase, lastFullToast = 0 }
+	if S.Items then
+		S.Items.OnCarryChanged(player)
+	end
 	Steal.ApplySpeed(player)
 	S.Pair.Recompute(victimBase)
 	S.Base.SyncToProfile(victimBase)
@@ -208,6 +213,9 @@ function Steal.Claim(player: Player)
 		return
 	end
 	local victimBase = carry.victimBase
+	if S.Items then
+		S.Items.OnCarryChanged(player) -- out of the basket first: the hidden sock shows again
+	end
 	carriers[player] = nil
 	detach(sock)
 	victimBase.away[sock.uid] = nil
@@ -245,11 +253,15 @@ function Steal.Claim(player: Player)
 	S.Income.Push(player)
 end
 
--- Sends the carried sock back to its owner's drawer. reason: "died" | "left" | "snapped" | "ejected" | "dropped"
+-- Sends the carried sock back to its owner's drawer. reason: "died" | "left" | "snapped" | "ejected"
+-- | "dropped" | "slipped" (banana peel) | "bubbled" (Bubble Blaster) | "zapped" (Static Balloon)
 function Steal.Return(player: Player, reason: string)
 	local carry = carriers[player]
 	if not carry then
 		return
+	end
+	if S.Items then
+		S.Items.OnCarryChanged(player) -- out of the basket first: the hidden sock shows again
 	end
 	carriers[player] = nil
 	local sock = carry.sock
@@ -286,6 +298,12 @@ function Steal.Return(player: Player, reason: string)
 			S.Toast(player, "The drawer slammed - you dropped the sock.", "bad")
 		elseif reason == "died" then
 			S.Toast(player, "You dropped the sock.", "bad")
+		elseif reason == "slipped" then
+			S.Toast(player, "You slipped and dropped the sock! 🍌", "bad")
+		elseif reason == "bubbled" then
+			S.Toast(player, "Bubbled! The sock floated home. 🫧", "bad")
+		elseif reason == "zapped" then
+			S.Toast(player, "ZAP! You dropped the sock. ⚡", "bad")
 		end
 		S.Income.Push(player)
 	end

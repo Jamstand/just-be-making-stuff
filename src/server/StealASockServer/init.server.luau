@@ -10,7 +10,7 @@ local ConfigFolder = Shared:WaitForChild("Config")
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 
 -- Remotes (see RemoteNames.luau). The menu RemoteFunctions get their handlers in the modules
--- that own them (Upgrades, Monetize, Purchase, Data, Dex).
+-- that own them (Upgrades, Monetize, Purchase, Data, Dex, Items).
 local remotes = Instance.new("Folder")
 remotes.Name = RemoteNames.Folder
 for _, name in ipairs(RemoteNames.Events) do
@@ -39,6 +39,7 @@ local S = {
 		Store = require(ConfigFolder:WaitForChild("StoreConfig")),
 		Settings = require(ConfigFolder:WaitForChild("SettingsConfig")),
 		Dex = require(ConfigFolder:WaitForChild("DexConfig")),
+		Item = require(ConfigFolder:WaitForChild("ItemConfig")),
 	},
 }
 
@@ -69,7 +70,7 @@ end
 -- Init order matters: each module may use the ones before it.
 local ORDER = {
 	"RateLimit", "Data", "Lighting", "Map", "Registry", "Factory", "Base", "Pair",
-	"Income", "Clothesline", "Purchase", "Steal", "Towel", "Upgrades", "Dex", "Monetize",
+	"Income", "Clothesline", "Purchase", "Steal", "Towel", "Upgrades", "Dex", "Monetize", "Items",
 }
 for _, name in ipairs(ORDER) do
 	S[name] = require(script:WaitForChild(name))
@@ -94,7 +95,7 @@ local function onPlayerAdded(player: Player)
 		return
 	end
 	S.Steal.Setup(player)
-	S.Towel.Setup(player)
+	S.Items.Setup(player) -- the item bar: Towel Snap + loadout tools on every spawn
 	S.Dex.Setup(player) -- records the socks already in the drawer (no rewards for those)
 	S.Monetize.Setup(player) -- game pass ownership, VIP tag, Golden Towel, slot row, pending drops
 	S.Income.Push(player)
@@ -107,6 +108,7 @@ for _, player in ipairs(Players:GetPlayers()) do
 end
 
 Players.PlayerRemoving:Connect(function(player)
+	S.Items.OnPlayerRemoving(player) -- out of the basket / bubble, their peel, duck and clouds go
 	S.Steal.OnPlayerRemoving(player) -- carried socks go home / steals of their socks fail
 	S.Towel.OnPlayerRemoving(player)
 	S.Monetize.OnPlayerRemoving(player)

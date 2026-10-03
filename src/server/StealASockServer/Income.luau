@@ -100,6 +100,7 @@ function Income.Push(player: Player)
 	end
 	local dex = S.Dex.View(player)
 	local carry = S.Steal.CarryView(player)
+	local items = S.Items.View(player)
 	S.Remotes.State:FireClient(player, {
 		cash = profile.Data.cash,
 		rate = record.rate,
@@ -119,6 +120,9 @@ function Income.Push(player: Player)
 		dexClaimed = dex.claimed,
 		pendingDrops = tonumber(profile.Data.pendingDrops) or 0,
 		settings = profile.Data.settings or {},
+		items = items.items,
+		loadout = items.loadout,
+		towelLook = items.towelLook,
 	})
 end
 
