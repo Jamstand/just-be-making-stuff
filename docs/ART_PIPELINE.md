@@ -37,6 +37,7 @@ nothing is hand-modelled and anything can be re-made with one command:
 | `sockfeat_d.py`, `_e.py` | the second wave's 13 types (6 + 7): their features, and their rigs (`RIG`) and texture hints too |
 | `props/<prop>.py` | one file per prop (`bed.py`, `dryer.py`, `ceilingfan.py`, `plant.py` for `PottedPlant`, …; the full list and the conventions are in `props/__init__.py`) |
 | `props/roomshell.py` + `roomtex.py` | `RoomShell` (into `MapMeshes`): the room's textured plank floor, starry wallpaper, cream trim, plaster ceiling and knitted play rug, plus glow-in-the-dark `CeilingStars` (Neon). Built at 1 stud per unit, so `Map` places it at scale 1 and turns the floor, wall and ceiling Parts invisible (they still collide). Its hand-painted seamless textures live in `assets/textures/steal-a-sock/`; `python tools/blender/roomtex.py` repaints them |
+| `items/<item>.py` | the item bar's models (into `ItemMeshes`): `towel.py` builds the seven Towel Snap looks (`Towel_Plain` … `Towel_Royal`, each with a whip skeleton `Root` + `Seg1`-`Seg6`), the others one item each (`BananaPeel`, `BubbleBlaster`, `AlarmDuck`, `SoftenerBottle` + `SoftenerPuff`, `DashSlippers`, `DryerSheet`, `LaundryBasket`, `StaticBalloon`); conventions in `items/__init__.py`. Built after everything else so the palette cells of older GLBs never move. See docs/ITEMS.md for how the game uses them |
 | `build_all.py` | runs everything and writes the files below |
 | `preview.py` | renders one asset, optionally next to a concept-art crop, without touching the repo: `python tools/blender/preview.py prop:Bed --views three,front --compare crop.png` |
 
@@ -56,6 +57,8 @@ inside-out copy, so Roblox only draws its rim), for socks a skeleton both meshes
 | `<Name>_Base` | the model's floor point |
 | `<Name>_Unit` | exactly 1 stud in front of `_Base`: says which way is the front (+Z) and how big 1 unit is |
 | `<Name>_Pin` | socks only: where the clothespin goes at the top of the leg |
+| `<Name>_Grip` | items only: where the right hand holds it (the Tool's grip) |
+| `<Name>_Tip` | items only: where an effect comes out (the towel's tip, the bubble ring, the spray nozzle) |
 
 `MeshTemplate.luau` uses them to turn the model to face +Z, scale it, anchor it and hide the
 markers; outlines get `CastShadow = false`. A few parts come in untextured and `Map` styles them by

@@ -11,7 +11,10 @@ Conventions every item module follows (like props/, with three additions):
 - `<NAME>_Grip`: a marker where the player's right hand holds it (held items), made with
   `grip(NAME, pos)` below. The game turns it into the Tool's grip: the hand at the marker, the
   item's FRONT (-Y) pointing forward out of the fist.
-- Colours: `hexcol("<item>_<what>", "#RRGGBB")`, item-prefixed (first registration wins).
+- Colours: `hexcol("<item>_<what>", "#RRGGBB")`, item-prefixed (first registration wins), registered
+  inside build() (e.g. a `_colours()` it calls first), never at module level: a colour registered
+  when the module is imported would take a palette cell ahead of the socks' and shift them
+  (build_all.py also imports the item modules only after building the socks and props).
 - `MATERIALS` / `TEXTURE_SIZE` as in props; optional `rig(name, objs) -> armature or None`, called
   after the bake (bones + weights only, like rigging.rig_sock), for items that bend (the towel).
 - Keep each exported object under ~10k triangles (body and outline separately).

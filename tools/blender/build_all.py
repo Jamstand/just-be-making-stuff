@@ -29,6 +29,7 @@ textured spin parts) gets its own hand-painted JPEG texture baked by texturing.p
 parts and markers keep the flat palette. Every sock GLB also carries a skeleton (rigging.py: one
 armature `<Name>_Rig`, one glTF skin shared by the body and the outline). See docs/ART_PIPELINE.md.
 """
+import math
 import os
 import sys
 
@@ -37,6 +38,7 @@ sys.path.insert(0, HERE)
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 import bpy  # noqa: E402
+from mathutils import Matrix  # noqa: E402
 import sockkit as K  # noqa: E402
 import socks  # noqa: E402
 import props  # noqa: E402
@@ -45,7 +47,16 @@ import texturing  # noqa: E402
 import rigging  # noqa: E402
 
 BUILDERS, EXPORT_DIR = props.load_all()
-ITEMS, ITEM_MODULE = items.load_all()
+ITEMS, ITEM_MODULE = {}, {}   # filled by load_items() once the socks and props are built
+
+
+def load_items():
+    """Imports the item modules (only now: an item module that registered a colour at import time
+    would take a palette cell ahead of the socks' and shift every later sock colour)."""
+    if not ITEMS:
+        b, m = items.load_all()
+        ITEMS.update(b)
+        ITEM_MODULE.update(m)
 OUT = os.path.join(REPO, "assets", "meshes", "steal-a-sock")
 SOCK_OUT = os.path.join(OUT, "socks")
 MAP_OUT = os.path.join(OUT, "map")
@@ -121,6 +132,7 @@ def main(render=True, bake=True, only=None, rig=True):
     for fn in BUILDERS.values():
         fn()
     bodies += [socks.build_sock(tid, side)[0] for tid, side in sock_jobs() if tid in socks.LATE]
+    load_items()
     for fn in ITEMS.values():   # the items last of all (same reason)
         fn()
     K.write_palette(PALETTE)
@@ -233,9 +245,21 @@ def render_sheets(from_glb=False):
         for i, (name, fn) in enumerate(ITEMS.items()):     # same 5-column grid as the furniture
             built = [o for o in (_import_glb(os.path.join(ITEM_OUT, name + ".glb")) if from_glb else fn())
                      if not o.hide_render]
+            for o in built:          # rigged items (the towels): off their armature, so they move as one
+                if o.parent is not None:
+                    mw = o.matrix_world.copy()
+                    o.parent = None
+                    o.matrix_world = mw
+            bpy.context.view_layer.update()
             ws = [o.matrix_world @ v.co for o in built for v in o.data.vertices]
             if not ws:
                 continue
+            if max(w.y for w in ws) - min(w.y for w in ws) > 1.5 * (max(w.x for w in ws) - min(w.x for w in ws)):
+                turn = Matrix.Rotation(math.pi / 2, 4, "Z")   # long front-to-back (a towel): lay it sideways
+                for o in built:
+                    o.matrix_world = turn @ o.matrix_world
+                bpy.context.view_layer.update()
+                ws = [o.matrix_world @ v.co for o in built for v in o.data.vertices]
             lo = [min(w[k] for w in ws) for k in range(3)]
             hi = [max(w[k] for w in ws) for k in range(3)]
             s = min(9.0 / max(hi[0] - lo[0], 1e-3), 8.0 / max(hi[2] - lo[2], 1e-3))
@@ -262,6 +286,7 @@ if __name__ == "__main__":
         for tid, side in sock_jobs():
             if tid in socks.LATE:
                 socks.build_sock(tid, side)
+        load_items()
         for fn in ITEMS.values():
             fn()
         render_sheets(from_glb="--no-bake" not in sys.argv)
