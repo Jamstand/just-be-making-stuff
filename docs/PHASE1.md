@@ -3,9 +3,9 @@
 Drawer assignment, Dryer + Clothesline, buy, income/collect, steal/carry/claim, Towel Snap, drawer
 lock, saving, basic Pairs (bonus + thread beam) — plus the look-and-feel pass: a code-built
 bedroom (bed, nightstand lamp, moon window, toy blocks, crayons, duck, teddy, door), night lighting
-with bloom, 21 sock designs with signature features, rarity glows, mutation looks, idle motions,
-line sway and one-shot effects. Built and linted in the cloud (`rojo build` ok, `luau-lsp` clean on
-our code); **not playtested** — that is your job below.
+with bloom, 21 sock designs (34 since the second wave) with signature features, rarity glows,
+mutation looks, idle motions, line sway and one-shot effects. Built and linted in the cloud
+(`rojo build` ok, `luau-lsp` clean on our code); **not playtested** — that is your job below.
 
 ## Explorer hierarchy (what the local Claude creates in a blank place)
 

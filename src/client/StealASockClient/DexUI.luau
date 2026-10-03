@@ -1,5 +1,5 @@
 -- DexUI: the Sockdex, the collection book.
---  * Top: "12 / 20 found • 60%" and a progress bar that fills smoothly, with the four DexConfig
+--  * Top: "12 / 34 found • 35%" and a progress bar that fills smoothly, with the four DexConfig
 --    milestones as chests along it at their percent: grey = locked, gold + pulsing + shine = tap to
 --    claim (ClaimDex remote -> pop, coins fly to the cash pill, confetti), green tick = claimed.
 --    Hover or tap a chest for its name and reward.
@@ -8,7 +8,7 @@
 --    its name and L / R (or 1) badges for the halves you've had, plus ★ paired / ★★ perfect; the
 --    rest are dark silhouettes of their 3D model with a "?" and only a rarity hint. Tap a found card
 --    for its SockCard. Cards stagger in when the book opens.
---  * The 3D socks are made the first time the book opens (not at join) and stand still: only the
+--  * The 3D socks are made the first time the book opens (not at join, a few a frame) and stand still: only the
 --    card under the mouse (not on touch screens) and the newest find play their idle animation,
 --    and nothing animates while the book is closed. Without a sock's template the drawn icon stays.
 --  * NEW: types found this session (State diff + the "dexNew" Celebrate) wear a swaying NEW! tag
@@ -42,6 +42,7 @@ local PAD = 8
 local SCROLLBAR = 8
 local ICON = 70 -- the drawn fallback sock
 local VIEW = 80 -- the 3D sock's square
+local VIEWERS_PER_FRAME = 4 -- the first open makes the 3D socks this many a frame (the cards stagger in anyway)
 local REMOTE_TIMEOUT = 12
 
 type Card = {
@@ -718,10 +719,16 @@ local function onOpen()
 	relayout()
 	paintAll(false)
 	if not everOpened then
-		everOpened = true -- first open: now make the 3D socks
-		for _, card in ipairs(cardList) do
-			ensureViewer(card)
-		end
+		everOpened = true -- first open: now make the 3D socks, top of the book first
+		task.spawn(function()
+			for i, card in ipairs(cardList) do
+				ensureViewer(card)
+				if i % VIEWERS_PER_FRAME == 0 then
+					task.wait() -- a few a frame: 34 viewports at once is a hitch on a phone
+				end
+			end
+			refreshMotion() -- the newest find's sock may not have existed yet
+		end)
 	end
 	-- the bar refills from empty and the count rolls up every time the book opens
 	lastPct = -1

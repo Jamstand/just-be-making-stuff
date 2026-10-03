@@ -32,8 +32,9 @@ nothing is hand-modelled and anything can be re-made with one command:
 | `sockkit.py` | shared helpers: palette texture, rounded shapes, tubes, text, the dark toon outline, marker parts, GLB export, preview renders |
 | `texturing.py` | bakes each model's hand-painted texture right before export (see **Textures** below) |
 | `rigging.py` | gives every sock a skeleton (bones + skin weights) right after the bake, and writes `src/shared/Config/SockRigConfig.luau` (see **Rig** below) |
-| `socks.py` | the shared sock body + face for all 21 types from `SockConfig`, and `SockCtx` (where the eyes, cuff, heel, toe… are, for feature builders) |
+| `socks.py` | the shared sock body + face for all 34 types from `SockConfig`, and `SockCtx` (where the eyes, cuff, heel, toe… are, for feature builders) |
 | `sockfeat_a.py`, `_b.py`, `_c.py` | each type's signature features (fangs, monocle, beard, pogo stick, tentacles, armour…), 7 types per file |
+| `sockfeat_d.py`, `_e.py` | the second wave's 13 types (6 + 7): their features, and their rigs (`RIG`) and texture hints too |
 | `props/<prop>.py` | one file per prop (`bed.py`, `dryer.py`, `ceilingfan.py`, `plant.py` for `PottedPlant`, …; the full list and the conventions are in `props/__init__.py`) |
 | `props/roomshell.py` + `roomtex.py` | `RoomShell` (into `MapMeshes`): the room's textured plank floor, starry wallpaper, cream trim, plaster ceiling and knitted play rug, plus glow-in-the-dark `CeilingStars` (Neon). Built at 1 stud per unit, so `Map` places it at scale 1 and turns the floor, wall and ceiling Parts invisible (they still collide). Its hand-painted seamless textures live in `assets/textures/steal-a-sock/`; `python tools/blender/roomtex.py` repaints them |
 | `build_all.py` | runs everything and writes the files below |
@@ -42,7 +43,7 @@ nothing is hand-modelled and anything can be re-made with one command:
 Output (committed, so `git pull` brings it to your PC):
 
 - `assets/meshes/steal-a-sock/socks/<Type>_L.glb` and `<Type>_R.glb` (one file each for the
-  single socks `Socktopus` and `LostSock`) — 40 files, plus `Clothespin.glb`.
+  single socks `Socktopus` and `LostSock`) — 66 files, plus `Clothespin.glb`.
 - `assets/meshes/steal-a-sock/map/<Name>.glb` — 13 files.
 - `docs/concept/renders/socks.jpg`, `furniture.jpg` — preview sheets of everything.
 
@@ -116,6 +117,11 @@ body. Nothing moves in the rest pose: same vertices, triangles, object names, ma
   mop), `Jaw` (PuppetSupreme's mouth, AnkleBiter's fangs), `Pogo`, `Monocle`, `Beard`, `Armor`,
   `Cape`, `Bills`, `Question`, `Stink`, `Fly1..3`, ToeToe's `Toe1..5`, Socktopus' `Tent<i>_<j>`
   (6 tentacles x 3), SockNess' `Neck1..4` + `Head` and its puddle's `Lake`, `Hump1..2`, `Tail`.
+  The second wave adds floppy bits the game simulates (docs/ANIMATION.md): `dangle` chains
+  (`Cap1-3`, `Band<i>_<j>`, `Earring`, `Bell`, `Noodle1-2`, `Cape<i>_<j>`, `HatTip1-2`, `Tail1-3`,
+  `Lappet1/2`, `Wrap1-2`, with a `swing` hint), `spring`s (`Curl`, `Antenna`, `Stache`, with
+  `wobble`), Dragonzola's `Wing1/2` (`flap`), Sockstrong's `Jet1/2` (a flame comes out of +Y), plus
+  `Bow` (hat), `Paci` (jaw), `Fork` and `Rose` (accessories).
   At most 26 bones (Socktopus).
 - **Axes**: a bone's local +Y runs along it, local +Z points to the sock's front (the face) as far
   as the bone allows (Eye / Monocle bones point out of the face, so their +Z is up). Root, Leg,
