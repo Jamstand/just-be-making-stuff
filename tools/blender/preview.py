@@ -6,6 +6,8 @@ preview.py - render ONE asset (or a few) quickly, optionally next to a concept-a
     python tools/blender/preview.py socks:Tubolino,Argylo,Sockhopper
     python tools/blender/preview.py prop:Bed --views three,front,top --compare crop.png
     python tools/blender/preview.py props:all
+    python tools/blender/preview.py item:Towel_Plain --bake --rig  (items/: one GLB by NAME)
+    python tools/blender/preview.py items:all
 
 Options
     --out PATH      output image (default: <scratch>/previews/<target>.png)
@@ -55,6 +57,9 @@ def _sock_materials(tid):
     return getattr(socks.feature_module(tid), "MATERIALS", None)
 
 
+ITEM_GROUPS = []   # (name, objs, module) for every item built (their rig() runs with --rig / --pose)
+
+
 def build(target, groups=None):
     """-> every object built; `groups` (a list) also gets one (name, objs, bake kwargs) per asset."""
     kind, _, rest = target.partition(":")
@@ -64,6 +69,8 @@ def build(target, groups=None):
         import socks
     if kind in ("prop", "props"):
         import props
+    if kind in ("item", "items"):
+        import items
     if kind == "sock":
         tid, _, side = rest.partition(":")
         side = side or ("S" if socks.SPECS[tid].get("single") else "R")
@@ -98,8 +105,26 @@ def build(target, groups=None):
                 o.location.x += x - min(xs)
             x += w * 1.15
             objs += built
+    elif kind in ("item", "items"):
+        builders, owner = items.load_all()
+        names = list(builders) if rest == "all" else rest.split(",")
+        x = 0.0
+        for name in names:
+            mod = owner[name]
+            built = builders[name]()
+            groups.append((name, built, dict(materials=getattr(mod, "MATERIALS", None),
+                                             res=getattr(mod, "TEXTURE_SIZE", None))))
+            ITEM_GROUPS.append((name, built, mod))
+            if kind == "items":
+                xs = [(o.matrix_world @ v.co).x for o in built if not o.hide_render for v in o.data.vertices]
+                w = (max(xs) - min(xs)) if xs else 1
+                for o in built:
+                    o.location.x += x - min(xs)
+                x += w * 1.15
+            objs += built
     else:
-        raise SystemExit("target must be sock:<id>[:L|R], socks:<a,b,..|all>, prop:<Name>, props:<a,b|all>")
+        raise SystemExit("target must be sock:<id>[:L|R], socks:<a,b,..|all>, prop:<Name>, props:<a,b|all>, "
+                         "item:<Name>, items:<a,b|all>")
     return objs
 
 
@@ -151,20 +176,25 @@ def main():
                 for o, loc in moved:
                     if o.parent is None:
                         o.location = loc
-                rigs.append((ao, R.d))
+                rigs.append((ao, R.d, rigging.POSES))
                 print(f"{name}: {len(R.bones)} bones: " + ", ".join(R.bones))
+        for name, gobjs, mod in ITEM_GROUPS:
+            ao = mod.rig(name, gobjs) if hasattr(mod, "rig") else None
+            if ao is not None:
+                rigs.append((ao, 1.0, getattr(mod, "POSES", {})))   # the item's own test poses
+                print(f"{name}: {len(ao.data.bones)} bones: " + ", ".join(b.name for b in ao.data.bones))
     if a.glb:
         os.makedirs(a.glb, exist_ok=True)
         path = os.path.join(a.glb, objs[0].name + ".glb")
-        K.export_glb(objs + [ao for ao, _d in rigs[:1]], path)
+        K.export_glb(objs + [r[0] for r in rigs[:1]], path)
         print(f"exported {path} ({os.path.getsize(path) / 1024:.1f} KB): " + ", ".join(o.name for o in objs))
 
     from PIL import Image
     tiles = []                                  # one row per pose (just one without --pose)
     for pose in (a.pose.split(",") if a.pose else [None]):
         if pose is not None:
-            for ao, d in rigs:
-                rigging.apply_pose(ao, rigging.POSES[pose], d)
+            for ao, d, poses in rigs:
+                rigging.apply_pose(ao, poses.get(pose, {}), d)
             bpy.context.view_layer.update()
         row = []
         for i, v in enumerate(a.views.split(",")):

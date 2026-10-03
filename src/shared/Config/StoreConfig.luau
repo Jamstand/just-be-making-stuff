@@ -29,6 +29,7 @@ export type Product = {
 	minutes: number?, -- Server Luck: duration (buying again adds time)
 	luck: number?, -- Server Luck: each rarity rank's weight is multiplied by luck^(rank - 1)
 	minRank: number?, -- Rare Sock Drop: lowest rarity rank it can roll (3 = Epic)
+	item: string?, -- item unlocks: the ItemConfig key it unlocks for good (bought from the Item Shop's Items tab)
 }
 
 local StoreConfig = {
@@ -50,8 +51,8 @@ StoreConfig.Passes = {
 		desc = "Gold VIP name tag, +10% cash and a VIP badge." },
 	ExtraSlots  = { key = "ExtraSlots",  id = 0, price = 299, display = "+4 Drawer Slots",  icon = "🗄️", color = Color3.fromRGB(150, 90, 230),
 		desc = "Unlocks the back row of your drawer: 4 more socks." },
-	GoldenTowel = { key = "GoldenTowel", id = 0, price = 149, display = "Golden Towel",     icon = "✨", color = Color3.fromRGB(255, 215, 80),
-		desc = "A shiny gold towel with +50% snap reach and knockback." },
+	GoldenTowel = { key = "GoldenTowel", id = 0, price = 149, display = "Royal Towel",      icon = "✨", color = Color3.fromRGB(255, 215, 80),
+		desc = "A royal purple-and-gold towel with a stitched crown: +50% snap reach and knockback." },
 }
 
 StoreConfig.Products = {
@@ -67,6 +68,25 @@ StoreConfig.Products = {
 		desc = "An Epic-or-better sock flies straight into your drawer.", minRank = 3 },
 	Relock     = { key = "Relock",     id = 0, price = 15,  display = "Instant Re-lock", icon = "⚡", color = Color3.fromRGB(255, 120, 90),
 		desc = "Slam your drawer right now - no cooldown." },
+
+	-- Item unlocks: the Robux shortcut on each Item Shop item card (not listed on the Store's tabs).
+	-- One-time: the Item Shop only offers it while the item is locked, and a second grant does nothing.
+	Item_SlipperDash   = { key = "Item_SlipperDash",   id = 0, price = 49,  display = "Slipper Dash",       icon = "🥿", color = Color3.fromRGB(190, 160, 255), item = "SlipperDash",
+		desc = "Unlock the Slipper Dash now." },
+	Item_BananaPeel    = { key = "Item_BananaPeel",    id = 0, price = 49,  display = "Banana Peel",        icon = "🍌", color = Color3.fromRGB(255, 214, 80),  item = "BananaPeel",
+		desc = "Unlock the Banana Peel now." },
+	Item_Glider        = { key = "Item_Glider",        id = 0, price = 79,  display = "Dryer-Sheet Glider", icon = "🪂", color = Color3.fromRGB(150, 220, 255), item = "Glider",
+		desc = "Unlock the Dryer-Sheet Glider now." },
+	Item_DuckAlarm     = { key = "Item_DuckAlarm",     id = 0, price = 79,  display = "Rubber Duck Alarm",  icon = "🦆", color = Color3.fromRGB(255, 200, 60),  item = "DuckAlarm",
+		desc = "Unlock the Rubber Duck Alarm now." },
+	Item_BubbleBlaster = { key = "Item_BubbleBlaster", id = 0, price = 99,  display = "Bubble Blaster",     icon = "🫧", color = Color3.fromRGB(120, 210, 255), item = "BubbleBlaster",
+		desc = "Unlock the Bubble Blaster now." },
+	Item_SoftenerCloud = { key = "Item_SoftenerCloud", id = 0, price = 99,  display = "Softener Cloud",     icon = "☁️", color = Color3.fromRGB(255, 170, 220), item = "SoftenerCloud",
+		desc = "Unlock the Softener Cloud now." },
+	Item_StaticBalloon = { key = "Item_StaticBalloon", id = 0, price = 129, display = "Static Balloon",     icon = "🎈", color = Color3.fromRGB(255, 110, 120), item = "StaticBalloon",
+		desc = "Unlock the Static Balloon now." },
+	Item_LaundryBasket = { key = "Item_LaundryBasket", id = 0, price = 149, display = "Laundry Basket",     icon = "🧺", color = Color3.fromRGB(230, 190, 120), item = "LaundryBasket",
+		desc = "Unlock the Laundry Basket now." },
 }
 
 return StoreConfig

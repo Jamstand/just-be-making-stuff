@@ -1,7 +1,7 @@
 --!strict
 -- Names of the remotes the server creates under ReplicatedStorage.Remotes.
--- Buying off the line, stealing and slamming still use ProximityPrompts, collecting a touch pad and
--- the Towel Snap a Tool. The menus (shop, store, Sockdex, settings) talk through the RemoteFunctions
+-- Buying off the line, stealing and slamming still use ProximityPrompts and collecting a touch pad.
+-- The item bar (Towel Snap and the items) uses UseItem. The menus (shop, store, Sockdex, settings) talk through the RemoteFunctions
 -- below; every handler checks S.Ready, validates its arguments and rate-limits per player.
 return {
 	Folder = "Remotes",
@@ -12,6 +12,7 @@ return {
 		"Carry", -- server -> client: carry started/ended {name, side, rarity} or nil
 		"FX", -- server -> all: one-shot effect {kind, position, color} (buy, pair, steal, claim, snap)
 		"Celebrate", -- server -> client: a big UI moment {kind, data} (see Types.CelebrateKind)
+		"ItemFX", -- server -> clients: an item moment (kind, data) for animations, effects and sounds (Items.luau)
 	},
 	Functions = {
 		"BuyUpgrade", -- (key: string) -> Result: Item Shop level up (Upgrades.luau)
@@ -19,5 +20,8 @@ return {
 		"SellSock", -- (uid: number) -> Result: sell a drawer sock back (Purchase.luau)
 		"SaveSettings", -- (settings: {[string]: any}) -> Result: changed settings (Data.luau)
 		"ClaimDex", -- (milestoneKey: string) -> Result: Sockdex milestone reward (Dex.luau)
+		"UseItem", -- (key: string, aim: Vector3?) -> Result: use an item from the bar (Items.luau)
+		"BuyItem", -- (key: string) -> Result: unlock an item with cash (Items.luau)
+		"SetLoadout", -- (keys: {string}) -> Result: the items next to the towel in the bar (Items.luau)
 	},
 }

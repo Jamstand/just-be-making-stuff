@@ -74,6 +74,9 @@ export type StateView = {
 	dexClaimed: { [string]: boolean }, -- DexConfig milestone key -> claimed
 	pendingDrops: number, -- Rare Sock Drops waiting for a free slot
 	settings: { [string]: any }, -- SettingsConfig key -> value (only the changed ones)
+	items: { [string]: boolean }, -- ItemConfig key -> unlocked (the Towel is always true)
+	loadout: { string }, -- ItemConfig.LoadoutSize keys next to the towel, "" = empty slot
+	towelLook: string, -- ItemConfig.TowelLooks entry or TowelRoyal
 }
 
 -- What every menu RemoteFunction returns. `err` is shown to the player when ok is false.
@@ -85,6 +88,7 @@ export type Result = {
 	level: number?, -- BuyUpgrade: the new level
 	prompted: boolean?, -- StorePurchase: Roblox's purchase prompt is now showing
 	simulated: boolean?, -- StorePurchase: Studio test purchase, granted at once
+	cooldownUntil: number?, -- UseItem: workspace:GetServerTimeNow() when this item can be used again
 }
 
 -- Celebrate remote kinds and their data:

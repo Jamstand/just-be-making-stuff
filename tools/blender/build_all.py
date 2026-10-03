@@ -7,6 +7,7 @@ build_all.py - regenerates every Steal a Sock mesh from code and exports GLB fil
     python tools/blender/build_all.py --no-render    (skip the preview sheets)
     python tools/blender/build_all.py --sheets-only  (just re-render the sheets from the GLBs on disk)
     python tools/blender/build_all.py --only Bed,Argylo_L --no-render   (re-export just those)
+    python tools/blender/build_all.py --only Towel_Plain,BananaPeel --no-render   (items too)
     python tools/blender/build_all.py --rig-config   (just regenerate src/shared/Config/SockRigConfig.luau)
     python tools/blender/build_all.py --no-rig       (socks without their skeleton: the old static GLBs)
 
@@ -15,8 +16,10 @@ Outputs
     assets/meshes/steal-a-sock/socks/Clothespin.glb   (the pin every hanging sock wears)
     assets/meshes/steal-a-sock/map/<Name>.glb   (Dryer, Bed, Nightstand, Lamp, Blocks, Duck, Teddy,
                                                  Crayons, Basket, Drawer, Window, Bookshelf, Picture)
+    assets/meshes/steal-a-sock/items/<Name>.glb  (the item bar's towels and items: items/ package,
+                                                 ReplicatedStorage.ItemMeshes)
     assets/meshes/steal-a-sock/palette.png      (the shared colour palette every mesh samples)
-    docs/concept/renders/socks.jpg, furniture.jpg  (preview sheets; pass --no-render to skip)
+    docs/concept/renders/socks.jpg, furniture.jpg, items.jpg  (preview sheets; --no-render skips)
     src/shared/Config/SockRigConfig.luau        (the sock skeletons' bones, for the game's animation code)
 
 Each GLB holds the textured body, a separate `<Name>_Outline` inverted hull (the game turns its
@@ -37,16 +40,20 @@ import bpy  # noqa: E402
 import sockkit as K  # noqa: E402
 import socks  # noqa: E402
 import props  # noqa: E402
+import items  # noqa: E402
 import texturing  # noqa: E402
 import rigging  # noqa: E402
 
 BUILDERS, EXPORT_DIR = props.load_all()
+ITEMS, ITEM_MODULE = items.load_all()
 OUT = os.path.join(REPO, "assets", "meshes", "steal-a-sock")
 SOCK_OUT = os.path.join(OUT, "socks")
 MAP_OUT = os.path.join(OUT, "map")
+ITEM_OUT = os.path.join(OUT, "items")
 RENDERS = os.path.join(REPO, "docs", "concept", "renders")
 PALETTE = os.path.join(OUT, "palette.png")
 RIG_CONFIG = os.path.join(REPO, "src", "shared", "Config", "SockRigConfig.luau")
+MARKERS = ("_Base", "_Unit", "_Pin", "_Grip", "_Tip")   # tiny marker parts the game reads and hides
 
 
 def sock_jobs():
@@ -103,6 +110,7 @@ def main(render=True, bake=True, only=None, rig=True):
     everything, so the other GLBs stay valid); None = all. rig: give every sock its skeleton."""
     os.makedirs(SOCK_OUT, exist_ok=True)
     os.makedirs(MAP_OUT, exist_ok=True)
+    os.makedirs(ITEM_OUT, exist_ok=True)
     os.makedirs(RENDERS, exist_ok=True)
 
     # pass 1: build everything once so every colour is registered, then write the palette (and the
@@ -113,6 +121,8 @@ def main(render=True, bake=True, only=None, rig=True):
     for fn in BUILDERS.values():
         fn()
     bodies += [socks.build_sock(tid, side)[0] for tid, side in sock_jobs() if tid in socks.LATE]
+    for fn in ITEMS.values():   # the items last of all (same reason)
+        fn()
     K.write_palette(PALETTE)
     print(f"palette: {len(K.PALETTE)} colours -> {PALETTE}")
     if rig:
@@ -141,7 +151,20 @@ def main(render=True, bake=True, only=None, rig=True):
         tex = texturing.bake(objs, name, materials=_materials(fn), res=_texture_size(fn)) if bake else None
         path = os.path.join(SOCK_OUT if EXPORT_DIR[name] == "socks" else MAP_OUT, name + ".glb")
         K.export_glb(objs, path)
-        tris = sum(K.tri_count(o) for o in objs if not o.name.endswith(("_Base", "_Unit", "_Pin")))
+        tris = sum(K.tri_count(o) for o in objs if not o.name.endswith(MARKERS))
+        report.append((name, tris, os.path.getsize(path), _tex_note(tex)))
+    for name, fn in ITEMS.items():
+        if only and name not in only:
+            continue
+        fresh_scene()
+        objs = fn()
+        mod = ITEM_MODULE[name]
+        tex = texturing.bake(objs, name, materials=getattr(mod, "MATERIALS", None),
+                             res=getattr(mod, "TEXTURE_SIZE", None)) if bake else None
+        arm = mod.rig(name, objs) if rig and hasattr(mod, "rig") else None   # after the bake
+        path = os.path.join(ITEM_OUT, name + ".glb")
+        K.export_glb(objs + ([arm] if arm else []), path)
+        tris = sum(K.tri_count(o) for o in objs if not o.name.endswith(MARKERS))
         report.append((name, tris, os.path.getsize(path), _tex_note(tex)))
     total = 0
     for name, tris, size, note in report:
@@ -160,7 +183,7 @@ def _import_glb(path):
     bpy.ops.import_scene.gltf(filepath=path)
     objs = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
     for o in objs:
-        o.hide_render = o.name.endswith(("_Base", "_Unit", "_Pin"))
+        o.hide_render = o.name.endswith(MARKERS)
         if o.name.endswith("_Outline") or o.name == "FanBlades":
             o.visible_shadow = False
             o.visible_diffuse = False
@@ -204,6 +227,26 @@ def render_sheets(from_glb=False):
         objs += built
     K.render_preview(objs, os.path.join(RENDERS, "furniture.jpg"), res=1400, angle=-0.3, elev=0.12)
 
+    if ITEMS:
+        fresh_scene()
+        objs = []
+        for i, (name, fn) in enumerate(ITEMS.items()):     # same 5-column grid as the furniture
+            built = [o for o in (_import_glb(os.path.join(ITEM_OUT, name + ".glb")) if from_glb else fn())
+                     if not o.hide_render]
+            ws = [o.matrix_world @ v.co for o in built for v in o.data.vertices]
+            if not ws:
+                continue
+            lo = [min(w[k] for w in ws) for k in range(3)]
+            hi = [max(w[k] for w in ws) for k in range(3)]
+            s = min(9.0 / max(hi[0] - lo[0], 1e-3), 8.0 / max(hi[2] - lo[2], 1e-3))
+            cx = (lo[0] + hi[0]) / 2
+            for o in built:
+                o.scale = (s, s, s)
+                o.location = ((i % 5) * 11.0 - cx * s, 0, -(i // 5) * 10.5 - lo[2] * s)
+            objs += built
+        if objs:
+            K.render_preview(objs, os.path.join(RENDERS, "items.jpg"), res=1400, angle=-0.3, elev=0.12)
+
 
 if __name__ == "__main__":
     if "--rig-config" in sys.argv:   # just the generated Luau skeleton table (builds every sock once)
@@ -219,6 +262,8 @@ if __name__ == "__main__":
         for tid, side in sock_jobs():
             if tid in socks.LATE:
                 socks.build_sock(tid, side)
+        for fn in ITEMS.values():
+            fn()
         render_sheets(from_glb="--no-bake" not in sys.argv)
     else:
         pick = sys.argv[sys.argv.index("--only") + 1].split(",") if "--only" in sys.argv else None
