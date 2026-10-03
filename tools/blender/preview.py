@@ -49,6 +49,12 @@ VIEWS = {"front": (0.0, 0.08), "three": (-0.6, 0.3), "threer": (0.6, 0.3), "side
 DEFAULT_OUT = os.path.join(os.environ.get("PREVIEW_DIR", tempfile.gettempdir()), "previews")
 
 
+def _sock_materials(tid):
+    """The sock's feature module's MATERIALS hints, passed to the bake as build_all.py does."""
+    import socks
+    return getattr(socks.feature_module(tid), "MATERIALS", None)
+
+
 def build(target, groups=None):
     """-> every object built; `groups` (a list) also gets one (name, objs, bake kwargs) per asset."""
     kind, _, rest = target.partition(":")
@@ -62,13 +68,13 @@ def build(target, groups=None):
         tid, _, side = rest.partition(":")
         side = side or ("S" if socks.SPECS[tid].get("single") else "R")
         objs = socks.build_sock(tid, side)
-        groups.append((objs[0].name, objs, dict(sock_id=tid, sock_side=side)))
+        groups.append((objs[0].name, objs, dict(sock_id=tid, sock_side=side, materials=_sock_materials(tid))))
     elif kind == "socks":
         ids = list(socks.SPECS) if rest == "all" else rest.split(",")
         for i, tid in enumerate(ids):
             side = "S" if socks.SPECS[tid].get("single") else "R"
             built = socks.build_sock(tid, side)
-            groups.append((built[0].name, built, dict(sock_id=tid, sock_side=side)))
+            groups.append((built[0].name, built, dict(sock_id=tid, sock_side=side, materials=_sock_materials(tid))))
             for o in built:
                 o.location.x += (i % 7) * 6.5
                 o.location.z += -(i // 7) * 10.0
