@@ -1227,9 +1227,59 @@ local function setGlideSound(on: boolean)
 	end
 end
 
+-- The towels have no outline mesh (Roblox's moderation misread the old one's bare silhouette), so
+-- their cartoon ink line is a Highlight, on the towels held nearest the camera only (Highlights are
+-- limited, and the socks may use some).
+local TOWEL_INK = Color3.fromRGB(42, 24, 56) -- the kit's ink colour
+local TOWEL_INK_RANGE = 70
+local TOWEL_INK_MAX = 8 -- 4 with Low graphics
+local towelInk: { [Instance]: Highlight } = {}
+
+local function updateTowelInk(cam: Vector3)
+	local held = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		local character = p.Character
+		local tool = character and character:FindFirstChild("Item_Towel")
+		local r = rootOf(p)
+		if tool and r then
+			local d = (r.Position - cam).Magnitude
+			if d <= TOWEL_INK_RANGE then
+				table.insert(held, { tool = tool, d = d })
+			end
+		end
+	end
+	table.sort(held, function(a, b)
+		return a.d < b.d
+	end)
+	local keep = {}
+	for i = 1, math.min(#held, if lowGraphics then math.floor(TOWEL_INK_MAX / 2) else TOWEL_INK_MAX) do
+		keep[held[i].tool] = true
+	end
+	for tool, h in pairs(towelInk) do
+		if not keep[tool] or tool.Parent == nil then
+			h:Destroy()
+			towelInk[tool] = nil
+		end
+	end
+	for tool in pairs(keep) do
+		if not towelInk[tool] then
+			local h = Instance.new("Highlight")
+			h.Name = "TowelInk"
+			h.FillTransparency = 1
+			h.OutlineColor = TOWEL_INK
+			h.OutlineTransparency = 0
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Adornee = tool
+			h.Parent = tool
+			towelInk[tool] = h
+		end
+	end
+end
+
 local function poll()
 	local now = workspace:GetServerTimeNow()
 	local cam = camPos()
+	updateTowelInk(cam)
 	local root = workspace:FindFirstChild("StealASock")
 	local itemFolder = root and root:FindFirstChild("Items")
 	for _, p in ipairs(Players:GetPlayers()) do
@@ -1266,7 +1316,6 @@ end
 
 -- ---------- API ----------
 
--- The player's own use, the moment they press (ItemClient). Shows what will happen right away.
 -- Your towel button is held down (ItemClient repeats the snap): the towel loops overhead cracks.
 function ItemFX.SetHold(on: boolean)
 	local character = me and me.Character
@@ -1275,6 +1324,7 @@ function ItemFX.SetHold(on: boolean)
 	end
 end
 
+-- The player's own use, the moment they press (ItemClient). Shows what will happen right away.
 function ItemFX.Predict(key: string)
 	local character = me and me.Character
 	if not character then

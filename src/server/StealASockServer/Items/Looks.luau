@@ -23,14 +23,14 @@ local CARRY_BASKET = 0.32 -- the Laundry Basket is scaled down this much while c
 local meshFolder: Instance? = nil
 
 -- The towel's colours by look (the Part towel; the Blender towels are hand-painted)
-local TOWELS: { [string]: { body: Color3, trim: Color3, alt: Color3?, tip: Color3, material: Enum.Material?, tassel: boolean? } } = {
+local TOWELS: { [string]: { body: Color3, trim: Color3, alt: Color3?, tip: Color3, material: Enum.Material? } } = {
 	Plain    = { body = Color3.fromRGB(130, 195, 255), trim = Color3.fromRGB(255, 255, 255), tip = Color3.fromRGB(150, 210, 255) },
 	Striped  = { body = Color3.fromRGB(250, 250, 255), trim = Color3.fromRGB(235, 70, 80),   alt = Color3.fromRGB(70, 130, 240), tip = Color3.fromRGB(235, 70, 80) },
 	Beach    = { body = Color3.fromRGB(255, 214, 70),  trim = Color3.fromRGB(40, 190, 190),  alt = Color3.fromRGB(255, 140, 60), tip = Color3.fromRGB(40, 190, 190) },
 	Spa      = { body = Color3.fromRGB(255, 252, 248), trim = Color3.fromRGB(255, 170, 200), tip = Color3.fromRGB(255, 190, 215) },
 	Sports   = { body = Color3.fromRGB(60, 175, 90),   trim = Color3.fromRGB(255, 255, 255), alt = Color3.fromRGB(245, 250, 245), tip = Color3.fromRGB(255, 255, 255) },
 	Champion = { body = Color3.fromRGB(190, 30, 45),   trim = Color3.fromRGB(255, 200, 60),  tip = Color3.fromRGB(255, 210, 80), material = Enum.Material.Fabric },
-	Royal    = { body = Color3.fromRGB(110, 50, 170),  trim = Color3.fromRGB(255, 205, 70),  tip = Color3.fromRGB(255, 215, 90), tassel = true },
+	Royal    = { body = Color3.fromRGB(110, 50, 170),  trim = Color3.fromRGB(255, 205, 70),  tip = Color3.fromRGB(255, 215, 90) },
 }
 
 local function endsWith(name: string, suffix: string): boolean
@@ -91,26 +91,29 @@ local function newModel(name: string): Model
 	return m
 end
 
--- The towel: a fat folded end in the fist and six tapering segments on Motor6Ds named Seg1..Seg6
--- (each client bends them like the Blender towel's bones), with trim bands and a tip.
+-- The towel: a flat bath towel held at one end - a small gathered fold in the fist, then six flat
+-- cloth strips on Motor6Ds named Seg1..Seg6 (each client bends them like the Blender towel's bones),
+-- hem stripes across it and a flat fringe on the far edge. Flat and square-ended on purpose: no
+-- rods, rolls or rounded ends (Roblox's moderation misread the old rolled towel's shape).
+local TOWEL_WIDTH = 1.5
+local TOWEL_THICK = 0.1
+
 local function buildTowel(look: string): Model
 	local spec = TOWELS[look] or TOWELS.Plain
 	local m = newModel("Towel_" .. look)
 	local material = spec.material or Enum.Material.Fabric
-	local root = newPart(m, "TowelRoot", Vector3.new(0.75, 0.75, 1.1), CFrame.new(0, 0, 0.15), spec.body, material)
-	newPart(m, "TowelHem", Vector3.new(0.8, 0.8, 0.14), CFrame.new(0, 0, -0.35), spec.trim, material)
-	newPart(m, "TowelHem", Vector3.new(0.8, 0.8, 0.14), CFrame.new(0, 0, 0.55), spec.trim, material)
-	local segLen = 0.6
+	local root = newPart(m, "TowelRoot", Vector3.new(0.9, 0.35, 0.7), CFrame.new(0, 0, 0.2), spec.body, material)
+	local segLen = 0.62
 	local prev: BasePart = root
-	local prevEnd = 0.7 - 0.15 -- the root's front face in its own space
+	local prevEnd = 0.55 - 0.2 -- the fold's front face in its own space
 	for i = 1, 6 do
-		local thick = 0.62 - (i - 1) * 0.08
-		local z0 = 0.7 + (i - 1) * segLen
+		local z0 = 0.55 + (i - 1) * segLen
 		local color = if spec.alt and i % 2 == 0 then spec.alt else spec.body
-		local seg = newPart(m, "TowelSeg" .. i, Vector3.new(thick, thick, segLen + 0.04), CFrame.new(0, 0, z0 + segLen / 2), color, material)
+		local seg = newPart(m, "TowelSeg" .. i, Vector3.new(TOWEL_WIDTH, TOWEL_THICK, segLen + 0.02), CFrame.new(0, 0, z0 + segLen / 2), color, material)
 		seg:SetAttribute("Jointed", true)
-		if i % 2 == 1 or look == "Champion" or look == "Royal" then
-			local band = newPart(m, "TowelBand", Vector3.new(thick + 0.06, thick + 0.06, 0.12), CFrame.new(0, 0, z0 + 0.12), spec.trim, material)
+		if i == 1 or i == 6 or look == "Champion" or look == "Royal" then
+			-- a hem stripe across the cloth, on both faces
+			local band = newPart(m, "TowelBand", Vector3.new(TOWEL_WIDTH + 0.02, TOWEL_THICK + 0.03, 0.14), CFrame.new(0, 0, z0 + (if i == 6 then segLen - 0.2 else 0.2)), spec.trim, material)
 			band:SetAttribute("WeldTo", seg.Name)
 		end
 		local motor = Instance.new("Motor6D")
@@ -123,15 +126,19 @@ local function buildTowel(look: string): Model
 		prev = seg
 		prevEnd = segLen / 2
 	end
-	local tipZ = 0.7 + 6 * segLen
-	local tip = ball(m, "TowelTip", if spec.tassel then Vector3.new(0.34, 0.34, 0.5) else Vector3.new(0.24, 0.24, 0.3), CFrame.new(0, 0, tipZ), spec.tip, if spec.tassel then Enum.Material.Metal else material)
-	tip:SetAttribute("WeldTo", prev.Name)
-	if look == "Royal" or look == "Champion" then
-		-- the stitched crown / gold star on the folded end
-		local star = newPart(m, "TowelBadge", Vector3.new(0.3, 0.06, 0.3), CFrame.new(0, 0.4, 0.15) * CFrame.Angles(0, math.pi / 4, 0), spec.trim, Enum.Material.Metal)
-		star:SetAttribute("WeldTo", root.Name)
+	local tipZ = 0.55 + 6 * segLen
+	-- a flat fringe of short strips along the far edge
+	for k = 0, 6 do
+		local x = (k / 6 - 0.5) * (TOWEL_WIDTH - 0.14)
+		local strip = newPart(m, "TowelFringe", Vector3.new(0.1, TOWEL_THICK * 0.6, 0.22), CFrame.new(x, 0, tipZ + 0.1), spec.tip, material)
+		strip:SetAttribute("WeldTo", prev.Name)
 	end
-	m:SetAttribute("TipZ", tipZ)
+	if look ~= "Plain" and look ~= "Striped" then
+		-- the look's emblem (sun, flower, star, crown) as a flat patch on the first strip
+		local badge = newPart(m, "TowelBadge", Vector3.new(0.42, 0.02, 0.42), CFrame.new(0, TOWEL_THICK / 2 + 0.01, 0.55 + segLen / 2) * CFrame.Angles(0, math.pi / 4, 0), spec.trim, material)
+		badge:SetAttribute("WeldTo", "TowelSeg1")
+	end
+	m:SetAttribute("TipZ", tipZ + 0.2)
 	return m
 end
 

@@ -145,7 +145,7 @@ handle in the fist, so it stays nearly rigid, and every joint is kept inside the
 
 | Name | Used as | If it's missing |
 | --- | --- | --- |
-| `Towel_Plain` … `Towel_Champion`, `Towel_Royal` | the towel in your hand (by look) | a Part towel in the look's colours, with Motor6D segments that whip the same way |
+| `Towel_Plain` … `Towel_Champion`, `Towel_Royal` | the towel in your hand (by look): a flat bath towel held at one end, with NO outline mesh (its ink line is a Highlight on the nearest 8 held towels, 4 with Low graphics) | a flat Part towel in the look's colours, with Motor6D segments that whip the same way |
 | `DashSlippers`, `BananaPeel`, `BubbleBlaster`, `AlarmDuck`, `SoftenerBottle`, `StaticBalloon`, `DryerSheet`, `LaundryBasket` | the held tools (the basket at 0.32 scale) | Part builds of each |
 | `BananaPeel`, `AlarmDuck`, `SoftenerPuff`, `DryerSheet`, `LaundryBasket` | the world objects (peel, duck, cloud puffs, canopy, basket over a hider) | Part builds |
 
@@ -156,6 +156,13 @@ where effects come out (a `Tip` attachment in the Handle), `<Name>_Base` = the f
 items, `<Name>_Glow` parts become Neon. Markers are hidden; outline parts cast no shadow; an imported
 `Animator` / `AnimationController` is removed (it would overwrite the towel's bones). The server
 prints `[Items] N item model(s) found in ReplicatedStorage.ItemMeshes` on start.
+
+**Why the towels are flat and have no outline mesh.** The first towels were rolled, twisted
+towels: long smooth tapering rods with a rounded folded end. Roblox's automatic mesh check removed
+one of their black outline hulls (`Towel_Striped_Outline`, seen on its own as a bare silhouette)
+as "Sexual Content". The towels were rebuilt as flat, square-ended cloth with no rods, balls or
+tassels, and without the separate outline mesh. Keep it that way: no item should upload a bare
+rod- or tube-shaped silhouette. Never re-upload the old towel meshes.
 
 ## Sounds
 
