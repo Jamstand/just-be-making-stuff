@@ -31,6 +31,7 @@ nothing is hand-modelled and anything can be re-made with one command:
 | --- | --- |
 | `sockkit.py` | shared helpers: palette texture, rounded shapes, tubes, text, the dark toon outline, marker parts, GLB export, preview renders |
 | `texturing.py` | bakes each model's hand-painted texture right before export (see **Textures** below) |
+| `rigging.py` | gives every sock a skeleton (bones + skin weights) right after the bake, and writes `src/shared/Config/SockRigConfig.luau` (see **Rig** below) |
 | `socks.py` | the shared sock body + face for all 21 types from `SockConfig`, and `SockCtx` (where the eyes, cuff, heel, toe… are, for feature builders) |
 | `sockfeat_a.py`, `_b.py`, `_c.py` | each type's signature features (fangs, monocle, beard, pogo stick, tentacles, armour…), 7 types per file |
 | `props/<prop>.py` | one file per prop (`bed.py`, `dryer.py`, `ceilingfan.py`, `plant.py` for `PottedPlant`, …; the full list and the conventions are in `props/__init__.py`) |
@@ -46,7 +47,8 @@ Output (committed, so `git pull` brings it to your PC):
 - `docs/concept/renders/socks.jpg`, `furniture.jpg` — preview sheets of everything.
 
 Each GLB holds the textured model, a separate `<Name>_Outline` mesh (the black toon outline — an
-inside-out copy, so Roblox only draws its rim) and small marker parts the game reads and then hides:
+inside-out copy, so Roblox only draws its rim), for socks a skeleton both meshes are skinned to (see
+**Rig** below) and small marker parts the game reads and then hides:
 
 | Marker | Meaning |
 | --- | --- |
@@ -97,10 +99,52 @@ not textured; they keep the flat `palette.png`.
   `build_all.py --only Bed,Argylo_L` re-exports just those GLBs. `--no-bake` exports the old
   flat-colour look.
 
+### Rig
+
+Every sock GLB carries a skeleton, so the game can bend the sock (noodle legs, tapping feet, a
+flopping cuff, waving tentacles, a talking puppet mouth) by turning `Bone`s on the client.
+`rigging.py` adds it right after the bake: one armature `<Name>_Rig` per GLB, and the body AND its
+`_Outline` hull are both skinned to it (one glTF skin), so the outline always bends exactly like the
+body. Nothing moves in the rest pose: same vertices, triangles, object names, markers, texture.
+
+- **Bones** (exact names; the game finds them by name, `SockRigConfig.luau` lists them per type with
+  a role and a length): `Root` at the `_Base` marker (never weighted) → `Leg1` → `Leg2` → `Leg3` →
+  `Leg4` up the leg from the ankle (`Leg4` is the face block: it starts just under the eyes, so the
+  face never bends) → `Cuff` (the top band). `Foot` (child of `Leg1`) and `Toe` (child of `Foot`)
+  on footed socks. `Eye1` / `Eye2` carry only the pupils (spin one about its own axis and the pupil
+  rolls round the googly eye). Extras: `Hat` (top hat, crown, helm, headphones, wreath, hair, yarn
+  mop), `Jaw` (PuppetSupreme's mouth, AnkleBiter's fangs), `Pogo`, `Monocle`, `Beard`, `Armor`,
+  `Cape`, `Bills`, `Question`, `Stink`, `Fly1..3`, ToeToe's `Toe1..5`, Socktopus' `Tent<i>_<j>`
+  (6 tentacles x 3), SockNess' `Neck1..4` + `Head` and its puddle's `Lake`, `Hump1..2`, `Tail`.
+  At most 26 bones (Socktopus).
+- **Axes**: a bone's local +Y runs along it, local +Z points to the sock's front (the face) as far
+  as the bone allows (Eye / Monocle bones point out of the face, so their +Z is up). Root, Leg,
+  Cuff and Jaw bones have no rest rotation at all. The armature sits at the origin, unrotated, unit
+  scale.
+- **Weights** (at most 4 bones per vertex, normalized): up the leg each vertex blends the two
+  nearest leg bones by height; round the instep the leg hands over to `Foot` along the same fan of
+  rings the body is built from, and `Foot` hands over to `Toe` at the toe cap. Decals and anything
+  hugging the surface (stripes, toga, sweatband, lint pads, drawn lines) use the same weights, so
+  they bend with the skin. Rigid features (eyes, rims, lids, monocles, hats, headphones, the pogo,
+  beards, armour, fangs, buttons) are 100% on one bone, so they never stretch. Small stuck-on bits
+  (sweat drops, crumbs, bolts, fins) take the skin's weights at one anchor point. Tentacles and the
+  neck blend along their own centre lines; a monocle chain, the dryer-sheet cape and long yarn
+  strands blend from their bone at one end to the skin at the other. The outline copies its
+  weights vertex for vertex from the body piece it was inflated from.
+- **Checking a rig**: `python tools/blender/preview.py sock:Socktopus --pose rest,curl,scurve,foot,cuff,extras`
+  renders the sock bent into test poses (one row per pose); `--glb DIR` exports it with its rig.
+- **Changing it**: the per-type extras are small functions at the bottom of `rigging.py` (they pick
+  feature pieces by name; a feature module may tag a piece with `piece.rig = {...}`, e.g. a tentacle's
+  centre line). After a change, re-export the socks (`build_all.py --only <names>`) and regenerate
+  the config: `python tools/blender/build_all.py --rig-config` (every full build writes it too).
+  `--no-rig` exports socks without a skeleton.
+
 **Getting them into Studio:**
 
 1. File → Import 3D → select every `.glb` in `assets/meshes/steal-a-sock/socks` (multi-select),
-   untick **Merge Meshes** if it is shown (keeps the markers and outline as separate parts), Import.
+   untick **Merge Meshes** if it is shown (keeps the markers and outline as separate parts), keep
+   the rig (if a **Rig Type** option is shown, pick **Custom**, not R15), Import. Each sock model then
+   holds `Bone`s named as in `SockRigConfig.luau`.
 2. Same again for `assets/meshes/steal-a-sock/map`.
 3. Move the sock models (and `Clothespin`) into `ReplicatedStorage.SockMeshes` and the furniture
    into `ReplicatedStorage.MapMeshes`, keeping the names (`Argylo_L`, `Bed`, …). Anything with the

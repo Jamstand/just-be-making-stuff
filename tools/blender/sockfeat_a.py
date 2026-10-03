@@ -1199,6 +1199,7 @@ def feat_toetoe(c, big_front=False):
         if hit is not None and under.z < hit[0].z + 0.06:
             base = base + Vector((0.0, 0.0, hit[0].z + 0.06 - under.z))
         out.append(_toe_capsule(toe, base, end, rw, rh, upd, name="toe"))
+        out[-1].rig = dict(head=base, tail=end)    # rigging.py: one bone per toe (Toe1 = big toe)
     return out
 
 

@@ -7,6 +7,8 @@ build_all.py - regenerates every Steal a Sock mesh from code and exports GLB fil
     python tools/blender/build_all.py --no-render    (skip the preview sheets)
     python tools/blender/build_all.py --sheets-only  (just re-render the sheets from the GLBs on disk)
     python tools/blender/build_all.py --only Bed,Argylo_L --no-render   (re-export just those)
+    python tools/blender/build_all.py --rig-config   (just regenerate src/shared/Config/SockRigConfig.luau)
+    python tools/blender/build_all.py --no-rig       (socks without their skeleton: the old static GLBs)
 
 Outputs
     assets/meshes/steal-a-sock/socks/<TypeId>_L.glb, <TypeId>_R.glb, <TypeId>.glb (singles)
@@ -15,12 +17,14 @@ Outputs
                                                  Crayons, Basket, Drawer, Window, Bookshelf, Picture)
     assets/meshes/steal-a-sock/palette.png      (the shared colour palette every mesh samples)
     docs/concept/renders/socks.jpg, furniture.jpg  (preview sheets; pass --no-render to skip)
+    src/shared/Config/SockRigConfig.luau        (the sock skeletons' bones, for the game's animation code)
 
 Each GLB holds the textured body, a separate `<Name>_Outline` inverted hull (the game turns its
 shadows off), optional glow parts (`LampGlow`, `DryerPortal`, `MoonGlow`) and tiny marker parts
 (`_Base`, `_Unit`, `_Pin`) the game uses to scale, orient and hang the model. Every body (and the
 textured spin parts) gets its own hand-painted JPEG texture baked by texturing.py; outlines, glow
-parts and markers keep the flat palette. See docs/ART_PIPELINE.md.
+parts and markers keep the flat palette. Every sock GLB also carries a skeleton (rigging.py: one
+armature `<Name>_Rig`, one glTF skin shared by the body and the outline). See docs/ART_PIPELINE.md.
 """
 import os
 import sys
@@ -34,6 +38,7 @@ import sockkit as K  # noqa: E402
 import socks  # noqa: E402
 import props  # noqa: E402
 import texturing  # noqa: E402
+import rigging  # noqa: E402
 
 BUILDERS, EXPORT_DIR = props.load_all()
 OUT = os.path.join(REPO, "assets", "meshes", "steal-a-sock")
@@ -41,6 +46,7 @@ SOCK_OUT = os.path.join(OUT, "socks")
 MAP_OUT = os.path.join(OUT, "map")
 RENDERS = os.path.join(REPO, "docs", "concept", "renders")
 PALETTE = os.path.join(OUT, "palette.png")
+RIG_CONFIG = os.path.join(REPO, "src", "shared", "Config", "SockRigConfig.luau")
 
 
 def sock_jobs():
@@ -73,21 +79,42 @@ def _tex_note(tex):
     return " ".join(f"{n}:{r}px" if r else f"{n}:flat" for n, r, _ in tex) if tex else "-"
 
 
-def main(render=True, bake=True, only=None):
+def write_rig_config(bodies):
+    """SockRigConfig.luau from the planned skeleton of every sock body (one entry per type; per
+    side only if the halves ever differ)."""
+    tables, order = {}, []
+    for tid in socks.SPECS:
+        per_side = {b.name: rigging.bone_table(rigging.plan(b)) for b in bodies
+                    if b.name == tid or b.name.startswith(tid + "_")}
+        sides = list(per_side.values())
+        if all(t == sides[0] for t in sides):
+            tables[tid] = sides[0]
+            order.append(tid)
+        else:
+            for name in sorted(per_side):
+                tables[name] = per_side[name]
+                order.append(name)
+    rigging.write_luau_config(RIG_CONFIG, tables, order)
+    print(f"rig config: {len(order)} entries -> {RIG_CONFIG}")
+
+
+def main(render=True, bake=True, only=None, rig=True):
     """only: GLB names to (re)export, e.g. {"Bed", "Argylo_L"} (the palette is still written from
-    everything, so the other GLBs stay valid); None = all."""
+    everything, so the other GLBs stay valid); None = all. rig: give every sock its skeleton."""
     os.makedirs(SOCK_OUT, exist_ok=True)
     os.makedirs(MAP_OUT, exist_ok=True)
     os.makedirs(RENDERS, exist_ok=True)
 
-    # pass 1: build everything once so every colour is registered, then write the palette
+    # pass 1: build everything once so every colour is registered, then write the palette (and the
+    # rig config, which needs every sock)
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    for tid, side in sock_jobs():
-        socks.build_sock(tid, side)
+    bodies = [socks.build_sock(tid, side)[0] for tid, side in sock_jobs()]
     for fn in BUILDERS.values():
         fn()
     K.write_palette(PALETTE)
     print(f"palette: {len(K.PALETTE)} colours -> {PALETTE}")
+    if rig:
+        write_rig_config(bodies)
 
     # pass 2: one clean scene per asset -> exact object names -> one GLB each
     report = []
@@ -98,8 +125,9 @@ def main(render=True, bake=True, only=None):
         objs = socks.build_sock(tid, side)
         name = objs[0].name
         tex = texturing.bake(objs, name, sock_id=tid, sock_side=side) if bake else None
+        arm = [rigging.rig_sock(objs)[0]] if rig else []   # after the bake: bones + weights only
         path = os.path.join(SOCK_OUT, name + ".glb")
-        K.export_glb(objs, path)
+        K.export_glb(objs + arm, path)
         tris = sum(K.tri_count(o) for o in objs[:2])
         report.append((name, tris, os.path.getsize(path), _tex_note(tex)))
     for name, fn in BUILDERS.items():
@@ -175,7 +203,10 @@ def render_sheets(from_glb=False):
 
 
 if __name__ == "__main__":
-    if "--sheets-only" in sys.argv:  # re-render the preview sheets from the GLBs already exported
+    if "--rig-config" in sys.argv:   # just the generated Luau skeleton table (builds every sock once)
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        write_rig_config([socks.build_sock(tid, side)[0] for tid, side in sock_jobs()])
+    elif "--sheets-only" in sys.argv:  # re-render the preview sheets from the GLBs already exported
         bpy.ops.wm.read_factory_settings(use_empty=True)
         for tid, side in sock_jobs():
             socks.build_sock(tid, side)
@@ -185,4 +216,4 @@ if __name__ == "__main__":
     else:
         pick = sys.argv[sys.argv.index("--only") + 1].split(",") if "--only" in sys.argv else None
         main(render="--no-render" not in sys.argv and not pick, bake="--no-bake" not in sys.argv,
-             only=set(pick) if pick else None)
+             only=set(pick) if pick else None, rig="--no-rig" not in sys.argv)

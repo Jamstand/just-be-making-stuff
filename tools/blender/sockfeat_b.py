@@ -908,7 +908,9 @@ def _tentacle(c, q1, u1, fdir, r_leg, r_toe, Rb, foot_len, bump, name="tentacle"
 
     regions = [(heel_fn, c.body_dark),
                (lambda p: (p - (toe_end + fdir * 0.06)).length - 0.36, c.body_dark)]
-    return _cut_colour(bm, regions, c.body, name)
+    piece = _cut_colour(bm, regions, c.body, name)
+    piece.rig = dict(path=P + [toe_end], root=q1)    # rigging.py: a Tent<i>_1..3 chain along it
+    return piece
 
 
 def feat_socktopus(c):

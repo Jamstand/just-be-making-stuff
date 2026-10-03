@@ -21,6 +21,12 @@ Options
                     the render shows them; --tex-res N forces a texture size
     --bake-cache DIR  keep the Cycles helper maps in DIR and reuse them next time (only the painting
                     step re-runs: quick when tuning texturing.py's patterns)
+    --rig           give socks their skeleton (rigging.py, after the bake, as build_all.py does);
+                    --glb then exports it too
+    --pose LIST     (socks; implies --rig) one row of views per test pose from rigging.POSES:
+                    rest, curl (leg curled 60 deg toward the face), scurve (sideways S), foot (foot
+                    and toe curled), cuff (cuff flopped), extras (hat, jaw, eyes, tentacles, ...)
+                    e.g. python tools/blender/preview.py sock:Socktopus --pose rest,curl,extras
 
 Prints triangle counts per exported object. Uses the same build code as build_all.py, so what you
 see is what gets exported (outline hull drawn the way Roblox draws it: back faces hidden).
@@ -103,6 +109,8 @@ def main():
     ap.add_argument("--bake", action="store_true")
     ap.add_argument("--bake-cache")
     ap.add_argument("--tex-res", type=int)
+    ap.add_argument("--rig", action="store_true")
+    ap.add_argument("--pose")
     a = ap.parse_args()
     os.makedirs(DEFAULT_OUT, exist_ok=True)
     out = a.out or os.path.join(DEFAULT_OUT, a.target.replace(":", "_").replace(",", "+") + ".png")
@@ -123,27 +131,52 @@ def main():
             if a.tex_res:
                 kw["res"] = a.tex_res
             texturing.bake(gobjs, name, cache_dir=a.bake_cache, **kw)
+    rigs = []                                   # (armature, side sign) per rigged sock
+    if a.rig or a.pose:
+        import rigging
+        for name, gobjs, kw in groups:
+            if "sock_id" in kw:
+                moved = [(o, o.location.copy()) for o in gobjs]
+                for o, _loc in moved:           # rig in place (socks:... rows were shifted apart)
+                    o.location = (0.0, 0.0, 0.0)
+                bpy.context.view_layer.update()
+                ao, R = rigging.rig_sock(gobjs)
+                ao.location = moved[0][1]       # the meshes are parented to it now
+                for o, loc in moved:
+                    if o.parent is None:
+                        o.location = loc
+                rigs.append((ao, R.d))
+                print(f"{name}: {len(R.bones)} bones: " + ", ".join(R.bones))
     if a.glb:
         os.makedirs(a.glb, exist_ok=True)
         path = os.path.join(a.glb, objs[0].name + ".glb")
-        K.export_glb(objs, path)
+        K.export_glb(objs + [ao for ao, _d in rigs[:1]], path)
         print(f"exported {path} ({os.path.getsize(path) / 1024:.1f} KB): " + ", ".join(o.name for o in objs))
 
     from PIL import Image
-    tiles = []
-    for i, v in enumerate(a.views.split(",")):
-        ang, elev = VIEWS[v] if v in VIEWS else map(float, v.split("/"))
-        path = out + f".view{i}.png"
-        K.render_preview(visible, path, res=a.res, angle=ang, elev=elev, samples=a.samples)
-        tiles.append(Image.open(path).convert("RGB"))
-    sheet = Image.new("RGB", (sum(t.width for t in tiles), max(t.height for t in tiles)))
-    x = 0
-    for t in tiles:
-        sheet.paste(t, (x, 0))
-        x += t.width
+    tiles = []                                  # one row per pose (just one without --pose)
+    for pose in (a.pose.split(",") if a.pose else [None]):
+        if pose is not None:
+            for ao, d in rigs:
+                rigging.apply_pose(ao, rigging.POSES[pose], d)
+            bpy.context.view_layer.update()
+        row = []
+        for i, v in enumerate(a.views.split(",")):
+            ang, elev = VIEWS[v] if v in VIEWS else map(float, v.split("/"))
+            path = out + f".view{i}.png"
+            K.render_preview(visible, path, res=a.res, angle=ang, elev=elev, samples=a.samples)
+            row.append(Image.open(path).convert("RGB"))
+            os.remove(path)
+        tiles.append(row)
+    sheet = Image.new("RGB", (sum(t.width for t in tiles[0]), sum(r[0].height for r in tiles)))
+    y = 0
+    for row in tiles:
+        x = 0
+        for t in row:
+            sheet.paste(t, (x, y))
+            x += t.width
+        y += row[0].height
     sheet.save(out)
-    for i in range(len(tiles)):
-        os.remove(out + f".view{i}.png")
     print("wrote", out)
     if a.compare:
         ref = Image.open(a.compare).convert("RGB")

@@ -906,6 +906,7 @@ def feat_sockness(c):
     hc = C1.lerp(C2, 0.42)
     head = _star_mesh(F, hc, c.body, seg=28, thetas=[math.pi * i / 14 for i in range(1, 14)], rmax=2.5 * k,
                       step=0.02, name="head")
+    head.rig = dict(cranium=C1, snout=C2)          # rigging.py: the Head bone
     out.append(head)
     hray = _bvh([head])
     # ---- the googly eyes move from the leg to the top of the head, tilted to look forward and up
@@ -968,6 +969,7 @@ def feat_sockness(c):
     out.append(neck)
     nray = _bvh([neck])
     P = S._catmull([Vector(p) for p in path], 12)
+    neck.rig = dict(path=P)                        # rigging.py: a Neck1..4 chain along it
     spine = _arc(P)
     run = sum((b - a).length for a, b in zip(P, P[1:]))          # length of the neck's centre line
     throat = (fwd - up * 0.8).normalized()                        # the belly's direction under the jaw
@@ -1141,6 +1143,7 @@ def feat_sockness(c):
             pals.append(foam2 if i_ == 0 else foam)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     out.append(_piece(bm, pals, "puddle"))
+    out[-1].rig = dict(centre=pc)                  # rigging.py: the Lake bone
     # ... a few fat foam clumps sitting on the bead, so the edge is bumpy, not a cut board
     for i in range(5):
         j = int(seg * (i + 0.15 + 0.3 * _rnd(i, 41)) / 5) % seg
@@ -1172,6 +1175,7 @@ def feat_sockness(c):
             # along u, i.e. toward the inside of the arch, and keeps it there: the arch is planar)
             return acc if math.cos(TAU * ph) > 0.4 else c.body
         out.append(_sweep(apts, arad, c.body, seg=10, samples=2, cap0=0.0, cap1=0.0, up=u, pal_fn=under, name="hump"))
+        out[-1].rig = dict(path=apts)              # rigging.py: a Hump<i> bone
         top_p = apts[3] + Z * (arad[3] * 0.92)
         out.append(_fin(acc, top_p, Z, u, 0.4 * k * rr / 0.25, 0.4 * k * rr / 0.25, 0.075 * k, name="humpfin"))
     # the tail tip: rises out of the foam beyond the second hump (its root 0.4 inside the trail's end,
@@ -1181,6 +1185,7 @@ def feat_sockness(c):
             t0 + u * 0.8 * k + Z * 0.76]
     out.append(_sweep(tpts, [0.2 * k, 0.18 * k, 0.14 * k, 0.09 * k, 0.05 * k], c.body, seg=10, samples=2,
                       cap0=0.0, cap1=1.0, name="tail"))
+    out[-1].rig = dict(path=tpts)                  # rigging.py: the Tail bone
     # ... and three soap bubbles (pale cyan / lilac, a white glint up front) - suds, not snowballs
     bub_c = hexcol(f"{tid}_bubble", "#BEE9F4")
     bub_l = hexcol(f"{tid}_bubble_lilac", "#D6CBF3")

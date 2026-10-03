@@ -244,12 +244,16 @@ def recolor_by(piece: Piece, fn):
 
 
 # ---------------------------------------------------------------- finishing
-def _merge(pieces_with_mode, name):
-    """pieces_with_mode: [(Piece, inflate, flip)] -> one textured mesh object."""
+def _merge(pieces_with_mode, name, ranges=None):
+    """pieces_with_mode: [(Piece, inflate, flip)] -> one textured mesh object. `ranges` (a list)
+    gets each piece's (first vertex, vertex count) in the merged mesh - in piece order, so rigging.py
+    can tell which piece a vertex came from (and pair each outline vertex with its body vertex)."""
     bm = bmesh.new()
     pal_layer = bm.faces.layers.int.new("pal")
     smooth_layer = bm.faces.layers.int.new("smooth")
     for p, inflate, flip in pieces_with_mode:
+        if ranges is not None:
+            ranges.append((len(bm.verts), len(p.mesh.vertices)))
         tmp = bmesh.new()
         tmp.from_mesh(p.mesh)
         tmp.normal_update()
@@ -283,15 +287,27 @@ def _merge(pieces_with_mode, name):
     return obj
 
 
+PIECE_MAP: dict[str, dict] = {}  # body name -> its pieces' names, rig tags and vertex ranges (see finish)
+
+
 def finish(pieces: list[Piece], name: str, outline_width=0.05, outline_only: list | None = None):
     """Merges pieces into the textured body `name` plus a separate `name_Outline` inverted hull.
 
     The outline is its own object so the game can turn CastShadow off on it - otherwise the
     shell would shadow the whole model (Roblox shadow maps don't respect back-face culling)."""
-    body = _merge([(p, 0.0, False) for p in pieces], name)
-    outline = _merge([(p, outline_width, True) for p in pieces + (outline_only or []) if p.outline], name + "_Outline")
+    body_ranges, outline_ranges = [], []
+    body = _merge([(p, 0.0, False) for p in pieces], name, body_ranges)
+    hulled = [p for p in pieces + (outline_only or []) if p.outline]
+    outline = _merge([(p, outline_width, True) for p in hulled], name + "_Outline", outline_ranges)
     outline.visible_shadow = False  # preview renders behave like the game:
     outline.visible_diffuse = False  # the hull must not block light bouncing onto the body either
+    # which vertices came from which piece (rigging.py weights the pieces; the outline copies them)
+    all_pieces = pieces + (outline_only or [])
+    index = {id(p): i for i, p in enumerate(all_pieces)}
+    PIECE_MAP[name] = dict(
+        names=[p.name for p in all_pieces], tags=[getattr(p, "rig", None) for p in all_pieces],
+        body=body_ranges + [None] * len(outline_only or []),
+        outline=[(index[id(p)], r[0], r[1]) for p, r in zip(hulled, outline_ranges)])
     for p in pieces + (outline_only or []):
         if p.mesh.users == 0:
             bpy.data.meshes.remove(p.mesh)
@@ -395,6 +411,9 @@ def tri_count(obj) -> int:
 
 
 def export_glb(objs: list, path: str):
+    """objs may include an armature (rigging.py): its bones become the glTF skin of every mesh with
+    an Armature modifier; the export is always the rest pose (export_apply skips Armature
+    modifiers), with no animation."""
     for o in bpy.context.scene.objects:
         o.select_set(False)
     for o in objs:
@@ -403,7 +422,8 @@ def export_glb(objs: list, path: str):
     bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True,
                               export_yup=True, export_apply=True, export_texcoords=True,
                               export_normals=True, export_materials="EXPORT",
-                              export_image_format="AUTO")
+                              export_image_format="AUTO", export_skins=True,
+                              export_rest_position_armature=True, export_animations=False)
 
 
 # ---------------------------------------------------------------- preview render

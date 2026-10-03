@@ -1418,13 +1418,19 @@ def spec_for(tid: str) -> dict:
     return spec
 
 
+CTX: dict[str, SockCtx] = {}  # sock name -> the SockCtx it was built from (rigging.py places bones with it)
+
+
 def build_sock(tid: str, side: str):
     spec = spec_for(tid)
     c = SockCtx(tid, spec, side)
     pieces = body_pieces(c)
+    n_body = len(pieces)
     pieces += face_pieces(c)
+    c.face_range = (n_body, len(pieces))   # piece indices of the shared face (eyes, mouth, brows)
     pieces += feature_module(tid).FEATURES[tid](c)
     name = tid if side == "S" else f"{tid}_{side}"
+    CTX[name] = c
     body, outline = K.finish(pieces, name, outline_width=0.06)
     # features may move the floor point (c.base_z: Sockhopper's pogo tip stands on the floor) or
     # the clothespin grip (c.pin_z: above Sockington's helm); the game reads both from the markers
