@@ -107,10 +107,12 @@ def main(render=True, bake=True, only=None, rig=True):
 
     # pass 1: build everything once so every colour is registered, then write the palette (and the
     # rig config, which needs every sock)
+    # (socks.LATE types last, after the props: every older colour keeps its palette cell)
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    bodies = [socks.build_sock(tid, side)[0] for tid, side in sock_jobs()]
+    bodies = [socks.build_sock(tid, side)[0] for tid, side in sock_jobs() if tid not in socks.LATE]
     for fn in BUILDERS.values():
         fn()
+    bodies += [socks.build_sock(tid, side)[0] for tid, side in sock_jobs() if tid in socks.LATE]
     K.write_palette(PALETTE)
     print(f"palette: {len(K.PALETTE)} colours -> {PALETTE}")
     if rig:
@@ -124,7 +126,8 @@ def main(render=True, bake=True, only=None, rig=True):
         fresh_scene()
         objs = socks.build_sock(tid, side)
         name = objs[0].name
-        tex = texturing.bake(objs, name, sock_id=tid, sock_side=side) if bake else None
+        mats = getattr(socks.feature_module(tid), "MATERIALS", None)   # optional texture hints
+        tex = texturing.bake(objs, name, materials=mats, sock_id=tid, sock_side=side) if bake else None
         arm = [rigging.rig_sock(objs)[0]] if rig else []   # after the bake: bones + weights only
         path = os.path.join(SOCK_OUT, name + ".glb")
         K.export_glb(objs + arm, path)
@@ -209,9 +212,13 @@ if __name__ == "__main__":
     elif "--sheets-only" in sys.argv:  # re-render the preview sheets from the GLBs already exported
         bpy.ops.wm.read_factory_settings(use_empty=True)
         for tid, side in sock_jobs():
-            socks.build_sock(tid, side)
+            if tid not in socks.LATE:
+                socks.build_sock(tid, side)
         for fn in BUILDERS.values():
             fn()
+        for tid, side in sock_jobs():
+            if tid in socks.LATE:
+                socks.build_sock(tid, side)
         render_sheets(from_glb="--no-bake" not in sys.argv)
     else:
         pick = sys.argv[sys.argv.index("--only") + 1].split(",") if "--only" in sys.argv else None

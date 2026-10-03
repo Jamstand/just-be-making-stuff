@@ -108,7 +108,32 @@ SPECS = {
     "Zillionaire": dict(body="#F2C14E", dark="#D19A2C", accent="#C9922E", mood="smug"),
     "LostSock":    dict(body="#2C2F4A", dark="#1E2034", inner="#121320", accent="#4A5078", single=True, mood="sad"),
     "PuppetSupreme": dict(body="#F2643C", dark="#C9472A", accent="#FFFFFF", mood="puppet"),
+    # the second wave (sockfeat_d: Common + Rare, sockfeat_e: Epic and up); see LATE below
+    "PolkaDottie":  dict(body="#47C6C0", dark="#2E9C9A", accent="#FFFFFF", extra="#FF5FA2", mood="happy"),
+    "Pisolino":     dict(body="#9DB0F0", dark="#7486D2", accent="#FFFFFF", extra="#34407F", mood="tired"),
+    "Bambino":      dict(body="#FFEFB0", dark="#F5D27A", accent="#8FD0FF", short=True, mood="happy"),
+    "Jingleo":      dict(body="#D93A3A", dark="#2E8B4E", accent="#FFFFFF", extra="#F2C14E", cuff="accent",
+                         mood="happy"),
+    "Ninjolino":    dict(body="#2A2D45", dark="#1C1E30", inner="#121320", accent="#E0403A", cuff="body",
+                         mood="brave", mouth=False),
+    "Sockbeard":    dict(body="#2C4C7E", dark="#1F3760", accent="#F3E7C9", mood="smug",
+                         stripes=[(1.2, 1.5, "accent"), (1.9, 2.2, "accent"), (2.6, 2.9, "accent")]),
+    "Spaghettino":  dict(body="#FBF5E8", dark="#E6D9BE", accent="#D9443F", extra="#3BA55C", mood="happy"),
+    "Sockula":      dict(body="#D3CCE3", dark="#A99FC2", accent="#1E1A2B", extra="#B3203A", mood="smug"),
+    "Merlino":      dict(body="#4B4FC8", dark="#33368F", accent="#F2C14E", mood="calm"),
+    "Sockstrong":   dict(body="#E8ECF2", dark="#B9C1CE", accent="#FF8A3D", mood="brave",
+                         stripes=[(1.5, 1.7, "accent"), (2.0, 2.2, "accent")]),
+    "Dragonzola":   dict(body="#F2782E", dark="#C9541C", accent="#FFD15C", extra="#B8322A", mood="happy"),
+    "Toetankhamun": dict(body="#EADFC6", dark="#C9B999", accent="#F2C14E", extra="#2E5AAC", mood="smug",
+                         cuff="body"),
+    "Sockfather":   dict(body="#3C3B47", dark="#2A2933", accent="#FFFFFF", extra="#D3203F", mood="smug"),
 }
+
+# Types added after the first full export. build_all.py builds these AFTER the props in its first
+# pass, so every older colour keeps its palette cell and every GLB already exported stays valid
+# (the palette is filled in registration order). Append future types to SPECS and here.
+LATE = ("PolkaDottie", "Pisolino", "Bambino", "Jingleo", "Ninjolino", "Sockbeard", "Spaghettino", "Sockula",
+        "Merlino", "Sockstrong", "Dragonzola", "Toetankhamun", "Sockfather")
 
 
 def leg_height(spec) -> float:
@@ -1401,6 +1426,10 @@ FEATURE_MODULE = {
     "DJDryer": "sockfeat_b", "Socktopus": "sockfeat_b", "Sockington": "sockfeat_b",
     "Stinkolino": "sockfeat_c", "SockNess": "sockfeat_c", "Shockini": "sockfeat_c", "Lintlord": "sockfeat_c",
     "Zillionaire": "sockfeat_c", "LostSock": "sockfeat_c", "PuppetSupreme": "sockfeat_c",
+    "PolkaDottie": "sockfeat_d", "Pisolino": "sockfeat_d", "Bambino": "sockfeat_d", "Jingleo": "sockfeat_d",
+    "Ninjolino": "sockfeat_d", "Sockbeard": "sockfeat_d",
+    "Spaghettino": "sockfeat_e", "Sockula": "sockfeat_e", "Merlino": "sockfeat_e", "Sockstrong": "sockfeat_e",
+    "Dragonzola": "sockfeat_e", "Toetankhamun": "sockfeat_e", "Sockfather": "sockfeat_e",
 }
 
 
@@ -1428,7 +1457,11 @@ def build_sock(tid: str, side: str):
     n_body = len(pieces)
     pieces += face_pieces(c)
     c.face_range = (n_body, len(pieces))   # piece indices of the shared face (eyes, mouth, brows)
-    pieces += feature_module(tid).FEATURES[tid](c)
+    feat = feature_module(tid).FEATURES.get(tid)
+    if feat is None:     # a type whose features aren't written yet: the plain body and face
+        print(f"socks.py: no FEATURES for {tid} yet - building the plain body")
+    else:
+        pieces += feat(c)
     name = tid if side == "S" else f"{tid}_{side}"
     CTX[name] = c
     body, outline = K.finish(pieces, name, outline_width=0.06)

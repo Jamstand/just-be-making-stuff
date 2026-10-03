@@ -664,13 +664,22 @@ TYPES = {
 }
 
 
+def rig_rules(tid):
+    """The per-type function for `tid`: TYPES above, else the RIG table of the type's own sockfeat
+    module (the second wave keeps its rigging next to its features), else just the shared skin."""
+    if tid in TYPES:
+        return TYPES[tid]
+    import socks
+    return getattr(socks.feature_module(tid), "RIG", {}).get(tid) or _plain()
+
+
 def plan(body):
     """The Rig (bones + piece assignments) for a sock body built by socks.build_sock."""
     import socks as S
     c = S.CTX[body.name]
     R = Rig(c, body, K.PIECE_MAP[body.name])
     R.standard_bones()
-    TYPES[c.tid](R)                 # may move the eye parent (SockNess: Head) or the cuff bone
+    rig_rules(c.tid)(R)               # may move the eye parent (SockNess: Head) or the cuff bone
     R.eye_bones()
     R.default_assign()
     return R
@@ -808,7 +817,17 @@ LUAU_HEADER = """--!strict
 --   digit      ToeToe's five toes (1 = big toe), children of Toe
 --   fly        Stinkolino's flies (children of Root: they buzz on their own)
 --   ground     stays on the floor (SockNess' suds puddle); hump (index), tail ride on it
---   accessory  monocle, beard, armour, dryer-sheet cape, bills, question mark, stink cloud
+--   accessory  monocle, beard, armour, dryer-sheet cape, bills, question mark, stink cloud, rose,
+--              fork
+--   dangle     a floppy hanging part that swings with the sock's motion: index = which part,
+--              seg = 1.. from where it hangs to its tip (nightcap, headband tails, cape halves,
+--              bell, earring, hat tips, lappets, a dragon's tail, loose bandage ends); `swing` =
+--              the most it bends cleanly per bone (degrees)
+--   spring     a short stiff part that wobbles on a spring (hair curl, antenna, moustache);
+--              `wobble` = the most it tilts cleanly (degrees)
+--   wing       index 1-2 (viewer's left first): flaps about its own Y; `flap` = the most it
+--              opens or closes cleanly (degrees)
+--   jet        a jetpack nozzle (index 1-2): local +Y points out of the nozzle, for a flame
 """
 
 
