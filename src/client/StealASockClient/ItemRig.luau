@@ -567,17 +567,25 @@ local function buildTowel(rig: Rig, tool: Instance)
 	end)
 end
 
--- Where the towel's tip is (world height) for these bends (one per segment, in order): the cloth
+-- Where the towel's tip is (world height) for these bends (one per towelSegs entry): the cloth
 -- runs along the handle's +Z and bends tip-down about the handle's X (SWING_AXIS's sideways part
--- left out - this is only for the floor check).
+-- left out - this is only for the floor check). A model with a second skeleton (an outline) has
+-- each SegN twice, bent the same: one chain is followed.
 local function tipHeight(rig: Rig, handle: BasePart, angles: { number }): number
 	local segs = rig.towelSegs
 	local y, z, turn = 0, segs[1].along, 0
-	for k, seg in ipairs(segs) do
+	local k = 1
+	while k <= #segs do
+		local seg = segs[k]
 		turn += angles[k]
-		local len = (if k < #segs then segs[k + 1].along else rig.towelLength) - seg.along
+		local nextK = k + 1
+		while nextK <= #segs and segs[nextK].index == seg.index do
+			nextK += 1
+		end
+		local len = (if nextK <= #segs then segs[nextK].along else rig.towelLength) - seg.along
 		y -= len * sin(turn)
 		z += len * math.cos(turn)
+		k = nextK
 	end
 	return (handle.CFrame * Vector3.new(0, y, z)).Y
 end
@@ -614,7 +622,7 @@ local function clearFloor(rig: Rig, handle: BasePart, angles: { number }, above:
 	local segs = rig.towelSegs
 	local function curl(u: number, into: { number })
 		for i = 1, n do
-			into[i] = clamp(angles[i] - u * (i - 1) / 5, -segs[i].limit, segs[i].limit)
+			into[i] = clamp(angles[i] - u * (segs[i].index - 1) / 5, -segs[i].limit, segs[i].limit)
 		end
 	end
 	lo, hi = 0, 1.2

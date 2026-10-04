@@ -482,13 +482,14 @@ exactly, a stronger shake for the victim, Reduce motion = a flash), the moving p
 and no live instance growth over repeated rounds of every effect.
 
 **Towel motion** (a kinematics sim, `scratchpad/towelsim`: `./gen.sh && ../itemtest-c/luau run.luau`,
-68 checks): the real `ItemRig` drives an R15 and an R6 stand-in (Roblox's joint offsets, the
+104 checks): the real `ItemRig` drives an R15 and an R6 stand-in (Roblox's joint offsets, the
 Animator's tool-hold arm written before each Stepped) holding the Blender towel (the bones exactly
 as in `Towel_Plain.glb`) and the Part towel, at 60 fps; the engine's sums (`Part0 * C0 * Transform *
 C1:Inverse()`, the grip, bone chains) place everything, and it checks where the hand and the towel's
 tip are: hanging in front at rest, up and over the shoulder in the wind-up, straight out in front at
 the crack, back over the shoulder between held cracks, the finisher's twist cracking in front,
 settling back after a tap, never into the floor, no jumps away from the crack.
+A towel with a second skeleton (an outline hull) must move exactly like one.
 `render_frames.py` (Blender) renders the frames with the real skinned towel, side and 3/4 views.
 
 ## Studio checklist
