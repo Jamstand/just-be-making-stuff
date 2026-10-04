@@ -2365,7 +2365,9 @@ local function poll()
 				local joint = model and model:FindFirstChild("BasketJoint", true)
 				basket = if joint and joint:IsA("Motor6D") then joint else nil
 			end
-			if basket or character:GetAttribute("Item") == "Towel" then
+			-- a towel in the hand: the arm rests lower and the towel hangs and sways (the tool itself,
+			-- not only the server's Item attribute, so it starts the moment it's equipped)
+			if basket or character:GetAttribute("Item") == "Towel" or character:FindFirstChild("Item_Towel") then
 				ItemRig.Watch(character, basket)
 			end
 			if (r.Position - cam).Magnitude <= PROP_RANGE then
