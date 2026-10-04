@@ -20,8 +20,9 @@ return {
 		"SellSock", -- (uid: number) -> Result: sell a drawer sock back (Purchase.luau)
 		"SaveSettings", -- (settings: {[string]: any}) -> Result: changed settings (Data.luau)
 		"ClaimDex", -- (milestoneKey: string) -> Result: Sockdex milestone reward (Dex.luau)
-		"UseItem", -- (key: string, aim: Vector3?, held: boolean?) -> Result: use an item from the bar (Items.luau; held: the towel button is held down)
+		"UseItem", -- (key: string, aim: Vector3?, held: boolean?) -> Result: use an item from the bar (Items.luau; `held` per item: docs/ITEMS.md)
 		"BuyItem", -- (key: string) -> Result: unlock an item with cash (Items.luau)
 		"SetLoadout", -- (keys: {string}) -> Result: the items next to the towel in the bar (Items.luau)
+		"UpgradeItem", -- (key: string) -> Result: the item's next upgrade level, for cash (Items.luau)
 	},
 }

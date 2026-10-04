@@ -77,6 +77,7 @@ export type StateView = {
 	items: { [string]: boolean }, -- ItemConfig key -> unlocked (the Towel is always true)
 	loadout: { string }, -- ItemConfig.LoadoutSize keys next to the towel, "" = empty slot
 	towelLook: string, -- ItemConfig.TowelLooks entry or TowelRoyal
+	itemLevels: { [string]: number }, -- ItemConfig key -> upgrade level 0..ItemConfig.MaxLevel (absent = 0)
 }
 
 -- What every menu RemoteFunction returns. `err` is shown to the player when ok is false.
@@ -99,6 +100,7 @@ export type Result = {
 --   "rareDrop"  { name, rarity }                   a Rare Sock Drop landed in your drawer
 --   "upgrade"   { key, level }                     an Item Shop upgrade was bought
 --   "item"      { key, display }                   an item was unlocked (cash or Robux)
-export type CelebrateKind = "dexNew" | "pass" | "product" | "milestone" | "rareDrop" | "upgrade" | "item"
+--   "itemUpgrade" { key, display, level, gold }    an item was upgraded (gold: it just turned golden)
+export type CelebrateKind = "dexNew" | "pass" | "product" | "milestone" | "rareDrop" | "upgrade" | "item" | "itemUpgrade"
 
 return {}
