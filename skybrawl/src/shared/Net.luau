@@ -16,6 +16,7 @@
       QueueRequest     C->S  (action, queueType, options) -> ok, message
       RoomRequest      C->S  (action, payload) -> ok, result
       ShopRequest      C->S  (action, itemId) -> ok, message
+      SelectLegend     C->S  (legendId) -> ok, message
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

@@ -15,15 +15,22 @@
     Context table:
       world          from Maps.getWorld
       weapon         weapon id ("Unarmed" when empty-handed)
+      legend         legend id (signatures, Dexterity timing, Speed stat)
       armed          true when holding a weapon
       nearPickup     true when a weapon pickup is in reach
+
+    Combo flow: the caller reports landed hits with onHitConfirm(); that
+    opens the chase window (next dodge is a chase dodge), lets a light
+    attack be cancelled into a jump or chase dodge once its active frames
+    end, and starts the attacker's hit-stop. An air spot dodge allows ground
+    light attacks in the air while it lasts (gravity cancel).
 
     step() appends events to the list it returns:
       { type = "Attack", slot, seq, facing }
       { type = "Release", seq, charge }       heavy charge released (0..1)
       { type = "Fire", seq, slot, charge, facing }  projectile moves
-      { type = "Dodge", kind }                "Spot" | "Dash" | "Air" | "AirSpot"
-      { type = "Jump", kind }                 "Ground" | "Air" | "Wall"
+      { type = "Dodge", kind }                "Spot" | "Dash" | "Air" | "AirSpot" | "Chase"
+      { type = "Jump", kind, cancel }         "Ground" | "Air" | "Wall"; cancel = out of an attack
       { type = "Throw", dirY, facing }
       { type = "Pickup" }
       { type = "Land" }
@@ -31,9 +38,10 @@
 ]]
 
 local Config = require(script.Parent.Config)
-local Weapons = require(script.Parent.Weapons)
+local Legends = require(script.Parent.Legends)
 
 local P = Config.Physics
+local C = Config.Combat
 local MAX_STEP = 1 / 60
 local AXIS_DEADZONE = 0.35
 
@@ -94,6 +102,11 @@ function FighterSim.newState(x, y, facing)
 
 		invuln = 0,
 		hitstun = 0,
+		hitstop = 0,
+		hitConfirmSeq = -1, -- seq of the latest attack that landed a hit
+		chaseTimer = 0,
+		gcTimer = 0,
+		gcAttack = false,
 		dropThrough = 0,
 		landLag = 0,
 		fastFall = false,
@@ -116,12 +129,13 @@ local function endAttack(s, events)
 	s.slot = nil
 	s.charging = false
 	s.motionTime = -1
+	s.gcAttack = false
 end
 
 local function chooseSlot(s, moveX, moveY, heavy)
 	local side = math.abs(moveX) > AXIS_DEADZONE
 	local down = moveY < -0.5
-	if s.grounded then
+	if s.grounded or (s.gcTimer > 0 and not heavy) then
 		if heavy then
 			if down then
 				return "DHeavy"
@@ -151,8 +165,8 @@ local function chooseSlot(s, moveX, moveY, heavy)
 	return "NAir"
 end
 
-local function startAttack(s, slot, weaponId, moveX, events)
-	local move = Weapons.getAttack(weaponId, slot)
+local function startAttack(s, slot, ctx, moveX, events)
+	local move = Legends.getAttack(ctx.legend, ctx.weapon, slot)
 	if not move then
 		return
 	end
@@ -166,6 +180,7 @@ local function startAttack(s, slot, weaponId, moveX, events)
 	s.charge = 0
 	s.charging = (move.Charge or 0) > 0 and s.grounded
 	s.attackAir = not s.grounded
+	s.gcAttack = not s.grounded and not move.Air
 	s.motionTime = -1
 	s.fired = false
 	s.fastFall = false
@@ -178,19 +193,40 @@ local function startAttack(s, slot, weaponId, moveX, events)
 	emit(events, { type = "Attack", slot = slot, seq = s.seq, facing = s.facing })
 end
 
+-- A light attack that hit can be cut short once its active frames are over.
+local function cancelable(s)
+	local move = s.move
+	return s.action == "Attack"
+		and move ~= nil
+		and move.Kind == "Light"
+		and s.hitConfirmSeq == s.seq
+		and not s.charging
+		and s.actionTime >= move.Startup + move.Active
+end
+
+local function stat(ctx, name)
+	local legend = ctx.legend
+	if name == "speed" then
+		return Legends.speedMult(legend)
+	end
+	return Legends.dodgeCooldownMult(legend)
+end
+
 local function tryActions(s, input, moveX, moveY, ctx, events)
 	local buf = input.buffer
 	local canMove = (s.action == nil or s.action == "Dash") and s.landLag <= 0
+	local cancel = cancelable(s)
 
-	-- Jump (also cancels a dash)
-	if buf.Jump > 0 and (s.action == nil or s.action == "Dash") then
+	-- Jump (also cancels a dash, or a light attack that hit)
+	if buf.Jump > 0 and (s.action == nil or s.action == "Dash" or cancel) then
+		local jumped = false
 		if s.grounded then
 			s.action = nil
 			s.vy = P.JumpVelocity
 			s.grounded = false
 			s.jumpTime = 0
-			buf.Jump = 0
-			emit(events, { type = "Jump", kind = "Ground" })
+			jumped = true
+			emit(events, { type = "Jump", kind = "Ground", cancel = cancel })
 		elseif s.wallSide ~= 0 and s.wallJumps > 0 then
 			s.vy = P.WallJumpY
 			s.vx = -s.wallSide * P.WallJumpX
@@ -199,23 +235,62 @@ local function tryActions(s, input, moveX, moveY, ctx, events)
 			s.wallSide = 0
 			s.fastFall = false
 			s.jumpTime = -1
-			buf.Jump = 0
-			emit(events, { type = "Jump", kind = "Wall" })
+			jumped = true
+			emit(events, { type = "Jump", kind = "Wall", cancel = cancel })
 		elseif s.airJumps > 0 then
 			s.vy = P.AirJumpVelocity
 			s.airJumps -= 1
 			s.fastFall = false
 			s.jumpTime = -1
 			if math.abs(moveX) > AXIS_DEADZONE then
-				s.vx = moveX * P.AirSpeed
+				s.vx = moveX * P.AirSpeed * stat(ctx, "speed")
 				s.facing = sign(moveX)
 			end
+			jumped = true
+			emit(events, { type = "Jump", kind = "Air", cancel = cancel })
+		end
+		if jumped then
 			buf.Jump = 0
-			emit(events, { type = "Jump", kind = "Air" })
+			if cancel then
+				endAttack(s, events)
+				cancel = false
+			end
 		end
 	end
 
+	-- Chase dodge: right after landing a hit, dodge becomes a quick burst
+	-- toward where you're pointing. No invulnerability, no cooldown.
+	if buf.Dodge > 0 and s.chaseTimer > 0 and (canMove or cancel) and s.landLag <= 0 then
+		if cancel then
+			endAttack(s, events)
+		end
+		local dx, dy = moveX, moveY
+		if math.abs(dx) <= AXIS_DEADZONE and math.abs(dy) <= AXIS_DEADZONE then
+			dx, dy = s.facing, 0
+		end
+		local len = math.sqrt(dx * dx + dy * dy)
+		dx, dy = dx / len, dy / len
+		s.action = "Dodge"
+		s.dodgeKind = "Chase"
+		s.actionTime = 0
+		s.actionDuration = C.ChaseDodgeTime
+		s.dodgeVX = dx * C.ChaseDodgeSpeed
+		s.dodgeVY = dy * C.ChaseDodgeSpeed
+		if math.abs(dx) > 0.2 then
+			s.facing = sign(dx)
+		end
+		if dy > 0.3 then
+			s.grounded = false
+		end
+		s.fastFall = false
+		s.chaseTimer = 0
+		buf.Dodge = 0
+		emit(events, { type = "Dodge", kind = "Chase" })
+		return
+	end
+
 	-- Dodge / dash
+	local dodgeCd = stat(ctx, "dodge")
 	if buf.Dodge > 0 and canMove and s.dodgeCooldown <= 0 then
 		local sideways = math.abs(moveX) > AXIS_DEADZONE
 		if s.grounded then
@@ -225,8 +300,8 @@ local function tryActions(s, input, moveX, moveY, ctx, events)
 					s.actionTime = 0
 					s.actionDuration = P.DashTime
 					s.facing = sign(moveX)
-					s.vx = s.facing * P.DashSpeed
-					s.dashCooldown = P.DashCooldown
+					s.vx = s.facing * P.DashSpeed * stat(ctx, "speed")
+					s.dashCooldown = P.DashCooldown * dodgeCd
 					buf.Dodge = 0
 					emit(events, { type = "Dodge", kind = "Dash" })
 				end
@@ -236,7 +311,7 @@ local function tryActions(s, input, moveX, moveY, ctx, events)
 				s.actionTime = 0
 				s.actionDuration = P.SpotDodgeTime
 				s.invuln = math.max(s.invuln, P.SpotDodgeTime)
-				s.dodgeCooldown = P.SpotDodgeCooldown
+				s.dodgeCooldown = P.SpotDodgeCooldown * dodgeCd
 				buf.Dodge = 0
 				emit(events, { type = "Dodge", kind = "Spot" })
 			end
@@ -261,26 +336,35 @@ local function tryActions(s, input, moveX, moveY, ctx, events)
 				s.dodgeKind = "AirSpot"
 				s.actionDuration = P.SpotDodgeTime
 				s.invuln = math.max(s.invuln, P.SpotDodgeTime)
+				s.gcTimer = P.SpotDodgeTime + C.GravityCancelGrace
 				s.vx *= 0.3
 				s.vy = math.max(s.vy, 0) * 0.3
 				emit(events, { type = "Dodge", kind = "AirSpot" })
 			end
-			s.dodgeCooldown = P.AirDodgeCooldown
+			s.dodgeCooldown = P.AirDodgeCooldown * dodgeCd
 			buf.Dodge = 0
 		end
 	end
 
 	canMove = (s.action == nil or s.action == "Dash") and s.landLag <= 0
+	-- Gravity cancel: a light attack out of an air spot dodge.
+	local gravityCancel = s.action == "Dodge" and s.dodgeKind == "AirSpot" and s.gcTimer > 0 and buf.Light > 0
+	if gravityCancel then
+		s.action = nil
+		s.dodgeKind = nil
+		s.invuln = 0
+		canMove = true
+	end
 
 	-- Attacks (heavy wins if both are buffered)
 	if canMove and (buf.Heavy > 0 or buf.Light > 0) then
-		local heavy = buf.Heavy > 0
+		local heavy = buf.Heavy > 0 and not gravityCancel
 		if heavy then
 			buf.Heavy = 0
 		else
 			buf.Light = 0
 		end
-		if not heavy and ctx.nearPickup and not ctx.armed then
+		if not heavy and ctx.nearPickup and not ctx.armed and not gravityCancel then
 			emit(events, { type = "Pickup" })
 		else
 			local slot = chooseSlot(s, moveX, moveY, heavy)
@@ -290,7 +374,7 @@ local function tryActions(s, input, moveX, moveY, ctx, events)
 			end
 			if slot then
 				s.action = nil
-				startAttack(s, slot, ctx.weapon, moveX, events)
+				startAttack(s, slot, ctx, moveX, events)
 			end
 		end
 		canMove = false
@@ -370,7 +454,7 @@ local function updateAction(s, input, dt, events)
 	elseif s.action == "Dodge" or s.action == "Dash" or s.action == "Throw" then
 		s.actionTime += dt
 		if s.actionTime >= s.actionDuration then
-			if s.action == "Dodge" and s.dodgeKind == "Air" then
+			if s.action == "Dodge" and (s.dodgeKind == "Air" or s.dodgeKind == "Chase") then
 				s.vx *= 0.35
 				s.vy *= 0.35
 			end
@@ -380,7 +464,7 @@ local function updateAction(s, input, dt, events)
 	end
 end
 
-local function updateMovement(s, input, moveX, moveY, dt)
+local function updateMovement(s, input, moveX, moveY, dt, ctx)
 	-- Short hop: let go of jump early for a smaller hop.
 	if s.jumpTime >= 0 then
 		s.jumpTime += dt
@@ -394,12 +478,13 @@ local function updateMovement(s, input, moveX, moveY, dt)
 		end
 	end
 
-	local airDodging = s.action == "Dodge" and s.dodgeKind == "Air"
+	local airDodging = s.action == "Dodge" and (s.dodgeKind == "Air" or s.dodgeKind == "Chase")
 	local moving = motionActive(s)
+	local speed = ctx and Legends.speedMult(ctx.legend) or 1
 
 	-- Horizontal
 	if s.action == "Dash" then
-		s.vx = s.facing * P.DashSpeed
+		s.vx = s.facing * P.DashSpeed * speed
 	elseif airDodging then
 		s.vx = s.dodgeVX
 		s.vy = s.dodgeVY
@@ -416,21 +501,22 @@ local function updateMovement(s, input, moveX, moveY, dt)
 		local wants = math.abs(moveX) > 0.1 and control > 0
 		if s.grounded then
 			if wants then
-				s.vx = approach(s.vx, moveX * P.RunSpeed, P.GroundAccel * control * dt)
+				s.vx = approach(s.vx, moveX * P.RunSpeed * speed, P.GroundAccel * control * dt)
 			else
 				s.vx = approach(s.vx, 0, P.GroundDecel * dt)
 			end
 		else
-			local over = math.abs(s.vx) > P.AirSpeed
+			local airSpeed = P.AirSpeed * speed
+			local over = math.abs(s.vx) > airSpeed
 			if over and (not wants or sign(moveX) == sign(s.vx)) then
 				-- Keep knockback momentum; bleed it off slowly.
-				s.vx = approach(s.vx, sign(s.vx) * P.AirSpeed, P.OverspeedDecel * dt)
+				s.vx = approach(s.vx, sign(s.vx) * airSpeed, P.OverspeedDecel * dt)
 			elseif wants then
 				local accel = P.AirAccel * control
 				if over then
 					accel *= 0.5
 				end
-				s.vx = approach(s.vx, moveX * P.AirSpeed, accel * dt)
+				s.vx = approach(s.vx, moveX * airSpeed, accel * dt)
 			else
 				s.vx = approach(s.vx, 0, P.AirDecel * dt)
 			end
@@ -507,11 +593,11 @@ local function onLanded(s, events)
 				s.actionTime = move.Startup + move.Active
 			end
 			s.motionTime = math.huge
-		elseif s.attackAir then
+		elseif s.attackAir and not s.gcAttack then
 			endAttack(s, events)
 			s.landLag = P.LandingLag * 2
 		end
-	elseif s.action == "Dodge" and s.dodgeKind ~= "Spot" then
+	elseif s.action == "Dodge" and s.dodgeKind ~= "Spot" and s.dodgeKind ~= "Chase" then
 		s.action = nil
 		s.dodgeKind = nil
 	end
@@ -592,6 +678,13 @@ local function integrate(s, dt, world, events)
 end
 
 local function stepOnce(s, input, dt, ctx, events)
+	-- Hit-stop freezes the fighter in place (buffered inputs wait).
+	if s.hitstop > 0 then
+		s.hitstop = math.max(0, s.hitstop - dt)
+		return
+	end
+	s.chaseTimer = math.max(0, s.chaseTimer - dt)
+	s.gcTimer = math.max(0, s.gcTimer - dt)
 	s.invuln = math.max(0, s.invuln - dt)
 	s.dodgeCooldown = math.max(0, s.dodgeCooldown - dt)
 	s.dashCooldown = math.max(0, s.dashCooldown - dt)
@@ -614,7 +707,7 @@ local function stepOnce(s, input, dt, ctx, events)
 		end
 		tryActions(s, input, moveX, moveY, ctx, events)
 		updateAction(s, input, dt, events)
-		updateMovement(s, input, moveX, moveY, dt)
+		updateMovement(s, input, moveX, moveY, dt, ctx)
 	end
 
 	integrate(s, dt, ctx.world, events)
@@ -634,8 +727,17 @@ function FighterSim.step(s, input, dt, ctx, events)
 	return events
 end
 
+-- Your attack landed (reported by the caller once it detects the hit).
+function FighterSim.onHitConfirm(s, hitstop)
+	if s.action == "Attack" then
+		s.hitConfirmSeq = s.seq
+	end
+	s.chaseTimer = C.ChaseWindow
+	s.hitstop = math.max(s.hitstop, hitstop or 0)
+end
+
 -- Called when a hit lands on this fighter.
-function FighterSim.applyHit(s, kbx, kby, hitstun)
+function FighterSim.applyHit(s, kbx, kby, hitstun, hitstop)
 	if s.action == "Attack" then
 		s.move = nil
 		s.slot = nil
@@ -644,6 +746,10 @@ function FighterSim.applyHit(s, kbx, kby, hitstun)
 	s.action = "Hitstun"
 	s.dodgeKind = nil
 	s.hitstun = hitstun
+	s.hitstop = hitstop or 0
+	s.chaseTimer = 0
+	s.gcTimer = 0
+	s.gcAttack = false
 	s.vx = kbx
 	s.vy = kby
 	if s.grounded and kby < 0 then

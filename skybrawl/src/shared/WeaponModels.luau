@@ -1,12 +1,19 @@
 --[[
-    Builds weapon visuals out of plain Parts, so the game needs no
-    uploaded meshes. Swap these for real models later by changing build().
+    Weapon visuals. If the weapon's mesh has been imported into
+    ReplicatedStorage.WeaponMeshes (art/export/weapons/<Id>.fbx, see
+    art/IMPORTING.md), that is used: the legend's own skin ("KestrelSword")
+    first, then the base mesh ("Sword"). Otherwise the weapon is built from
+    plain Parts, so the game works with nothing imported.
 
     Weapon frame: the grip is at the origin, the weapon points along +Y,
     and its broad side lies along Z (so blades face the 2D camera when held).
 ]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local Weapons = require(script.Parent.Weapons)
+local WeaponMeshes = require(script.Parent.WeaponMeshes)
+local Markers = require(script.Parent.Markers)
 local Cosmetics = require(script.Parent.Cosmetics)
 local Util = require(script.Parent.Util)
 
@@ -91,11 +98,66 @@ SHAPES.Bow = function(add, primary, secondary, mat)
 	return Vector3.new(0, 0, -1), Vector3.new(0, 0, 1)
 end
 
+-- Glow colour for skins' Neon parts, by legend (skin ids start with it).
+local GLOW = {
+	Kestrel = Color3.fromRGB(110, 230, 235),
+	Brann = Color3.fromRGB(255, 140, 40),
+	Yuki = Color3.fromRGB(150, 230, 255),
+	Moss = Color3.fromRGB(110, 255, 120),
+	Vex = Color3.fromRGB(190, 110, 255),
+	Sol = Color3.fromRGB(255, 210, 90),
+}
+
+local meshTemplates = {} -- [id] = template | false
+
+local function vec(t)
+	return Vector3.new(t[1], t[2], t[3])
+end
+
+-- Reads an imported weapon model into the weapon frame using its markers.
+local function meshTemplate(id)
+	local cached = meshTemplates[id]
+	if cached ~= nil then
+		return cached or nil
+	end
+	local folder = ReplicatedStorage:FindFirstChild("WeaponMeshes")
+	local model = folder and folder:FindFirstChild(id)
+	local info = WeaponMeshes.Weapons[id]
+	local template = nil
+	if model and info then
+		local parts = Markers.read(model, WeaponMeshes.MarkerDistance, -1)
+		for _, p in parts do
+			p.glow = p.name == "Glow"
+		end
+		if #parts > 0 then
+			template = { parts = parts, info = info }
+		else
+			warn("[WeaponModels] WeaponMeshes." .. id .. " has no meshes")
+		end
+	end
+	meshTemplates[id] = template or false
+	return template
+end
+
+function WeaponModels.hasMesh(id)
+	return meshTemplate(id) ~= nil
+end
+
+local function legendOf(skinId)
+	for legend in GLOW do
+		if string.sub(skinId, 1, #legend) == legend then
+			return legend
+		end
+	end
+	return nil
+end
+
 --[[
     Returns a Model whose PrimaryPart ("Grip") sits at the origin. The other
     parts are welded to it, so moving the grip moves the whole weapon.
+    `skinId` picks a legend's mesh ("KestrelSword") when it's imported.
 ]]
-function WeaponModels.build(weaponId, colorId)
+function WeaponModels.build(weaponId, colorId, skinId)
 	local scheme = Cosmetics.resolve("WeaponColor", colorId)
 	local shape = SHAPES[weaponId]
 	assert(shape, "no model for weapon " .. tostring(weaponId))
@@ -125,7 +187,37 @@ function WeaponModels.build(weaponId, colorId)
 		return part
 	end
 
-	local trailBase, trailTip = shape(add, primary, secondary, mat)
+	local trailBase, trailTip
+	local template = (skinId and meshTemplate(skinId)) or meshTemplate(weaponId)
+	if template then
+		local glowColor = GLOW[legendOf(skinId or "") or ""] or primary
+		for _, p in template.parts do
+			local part = Markers.cloneMesh(p.source)
+			part.Size = p.size
+			part.CFrame = p.cframe
+			part.Anchored = false
+			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
+			part.Massless = true
+			part.CastShadow = false
+			if p.glow then
+				Markers.makeGlow(part)
+				part.Material = Enum.Material.Neon
+				part.Color = glowColor
+			else
+				part.Material = Enum.Material.SmoothPlastic
+			end
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0 = grip
+			weld.Part1 = part
+			weld.Parent = part
+			part.Parent = model
+		end
+		trailBase, trailTip = vec(template.info.Trail[1]), vec(template.info.Trail[2])
+	else
+		trailBase, trailTip = shape(add, primary, secondary, mat)
+	end
 
 	if scheme.Glow then
 		local light = Instance.new("PointLight")
@@ -162,6 +254,9 @@ end
 
 local function handOffset(hand)
 	if hand.Name == "RightHand" or hand.Name == "LeftHand" then
+		if hand.Parent and hand.Parent.Name == "VisualRig" then
+			return Vector3.zero
+		end
 		return Vector3.new(0, -0.1, 0)
 	end
 	-- R6 arms are 2 studs long; the fist is at the bottom.
@@ -172,6 +267,15 @@ end
 -- hand's look direction, broad side up.
 local GRIP_ROTATION = CFrame.Angles(math.rad(-90), 0, 0)
 
+-- Where a weapon's grip sits relative to a hand part.
+function WeaponModels.gripC0(hand)
+	local grip = hand:FindFirstChild("Grip")
+	if grip and grip:IsA("Attachment") then
+		return grip.CFrame
+	end
+	return CFrame.new(handOffset(hand)) * GRIP_ROTATION
+end
+
 function WeaponModels.detach(character)
 	local existing = character:FindFirstChild("EquippedWeapon")
 	if existing then
@@ -179,8 +283,11 @@ function WeaponModels.detach(character)
 	end
 end
 
--- Welds a weapon to the character's hand(s). Returns the folder.
-function WeaponModels.attach(character, weaponId, colorId)
+-- Welds a weapon to the character's hand(s). Returns the folder. Each
+-- weapon model is named after the hand it belongs in ("Right"/"Left"); the
+-- client may move it to the other hand while the fighter faces left (see
+-- FighterAnimator), using the "GripWeld".
+function WeaponModels.attach(character, weaponId, colorId, skinId)
 	WeaponModels.detach(character)
 	if not Weapons.isWeapon(weaponId) then
 		return nil
@@ -193,11 +300,12 @@ function WeaponModels.attach(character, weaponId, colorId)
 	for _, side in sides do
 		local hand = Util.getHand(character, side)
 		if hand then
-			local model = WeaponModels.build(weaponId, colorId)
+			local model = WeaponModels.build(weaponId, colorId, skinId)
 			model.Name = side
-			local c0 = CFrame.new(handOffset(hand)) * GRIP_ROTATION
+			local c0 = WeaponModels.gripC0(hand)
 			model:PivotTo(hand.CFrame * c0)
 			local weld = Instance.new("Weld")
+			weld.Name = "GripWeld"
 			weld.Part0 = hand
 			weld.Part1 = model.PrimaryPart
 			weld.C0 = c0
@@ -214,7 +322,7 @@ WeaponModels.DisplayRotation = CFrame.Angles(0, 0, math.rad(-45)) * CFrame.Angle
 
 -- An anchored, glowing copy used for weapons lying on the stage.
 function WeaponModels.buildPickup(weaponId)
-	local model = WeaponModels.build(weaponId, nil)
+	local model = WeaponModels.build(weaponId, nil, nil)
 	model.PrimaryPart.Anchored = true
 	local weapon = Weapons.get(weaponId)
 

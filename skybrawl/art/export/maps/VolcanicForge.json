@@ -1,0 +1,14 @@
+{
+ "map": "VolcanicForge",
+ "pieces": {
+  "Chains": 6156,
+  "GlowFar": 544,
+  "GlowLava": 2386,
+  "GlowSea": 24,
+  "Platforms": 2140,
+  "SceneryFar": 4698,
+  "SceneryNear": 8730,
+  "Stage": 2544
+ },
+ "triangles": 27222
+}

@@ -1,14 +1,27 @@
 # Skybrawl
 
 A Brawlhalla-style platform fighter for Roblox, played on a 2D plane.
-Players use their own avatars, pick up weapons that drop onto floating
-islands, and build up damage until a heavy hit launches someone off the
-screen.
+Players pick a legend (or fight as their own avatar), grab the weapons that
+drop onto floating islands, and build up damage until a heavy hit launches
+someone off the screen. The fighters, weapons, maps, skies and animations
+were made in Blender by the scripts in `art/` (see `art/README.md`).
 
 It's a self-contained Rojo project, separate from the Coin Rush project at
 the repo root.
 
 ## What's in it
+
+**Legends** (pick in the lobby's FIGHTERS panel)
+- Kestrel (sky-corsair, Sword + Bow), Brann (forge smith, Hammer +
+  Gauntlets), Yuki (frost ranger, Spear + Bow), Moss (jungle druid,
+  Scythe + Spear), Vex (shadow rogue, Scythe + Gauntlets), Sol (sun knight,
+  Sword + Hammer), or **My Avatar** (your own avatar, any weapon).
+- Each legend has Strength / Dexterity / Defense / Speed stats and a
+  signature for each of their ground heavies: 36 signatures in all. Weapon
+  pickups give legends their own two weapons, alternating like Brawlhalla.
+- Cel-shaded toon models with outlines, each with its own weapon skins.
+  Every move is animated, and the animations are mirrored when you face
+  left so your weapon stays on the camera's side.
 
 **Fighting**
 - Brawlhalla-style damage: hits add damage %, and the higher it gets the
@@ -24,7 +37,15 @@ the repo root.
   neutral/side/down lights, neutral/side/down air lights, chargeable
   neutral/side/down heavies, recovery and ground pound. The Bow fires
   arrows, and you can throw any weapon at people.
-- 4 arenas: Skyhold Keep, Twin Isles, Ancient Ruins, Duel Rock.
+- **Combo flow**: hit-stop on every hit, chase dodges (after you land a
+  hit, your dodge is a quick, invulnerability-free burst that ignores the
+  cooldown), jump and chase-dodge cancels out of light attacks that hit,
+  gravity cancels (an air spot dodge lets you use ground lights in the air),
+  and a combo counter that tells true combos from strings. True combos work
+  at low damage and turn into strings as damage climbs.
+- 8 arenas. Four have Blender-made kits and painted skies: Sky-Ship Deck,
+  Volcanic Forge, Frozen Peaks and Jungle Temple. The four classic ones are
+  Skyhold Keep, Twin Isles, Ancient Ruins and Duel Rock.
 - Bots at 3 difficulties that fight, dodge, grab weapons and recover back
   to the stage.
 
@@ -70,15 +91,25 @@ rebound in Settings → Controls.
 ```
 default.project.json            Rojo tree (remotes are declared here)
 
+art/                            Blender scripts that make all the art (art/README.md),
+  export/                       ...their output, to import into Studio (art/IMPORTING.md)
+  previews/                     ...and renders of every model, map and animation
+
 src/shared/                     ReplicatedStorage.Shared
   Config.luau                   All tuning: physics, combat, queues, rewards, camera, keybinds
   FighterSim.luau               2D movement/attack simulation (client + bots use the same code)
   Weapons.luau                  Weapon + attack data (timings, damage, knockback, hitboxes)
+  Legends.luau                  The roster: stats, weapons, signature heavies
+  LegendRig.luau                Turns imported fighter meshes into a jointed rig on a character
+  Markers.luau                  Reads the import markers that undo Studio's scale/rotation
+  AnimationData/                GENERATED: every animation clip, keyed in Blender
+  FighterRigs.luau              GENERATED: the shared skeleton + each fighter's parts
+  WeaponMeshes.luau             GENERATED: weapon mesh list, trail points
   Maps.luau                     Arena layouts, blast zones, camera bounds
   Combat.luau                   Damage / knockback / hitstun formulas
   Ranks.luau                    Elo, tiers, XP levels
   Cosmetics.luau                Shop items
-  WeaponModels.luau             Builds weapon visuals from Parts
+  WeaponModels.luau             Weapon visuals: imported meshes, or Parts as a fallback
   Locomotion.luau               Default Roblox idle/run/jump/fall animations
   Util.luau, Net.luau
 
@@ -99,8 +130,9 @@ src/server/                     ServerScriptService.Server
 src/client/                     StarterPlayerScripts.Client
   Main.client.luau
   ClientState.luau
-  Controllers/                  Input, Settings, CameraController, MatchClient, Visuals, CharacterAnimator, Sound
-  UI/                           LobbyUI, PlayPanel, RoomsPanel, ShopPanel, ProfilePanel,
+  Controllers/                  Input, Settings, CameraController, MatchClient, Visuals,
+                                FighterAnimator (plays the clips on every fighter), CharacterAnimator, Sound
+  UI/                           LobbyUI, PlayPanel, RoomsPanel, FightersPanel, ShopPanel, ProfilePanel,
                                 SettingsPanel, MatchHUD, ResultsScreen, MobileControls, Toasts, UIKit
 
 src/character/Animate.client.luau   Empty stub that replaces Roblox's default Animate
@@ -140,13 +172,21 @@ built file:
 
 In **Home → Game Settings**:
 
-- **Avatar → Avatar Type: R15** (recommended). R6 works, but attack poses
-  are tuned for R15.
+- **Avatar → Avatar Type: R15** (recommended). "My Avatar" fighters are
+  animated by the same clips as the legends; R6 avatars work, but only
+  move their shoulders, hips and head.
 - **Security → Enable Studio Access to API Services**, so DataStores
   (profiles, ratings, leaderboard) work in Studio. Without it you can
   still play, but progress doesn't save and the Profile tab says so.
 
-### 4. Play-test
+### 4. Import the art (optional, but it's the good-looking part)
+
+Follow `art/IMPORTING.md`: import the FBX files from `art/export/` into
+three folders in ReplicatedStorage and paste the four sky image ids into
+`Config.Art.SkyImages`. Until then, legends fall back to your avatar,
+and weapons and maps to code-built Parts.
+
+### 5. Play-test
 
 - **Solo:** press **Play**, open **PLAY** → **vs Bots** → **Start**.
 - **Multiplayer:** **Test → Clients and Servers** with 2–4 players to try
@@ -156,7 +196,7 @@ In **Home → Game Settings**:
 The lobby kiosks (PLAY / CUSTOM ROOMS / SHOP) open the same panels as the
 bottom menu.
 
-### 5. Publish
+### 6. Publish
 
 **File → Publish to Roblox**, then enable API services for the published
 experience too. Nothing else is required: there are no Robux products yet.
@@ -183,6 +223,12 @@ experience too. Nothing else is required: there are no Robux products yet.
 - Tap down on a wooden platform to drop through it. Hold down in the air
   to fast-fall.
 - Light attack also picks up a weapon you're standing on.
+- **Combos:** when a light attack hits, you can cancel the end of it with a
+  jump, or with dodge for a chase dodge (point the stick where your target
+  went). After an air spot dodge (dodge with no direction), a light attack
+  uses your ground moves in the air: a gravity cancel. The counter on the
+  left of the screen says TRUE COMBO when the target never got out of
+  hitstun.
 
 ## How a match works
 
@@ -206,8 +252,10 @@ Almost everything lives in `src/shared/Config.luau`:
 
 - `Physics`: run speed, jump heights, gravity, dodge/dash timings, wall
   jumps, hitstun movement
-- `Combat`: knockback scale, hitstun, charge bonus, respawn timers, and the
-  server's hit-validation slack
+- `Combat`: knockback scale, hitstun, hit-stop, chase dodge, gravity
+  cancel, charge bonus, respawn timers, and the server's hit-validation
+  slack
+- `Art`: fighter height, outlines, sky image ids
 - `WeaponDrops`: spawn rate, max on stage, throw speed/damage
 - `Queue`, `Rooms`, `Bots`, `Ranked`, `Rewards`, `Levels`
 - `Camera`: modes and looks (FOV and pitch per look)
@@ -221,6 +269,13 @@ add its id to `Weapons.Order`, and add a shape builder to `SHAPES` in
 respawn points, weapon spawn points, blast zone, camera bounds, sky
 colors), add it to `Maps.Order`, and add it to the pools in
 `Config.Queue.MapPools`. The arena is built from that data automatically.
+For a Blender kit, add `art/blender/maps/<name>.py` (see `sky/mapkit.py`)
+with the same rectangles and set the map's `Kit`.
+
+**Changing a legend:** stats, weapons and signatures are in `Legends.luau`.
+Their models are `art/blender/fighters/<name>.py` and their animations are
+in `art/blender/anims/`. After editing those, rebuild with Blender and
+re-import (see `art/README.md`).
 
 **Adding a cosmetic:** add an item to `Cosmetics.luau`. It shows up in
 the shop automatically.
@@ -228,10 +283,11 @@ the shop automatically.
 **Sounds** use built-in engine sounds. Swap the ids in `Config.Sounds`
 for your own uploads.
 
-**Animations:** walking/jumping use Roblox's default animations. Attack
-poses are procedural (`Visuals.luau` → `POSES`) so no uploads are needed.
-To use real animations, upload them and play them where `Visuals.onAttack`
-is called.
+**Animations** are made in Blender (`art/blender/anims/`) and exported as
+data (`src/shared/AnimationData/`). Every client plays them with
+`FighterAnimator`, so nothing is uploaded. Attacks are keyed in move
+phases, so they stay in sync with the hitboxes when you retune a move's
+timing.
 
 ## Tests
 
@@ -254,7 +310,21 @@ The tests cover:
 checks that bots land hits, score KOs, rarely fall off on their own, and
 that Hard beats Easy.
 
-Re-run both after changing physics, knockback or bot numbers. Format with
+`lune run tests/combos` checks the legends (stats, signatures, Dexterity
+timing, weapon alternation) and the combo flow:
+
+- cancels, chase dodges, gravity cancels and hit-stop
+- scripted duels that must be true combos at 0% and only strings at 140%
+
+`lune run tests/art` checks the generated art data: a clip for every attack,
+signature and movement state, every legend's rig and weapon skins, and every
+map kit's export.
+
+`lune run tests/combo_search [Weapon] [damage]` lists every true combo the
+current frame data allows. Use it when you change hitstun, knockback or
+timings.
+
+Re-run them after changing physics, knockback or bot numbers. Format with
 [StyLua](https://github.com/JohnnyMorganz/StyLua) (`stylua src tests`;
 config in `stylua.toml`).
 

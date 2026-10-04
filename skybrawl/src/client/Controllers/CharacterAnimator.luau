@@ -1,7 +1,7 @@
 --[[
-    Locomotion animations for your own character. In the lobby it follows
-    the Humanoid's state like Roblox's default Animate script; in a match
-    MatchClient feeds it FighterSim's state instead.
+    Locomotion animations for your own character in the lobby: it follows
+    the Humanoid's state like Roblox's default Animate script. In a match
+    it stops, and FighterAnimator animates every fighter instead.
 ]]
 
 local Players = game:GetService("Players")
@@ -59,12 +59,16 @@ local function lobbyUpdate()
 	end
 end
 
+-- In matches FighterAnimator drives every joint, so Roblox's tracks stop.
 function CharacterAnimator.setMatchMode(value)
 	matchMode = value
+	if value and locomotion then
+		locomotion:Stop()
+	end
 end
 
 function CharacterAnimator.setState(name, speed)
-	if locomotion then
+	if locomotion and not matchMode then
 		locomotion:Play(name, speed)
 	end
 end

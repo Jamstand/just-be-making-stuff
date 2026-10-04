@@ -1,0 +1,516 @@
+"""
+Pose and clip authoring for the SkyRig (no Blender needed in this file).
+
+A pose is a set of joint rotations in rig space, in degrees, as
+(pitch, yaw, roll) = CFrame.Angles(x, y, z) on the joint:
+    pitch +  arms and legs swing forward/up, elbows bend, the spine leans back,
+             the head looks up; knees bend with -pitch, toes lift with +pitch
+    yaw   +  twists toward the fighter's left
+    roll  +  right arm/leg swings out to the side (left arm/leg: -roll)
+plus a root offset (studs, rig space: x right, y up, z behind).
+
+Clips are keyed poses. "Phased" clips (attacks) put keys in move phases:
+0..1 is the startup, 1..2 the active frames, 2..3 the recovery, so they
+line up with the hitboxes whatever the move's timing. Other clips are in
+seconds. Each key's ease shapes the move to the next key, using Roblox
+EasingStyle names ("Quad.Out", "Sine.InOut", "Linear", "Constant", ...).
+"""
+
+import math
+
+SHORT = {
+    "root": "Root", "waist": "Waist", "neck": "Neck",
+    "rsh": "RightShoulder", "rel": "RightElbow", "rwr": "RightWrist",
+    "lsh": "LeftShoulder", "lel": "LeftElbow", "lwr": "LeftWrist",
+    "rhip": "RightHip", "rknee": "RightKnee", "rank": "RightAnkle",
+    "lhip": "LeftHip", "lknee": "LeftKnee", "lank": "LeftAnkle",
+}
+JOINTS = list(SHORT.values())
+LEG_JOINTS = ["LeftHip", "LeftKnee", "LeftAnkle", "RightHip", "RightKnee", "RightAnkle"]
+ARM_JOINTS = ["LeftShoulder", "LeftElbow", "LeftWrist", "RightShoulder", "RightElbow", "RightWrist"]
+
+ROOT_PIVOT = (0.0, 2.7, 0.0)
+HIP = {"Left": (-0.5, 2.55, 0.0), "Right": (0.5, 2.55, 0.0)}
+THIGH = math.hypot(2.55 - 1.5, 0.02)
+SHIN = 1.0
+ANKLE_HEIGHT = 0.5
+
+EASES = {"Linear", "Constant", "Quad", "Cubic", "Quart", "Quint", "Sine", "Exponential", "Circular"}
+
+
+class Pose:
+    __slots__ = ("rot", "offset")
+
+    def __init__(self, rot=None, offset=(0.0, 0.0, 0.0)):
+        self.rot = dict(rot or {})
+        self.offset = tuple(offset)
+
+    def copy(self):
+        return Pose(self.rot, self.offset)
+
+    def get(self, joint):
+        return self.rot.get(joint, (0.0, 0.0, 0.0))
+
+    def __or__(self, other):
+        """Merge: `other` overrides joints it sets (and its offset if non-zero)."""
+        out = self.copy()
+        out.rot.update(other.rot)
+        if any(abs(v) > 1e-9 for v in other.offset):
+            out.offset = other.offset
+        return out
+
+    def only(self, joints):
+        return Pose({j: v for j, v in self.rot.items() if j in joints}, self.offset)
+
+    def without(self, joints):
+        return Pose({j: v for j, v in self.rot.items() if j not in joints}, self.offset)
+
+    def add(self, **kw):
+        """Adds angles on top: add(rsh=(10, 0, 0))."""
+        out = self.copy()
+        for key, value in kw.items():
+            if key == "off":
+                out.offset = tuple(a + b for a, b in zip(out.offset, value))
+                continue
+            joint = SHORT[key]
+            out.rot[joint] = tuple(a + b for a, b in zip(out.get(joint), value))
+        return out
+
+
+def P(off=(0.0, 0.0, 0.0), **joints):
+    """P(off=(0, -0.3, 0), rsh=(90, 0, 10), rel=(40, 0, 0), ...)"""
+    rot = {}
+    for key, value in joints.items():
+        if key not in SHORT:
+            raise KeyError(f"unknown joint {key!r}")
+        if isinstance(value, (int, float)):
+            value = (value, 0, 0)
+        rot[SHORT[key]] = tuple(float(v) for v in value)
+    return Pose(rot, off)
+
+
+REST = P()
+
+
+def mirror(pose):
+    """Swaps left and right."""
+    rot = {}
+    for joint, (p, y, r) in pose.rot.items():
+        if joint.startswith("Left"):
+            joint = "Right" + joint[4:]
+        elif joint.startswith("Right"):
+            joint = "Left" + joint[5:]
+        rot[joint] = (p, -y, -r)
+    x, y, z = pose.offset
+    return Pose(rot, (-x, y, z))
+
+
+def lerp_pose(a, b, t):
+    rot = {}
+    for joint in set(a.rot) | set(b.rot):
+        pa, pb = a.get(joint), b.get(joint)
+        rot[joint] = tuple(x + (y - x) * t for x, y in zip(pa, pb))
+    off = tuple(x + (y - x) * t for x, y in zip(a.offset, b.offset))
+    return Pose(rot, off)
+
+
+# Leg IK ------------------------------------------------------------------------
+
+
+def _rot_x(deg, y, z):
+    a = math.radians(deg)
+    return y * math.cos(a) - z * math.sin(a), y * math.sin(a) + z * math.cos(a)
+
+
+def plant(pose, lfoot=0.0, rfoot=0.0, lheight=0.0, rheight=0.0, toe=0.0):
+    """Solves both legs so the ankles reach the given spots, in the side
+    plane: `lfoot`/`rfoot` are the feet's z (negative = in front), `*height`
+    lifts a foot off the ground. Feet stay flat unless `toe` tilts them. Uses
+    the pose's root offset and root pitch."""
+    out = pose.copy()
+    root_pitch = pose.get("Root")[0]
+    ox, oy, oz = pose.offset
+    for side, fz, fh in (("Left", lfoot, lheight), ("Right", rfoot, rheight)):
+        hx, hy, hz = HIP[side]
+        ry, rz = _rot_x(root_pitch, hy - ROOT_PIVOT[1], hz - ROOT_PIVOT[2])
+        hip_y = ROOT_PIVOT[1] + oy + ry
+        hip_z = ROOT_PIVOT[2] + oz + rz
+        dy = (ANKLE_HEIGHT + fh) - hip_y
+        dz = fz - hip_z
+        dist = math.hypot(dy, dz)
+        reach = THIGH + SHIN - 1e-4
+        phi = math.atan2(-dz, -dy)  # angle of hip->ankle from straight down
+        if dist >= reach:
+            thigh = phi
+            knee = 0.0
+        else:
+            alpha = math.acos(max(-1.0, min(1.0, (THIGH ** 2 + dist ** 2 - SHIN ** 2) / (2 * THIGH * dist))))
+            beta = math.acos(max(-1.0, min(1.0, (THIGH ** 2 + SHIN ** 2 - dist ** 2) / (2 * THIGH * SHIN))))
+            thigh = phi + alpha
+            knee = -(math.pi - beta)
+        shin_world = thigh + knee
+        # pitch here is about rig +X, while phi grows toward -Z (forward): same sign
+        hip_pitch = math.degrees(thigh) - root_pitch
+        out.rot[f"{side}Hip"] = (hip_pitch, 0.0, 0.0)
+        out.rot[f"{side}Knee"] = (math.degrees(knee), 0.0, 0.0)
+        out.rot[f"{side}Ankle"] = (-math.degrees(shin_world) + toe, 0.0, 0.0)
+    return out
+
+
+# Clips --------------------------------------------------------------------------
+
+
+class Clip:
+    def __init__(self, name, keys, phased=False, loop=False, length=None):
+        self.name = name
+        self.phased = phased
+        self.loop = loop
+        norm = []
+        for key in keys:
+            t, pose = key[0], key[1]
+            ease = key[2] if len(key) > 2 else "Quad.Out"
+            style = ease.split(".")[0]
+            if style not in EASES:
+                raise ValueError(f"{name}: unknown ease {ease!r}")
+            norm.append((float(t), pose, ease))
+        norm.sort(key=lambda k: k[0])
+        self.keys = norm
+        self.length = float(length if length is not None else (3.0 if phased else norm[-1][0]))
+        if loop and norm[-1][0] < self.length - 1e-6:
+            # close the loop on the first pose
+            self.keys.append((self.length, norm[0][1], norm[0][2]))
+        self.keys = split_big_turns(self.keys)
+
+
+CLIPS = {}
+
+
+def clip(name, keys, phased=False, loop=False, length=None):
+    if name in CLIPS:
+        raise ValueError(f"duplicate clip {name}")
+    c = Clip(name, keys, phased, loop, length)
+    CLIPS[name] = c
+    return c
+
+
+def attack(name, keys):
+    """A phased clip (0-1 startup, 1-2 active, 2-3 recovery)."""
+    return clip(name, keys, phased=True)
+
+
+def spin_keys(t0, t1, pose0, pose1, degrees, axis="yaw", steps=None, ease="Linear"):
+    """Keys that turn the root `degrees` (any amount) between two times."""
+    steps = steps or max(2, int(math.ceil(abs(degrees) / 120.0)))
+    keys = []
+    idx = 0 if axis == "pitch" else 1
+    for i in range(steps + 1):
+        a = i / steps
+        pose = lerp_pose(pose0, pose1, a)
+        p = list(pose.get("Root"))
+        p[idx] += degrees * a
+        pose.rot["Root"] = tuple(p)
+        keys.append((t0 + (t1 - t0) * a, pose, ease))
+    return keys
+
+
+# Arm and weapon aiming ---------------------------------------------------------
+# Directions are in rig space. dir2d(angle) is a direction in the side plane
+# (the plane the camera sees): 0 = straight ahead, 90 = up, 180 = behind,
+# -90 = down. `out` leans it toward the camera side (+X, the right side).
+
+
+def _m_rot(deg):
+    p, y, r = (math.radians(d) for d in deg)
+    cx, sx, cy, sy, cz, sz = math.cos(p), math.sin(p), math.cos(y), math.sin(y), math.cos(r), math.sin(r)
+    rx = ((1, 0, 0), (0, cx, -sx), (0, sx, cx))
+    ry = ((cy, 0, sy), (0, 1, 0), (-sy, 0, cy))
+    rz = ((cz, -sz, 0), (sz, cz, 0), (0, 0, 1))
+    return _m_mul(_m_mul(rx, ry), rz)
+
+
+def _m_mul(a, b):
+    return tuple(tuple(sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)) for i in range(3))
+
+
+def _m_t(a):
+    return tuple(tuple(a[j][i] for j in range(3)) for i in range(3))
+
+
+def _m_apply(a, v):
+    return tuple(sum(a[i][k] * v[k] for k in range(3)) for i in range(3))
+
+
+def _norm(v):
+    length = math.sqrt(sum(c * c for c in v)) or 1.0
+    return tuple(c / length for c in v)
+
+
+def dir2d(angle, out=0.0):
+    a = math.radians(angle)
+    return _norm((out, math.sin(a), -math.cos(a)))
+
+
+def _chain(pose, joints):
+    m = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+    for joint in joints:
+        m = _m_mul(m, _m_rot(pose.get(joint)))
+    return m
+
+
+def arm(pose, side, upper, elbow=0.0, weapon=None, twist=0.0):
+    """Points `side`'s upper arm along `upper` (a direction, or an angle for
+    dir2d), bends the elbow forward by `elbow` degrees, and if `weapon` is
+    given turns the wrist so the held weapon (its +Y) points that way."""
+    out = pose.copy()
+    if isinstance(upper, (int, float)):
+        upper = dir2d(upper)
+    if isinstance(weapon, (int, float)):
+        weapon = dir2d(weapon)
+    parent = _chain(out, ["Root", "Waist"])
+    d = _m_apply(_m_t(parent), _norm(upper))
+    # Rx(p) * Ry(twist) * Rz(r) applied to the hanging arm (0, -1, 0)
+    r = math.degrees(math.asin(max(-1.0, min(1.0, d[0]))))
+    p = math.degrees(math.atan2(-d[2], -d[1])) if abs(d[0]) < 0.9999 else 0.0
+    out.rot[f"{side}Shoulder"] = (p, twist, r)
+    out.rot[f"{side}Elbow"] = (float(elbow), 0.0, 0.0)
+    if weapon is not None:
+        out = aim(out, side, weapon)
+    return out
+
+
+def aim(pose, side, weapon):
+    """Turns the wrist so a weapon held in `side`'s hand points along `weapon`."""
+    out = pose.copy()
+    if isinstance(weapon, (int, float)):
+        weapon = dir2d(weapon)
+    parent = _chain(out, ["Root", "Waist", f"{side}Shoulder", f"{side}Elbow"])
+    w = _m_apply(_m_t(parent), _norm(weapon))
+    # Rx(a) * Ry(b) applied to the rest weapon direction (0, 0, -1)
+    b = math.degrees(math.asin(max(-1.0, min(1.0, -w[0]))))
+    a = math.degrees(math.atan2(w[1], -w[2]))
+    out.rot[f"{side}Wrist"] = (a, b, 0.0)
+    return out
+
+
+def _turn(a, b):
+    rel = _m_mul(_m_t(_m_rot(a)), _m_rot(b))
+    trace = rel[0][0] + rel[1][1] + rel[2][2]
+    return math.degrees(math.acos(max(-1.0, min(1.0, (trace - 1) / 2))))
+
+
+def _wrap(d):
+    return (d + 180.0) % 360.0 - 180.0
+
+
+def _euler_mid(p0, p1):
+    rot = {}
+    for joint in set(p0.rot) | set(p1.rot):
+        a, b = p0.get(joint), p1.get(joint)
+        rot[joint] = tuple(x + _wrap(y - x) * 0.5 for x, y in zip(a, b))
+    return Pose(rot, tuple((x + y) / 2 for x, y in zip(p0.offset, p1.offset)))
+
+
+def split_big_turns(keys, limit=150.0, depth=3):
+    """Inserts midpoint keys wherever a joint turns more than `limit` degrees
+    between two keys, so the game's shortest-path interpolation can't flip
+    the wrong way round."""
+    out = [keys[0]]
+    for (t0, p0, e0), (t1, p1, e1) in zip(keys, keys[1:]):
+        if e0 != "Constant" and depth > 0 and any(_turn(p0.get(j), p1.get(j)) > limit for j in set(p0.rot) | set(p1.rot)):
+            mid = (0.5 * (t0 + t1), _euler_mid(p0, p1), "Linear")
+            first = split_big_turns([(t0, p0, e0), mid], limit, depth - 1)
+            second = split_big_turns([mid, (t1, p1, e1)], limit, depth - 1)
+            out[-1] = first[0]
+            out += first[1:] + second[1:]
+        else:
+            out.append((t1, p1, e1))
+    return out
+
+
+def check_clip(c, limit=170.0):
+    """Warns about keys a joint would have to turn the short way round
+    (anything near 180 degrees between two keys interpolates unpredictably)."""
+    problems = []
+    for (t0, p0, ease), (t1, p1, _) in zip(c.keys, c.keys[1:]):
+        if ease == "Constant":
+            continue
+        for joint in set(p0.rot) | set(p1.rot):
+            a, b = _m_rot(p0.get(joint)), _m_rot(p1.get(joint))
+            rel = _m_mul(_m_t(a), b)
+            trace = rel[0][0] + rel[1][1] + rel[2][2]
+            angle = math.degrees(math.acos(max(-1.0, min(1.0, (trace - 1) / 2))))
+            if angle > limit:
+                problems.append(f"{c.name}: {joint} turns {angle:.0f} deg between t={t0} and t={t1}")
+    return problems
+
+
+# Forward kinematics and arm IK -------------------------------------------------
+
+PIVOTS = {
+    "Root": (0.0, 2.7, 0.0), "Waist": (0.0, 3.1, 0.0), "Neck": (0.0, 4.45, 0.0),
+}
+PARENT = {"Root": None, "Waist": "Root", "Neck": "Waist"}
+for _side, _s in (("Left", -1), ("Right", 1)):
+    PIVOTS.update({
+        f"{_side}Shoulder": (_s * 1.05, 4.2, 0.0), f"{_side}Elbow": (_s * 1.2, 3.35, 0.0),
+        f"{_side}Wrist": (_s * 1.3, 2.6, 0.0), f"{_side}Hip": (_s * 0.5, 2.55, 0.0),
+        f"{_side}Knee": (_s * 0.52, 1.5, 0.0), f"{_side}Ankle": (_s * 0.52, 0.5, 0.0),
+    })
+    PARENT.update({
+        f"{_side}Shoulder": "Waist", f"{_side}Elbow": f"{_side}Shoulder", f"{_side}Wrist": f"{_side}Elbow",
+        f"{_side}Hip": "Root", f"{_side}Knee": f"{_side}Hip", f"{_side}Ankle": f"{_side}Knee",
+    })
+GRIP = {"Right": (1.34, 2.3, -0.02), "Left": (-1.34, 2.3, -0.02)}  # same as sky.rig.GRIP
+_I3 = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+
+
+def _sub(a, b):
+    return tuple(x - y for x, y in zip(a, b))
+
+
+def _add(a, b):
+    return tuple(x + y for x, y in zip(a, b))
+
+
+def _scale(a, k):
+    return tuple(x * k for x in a)
+
+
+def _dot(a, b):
+    return sum(x * y for x, y in zip(a, b))
+
+
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def fk(pose, joint):
+    """World (rig space) position and rotation of a joint's pivot frame."""
+    parent = PARENT[joint]
+    if parent is None:
+        return _add(PIVOTS[joint], pose.offset), _m_rot(pose.get(joint))
+    ppos, prot = fk(pose, parent)
+    pos = _add(ppos, _m_apply(prot, _sub(PIVOTS[joint], PIVOTS[parent])))
+    return pos, _m_mul(prot, _m_rot(pose.get(joint)))
+
+
+def grip_position(pose, side):
+    pos, rot = fk(pose, f"{side}Wrist")
+    return _add(pos, _m_apply(rot, _sub(GRIP[side], PIVOTS[f"{side}Wrist"])))
+
+
+def weapon_direction(pose, side):
+    _, rot = fk(pose, f"{side}Wrist")
+    return _m_apply(rot, (0.0, 0.0, -1.0))
+
+
+def _euler_xyz(m):
+    """Matrix -> (pitch, yaw, roll) degrees with m = Rx * Ry * Rz."""
+    b = math.asin(max(-1.0, min(1.0, m[0][2])))
+    if abs(m[0][2]) < 0.9999:
+        a = math.atan2(-m[1][2], m[2][2])
+        c = math.atan2(-m[0][1], m[0][0])
+    else:
+        a = math.atan2(m[2][1], m[1][1])
+        c = 0.0
+    return (math.degrees(a), math.degrees(b), math.degrees(c))
+
+
+UPPER_ARM = math.hypot(0.15, 0.85)
+FOREARM_TO_GRIP = math.hypot(math.hypot(1.34 - 1.2, 2.3 - 3.35), 0.02)
+
+
+def reach(pose, side, target, pole=None, weapon=None):
+    """Two-bone IK: puts `side`'s grip (center of the fist) on `target`.
+    `pole` is the direction the elbow should point (default: down and out)."""
+    out = pose.copy()
+    s = 1 if side == "Right" else -1
+    sh_pos, parent_rot = fk(out, f"{side}Shoulder")
+    _, chest = fk(out, "Waist")
+    to = _sub(target, sh_pos)
+    dist = math.sqrt(_dot(to, to))
+    l1, l2 = UPPER_ARM, FOREARM_TO_GRIP
+    dist = max(1e-3, min(dist, l1 + l2 - 1e-3))
+    d = _norm(to)
+    pole = _norm(pole or _m_apply(chest, (s * 0.6, -1.0, 0.35)))
+    # elbow lies off the shoulder->target line toward the pole
+    side_dir = _norm(_sub(pole, _scale(d, _dot(pole, d))))
+    cos_a = max(-1.0, min(1.0, (l1 * l1 + dist * dist - l2 * l2) / (2 * l1 * dist)))
+    a = math.acos(cos_a)
+    elbow_pos = _add(sh_pos, _add(_scale(d, l1 * math.cos(a)), _scale(side_dir, l1 * math.sin(a))))
+    u = _norm(_sub(elbow_pos, sh_pos))
+    f = _norm(_sub(_add(sh_pos, _scale(d, dist)), elbow_pos))
+    bend = math.degrees(math.acos(max(-1.0, min(1.0, _dot(u, f)))))
+    b = _sub(f, _scale(u, _dot(f, u)))
+    b = _norm(b) if math.sqrt(_dot(b, b)) > 1e-6 else _m_apply(chest, (0, 0, -1))
+    x = _cross(u, b)
+    world = tuple(tuple((x[i], -u[i], -b[i])[j] for j in range(3)) for i in range(3))
+    # parent_rot is the shoulder's own frame; its parent (the chest) is `chest`
+    local = _m_mul(_m_t(chest), world)
+    out.rot[f"{side}Shoulder"] = _euler_xyz(local)
+    out.rot[f"{side}Elbow"] = (bend, 0.0, 0.0)
+    out = _refine_reach(out, side, target)
+    if weapon is not None:
+        out = aim(out, side, weapon)
+    return out
+
+
+def _solve(a, b):
+    """Gaussian elimination for a small square system."""
+    n = len(b)
+    m = [list(row) + [b[i]] for i, row in enumerate(a)]
+    for col in range(n):
+        piv = max(range(col, n), key=lambda r: abs(m[r][col]))
+        m[col], m[piv] = m[piv], m[col]
+        if abs(m[col][col]) < 1e-12:
+            return [0.0] * n
+        for r in range(n):
+            if r != col:
+                k = m[r][col] / m[col][col]
+                for c in range(col, n + 1):
+                    m[r][c] -= k * m[col][c]
+    return [m[i][n] / m[i][i] for i in range(n)]
+
+
+def _refine_reach(pose, side, target, iterations=40):
+    """Damped least squares on (shoulder pitch/yaw/roll, elbow) so the grip
+    lands exactly on the target despite the rig's slightly angled bones."""
+    sh, el = f"{side}Shoulder", f"{side}Elbow"
+    x = list(pose.get(sh)) + [pose.get(el)[0]]
+    start = list(x)
+
+    def grip(params):
+        pose.rot[sh] = tuple(params[:3])
+        pose.rot[el] = (max(0.0, min(160.0, params[3])), 0.0, 0.0)
+        return grip_position(pose, side)
+
+    for _ in range(iterations):
+        g = grip(x)
+        res = _sub(g, target)
+        if math.sqrt(_dot(res, res)) < 1e-3:
+            break
+        jac = []
+        for i in range(4):
+            x2 = list(x)
+            x2[i] += 0.5
+            g2 = grip(x2)
+            jac.append([(g2[k] - g[k]) / 0.5 for k in range(3)])
+        lam = 2e-5
+        jtj = [[sum(jac[i][k] * jac[j][k] for k in range(3)) + (lam if i == j else 0.0) for j in range(4)]
+               for i in range(4)]
+        # weak pull back toward the analytic solution keeps the elbow on its side
+        jtr = [sum(jac[i][k] * res[k] for k in range(3)) + 1e-6 * (x[i] - start[i]) for i in range(4)]
+        dx = _solve(jtj, [-v for v in jtr])
+        x = [xi + max(-20.0, min(20.0, d)) for xi, d in zip(x, dx)]
+    grip(x)
+    return pose
+
+
+def two_hand(pose, separation, lead="Right", support=None):
+    """After `lead` holds the weapon, puts the other hand on the haft,
+    `separation` studs along the weapon (negative = toward the butt)."""
+    other = support or ("Left" if lead == "Right" else "Right")
+    grip = grip_position(pose, lead)
+    w = weapon_direction(pose, lead)
+    target = _add(grip, _scale(w, separation))
+    return reach(pose, other, target, weapon=w)

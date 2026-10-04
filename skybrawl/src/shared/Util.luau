@@ -121,7 +121,15 @@ function Util.feetOffset(model)
 	return root.Size.Y / 2 + (leg and leg.Size.Y or 2)
 end
 
+-- The hand a weapon goes in: the legend rig's hand if it has one.
 function Util.getHand(model, side)
+	local rig = model:FindFirstChild("VisualRig")
+	if rig then
+		local hand = rig:FindFirstChild(side == "Left" and "LeftHand" or "RightHand")
+		if hand then
+			return hand
+		end
+	end
 	if side == "Left" then
 		return model:FindFirstChild("LeftHand") or model:FindFirstChild("Left Arm")
 	end

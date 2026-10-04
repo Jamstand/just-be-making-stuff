@@ -1,0 +1,16 @@
+{
+ "map": "SkyShip",
+ "pieces": {
+  "Deck": 4100,
+  "GlowLights": 1010,
+  "Platforms": 2284,
+  "Rigging": 6068,
+  "Sails": 6264,
+  "SceneryClouds": 6110,
+  "SceneryFar": 4026,
+  "SceneryNear": 6416,
+  "Stage": 4108,
+  "StageTrim": 5188
+ },
+ "triangles": 45574
+}

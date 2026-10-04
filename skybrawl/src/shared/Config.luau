@@ -65,13 +65,32 @@ Config.Physics = {
 
 Config.Combat = {
 	KnockbackScale = 1.3,
-	BaseHitstun = 0.12,
-	HitstunPerForce = 0.0045,
+	BaseHitstun = 0.24,
+	HitstunPerForce = 0.0038,
 	MaxHitstun = 0.9,
 	MaxDamage = 999,
 
 	ChargeDamageBonus = 0.5, -- fully charged heavies deal +50%
 	ChargeKnockbackBonus = 0.25,
+
+	-- Combo flow (Brawlhalla-style)
+	-- After one of your attacks hits, for ChaseWindow seconds your next dodge
+	-- is a chase dodge: a quick directional burst with no invulnerability that
+	-- ignores your dodge cooldown. Light attacks that hit can also be cancelled
+	-- into a jump or a chase dodge once their active frames end.
+	ChaseWindow = 0.55,
+	ChaseDodgeSpeed = 50,
+	ChaseDodgeTime = 0.12,
+	-- Gravity cancel: an air spot dodge lets you use ground light attacks in
+	-- the air while it lasts (and this long after).
+	GravityCancelGrace = 0.06,
+	-- Hit-stop: attacker and victim freeze briefly when a hit lands.
+	HitStopBase = 0.035,
+	HitStopPerForce = 0.0009,
+	HitStopMax = 0.12,
+	-- Hits that land this soon after the victim's hitstun ends still extend
+	-- the combo counter (as a string, not a true combo).
+	ComboGrace = 0.35,
 
 	RespawnTime = 2.0,
 	RespawnInvuln = 2.0,
@@ -146,9 +165,9 @@ Config.Queue = {
 	FFAFillWithBots = true,
 	FFAFillDifficulty = "Normal",
 	MapPools = {
-		["1v1"] = { "SkyholdKeep", "AncientRuins", "DuelRock" },
-		["2v2"] = { "SkyholdKeep", "TwinIsles", "AncientRuins" },
-		FFA = { "SkyholdKeep", "TwinIsles", "AncientRuins" },
+		["1v1"] = { "SkyShip", "FrozenPeaks", "JungleTemple", "SkyholdKeep", "AncientRuins", "DuelRock" },
+		["2v2"] = { "SkyShip", "VolcanicForge", "JungleTemple", "SkyholdKeep", "TwinIsles", "AncientRuins" },
+		FFA = { "SkyShip", "VolcanicForge", "FrozenPeaks", "JungleTemple", "SkyholdKeep", "TwinIsles", "AncientRuins" },
 	},
 }
 
@@ -229,6 +248,29 @@ Config.Data = {
 }
 
 -- Camera ------------------------------------------------------------------
+
+-- Art --------------------------------------------------------------------
+--[[
+    Imported art (see art/IMPORTING.md). Everything has a code-built fallback,
+    so the game runs before anything is imported.
+      ReplicatedStorage.FighterModels.<Legend>   fighter meshes
+      ReplicatedStorage.WeaponMeshes.<Id>        weapon meshes ("KestrelSword", "Sword", ...)
+      ReplicatedStorage.MapModels.<MapId>        map kits
+]]
+Config.Art = {
+	FighterHeight = 5.6, -- legend rigs are scaled to this (the hurtbox is 5.4)
+	OutlineColor = Color3.fromRGB(18, 16, 26),
+	OutlineThickness = 0, -- Highlight outlines have a fixed width; 0 = default
+	Outlines = true,
+	-- Painted sky images, one per map. Upload art/export/skies/<MapId>.png
+	-- (or the painted versions) as Decals and paste the image ids here.
+	SkyImages = {
+		SkyShip = "",
+		VolcanicForge = "",
+		FrozenPeaks = "",
+		JungleTemple = "",
+	},
+}
 
 Config.Camera = {
 	Modes = {

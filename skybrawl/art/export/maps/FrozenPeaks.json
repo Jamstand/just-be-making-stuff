@@ -1,0 +1,16 @@
+{
+ "map": "FrozenPeaks",
+ "pieces": {
+  "Arch": 492,
+  "GlowCrystals": 1508,
+  "Pines": 1056,
+  "Platforms": 312,
+  "SceneryClouds": 8224,
+  "SceneryFar": 2376,
+  "SceneryNear": 824,
+  "Stage": 808,
+  "StageTrim": 3740,
+  "Waterfall": 1776
+ },
+ "triangles": 21116
+}

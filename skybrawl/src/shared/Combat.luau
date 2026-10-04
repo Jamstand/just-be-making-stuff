@@ -36,6 +36,11 @@ function Combat.hitstun(force)
 	return math.min(C.MaxHitstun, C.BaseHitstun + force * C.HitstunPerForce)
 end
 
+-- How long attacker and victim freeze when a hit lands.
+function Combat.hitstop(force)
+	return math.min(C.HitStopMax, C.HitStopBase + (force or 0) * C.HitStopPerForce)
+end
+
 -- Thrown weapons behave like a tiny attack.
 Combat.ThrowMove = {
 	Damage = Config.WeaponDrops.ThrowDamage,

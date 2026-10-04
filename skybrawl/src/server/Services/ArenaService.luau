@@ -4,6 +4,12 @@
     Arenas are built from Maps data when a match starts and destroyed when
     it ends. Each arena slot sits far apart on the X axis so matches running
     side by side can never see each other.
+
+    A map with a Kit uses the imported Blender kit from
+    ReplicatedStorage.MapModels.<Kit> when it's there (see art/IMPORTING.md);
+    otherwise its platforms are built from Parts like the classic maps. The
+    server builds a gradient sky; clients draw the map's painted image
+    (Config.Art.SkyImages) in front of it (client SkyBackdrop).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,6 +17,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Maps = require(Shared.Maps)
+local Markers = require(Shared.Markers)
+
+local KIT_MARKER_DISTANCE = 10
 
 local ArenaService = {}
 
@@ -94,7 +103,9 @@ local function cloud(parent, center, rng, scale)
 	end
 end
 
--- Sky gradient plane behind an arena (faces +Z, toward the camera).
+-- Sky gradient plane behind an arena (faces +Z, toward the camera). A map's
+-- painted sky image is drawn in front of it by each client (SkyBackdrop),
+-- sized to their own camera.
 local function skyBackdrop(parent, center, top, bottom)
 	local backdrop = part(parent, "Sky", Vector3.new(2400, 1400, 1), CFrame.new(center), Color3.new(1, 1, 1))
 	backdrop.CastShadow = false
@@ -117,6 +128,58 @@ local function skyBackdrop(parent, center, top, bottom)
 		ColorSequenceKeypoint.new(1, bottom),
 	})
 	gradient.Parent = frame
+end
+
+-- Imported map kits -----------------------------------------------------------
+
+local kitTemplates = {} -- [kit] = parts | false
+
+local function kitTemplate(kit)
+	local cached = kitTemplates[kit]
+	if cached ~= nil then
+		return cached or nil
+	end
+	local folder = ReplicatedStorage:FindFirstChild("MapModels")
+	local model = folder and folder:FindFirstChild(kit)
+	local parts = nil
+	if model then
+		parts = Markers.read(model, KIT_MARKER_DISTANCE, 1)
+		if #parts == 0 then
+			warn("[ArenaService] MapModels." .. kit .. " has no meshes")
+			parts = nil
+		end
+	end
+	kitTemplates[kit] = parts or false
+	return parts
+end
+
+function ArenaService.hasKit(mapId)
+	local map = Maps.get(mapId)
+	return map ~= nil and map.Kit ~= nil and kitTemplate(map.Kit) ~= nil
+end
+
+-- Places a kit at the arena origin. Pieces named "Glow..." become Neon.
+local function buildKit(parent, origin, parts, glowColor)
+	local base = CFrame.new(origin)
+	for _, p in parts do
+		local piece = Markers.cloneMesh(p.source)
+		piece.Size = p.size
+		piece.CFrame = base * p.cframe
+		piece.Anchored = true
+		piece.CanCollide = false
+		piece.CanQuery = false
+		piece.CanTouch = false
+		piece.CollisionGroup = "Arena"
+		if string.sub(p.name, 1, 4) == "Glow" then
+			Markers.makeGlow(piece)
+			piece.Material = Enum.Material.Neon
+			piece.Color = glowColor or Color3.fromRGB(255, 220, 140)
+			piece.CastShadow = false
+		else
+			piece.Material = Enum.Material.SmoothPlastic
+		end
+		piece.Parent = parent
+	end
 end
 
 -- Arena maps --------------------------------------------------------------
@@ -186,13 +249,27 @@ function ArenaService.buildMap(mapId, origin, slot)
 	projectiles.Name = "Projectiles"
 	projectiles.Parent = folder
 
-	for _, plat in map.Platforms do
-		buildPlatform(stage, origin, plat, rng)
+	local kit = map.Kit and kitTemplate(map.Kit)
+	if kit then
+		buildKit(stage, origin, kit, map.GlowColor)
+	else
+		for _, plat in map.Platforms do
+			buildPlatform(stage, origin, plat, rng)
+		end
 	end
 
 	local camera = map.Camera
 	local camCenter = Vector3.new((camera[1] + camera[3]) / 2, (camera[2] + camera[4]) / 2, 0)
 	skyBackdrop(scenery, origin + camCenter + Vector3.new(0, 0, -220), map.Sky.Top, map.Sky.Bottom)
+
+	folder:SetAttribute("MapId", mapId)
+	folder:SetAttribute("Origin", origin)
+	folder:SetAttribute("Kit", kit ~= nil)
+	if kit then
+		-- The kit brings its own scenery.
+		folder.Parent = workspace:FindFirstChild("Arenas")
+		return folder
+	end
 
 	for _ = 1, 12 do
 		local center = origin + Vector3.new(rng:NextNumber(-170, 170), rng:NextNumber(-70, 80), rng:NextNumber(-150, -60))
@@ -312,6 +389,7 @@ function ArenaService.buildLobby()
 	kiosk(lobby, Vector3.new(0, 0, -26), "PLAY", "Play", Color3.fromRGB(255, 200, 70))
 	kiosk(lobby, Vector3.new(-24, 0, -14), "CUSTOM ROOMS", "Rooms", Color3.fromRGB(110, 210, 255))
 	kiosk(lobby, Vector3.new(24, 0, -14), "SHOP", "Shop", Color3.fromRGB(255, 120, 200))
+	kiosk(lobby, Vector3.new(-24, 0, 14), "FIGHTERS", "Fighters", Color3.fromRGB(140, 255, 160))
 
 	for _ = 1, 10 do
 		local angle = rng:NextNumber(0, math.pi * 2)

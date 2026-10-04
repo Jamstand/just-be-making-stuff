@@ -19,6 +19,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Cosmetics = require(Shared.Cosmetics)
+local Legends = require(Shared.Legends)
 local Ranks = require(Shared.Ranks)
 local Util = require(Shared.Util)
 local Net = require(Shared.Net)
@@ -58,6 +59,7 @@ local DEFAULT_PROFILE = {
 	Owned = {},
 	Equipped = Util.deepCopy(Cosmetics.Defaults),
 	Settings = {},
+	Legend = Legends.Default,
 }
 for _, id in Cosmetics.Defaults do
 	DEFAULT_PROFILE.Owned[id] = true
@@ -192,6 +194,7 @@ function DataService.snapshot(player)
 		Owned = table.clone(profile.Owned),
 		Equipped = table.clone(profile.Equipped),
 		Settings = Util.deepCopy(profile.Settings),
+		Legend = profile.Legend,
 		Saving = canSave[player] == true,
 	}
 end
@@ -252,6 +255,9 @@ local function loadProfile(player)
 
 	local profile = Util.reconcile(type(data) == "table" and data or {}, DEFAULT_PROFILE)
 	profile.Settings = DataService.sanitizeSettings(profile.Settings)
+	if not Legends.isValid(profile.Legend) then
+		profile.Legend = Legends.Default
+	end
 	for category, id in Cosmetics.Defaults do
 		profile.Owned[id] = true
 		local equipped = Cosmetics.get(profile.Equipped[category])
@@ -380,6 +386,20 @@ function DataService.start()
 	Players.PlayerRemoving:Connect(function(player)
 		lastSettingsSave[player] = nil
 	end)
+
+	-- Fighter select. All legends are free; the choice is read at match start.
+	Net.get("SelectLegend").OnServerInvoke = function(player, legendId)
+		if not Legends.isValid(legendId) then
+			return false, "Unknown fighter."
+		end
+		if not profiles[player] then
+			return false, "Your profile is still loading."
+		end
+		DataService.update(player, function(profile)
+			profile.Legend = legendId
+		end)
+		return true
+	end
 
 	task.spawn(function()
 		while true do

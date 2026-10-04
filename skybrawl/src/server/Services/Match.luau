@@ -8,6 +8,10 @@
         teams), owns damage/knockback/KOs/stocks/weapons/projectiles, and
         tells the victim's client how far to fly.
       - Bots are simulated entirely on the server with the same FighterSim.
+      - Every fighter plays a legend (Legends.luau): its signatures and
+        Dexterity timing come from Legends.getAttack, and Strength/Defense
+        scale damage here. Legends with imported art get their visual rig
+        (LegendRig) on top of the Roblox character.
 
     Lifecycle: Loading -> Countdown -> Playing -> Ended
 ]]
@@ -25,7 +29,8 @@ local FighterSim = require(Shared.FighterSim)
 local Combat = require(Shared.Combat)
 local Cosmetics = require(Shared.Cosmetics)
 local Ranks = require(Shared.Ranks)
-local Locomotion = require(Shared.Locomotion)
+local Legends = require(Shared.Legends)
+local LegendRig = require(Shared.LegendRig)
 local Util = require(Shared.Util)
 local Net = require(Shared.Net)
 
@@ -101,6 +106,12 @@ function Match:newFighter(id, team)
 		lastHitBy = nil,
 		lastHitTime = 0,
 		hitstunUntil = 0,
+		lastHitDealt = 0,
+		comboBy = nil,
+		comboCount = 0,
+		comboTrue = false,
+		legend = "Avatar",
+		lastWeapon = nil,
 		kos = 0,
 		falls = 0,
 		damageDealt = 0,
@@ -136,6 +147,7 @@ function Match:AddPlayer(player, team)
 		f.level = Ranks.levelFromXP(profile.XP)
 		local title = Cosmetics.resolve("Title", profile.Equipped.Title)
 		f.title = title and title.Name
+		f.legend = Legends.isValid(profile.Legend) and profile.Legend or Legends.Default
 	end
 	if self.config.ranked then
 		f.rating = self.services.ProgressionService.ratingOf(player, self.config.mode)
@@ -153,6 +165,13 @@ function Match:AddBot(difficulty, team, name)
 	f.weaponColor = Cosmetics.Defaults.WeaponColor
 	f.koEffect = Cosmetics.Defaults.KOEffect
 	f.title = f.difficulty .. " Bot"
+	local roster = {}
+	for _, id in Legends.Order do
+		if id ~= "Avatar" then
+			table.insert(roster, id)
+		end
+	end
+	f.legend = Util.pick(roster, self.rng)
 	return f
 end
 
@@ -210,6 +229,7 @@ function Match:fighterInfo(f)
 		damage = f.damage,
 		weapon = f.weapon,
 		rating = f.rating,
+		legend = f.legend,
 	}
 end
 
@@ -296,7 +316,8 @@ function Match:spawnBotModel(f)
 		color = teamColor(f.team),
 	})
 	model:SetAttribute("FighterId", f.id)
-	f.locomotion = Locomotion.new(humanoid, true)
+	model:SetAttribute("Legend", f.legend)
+	LegendRig.attach(model, f.legend)
 	return true
 end
 
@@ -325,6 +346,8 @@ function Match:preparePlayer(f)
 	humanoid.Health = humanoid.MaxHealth
 	character:SetAttribute("FighterId", f.id)
 	character:SetAttribute("MatchId", self.id)
+	character:SetAttribute("Legend", f.legend)
+	LegendRig.attach(character, f.legend)
 	self.services.CharacterService.setTeamColor(character, teamColor(f.team))
 	self.services.CharacterService.applyTrail(character, f.trail)
 	WeaponModels.detach(character)
@@ -494,6 +517,7 @@ function Match:stepBot(f, dt)
 	local ctx = {
 		world = self.world,
 		weapon = f.weapon,
+		legend = f.legend,
 		armed = Weapons.isWeapon(f.weapon),
 		nearPickup = self:nearPickup(s.x, s.y, Config.WeaponDrops.PickupRange) ~= nil,
 	}
@@ -513,7 +537,10 @@ function Match:stepBot(f, dt)
 					local hx1, hy1, hx2, hy2 = FighterSim.hurtbox(tx, ty)
 					if FighterSim.overlaps(x1, y1, x2, y2, hx1, hy1, hx2, hy2) then
 						rec.hits[target.id] = true
-						self:ApplyHit(f, target, rec.move, rec.charge, s.facing)
+						local hit, hitstop = self:ApplyHit(f, target, rec.move, rec.charge, s.facing)
+						if hit then
+							FighterSim.onHitConfirm(s, hitstop)
+						end
 					end
 				end
 			end
@@ -523,8 +550,6 @@ function Match:stepBot(f, dt)
 	f.facing = s.facing
 	f.root.CFrame = Util.fighterCFrame(self.origin, s.x, s.y, f.feetOffset, s.facing)
 	f.root.AssemblyLinearVelocity = Vector3.new(s.vx, s.vy, 0)
-	local anim = FighterSim.animState(s)
-	f.locomotion:Play(anim, anim == "Run" and math.max(0.6, math.abs(s.vx) / 16) or 1)
 end
 
 function Match:recordAttack(f, seq, slot, move, facing)
@@ -550,7 +575,7 @@ end
 
 function Match:handleBotEvent(f, ev)
 	if ev.type == "Attack" then
-		local move = Weapons.getAttack(f.weapon, ev.slot)
+		local move = Legends.getAttack(f.legend, f.weapon, ev.slot)
 		self:recordAttack(f, ev.seq, ev.slot, move, ev.facing)
 		self:Broadcast("Action", { fighterId = f.id, kind = "Attack", slot = ev.slot, weapon = f.weapon, facing = ev.facing, seq = ev.seq })
 	elseif ev.type == "Release" then
@@ -568,6 +593,8 @@ function Match:handleBotEvent(f, ev)
 		end
 	elseif ev.type == "Dodge" then
 		self:Broadcast("Action", { fighterId = f.id, kind = "Dodge", dodgeKind = ev.kind })
+	elseif ev.type == "Jump" and ev.kind ~= "Ground" then
+		self:Broadcast("Action", { fighterId = f.id, kind = "Jump", jumpKind = ev.kind })
 	elseif ev.type == "Throw" then
 		self:ThrowWeapon(f, ev.dirY, ev.facing)
 	elseif ev.type == "Pickup" then
@@ -622,7 +649,11 @@ function Match:ApplyHit(attacker, target, move, charge, facing, sourceX, ranged)
 		return false
 	end
 	local now = os.clock()
-	local dmg = Combat.damage(move, charge, self.config.damageMultiplier)
+	local mult = (self.config.damageMultiplier or 1) * Legends.damageTakenMult(target.legend)
+	if attacker then
+		mult *= Legends.damageDealtMult(attacker.legend)
+	end
+	local dmg = Combat.damage(move, charge, mult)
 	target.damage = math.min(Config.Combat.MaxDamage, target.damage + dmg)
 	target.damageTaken += dmg
 	if attacker then
@@ -636,12 +667,28 @@ function Match:ApplyHit(attacker, target, move, charge, facing, sourceX, ranged)
 	end
 	local kbx, kby, force = Combat.knockback(move, target.damage, charge, facing, tx - (ax or tx))
 	local hitstun = Combat.hitstun(force)
+	local hitstop = Combat.hitstop(force)
 
-	target.lastHitBy = attacker and attacker.id or nil
+	-- Combo counter: consecutive hits by the same attacker. A hit while the
+	-- victim is still in hitstun is a true link; one shortly after is a string.
+	local attackerId = attacker and attacker.id or nil
+	if attackerId and target.comboBy == attackerId and now <= target.hitstunUntil + Config.Combat.ComboGrace then
+		target.comboCount += 1
+		target.comboTrue = target.comboTrue and now <= target.hitstunUntil
+	else
+		target.comboBy = attackerId
+		target.comboCount = 1
+		target.comboTrue = true
+	end
+
+	target.lastHitBy = attackerId
 	target.lastHitTime = now
-	target.hitstunUntil = now + hitstun
+	target.hitstunUntil = now + hitstop + hitstun
+	if attacker then
+		attacker.lastHitDealt = now
+	end
 	if target.isBot and target.state then
-		FighterSim.applyHit(target.state, kbx, kby, hitstun)
+		FighterSim.applyHit(target.state, kbx, kby, hitstun, hitstop)
 	end
 
 	self:Broadcast("Hit", {
@@ -655,10 +702,14 @@ function Match:ApplyHit(attacker, target, move, charge, facing, sourceX, ranged)
 		force = force,
 		heavy = move.Kind == "Heavy",
 		ranged = ranged == true,
+		hitstop = hitstop,
+		combo = target.comboCount,
+		trueCombo = target.comboTrue,
+		signature = move.Signature,
 		x = tx,
 		y = ty + Config.Physics.FighterHeight * 0.55,
 	})
-	return true
+	return true, hitstop
 end
 
 function Match:onHitReport(f, data)
@@ -850,7 +901,8 @@ function Match:SetWeapon(f, weaponId)
 	f.weapon = weaponId
 	if f.model and f.model.Parent then
 		if Weapons.isWeapon(weaponId) then
-			WeaponModels.attach(f.model, weaponId, f.weaponColor)
+			f.lastWeapon = weaponId
+			WeaponModels.attach(f.model, weaponId, f.weaponColor, Legends.weaponSkin(f.legend, weaponId))
 		else
 			WeaponModels.detach(f.model)
 		end
@@ -931,7 +983,7 @@ function Match:TryPickup(f)
 	local pickup = self:nearPickup(x, y, Config.WeaponDrops.PickupRangeServer)
 	if pickup then
 		self:removePickup(pickup.id)
-		self:SetWeapon(f, pickup.weaponId)
+		self:SetWeapon(f, Legends.weaponFromPickup(f.legend, pickup.weaponId, f.lastWeapon))
 	end
 end
 
@@ -950,6 +1002,7 @@ function Match:spawnProjectile(owner, spec)
 		ownerId = owner.id,
 		kind = spec.kind,
 		weaponId = spec.weaponId,
+		skin = spec.weaponId and Legends.weaponSkin(owner.legend, spec.weaponId) or nil,
 		colorId = owner.weaponColor,
 		x = spec.x,
 		y = spec.y,
@@ -1064,6 +1117,7 @@ local DODGE_INVULN = {
 	AirSpot = Config.Physics.SpotDodgeTime,
 	Air = Config.Physics.AirDodgeInvuln,
 	Dash = 0,
+	Chase = 0,
 }
 
 -- Client-reported cooldowns are only trusted this much, to allow for lag.
@@ -1076,7 +1130,11 @@ local DODGE_COOLDOWN = {
 	AirSpot = Config.Physics.AirDodgeCooldown,
 	Air = Config.Physics.AirDodgeCooldown,
 	Dash = Config.Physics.DashCooldown,
+	Chase = Config.Combat.ChaseDodgeTime,
 }
+-- A chase dodge is only allowed this soon after the fighter's last hit
+-- (the chase window plus room for lag).
+local CHASE_SLACK = 0.35
 
 -- Finite number check for anything a client sends (NaN and inf rejected).
 local function finite(value)
@@ -1098,6 +1156,11 @@ function Match:canStartAttack(f, now)
 	end
 	if prev.move.Air or f.lastHitTime > prev.start then
 		return now - prev.start >= 0.05
+	end
+	-- A light that hit can be cancelled into a jump or chase dodge and
+	-- straight into the next attack.
+	if next(prev.hits) ~= nil and now - prev.start >= prev.move.Startup then
+		return true
 	end
 	local duration = prev.move.Startup + prev.move.Active + prev.move.Recovery
 	return now - prev.start >= duration * COOLDOWN_LENIENCY
@@ -1145,7 +1208,7 @@ function Match:OnAction(player, kind, data)
 		if type(data.slot) ~= "string" or not validSeq(data.seq) then
 			return
 		end
-		local move = Weapons.getAttack(f.weapon, data.slot)
+		local move = Legends.getAttack(f.legend, f.weapon, data.slot)
 		if not move or not self:canStartAttack(f, now) then
 			return
 		end
@@ -1179,7 +1242,11 @@ function Match:OnAction(player, kind, data)
 		if invuln == nil then
 			return
 		end
-		local cooldown = DODGE_COOLDOWN[data.kind] * COOLDOWN_LENIENCY
+		if data.kind == "Chase" and now - f.lastHitDealt > Config.Combat.ChaseWindow + CHASE_SLACK then
+			return
+		end
+		local cdMult = data.kind == "Chase" and 1 or Legends.dodgeCooldownMult(f.legend)
+		local cooldown = DODGE_COOLDOWN[data.kind] * cdMult * COOLDOWN_LENIENCY
 		local last = f.lastDodge and f.lastDodge[data.kind]
 		if last and now - last < cooldown then
 			return
@@ -1190,6 +1257,10 @@ function Match:OnAction(player, kind, data)
 			f.invulnUntil = math.max(f.invulnUntil, now + invuln + Config.Combat.DodgeInvulnSlack)
 		end
 		self:Broadcast("Action", { fighterId = f.id, kind = "Dodge", dodgeKind = data.kind }, player)
+	elseif kind == "Jump" then
+		if data.kind == "Air" or data.kind == "Wall" then
+			self:Broadcast("Action", { fighterId = f.id, kind = "Jump", jumpKind = data.kind }, player)
+		end
 	elseif kind == "Throw" then
 		local dirY = data.dirY == 1 and 1 or (data.dirY == -1 and -1 or 0)
 		self:ThrowWeapon(f, dirY, data.facing)
@@ -1403,11 +1474,6 @@ function Match:Cleanup()
 					player:LoadCharacter()
 				end)
 			end)
-		end
-	end
-	for _, f in self.fighters do
-		if f.locomotion then
-			f.locomotion:Destroy()
 		end
 	end
 	if self.folder then

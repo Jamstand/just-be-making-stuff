@@ -1,0 +1,16 @@
+{
+ "map": "JungleTemple",
+ "pieces": {
+  "Foliage": 5424,
+  "GlowJade": 1294,
+  "Platforms": 1920,
+  "SceneryFar": 3250,
+  "SceneryHaze": 8704,
+  "SceneryNear": 3300,
+  "Stage": 4404,
+  "Trees": 7200,
+  "Vines": 5492,
+  "Water": 1304
+ },
+ "triangles": 42292
+}

@@ -4,6 +4,7 @@
     "$className": "DataModel",
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
+      "$ignoreUnknownInstances": true,
       "Shared": {
         "$path": "src/shared"
       },
@@ -19,7 +20,8 @@
         "GetProfile": { "$className": "RemoteFunction" },
         "QueueRequest": { "$className": "RemoteFunction" },
         "RoomRequest": { "$className": "RemoteFunction" },
-        "ShopRequest": { "$className": "RemoteFunction" }
+        "ShopRequest": { "$className": "RemoteFunction" },
+        "SelectLegend": { "$className": "RemoteFunction" }
       }
     },
     "ServerScriptService": {

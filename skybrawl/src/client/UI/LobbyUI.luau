@@ -1,6 +1,6 @@
 --[[
     Lobby screen: profile card, coins, the bottom menu, queue/room banners,
-    and the panels (Play, Custom Rooms, Shop, Profile, Settings).
+    and the panels (Play, Custom Rooms, Fighters, Shop, Profile, Settings).
     Hidden while you're in a match.
 ]]
 
@@ -19,6 +19,7 @@ local ClientState = require(script.Parent.Parent.ClientState)
 local PlayPanel = require(script.Parent.PlayPanel)
 local RoomsPanel = require(script.Parent.RoomsPanel)
 local ShopPanel = require(script.Parent.ShopPanel)
+local FightersPanel = require(script.Parent.FightersPanel)
 local ProfilePanel = require(script.Parent.ProfilePanel)
 local SettingsPanel = require(script.Parent.SettingsPanel)
 
@@ -157,11 +158,12 @@ local function buildMenu()
 		Parent = gui,
 	}, {
 		UIKit.list(Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center),
-		make("UISizeConstraint", { MaxSize = Vector2.new(780, 56) }),
+		make("UISizeConstraint", { MaxSize = Vector2.new(900, 56) }),
 	})
 	local items = {
 		{ "Play", "PLAY", "primary" },
 		{ "Rooms", "CUSTOM", "secondary" },
+		{ "Fighters", "FIGHTERS", "secondary" },
 		{ "Shop", "SHOP", "secondary" },
 		{ "Profile", "PROFILE", "secondary" },
 		{ "Settings", "SETTINGS", "secondary" },
@@ -171,7 +173,7 @@ local function buildMenu()
 			LobbyUI.open(item[1])
 		end, {
 			LayoutOrder = i,
-			Size = UDim2.new(0.2, -8, 1, 0),
+			Size = UDim2.new(1 / #items, -8, 1, 0),
 			TextSize = 20,
 			TextScaled = false,
 			Parent = bar,
@@ -277,6 +279,7 @@ function LobbyUI.init()
 	panels.Play = PlayPanel.create(gui, closer("Play"))
 	panels.Rooms = RoomsPanel.create(gui, closer("Rooms"))
 	panels.Shop = ShopPanel.create(gui, closer("Shop"))
+	panels.Fighters = FightersPanel.create(gui, closer("Fighters"))
 	panels.Profile = ProfilePanel.create(gui, closer("Profile"))
 	panels.Settings = SettingsPanel.create(gui, closer("Settings"))
 

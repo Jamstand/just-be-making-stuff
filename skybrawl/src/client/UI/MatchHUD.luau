@@ -3,6 +3,7 @@
       - fighter cards along the bottom (damage %, stocks or score, weapon)
       - timer, countdown / GO!, KO feed
       - "You're out" / respawn notice
+      - combo counter (your combos on the left, combos on you on the right)
       - pause menu (button or P key): change camera mode/look/zoom
         mid-fight, or forfeit
 ]]
@@ -377,8 +378,92 @@ function MatchHUD.show(match)
 	end)
 end
 
+-- Combo counter ------------------------------------------------------------
+
+local comboWidgets = {}
+
+local function comboWidget(side)
+	local w = comboWidgets[side]
+	if w and w.frame.Parent then
+		return w
+	end
+	local left = side == "mine"
+	local frame = make("Frame", {
+		Name = left and "Combo" or "ComboTaken",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(left and 0 or 1, 0.5),
+		Position = UDim2.new(left and 0 or 1, left and 24 or -24, 0.42, 0),
+		Size = UDim2.fromOffset(220, 90),
+		Parent = gui,
+	})
+	local count = make("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 58),
+		Font = Enum.Font.FredokaOne,
+		TextSize = left and 52 or 38,
+		TextXAlignment = left and Enum.TextXAlignment.Left or Enum.TextXAlignment.Right,
+		TextColor3 = left and T.Gold or Color3.fromRGB(255, 120, 110),
+		TextStrokeTransparency = 0.15,
+		TextTransparency = 1,
+		TextStrokeColor3 = Color3.fromRGB(20, 16, 30),
+		Parent = frame,
+	}, { make("UIScale", { Scale = 1 }) })
+	local tag = make("TextLabel", {
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 56),
+		Size = UDim2.new(1, 0, 0, 24),
+		Font = Enum.Font.GothamBlack,
+		TextSize = 18,
+		TextXAlignment = left and Enum.TextXAlignment.Left or Enum.TextXAlignment.Right,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextStrokeTransparency = 0.3,
+		TextTransparency = 1,
+		Parent = frame,
+	})
+	w = { frame = frame, count = count, tag = tag, token = 0 }
+	comboWidgets[side] = w
+	return w
+end
+
+local function showCombo(side, hits, isTrue)
+	if not gui then
+		return
+	end
+	local w = comboWidget(side)
+	w.token += 1
+	local token = w.token
+	w.count.Text = string.format("%d HITS", hits)
+	w.tag.Text = isTrue and "TRUE COMBO" or "STRING"
+	w.tag.TextColor3 = isTrue and Color3.fromRGB(120, 230, 255) or Color3.fromRGB(220, 220, 230)
+	w.count.TextTransparency = 0
+	w.count.TextStrokeTransparency = 0.15
+	w.tag.TextTransparency = 0
+	w.tag.TextStrokeTransparency = 0.3
+	local scale = w.count:FindFirstChildOfClass("UIScale")
+	scale.Scale = 1.35
+	TweenService:Create(scale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	task.delay(1.4, function()
+		if w.token == token and w.frame.Parent then
+			local fade = TweenInfo.new(0.3)
+			TweenService:Create(w.count, fade, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+			TweenService:Create(w.tag, fade, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+		end
+	end)
+end
+
+-- Your attack landed as hit number `hits` of a combo.
+function MatchHUD.combo(hits, isTrue)
+	showCombo("mine", hits, isTrue)
+end
+
+-- Someone is comboing you.
+function MatchHUD.comboTaken(hits, isTrue)
+	showCombo("taken", hits, isTrue)
+end
+
 function MatchHUD.hide()
 	endsAt = nil
+	comboWidgets = {}
 	if timerConnection then
 		timerConnection:Disconnect()
 		timerConnection = nil

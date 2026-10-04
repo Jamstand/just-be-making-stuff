@@ -11,6 +11,7 @@ local Maps = h.require("Maps")
 local FighterSim = h.require("FighterSim")
 local Combat = h.require("Combat")
 local Ranks = h.require("Ranks")
+local Legends = h.require("Legends")
 
 local P = Config.Physics
 local DT = 1 / 60
@@ -25,8 +26,14 @@ local function newInput()
 	}
 end
 
-local function ctx(mapId, weapon)
-	return { world = Maps.getWorld(mapId or "SkyholdKeep"), weapon = weapon or "Unarmed", armed = weapon ~= nil, nearPickup = false }
+local function ctx(mapId, weapon, legend)
+	return {
+		world = Maps.getWorld(mapId or "SkyholdKeep"),
+		weapon = weapon or "Unarmed",
+		legend = legend or "Avatar",
+		armed = weapon ~= nil,
+		nearPickup = false,
+	}
 end
 
 local function run(s, input, seconds, c, onStep)
@@ -86,7 +93,7 @@ h.test("running reaches run speed", function()
 	local input = newInput()
 	input.moveX = 1
 	run(s, input, 0.5, ctx())
-	h.near(s.vx, P.RunSpeed, 0.01, "vx")
+	h.near(s.vx, P.RunSpeed * Legends.speedMult("Avatar"), 0.01, "vx")
 	h.expect(s.facing == 1)
 end)
 

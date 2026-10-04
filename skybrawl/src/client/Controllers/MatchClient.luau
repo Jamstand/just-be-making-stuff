@@ -29,6 +29,8 @@ local Settings = require(script.Parent.Settings)
 local Input = require(script.Parent.Input)
 local CameraController = require(script.Parent.CameraController)
 local Visuals = require(script.Parent.Visuals)
+local FighterAnimator = require(script.Parent.FighterAnimator)
+local SkyBackdrop = require(script.Parent.SkyBackdrop)
 local CharacterAnimator = require(script.Parent.CharacterAnimator)
 local Sound = require(script.Parent.Sound)
 
@@ -225,6 +227,17 @@ local function detectHits(m)
 					fighterAction:FireServer("Hit", { seq = sim.seq, target = f.id })
 					local move = sim.move
 					local heavy = move and move.Kind == "Heavy"
+					-- Predict the server's hit-stop so the freeze and the combo
+					-- window start right away.
+					local charge = FighterSim.chargeFraction(sim)
+					local dmg = Combat.damage(move, charge, m.info.damageMultiplier)
+					local _, _, force = Combat.knockback(move, (f.damage or 0) + dmg, charge, sim.facing, fx - sim.x)
+					local stop = Combat.hitstop(force)
+					FighterSim.onHitConfirm(sim, stop)
+					FighterAnimator.hitstop(m.character, stop)
+					if f.model then
+						FighterAnimator.hitstop(f.model, stop)
+					end
 					Visuals.hitSpark((math.max(x1, hx1) + math.min(x2, hx2)) / 2, (math.max(y1, hy1) + math.min(y2, hy2)) / 2, heavy, 0)
 					Sound.play("Hit", heavy and 0.8 or 0.55, heavy and 0.8 or 1.15)
 				end
@@ -250,22 +263,32 @@ local function handleSimEvent(m, ev)
 		fighterAction:FireServer("Fire", { seq = ev.seq })
 	elseif kind == "Dodge" then
 		fighterAction:FireServer("Dodge", { kind = ev.kind })
-		if ev.kind ~= "Dash" then
+		Visuals.dodge(m.character, ev.kind)
+		if ev.kind ~= "Dash" and ev.kind ~= "Chase" then
 			Visuals.flicker(m.character, ev.kind == "Air" and Config.Physics.AirDodgeInvuln or Config.Physics.SpotDodgeTime)
 		end
 	elseif kind == "Throw" then
 		fighterAction:FireServer("Throw", { dirY = ev.dirY, facing = ev.facing })
 		m.weapon = "Unarmed"
 		m.me.weapon = "Unarmed"
-		Visuals.playPose(m.character, "Throw", { startup = 0.06, active = 0.08, recovery = 0.15 })
+		Visuals.playPose(m.character, "Throw")
 		Sound.play("Swing", 0.5, 0.8)
 		MatchHUD.updateFighter(m.me)
 	elseif kind == "Pickup" then
 		fighterAction:FireServer("Pickup", {})
 	elseif kind == "Jump" then
 		Sound.play("Jump", 0.25, ev.kind == "Air" and 1.15 or 1)
+		if ev.cancel then
+			FighterAnimator.stopAction(m.character)
+		end
+		if ev.kind ~= "Ground" then
+			FighterAnimator.airJump(m.character)
+			fighterAction:FireServer("Jump", { kind = ev.kind })
+		end
 	elseif kind == "Land" then
 		Sound.play("Land", 0.2)
+		FighterAnimator.landed(m.character)
+		FighterAnimator.land(m.character)
 	end
 end
 
@@ -284,6 +307,7 @@ local function step(dt)
 		local ctx = {
 			world = m.world,
 			weapon = m.weapon,
+			legend = m.legend,
 			armed = Weapons.isWeapon(m.weapon),
 			nearPickup = findPickup(m, sim.x, sim.y) ~= nil,
 		}
@@ -304,7 +328,10 @@ local function step(dt)
 
 	applyTransform(m)
 	local anim = (sim.frozen and m.me.alive) and "Idle" or FighterSim.animState(sim)
-	CharacterAnimator.setState(anim, anim == "Run" and math.max(0.6, math.abs(sim.vx) / 16) or 1)
+	if sim.wallSide ~= 0 and not sim.grounded then
+		anim = "WallSlide"
+	end
+	FighterAnimator.setLocomotion(m.character, anim, anim == "Run" and math.clamp(math.abs(sim.vx) / Config.Physics.RunSpeed, 0.6, 1.4) or 1)
 end
 
 -- Server events -----------------------------------------------------------
@@ -319,6 +346,8 @@ local function cleanup()
 	Input.setEnabled(false)
 	CameraController.stop()
 	Visuals.stopMatch()
+	FighterAnimator.stopMatch()
+	SkyBackdrop.stop()
 	CharacterAnimator.setMatchMode(false)
 	MatchHUD.hide()
 	MobileControls.hide()
@@ -346,7 +375,12 @@ local function onStart(info)
 		order = {},
 		hitLog = {},
 		weapon = "Unarmed",
+		legend = "Avatar",
 		phase = "Countdown",
+		character = nil,
+		humanoid = nil,
+		root = nil,
+		feetOffset = 3,
 	}
 	for _, fi in info.fighters do
 		local f = {
@@ -362,6 +396,7 @@ local function onStart(info)
 			rating = fi.rating,
 			stocks = fi.stocks,
 			score = fi.score,
+			legend = fi.legend,
 			damage = 0,
 			weapon = "Unarmed",
 			alive = true,
@@ -380,6 +415,7 @@ local function onStart(info)
 	end
 	m.me.model = m.character
 	m.me.root = m.root
+	m.legend = m.me.legend or "Avatar"
 	m.sim = FighterSim.newState(info.spawn.x, info.spawn.y, info.spawn.facing)
 	m.sim.frozen = true
 	match = m
@@ -392,6 +428,13 @@ local function onStart(info)
 	CameraController.setProvider(cameraData)
 	Visuals.startMatch(info.origin)
 	CharacterAnimator.setMatchMode(true)
+	FighterAnimator.startMatch(info.mapId, info.origin)
+	SkyBackdrop.start(info.mapId, info.origin)
+	for _, f in m.order do
+		if f.model then
+			FighterAnimator.track(f.model, { isMe = f == m.me, legend = f.legend })
+		end
+	end
 	RunService:BindToRenderStep(STEP_NAME, Enum.RenderPriority.Input.Value + 1, step)
 	fighterAction:FireServer("Ready")
 
@@ -432,8 +475,13 @@ function handlers.Action(d)
 		Visuals.onAttack(f.model, d.weapon, d.slot, d.seq)
 	elseif d.kind == "Release" then
 		Visuals.releaseCharge(f.model, d.seq)
-	elseif d.kind == "Dodge" and d.dodgeKind ~= "Dash" then
-		Visuals.flicker(f.model, 0.3)
+	elseif d.kind == "Dodge" then
+		Visuals.dodge(f.model, d.dodgeKind)
+		if d.dodgeKind ~= "Dash" and d.dodgeKind ~= "Chase" then
+			Visuals.flicker(f.model, 0.3)
+		end
+	elseif d.kind == "Jump" then
+		FighterAnimator.airJump(f.model)
 	end
 end
 
@@ -450,14 +498,24 @@ function handlers.Hit(d)
 	end
 	Visuals.damageNumber(d.x, d.y, d.damage, Combat.damageColor(d.total))
 	if victim == match.me then
-		FighterSim.applyHit(match.sim, d.kbx, d.kby, d.hitstun)
+		FighterSim.applyHit(match.sim, d.kbx, d.kby, d.hitstun, d.hitstop)
 		CameraController.shake(0.4 + d.force * 0.012)
-		Visuals.hurt(match.character, d.hitstun)
+		Visuals.hurt(match.character, d.hitstun + (d.hitstop or 0), d.force)
+		FighterAnimator.hitstop(match.character, d.hitstop)
 	elseif victim and victim.model then
-		Visuals.hurt(victim.model, d.hitstun)
+		Visuals.hurt(victim.model, d.hitstun + (d.hitstop or 0), d.force)
+		FighterAnimator.hitstop(victim.model, d.hitstop)
 		if d.heavy then
 			CameraController.shake(0.2 + d.force * 0.005)
 		end
+	end
+	if attacker and attacker ~= match.me and attacker.model then
+		FighterAnimator.hitstop(attacker.model, d.hitstop)
+	end
+	if attacker == match.me and (d.combo or 0) >= 2 then
+		MatchHUD.combo(d.combo, d.trueCombo == true)
+	elseif victim == match.me and (d.combo or 0) >= 2 then
+		MatchHUD.comboTaken(d.combo, d.trueCombo == true)
 	end
 	if victim then
 		MatchHUD.updateFighter(victim)
@@ -470,6 +528,9 @@ function handlers.Weapon(d)
 		return
 	end
 	f.weapon = d.weapon
+	if f.model then
+		FighterAnimator.setWeapon(f.model, d.weapon)
+	end
 	if f == match.me then
 		match.weapon = d.weapon
 		if Weapons.isWeapon(d.weapon) then
