@@ -262,13 +262,25 @@ Config.Art = {
 	OutlineColor = Color3.fromRGB(18, 16, 26),
 	OutlineThickness = 0, -- Highlight outlines have a fixed width; 0 = default
 	Outlines = true,
-	-- Painted sky images, one per map. Upload art/export/skies/<MapId>.png
-	-- (or the painted versions) as Decals and paste the image ids here.
+	-- Painted backgrounds, drawn by the client's SkyBackdrop as layers far
+	-- behind the stage, back to front. Depth is studs behind the fighters'
+	-- lane (all behind the maps' 3D scenery, which reaches about 230);
+	-- Parallax is how fast a layer scrolls compared with the stage.
+	SkyLayers = {
+		{ Name = "Sky", Depth = 420, Parallax = 0.03 }, -- far sky, opaque
+		{ Name = "Landmarks", Depth = 360, Parallax = 0.09 }, -- distant vista, transparent
+		{ Name = "Haze", Depth = 300, Parallax = 0.2 }, -- near clouds/haze, transparent
+	},
+	-- The server's plain gradient sky, behind everything.
+	SkyGradientDepth = 480,
+	-- Each map's layer images. Upload art/export/skies/painted/<MapId>_<Layer>.png
+	-- as Decals and paste the image ids here (just the number, or
+	-- rbxassetid://123). A layer left "" is skipped.
 	SkyImages = {
-		SkyShip = "",
-		VolcanicForge = "",
-		FrozenPeaks = "",
-		JungleTemple = "",
+		SkyShip = { Sky = "", Landmarks = "", Haze = "" },
+		VolcanicForge = { Sky = "", Landmarks = "", Haze = "" },
+		FrozenPeaks = { Sky = "", Landmarks = "", Haze = "" },
+		JungleTemple = { Sky = "", Landmarks = "", Haze = "" },
 	},
 }
 

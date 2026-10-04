@@ -51,23 +51,40 @@ plus `Marker_Origin`, `Marker_Up` and `Marker_Front`. A weapon should contain
 `Body` (plus `Glow` for the glowing skins) and the markers. A map kit should
 contain its pieces (`Stage`, `Platforms`, `SceneryNear`, ...) and the markers.
 
-## 3. Upload the sky images
+## 3. Upload the background images
 
-1. Open **View > Asset Manager**, click **Bulk Import** and select the four
-   PNGs in `art/export/skies/`. If the painted Higgsfield skies are in
-   `art/export/skies/painted/`, use those instead.
+Each map's background has three painted layers, drawn far behind the stage
+back to front. They slide at different speeds as the camera moves, which gives
+the background its depth:
+
+| Layer | File | What it is |
+|---|---|---|
+| `Sky` | `art/export/skies/painted/<MapId>_Sky.png` | the far sky, opaque |
+| `Landmarks` | `art/export/skies/painted/<MapId>_Landmarks.png` | the map's distant vista, transparent PNG |
+| `Haze` | `art/export/skies/painted/<MapId>_Haze.png` | near clouds and haze, transparent PNG |
+
+1. Open **View > Asset Manager**, click **Bulk Import** and select the
+   twelve PNGs in `art/export/skies/painted/`. (No painted set yet? The
+   older Blender skies in `art/export/skies/<MapId>.png` work as the `Sky`
+   layer on their own.)
 2. Right-click each uploaded image > **Copy Asset ID**.
 3. Paste the ids into `src/shared/Config.luau`, under
-   `Config.Art.SkyImages` (just the number, or `rbxassetid://123`):
+   `Config.Art.SkyImages` (just the number, or `rbxassetid://123`). A layer
+   you leave `""` is skipped:
 
 ```lua
 SkyImages = {
-	SkyShip = "1234567890",
-	VolcanicForge = "...",
-	FrozenPeaks = "...",
-	JungleTemple = "...",
+	SkyShip = { Sky = "1234567890", Landmarks = "...", Haze = "..." },
+	VolcanicForge = { Sky = "...", Landmarks = "...", Haze = "..." },
+	FrozenPeaks = { Sky = "...", Landmarks = "...", Haze = "..." },
+	JungleTemple = { Sky = "...", Landmarks = "...", Haze = "..." },
 },
 ```
+
+The layers' depth and scroll speed are in `Config.Art.SkyLayers`. The nearer
+layers are drawn a little larger than the screen so they can slide (the
+`Haze` layer shows roughly its middle 75%), so the paintings keep their
+important shapes away from the edges.
 
 ## 4. Keep the imports
 

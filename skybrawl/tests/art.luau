@@ -8,11 +8,18 @@
       - FighterRigs has the shared skeleton and every legend's parts
       - WeaponMeshes covers the base weapons and every legend's skins
       - every map with a Kit has its Blender script and export
+      - the painted sky layers fill the camera's view in every camera look,
+        sit behind the maps' 3D scenery, and the nearer ones slide more
 ]]
 
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
 local process = require("@lune/process")
+local roblox = require("@lune/roblox")
+
+local CFrame = roblox.CFrame
+local Vector2 = roblox.Vector2
+local Vector3 = roblox.Vector3
 
 local h = require("./harness")
 
@@ -154,6 +161,141 @@ h.test("every map kit has its Blender script, export and sky", function()
 			h.expect(fs.isFile(root .. "/art/export/skies/" .. id .. ".png"), id .. " sky not rendered")
 		end
 	end
+end)
+
+-- The painted background (client SkyBackdrop), run against a fake camera.
+h.test("sky layers fill the view, stay behind the scenery and parallax in order", function()
+	local Config = h.require("Config")
+	local layersSpec = Config.Art.SkyLayers
+	-- The maps' 3D scenery reaches about 230 studs behind the lane.
+	local SCENERY_DEPTH = 235
+	for i, spec in layersSpec do
+		h.expect(spec.Depth > SCENERY_DEPTH, spec.Name .. " is in front of the map scenery")
+		h.expect(spec.Depth < Config.Art.SkyGradientDepth, spec.Name .. " is behind the gradient")
+		if i > 1 then
+			h.expect(spec.Depth < layersSpec[i - 1].Depth, "layers must go back to front")
+			h.expect(spec.Parallax > layersSpec[i - 1].Parallax, "nearer layers must scroll faster")
+		end
+	end
+
+	local camera = { FieldOfView = 40, ViewportSize = Vector2.new(1920, 1080), CFrame = CFrame.new() }
+	local step = nil
+	local parts = {}
+	local shared = setmetatable({}, {
+		__index = function(_, child)
+			return { __module = child }
+		end,
+	})
+	local globals = {
+		game = {
+			GetService = function(_, name)
+				if name == "RunService" then
+					return {
+						RenderStepped = {
+							Connect = function(_, fn)
+								step = fn
+								return {
+									Disconnect = function()
+										step = nil
+									end,
+								}
+							end,
+						},
+					}
+				end
+				return {
+					WaitForChild = function()
+						return shared
+					end,
+				}
+			end,
+		},
+		workspace = { CurrentCamera = camera },
+		Instance = {
+			new = function(class)
+				local instance = { ClassName = class }
+				function instance.Destroy(self)
+					self.Destroyed = true
+				end
+				if class == "Part" then
+					table.insert(parts, instance)
+				end
+				return instance
+			end,
+		},
+		Enum = setmetatable({}, {
+			__index = function(_, enum)
+				return setmetatable({}, {
+					__index = function(_, item)
+						return enum .. "." .. item
+					end,
+				})
+			end,
+		}),
+	}
+	local SkyBackdrop = h.requireClient("SkyBackdrop", globals)
+
+	local mapId = "SkyShip"
+	local saved = Config.Art.SkyImages[mapId]
+	Config.Art.SkyImages[mapId] = { Sky = "1", Landmarks = "2", Haze = "3" }
+	local origin = Vector3.new(2500, 120, 0)
+	SkyBackdrop.start(mapId, origin)
+	Config.Art.SkyImages[mapId] = saved
+	h.expect(#parts == #layersSpec and step ~= nil, "one plane per layer")
+
+	local map = Maps.get(mapId)
+	local bounds = map.Camera
+	local center = Vector2.new((bounds[1] + bounds[3]) / 2, (bounds[2] + bounds[4]) / 2)
+	local corners = { Vector2.new(-1, -1), Vector2.new(1, -1), Vector2.new(-1, 1), Vector2.new(1, 1) }
+
+	for _, look in Config.Camera.Looks do
+		for _, aspect in { 16 / 9, 4 / 3, 21 / 9 } do
+			for _, h2 in { Config.Camera.MinViewHeight, 60, bounds[4] - bounds[2] } do
+				for _, pan in { Vector2.zero, Vector2.new(1, 0), Vector2.new(-1, 0.5), Vector2.new(2.5, -1) } do
+					-- Place the camera the way CameraController does.
+					local fov = look.FOV
+					local pitch = math.rad(look.Pitch or 0)
+					local distance = (h2 / 2) / math.tan(math.rad(fov) / 2)
+					local look2 = center + pan * Vector2.new(h2 / 2 * aspect, h2 / 2)
+					local target = origin + Vector3.new(look2.X, look2.Y, 0)
+					local position = target + Vector3.new(0, math.sin(pitch) * distance, math.cos(pitch) * distance)
+					camera.FieldOfView = fov
+					camera.ViewportSize = Vector2.new(1000 * aspect, 1000)
+					camera.CFrame = CFrame.new(position) * CFrame.Angles(-pitch, 0, 0)
+					step()
+
+					local slides = {}
+					for i, part in parts do
+						local spec = layersSpec[i]
+						local planeZ = origin.Z - spec.Depth
+						local where = string.format("%s, %s look, aspect %.2f, view %d, pan (%.1f, %.1f)", spec.Name, look.Id, aspect, h2, pan.X, pan.Y)
+						h.near(part.CFrame.Position.Z, planeZ, 1e-3, where .. ": depth")
+						h.expect(part.Size.X <= 2048 and part.Size.Y <= 2048, where .. ": plane too big")
+						local p = part.CFrame.Position
+						local minX, maxX = math.huge, -math.huge
+						for _, c in corners do
+							local ty = math.tan(math.rad(fov) / 2)
+							local dir = camera.CFrame:VectorToWorldSpace(Vector3.new(c.X * ty * aspect, c.Y * ty, -1))
+							local hit = position + dir * ((planeZ - position.Z) / dir.Z)
+							minX = math.min(minX, hit.X)
+							maxX = math.max(maxX, hit.X)
+							h.expect(math.abs(hit.X - p.X) <= part.Size.X / 2 + 1e-3, where .. ": view edge past the plane's side")
+							h.expect(math.abs(hit.Y - p.Y) <= part.Size.Y / 2 + 1e-3, where .. ": view edge past the plane's top or bottom")
+						end
+						-- How far the plane has slid against the view, in half-views.
+						slides[i] = ((minX + maxX) / 2 - p.X) / ((maxX - minX) / 2)
+					end
+					if pan.X > 0 then
+						for i = 2, #slides do
+							h.expect(slides[i] > slides[i - 1] and slides[1] > 0, string.format("%s look, pan %.1f: layer %d slides %.3f vs %.3f", look.Id, pan.X, i, slides[i], slides[i - 1]))
+						end
+					end
+				end
+			end
+		end
+	end
+	SkyBackdrop.stop()
+	h.expect(step == nil and parts[1].Destroyed, "stop removes the planes")
 end)
 
 h.finish()

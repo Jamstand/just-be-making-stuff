@@ -53,7 +53,7 @@ local fakeGame = {
 	end,
 }
 
-local function loadFile(path, name)
+local function loadFile(path, name, globals)
 	local source = fs.readFile(path)
 	local parent = setmetatable({}, {
 		__index = function(_, child)
@@ -73,6 +73,9 @@ local function loadFile(path, name)
 		UDim2 = roblox.UDim2,
 		Random = RandomShim,
 	}
+	for key, value in globals or {} do
+		env[key] = value
+	end
 	local chunk = luau.load(source, { debugName = name, environment = env })
 	return chunk()
 end
@@ -89,6 +92,12 @@ harness.require = loadModule
 -- Loads a server module (its own requires still resolve to shared modules).
 function harness.requireServer(name)
 	return loadFile(process.cwd .. "/src/server/Services/" .. name .. ".luau", name)
+end
+
+-- Loads a client controller. `globals` adds or replaces globals (game,
+-- workspace, Instance, Enum, ...) with the test's own fakes.
+function harness.requireClient(name, globals)
+	return loadFile(process.cwd .. "/src/client/Controllers/" .. name .. ".luau", name, globals)
 end
 
 local passed, failed = 0, 0

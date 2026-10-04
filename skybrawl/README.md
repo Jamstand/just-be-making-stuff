@@ -182,8 +182,8 @@ In **Home → Game Settings**:
 ### 4. Import the art (optional, but it's the good-looking part)
 
 Follow `art/IMPORTING.md`: import the FBX files from `art/export/` into
-three folders in ReplicatedStorage and paste the four sky image ids into
-`Config.Art.SkyImages`. Until then, legends fall back to your avatar,
+three folders in ReplicatedStorage and paste the painted background ids
+(three layers per map) into `Config.Art.SkyImages`. Until then, legends fall back to your avatar,
 and weapons and maps to code-built Parts.
 
 ### 5. Play-test

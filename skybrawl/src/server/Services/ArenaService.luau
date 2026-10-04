@@ -9,7 +9,7 @@
     ReplicatedStorage.MapModels.<Kit> when it's there (see art/IMPORTING.md);
     otherwise its platforms are built from Parts like the classic maps. The
     server builds a gradient sky; clients draw the map's painted image
-    (Config.Art.SkyImages) in front of it (client SkyBackdrop).
+    (Config.Art.SkyImages, in layers) in front of it (client SkyBackdrop).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -104,14 +104,15 @@ local function cloud(parent, center, rng, scale)
 end
 
 -- Sky gradient plane behind an arena (faces +Z, toward the camera). A map's
--- painted sky image is drawn in front of it by each client (SkyBackdrop),
+-- painted sky layers are drawn in front of it by each client (SkyBackdrop),
 -- sized to their own camera.
 local function skyBackdrop(parent, center, top, bottom)
-	local backdrop = part(parent, "Sky", Vector3.new(2400, 1400, 1), CFrame.new(center), Color3.new(1, 1, 1))
+	local backdrop = part(parent, "Sky", Vector3.new(2048, 2048, 1), CFrame.new(center), Color3.new(1, 1, 1))
 	backdrop.CastShadow = false
 	local gui = Instance.new("SurfaceGui")
 	gui.Face = Enum.NormalId.Back
 	gui.LightInfluence = 0
+	gui.MaxDistance = 100000
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	gui.PixelsPerStud = 1
 	gui.Parent = backdrop
@@ -260,7 +261,7 @@ function ArenaService.buildMap(mapId, origin, slot)
 
 	local camera = map.Camera
 	local camCenter = Vector3.new((camera[1] + camera[3]) / 2, (camera[2] + camera[4]) / 2, 0)
-	skyBackdrop(scenery, origin + camCenter + Vector3.new(0, 0, -220), map.Sky.Top, map.Sky.Bottom)
+	skyBackdrop(scenery, origin + camCenter + Vector3.new(0, 0, -Config.Art.SkyGradientDepth), map.Sky.Top, map.Sky.Bottom)
 
 	folder:SetAttribute("MapId", mapId)
 	folder:SetAttribute("Origin", origin)

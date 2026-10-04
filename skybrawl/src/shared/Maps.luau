@@ -11,7 +11,8 @@
 
     Kit names an imported 3D map kit (ReplicatedStorage.MapModels.<Kit>, made
     by art/blender/maps/*.py) that replaces the code-built visuals when it's
-    there. Sky.Image comes from Config.Art.SkyImages[mapId].
+    there. Its painted background layers come from Config.Art.SkyImages[mapId];
+    Sky.Top and Sky.Bottom color the plain gradient behind them.
 ]]
 
 local Maps = {}
