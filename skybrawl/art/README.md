@@ -12,7 +12,10 @@ art/
     fighters/         one script per fighter (kestrel.py, brann.py, ...)
     weapons.py        the 18 weapon meshes (6 base + 2 skins per legend)
     maps/             one script per map kit (sky_ship.py, ...)
-    skies.py          the painted-style sky backdrops
+    skies.py          the older single-image sky backdrops
+    vistas/           one script per map's painted 3-layer background
+                      (sky_ship.py, ...) plus _kit.py (clouds, islands,
+                      buildings, airships); sky/vista.py renders them
     anims/            animation clips: core.py (poses, IK, clips), stances.py,
                       kit.py (swing/thrust/spin helpers), locomotion.py, one
                       file per weapon, signatures.py
@@ -32,9 +35,17 @@ blender -b -P art/blender/build.py -- fighter kestrel
 blender -b -P art/blender/build.py -- weapons
 blender -b -P art/blender/build.py -- maps
 blender -b -P art/blender/build.py -- skies
+blender -b -P art/blender/build.py -- vistas
+blender -b -P art/blender/build.py -- vistas sky_ship graphic test
 blender -b -P art/blender/build.py -- anims
 blender -b -P art/blender/build.py -- anims preview Sword Kestrel
 ```
+
+`vistas` renders each map's painted background as three layers (Sky,
+Landmarks, Haze) to `art/export/skies/painted/` and a preview of them stacked
+the way the game shows them to `art/previews/vistas/`. Add `graphic` or
+`painterly` to pick the look (inked cel shading, or soft light with brush
+strokes and bloom), and `test` to render only the preview.
 
 `anims preview <groups>` also renders contact sheets (each clip's keys from
 the game's side view) to `art/previews/anims/`. Groups are `Loco`, a weapon

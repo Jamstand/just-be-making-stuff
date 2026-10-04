@@ -12,6 +12,7 @@ and src/shared (generated Luau data).
 import importlib
 import os
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -19,6 +20,7 @@ if HERE not in sys.path:
 
 FIGHTERS = ["kestrel", "brann", "yuki", "moss", "vex", "sol"]
 MAPS = ["sky_ship", "volcanic_forge", "frozen_peaks", "jungle_temple"]
+VISTA_STYLE = "painterly"
 
 
 def available(package, names):
@@ -58,6 +60,21 @@ def build_skies(names=None):
     skies.build_all(names)
 
 
+def build_vistas(names=None):
+    """Painted 3-layer backgrounds. Names are map scripts (sky_ship, ...);
+    add "graphic" or "painterly" to pick the look (default VISTA_STYLE),
+    and "test" to render only the previews (layers go to a scratch folder)."""
+    from sky import vista
+
+    names = list(names or [])
+    style = next((n for n in names if n in vista.STYLES), VISTA_STYLE)
+    test = "test" in names
+    maps = [n for n in names if n not in vista.STYLES and n != "test"] or available("vistas", MAPS)
+    out_dir = os.path.join(tempfile.gettempdir(), "skybrawl_vista_layers") if test else vista.OUT_DIR
+    for name in maps:
+        vista.build_vista(importlib.import_module(f"vistas.{name}"), style, out_dir)
+
+
 COMMANDS = {
     "fighter": build_fighters,
     "fighters": build_fighters,
@@ -69,6 +86,8 @@ COMMANDS = {
     "anims": build_anims,
     "sky": build_skies,
     "skies": build_skies,
+    "vista": build_vistas,
+    "vistas": build_vistas,
 }
 
 
