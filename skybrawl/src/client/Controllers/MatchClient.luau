@@ -227,6 +227,11 @@ local function detectHits(m)
 					fighterAction:FireServer("Hit", { seq = sim.seq, target = f.id })
 					local move = sim.move
 					local heavy = move and move.Kind == "Heavy"
+					-- The server will reject hits on a dodging/respawning target;
+					-- don't spark or open the combo window for those.
+					if os.clock() < (f.invulnUntil or 0) then
+						continue
+					end
 					-- Predict the server's hit-stop so the freeze and the combo
 					-- window start right away.
 					local charge = FighterSim.chargeFraction(sim)
@@ -289,6 +294,8 @@ local function handleSimEvent(m, ev)
 		Sound.play("Land", 0.2)
 		FighterAnimator.landed(m.character)
 		FighterAnimator.land(m.character)
+	elseif kind == "AttackEnd" then
+		FighterAnimator.endAttack(m.character, ev.seq)
 	end
 end
 
@@ -297,8 +304,10 @@ local function step(dt)
 	if not m then
 		return
 	end
-	local input = Input.update(dt)
 	local sim = m.sim
+	-- During hit-stop the sim is frozen, so buffered presses wait for it
+	-- (otherwise a cancel pressed on the hit could expire before its window).
+	local input = Input.update((sim and sim.hitstop > 0) and 0 or dt)
 	if not m.root or not m.root.Parent then
 		return
 	end
@@ -472,10 +481,17 @@ function handlers.Action(d)
 		return
 	end
 	if d.kind == "Attack" then
+		-- attacking out of an air spot dodge (gravity cancel) ends its invulnerability
+		f.invulnUntil = math.min(f.invulnUntil or 0, f.respawnInvulnUntil or 0)
 		Visuals.onAttack(f.model, d.weapon, d.slot, d.seq)
 	elseif d.kind == "Release" then
 		Visuals.releaseCharge(f.model, d.seq)
 	elseif d.kind == "Dodge" then
+		local P = Config.Physics
+		local invuln = ({ Spot = P.SpotDodgeTime, AirSpot = P.SpotDodgeTime, Air = P.AirDodgeInvuln })[d.dodgeKind]
+		if invuln then
+			f.invulnUntil = math.max(f.invulnUntil or 0, os.clock() + invuln)
+		end
 		Visuals.dodge(f.model, d.dodgeKind)
 		if d.dodgeKind ~= "Dash" and d.dodgeKind ~= "Chase" then
 			Visuals.flicker(f.model, 0.3)
@@ -580,6 +596,8 @@ function handlers.Respawn(d)
 	end
 	f.alive = true
 	f.damage = 0
+	f.respawnInvulnUntil = os.clock() + (d.invuln or 0)
+	f.invulnUntil = math.max(f.invulnUntil or 0, f.respawnInvulnUntil)
 	if f == match.me then
 		FighterSim.respawn(match.sim, d.x, d.y, d.facing, d.invuln)
 		match.waitingKO = nil

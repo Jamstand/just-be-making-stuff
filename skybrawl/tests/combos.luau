@@ -123,6 +123,10 @@ h.test("legends alternate between their two weapons; avatars take anything", fun
 	h.expect(Legends.weaponFromPickup("Kestrel", "Bow", "Bow") == "Sword")
 	h.expect(Legends.weaponFromPickup("Kestrel", "Spear", "Sword") == "Bow")
 	h.expect(Legends.weaponFromPickup("Avatar", "Spear", "Sword") == "Spear")
+	-- a room that only drops some weapons
+	h.expect(Legends.weaponFromPickup("Kestrel", "Sword", "Bow", { Sword = true }) == "Sword", "only Sword allowed")
+	h.expect(Legends.weaponFromPickup("Brann", "Sword", nil, { Sword = true }) == "Sword", "neither of Brann's weapons allowed")
+	h.expect(Legends.weaponFromPickup("Sol", "Hammer", "Sword", { Sword = true, Hammer = true }) == "Hammer")
 	h.expect(Legends.weaponSkin("Brann", "Hammer") == "BrannHammer")
 	h.expect(Legends.weaponSkin("Brann", "Sword") == "Sword")
 end)

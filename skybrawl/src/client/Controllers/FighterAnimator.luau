@@ -181,10 +181,13 @@ local function blend(a, b, alpha, out)
 end
 
 -- Move phase (0-1 startup, 1-2 active, 2-3 recovery) at `t` seconds.
-local function phaseAt(t, timing)
+-- `p0` is how far the windup already got while charging: the startup
+-- then plays from there, still taking the full startup time.
+local function phaseAt(t, timing, p0)
 	local s, a, r = timing.startup, timing.active, timing.recovery
 	if t < s then
-		return t / math.max(s, 1e-3)
+		p0 = p0 or 0
+		return p0 + (1 - p0) * t / math.max(s, 1e-3)
 	elseif t < s + a then
 		return 1 + (t - s) / math.max(a, 1e-3)
 	end
@@ -234,8 +237,12 @@ local function bindJoints(rig)
 	local joints, scale, visual = findJoints(rig.model)
 	rig.motors = {}
 	for i, motor in joints do
+		-- LegendRig builds C0 so each joint's frame is rig-aligned even when
+		-- the imported parts are rotated, so clips apply directly. Avatar
+		-- joints are expressed in the C0 frame and need converting.
 		local rot = motor.C0.Rotation
-		rig.motors[i] = { motor = motor, rot = rot, inv = rot:Inverse(), plain = rot:FuzzyEq(CFrame.identity, 1e-4) }
+		local plain = visual ~= nil or rot:FuzzyEq(CFrame.identity, 1e-4)
+		rig.motors[i] = { motor = motor, rot = rot, inv = rot:Inverse(), plain = plain }
 	end
 	rig.scale = scale
 	rig.visual = visual
@@ -398,6 +405,7 @@ local function inferLocomotion(rig, dt)
 		local ground = Maps.groundBelow(world, x, feetY + 0.3)
 		grounded = ground ~= nil and feetY - ground < 0.35 and math.abs(rig.vel.Y) < 6
 	end
+	local landed = grounded and rig.airborneFor > 0.1
 	rig.airborneFor = grounded and 0 or rig.airborneFor + dt
 	local vx, vy = rig.vel.X, rig.vel.Y
 	local state
@@ -409,12 +417,17 @@ local function inferLocomotion(rig, dt)
 		state = "Fall"
 	end
 	FighterAnimator.setLocomotion(rig.model, state, state == "Run" and math.clamp(math.abs(vx) / 26, 0.6, 1.4) or 1)
-	-- Landing ends a ground pound's active part early, like FighterSim does.
+	-- Landing ends a ground pound's active part early and cuts other air
+	-- attacks short, like FighterSim does.
 	local action = rig.action
-	if grounded and action and action.endsOnLand and action.t > action.timing.startup + 0.05 then
-		local s, a = action.timing.startup, action.timing.active
-		if action.t < s + a then
-			action.t = s + a
+	if grounded and action and action.kind == "Attack" then
+		if action.endsOnLand and action.t > action.timing.startup + 0.05 then
+			local s, a = action.timing.startup, action.timing.active
+			if action.t < s + a then
+				action.t = s + a
+			end
+		elseif landed and action.air then
+			FighterAnimator.endAttack(rig.model)
 		end
 	end
 end
@@ -458,7 +471,10 @@ function FighterAnimator.playAttack(model, weaponId, slot, seq, charging)
 		},
 		charging = charging == true,
 		chargeLeft = (move.Charge or 0) + 0.3,
+		chargeT = 0,
+		p0 = 0,
 		endsOnLand = move.EndsOnLand == true,
+		air = move.Air == true,
 	})
 end
 
@@ -467,6 +483,18 @@ function FighterAnimator.releaseCharge(model, seq)
 	local action = rig and rig.action
 	if action and action.charging and (seq == nil or action.seq == seq) then
 		action.charging = false
+		action.t = 0
+	end
+end
+
+-- An attack ended early (landing cut an air attack short): blend out.
+function FighterAnimator.endAttack(model, seq)
+	local rig = rigs[model]
+	local action = rig and rig.action
+	if action and action.kind == "Attack" and (seq == nil or action.seq == seq) then
+		rig.action = nil
+		copyPose(rig.pose, rig.outFrom)
+		rig.outFade = ACTION_FADE_OUT
 	end
 end
 
@@ -662,17 +690,20 @@ local function updateRig(rig, dt)
 		if action.kind == "Attack" then
 			local timing = action.timing
 			if action.charging then
+				-- FighterSim's startup doesn't start until the charge is released,
+				-- so wind up on a separate clock and keep the attack clock at 0.
 				action.chargeLeft -= step
+				action.chargeT += step
+				action.p0 = math.min(0.92, action.chargeT / math.max(timing.startup, 1e-3))
 				if action.chargeLeft <= 0 then
 					action.charging = false
 				end
-				action.t = math.min(action.t + step, timing.startup * 0.92)
 			else
 				action.t += step
 			end
-			local phase = phaseAt(action.t, timing)
+			local phase = phaseAt(action.t, timing, action.p0)
 			sample(action.clip, phase, mirror, rig.tmp)
-			if action.charging and action.t >= timing.startup * 0.9 then
+			if action.charging and action.p0 >= 0.9 then
 				-- tremble while holding a charge
 				rig.tmp.cf[1] = rig.tmp.cf[1] * CFrame.Angles(0, math.rad(math.sin(os.clock() * 55) * 2.5), 0)
 			end

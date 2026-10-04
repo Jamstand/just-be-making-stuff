@@ -180,16 +180,33 @@ function LegendRig.build(legendId, height)
 	return rig
 end
 
-local function hideAvatar(character, rig)
+-- The avatar's own visuals: body parts (direct children of the character),
+-- their decals (the face), and accessories. Weapons, the rig and anything
+-- else the game adds are left alone.
+local function isAvatarVisual(character, d)
+	if d.Name == "HumanoidRootPart" then
+		return false
+	end
+	if d:IsA("BasePart") then
+		return d.Parent == character or d:FindFirstAncestorOfClass("Accessory") ~= nil
+	end
+	if d:IsA("Decal") then
+		return d.Parent ~= nil and d.Parent.Parent == character
+	end
+	return false
+end
+
+local function hide(d)
+	if d:GetAttribute("SkyTransparency") == nil then
+		d:SetAttribute("SkyTransparency", d.Transparency)
+	end
+	d.Transparency = 1
+end
+
+local function hideAvatar(character)
 	for _, d in character:GetDescendants() do
-		if d:IsDescendantOf(rig) or d.Name == "HumanoidRootPart" then
-			continue
-		end
-		if d:IsA("BasePart") or d:IsA("Decal") then
-			if d:GetAttribute("SkyTransparency") == nil then
-				d:SetAttribute("SkyTransparency", d.Transparency)
-			end
-			d.Transparency = 1
+		if isAvatarVisual(character, d) then
+			hide(d)
 		end
 	end
 end
@@ -229,17 +246,16 @@ function LegendRig.attach(character, legendId)
 	weld.C0 = offset
 	weld.Parent = rig.PrimaryPart
 	rig.Parent = character
-	hideAvatar(character, rig)
-	-- Accessories added later (avatar loading) get hidden too.
+	hideAvatar(character)
+	-- Accessories that finish loading later get hidden too.
 	local conn
 	conn = character.DescendantAdded:Connect(function(d)
 		if not rig.Parent then
 			conn:Disconnect()
 			return
 		end
-		if (d:IsA("BasePart") or d:IsA("Decal")) and not d:IsDescendantOf(rig) then
-			d:SetAttribute("SkyTransparency", d.Transparency)
-			d.Transparency = 1
+		if isAvatarVisual(character, d) then
+			hide(d)
 		end
 	end)
 	character:SetAttribute("VisualRig", legendId)

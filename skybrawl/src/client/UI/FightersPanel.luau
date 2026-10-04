@@ -64,8 +64,6 @@ end
 
 -- Preview -----------------------------------------------------------------
 
-local previewToken = 0
-
 local function clearPreview(world)
 	for _, child in world:GetChildren() do
 		FighterAnimator.untrack(child)
@@ -115,33 +113,40 @@ local function showModel(viewport, world, camera, model, height)
 end
 
 local function preview(viewport, world, camera, placeholder, legendId)
-	previewToken += 1
-	local token = previewToken
 	clearPreview(world)
 	placeholder.Visible = false
 
 	if Legends.usesAvatar(legendId) then
-		task.spawn(function()
-			local ok, model = pcall(function()
-				local desc = Players:GetHumanoidDescriptionFromUserId(Players.LocalPlayer.UserId)
-				return Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15)
+		-- A copy of your own character (in the lobby it's your plain avatar).
+		local character = Players.LocalPlayer.Character
+		local model = nil
+		if character and character:FindFirstChild("HumanoidRootPart") then
+			local archivable = character.Archivable
+			character.Archivable = true
+			local ok, copy = pcall(function()
+				return character:Clone()
 			end)
-			if not ok or not model or token ~= previewToken then
-				return
+			character.Archivable = archivable
+			model = ok and copy or nil
+		end
+		if not model then
+			placeholder.Visible = true
+			return
+		end
+		for _, d in model:GetDescendants() do
+			if d:IsA("LuaSourceContainer") or d:IsA("BillboardGui") or d:IsA("Trail") or d:IsA("Sound") then
+				d:Destroy()
+			elseif d:IsA("BasePart") then
+				d.Anchored = d.Name == "HumanoidRootPart"
+				d.LocalTransparencyModifier = 0
 			end
-			for _, d in model:GetDescendants() do
-				if d:IsA("Script") or d:IsA("LocalScript") then
-					d:Destroy()
-				elseif d:IsA("BasePart") then
-					d.Anchored = d.Name == "HumanoidRootPart"
-				end
-			end
-			model.PrimaryPart = model:FindFirstChild("HumanoidRootPart")
-			showModel(viewport, world, camera, model, 5.2)
-			model:PivotTo(CFrame.new(0, 3, 0) * CFrame.Angles(0, math.rad(-35), 0))
-			FighterAnimator.track(model, { preview = true, legend = "Avatar" })
-			FighterAnimator.setLocomotion(model, "Idle")
-		end)
+		end
+		model.PrimaryPart = model:FindFirstChild("HumanoidRootPart")
+		local feet = model:FindFirstChildOfClass("Humanoid") and model.PrimaryPart.Size.Y / 2 + model:FindFirstChildOfClass("Humanoid").HipHeight or 3
+		showModel(viewport, world, camera, model, 5.2)
+		model:PivotTo(CFrame.new(0, feet, 0) * CFrame.Angles(0, math.rad(-35), 0))
+		FighterAnimator.track(model, { preview = true, legend = "Avatar" })
+		FighterAnimator.setLocomotion(model, "Idle")
 		return
 	end
 
@@ -254,7 +259,8 @@ function FightersPanel.create(gui, close)
 		if current then
 			UIKit.setEnabled(button, false)
 		end
-		placeholder.Text = legend.Name .. "\n\n(3D model not imported yet: see art/IMPORTING.md)"
+		placeholder.Text = legend.Id == "Avatar" and "Your avatar"
+			or (legend.Name .. "\n\n(3D model not imported yet: see art/IMPORTING.md)")
 		placeholder.TextColor3 = legend.Color
 	end
 
@@ -312,7 +318,6 @@ function FightersPanel.create(gui, close)
 		end,
 		close = function()
 			window.Visible = false
-			previewToken += 1
 			clearPreview(world)
 		end,
 	}

@@ -73,9 +73,11 @@ function Match.new(id, config, services)
 	self.nextPickupAt = math.huge
 
 	self.allowedWeapons = {}
+	self.allowedSet = {}
 	for _, weaponId in Weapons.Order do
 		if config.weapons == nil or config.weapons[weaponId] then
 			table.insert(self.allowedWeapons, weaponId)
+			self.allowedSet[weaponId] = true
 		end
 	end
 	return self
@@ -102,7 +104,8 @@ function Match:newFighter(id, team)
 		eliminated = false,
 		eliminatedAt = 0,
 		left = false,
-		invulnUntil = 0,
+		invulnUntil = 0, -- respawn invulnerability
+		dodgeInvulnUntil = 0, -- from dodges; an attack (gravity cancel) ends it
 		lastHitBy = nil,
 		lastHitTime = 0,
 		hitstunUntil = 0,
@@ -195,7 +198,8 @@ function Match:GetPosition(f)
 end
 
 function Match:IsInvulnerable(f)
-	if os.clock() < f.invulnUntil then
+	local now = os.clock()
+	if now < f.invulnUntil or now < f.dodgeInvulnUntil then
 		return true
 	end
 	return f.isBot and f.state ~= nil and FighterSim.isInvulnerable(f.state)
@@ -539,6 +543,7 @@ function Match:stepBot(f, dt)
 						rec.hits[target.id] = true
 						local hit, hitstop = self:ApplyHit(f, target, rec.move, rec.charge, s.facing)
 						if hit then
+							rec.confirmed = true
 							FighterSim.onHitConfirm(s, hitstop)
 						end
 					end
@@ -744,7 +749,9 @@ function Match:onHitReport(f, data)
 		return
 	end
 	rec.hits[target.id] = true
-	self:ApplyHit(f, target, move, rec.charge, rec.facing)
+	if self:ApplyHit(f, target, move, rec.charge, rec.facing) then
+		rec.confirmed = true
+	end
 end
 
 -- KOs, respawns, forfeits ---------------------------------------------------
@@ -983,7 +990,7 @@ function Match:TryPickup(f)
 	local pickup = self:nearPickup(x, y, Config.WeaponDrops.PickupRangeServer)
 	if pickup then
 		self:removePickup(pickup.id)
-		self:SetWeapon(f, Legends.weaponFromPickup(f.legend, pickup.weaponId, f.lastWeapon))
+		self:SetWeapon(f, Legends.weaponFromPickup(f.legend, pickup.weaponId, f.lastWeapon, self.allowedSet))
 	end
 end
 
@@ -1141,6 +1148,11 @@ local function finite(value)
 	return type(value) == "number" and value == value and math.abs(value) < 1e9
 end
 
+local VALID_SLOTS = {}
+for _, slot in Weapons.Slots do
+	VALID_SLOTS[slot] = true
+end
+
 local function validSeq(value)
 	return finite(value) and value % 1 == 0
 end
@@ -1157,10 +1169,10 @@ function Match:canStartAttack(f, now)
 	if prev.move.Air or f.lastHitTime > prev.start then
 		return now - prev.start >= 0.05
 	end
-	-- A light that hit can be cancelled into a jump or chase dodge and
-	-- straight into the next attack.
-	if next(prev.hits) ~= nil and now - prev.start >= prev.move.Startup then
-		return true
+	-- A light that hit can be cancelled (jump or chase dodge) once its
+	-- active frames are over, and then the next attack can start.
+	if prev.confirmed and prev.move.Kind == "Light" then
+		return now - prev.start >= (prev.move.Startup + prev.move.Active) * COOLDOWN_LENIENCY
 	end
 	local duration = prev.move.Startup + prev.move.Active + prev.move.Recovery
 	return now - prev.start >= duration * COOLDOWN_LENIENCY
@@ -1205,13 +1217,16 @@ function Match:OnAction(player, kind, data)
 	end
 
 	if kind == "Attack" then
-		if type(data.slot) ~= "string" or not validSeq(data.seq) then
+		if not VALID_SLOTS[data.slot] or not validSeq(data.seq) then
 			return
 		end
 		local move = Legends.getAttack(f.legend, f.weapon, data.slot)
 		if not move or not self:canStartAttack(f, now) then
 			return
 		end
+		-- FighterSim can only attack out of an invulnerable dodge by gravity
+		-- cancelling an air spot dodge, which ends the invulnerability.
+		f.dodgeInvulnUntil = 0
 		local facing = data.facing == -1 and -1 or 1
 		f.facing = facing
 		self:recordAttack(f, data.seq, data.slot, move, facing)
@@ -1254,7 +1269,7 @@ function Match:OnAction(player, kind, data)
 		f.lastDodge = f.lastDodge or {}
 		f.lastDodge[data.kind] = now
 		if invuln > 0 then
-			f.invulnUntil = math.max(f.invulnUntil, now + invuln + Config.Combat.DodgeInvulnSlack)
+			f.dodgeInvulnUntil = math.max(f.dodgeInvulnUntil, now + invuln + Config.Combat.DodgeInvulnSlack)
 		end
 		self:Broadcast("Action", { fighterId = f.id, kind = "Dodge", dodgeKind = data.kind }, player)
 	elseif kind == "Jump" then

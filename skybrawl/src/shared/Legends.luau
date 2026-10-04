@@ -225,12 +225,25 @@ end
 --[[
     What a legend gets from a weapon pickup: legends alternate between their
     two weapons (the first pickup gives the matching one if the pickup is one
-    of theirs); "Avatar" takes whatever the pickup is.
+    of theirs); "Avatar" takes whatever the pickup is. `allowed` (a set) is
+    the match's weapon list: a legend's weapon that isn't on it is skipped,
+    and if neither is, they get the pickup itself.
 ]]
-function Legends.weaponFromPickup(legendId, pickupWeapon, lastWeapon)
-	local weapons = Legends.get(legendId).Weapons
-	if not weapons then
+function Legends.weaponFromPickup(legendId, pickupWeapon, lastWeapon, allowed)
+	local all = Legends.get(legendId).Weapons
+	if not all then
 		return pickupWeapon
+	end
+	local weapons = {}
+	for _, w in all do
+		if not allowed or allowed[w] then
+			table.insert(weapons, w)
+		end
+	end
+	if #weapons == 0 then
+		return pickupWeapon
+	elseif #weapons == 1 then
+		return weapons[1]
 	end
 	if lastWeapon == weapons[1] then
 		return weapons[2]
@@ -287,12 +300,11 @@ function Legends.getAttack(legendId, weaponId, slot)
 	weaponId = Weapons.get(weaponId).Id
 	local key = legend.Id .. "/" .. weaponId .. "/" .. tostring(slot)
 	local cached = cache[key]
-	if cached ~= nil then
-		return cached or nil
+	if cached then
+		return cached
 	end
 	local base = Weapons.getAttack(weaponId, slot)
 	if not base then
-		cache[key] = false
 		return nil
 	end
 	local sigs = legend.Signatures[weaponId]
