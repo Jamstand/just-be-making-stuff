@@ -193,7 +193,9 @@ def _import_glb(path):
     markers hidden like the game does."""
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=path)
-    objs = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
+    new = [o for o in bpy.data.objects if o not in before]
+    shapes = {b.custom_shape for o in new if o.type == "ARMATURE" for b in o.pose.bones}
+    objs = [o for o in new if o.type == "MESH" and o not in shapes]   # not the importer's bone-shape sphere
     for o in objs:
         o.hide_render = o.name.endswith(MARKERS)
         if o.name.endswith("_Outline") or o.name == "FanBlades":
@@ -258,6 +260,13 @@ def render_sheets(from_glb=False):
                 turn = Matrix.Rotation(math.pi / 2, 4, "Z")   # long front-to-back (a towel): lay it sideways
                 for o in built:
                     o.matrix_world = turn @ o.matrix_world
+                bpy.context.view_layer.update()
+                ws = [o.matrix_world @ v.co for o in built for v in o.data.vertices]
+            span = max(max(w.x for w in ws) - min(w.x for w in ws), max(w.y for w in ws) - min(w.y for w in ws))
+            if max(w.z for w in ws) - min(w.z for w in ws) < 0.15 * span:
+                stand = Matrix.Rotation(math.radians(70), 4, "X")   # flat (a towel): stand it up to face the camera
+                for o in built:
+                    o.matrix_world = stand @ o.matrix_world
                 bpy.context.view_layer.update()
                 ws = [o.matrix_world @ v.co for o in built for v in o.data.vertices]
             lo = [min(w[k] for w in ws) for k in range(3)]

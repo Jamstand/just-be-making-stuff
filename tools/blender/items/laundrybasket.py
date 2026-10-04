@@ -1,18 +1,34 @@
 """
-items/laundrybasket.py - the LaundryBasket item (ReplicatedStorage.ItemMeshes.LaundryBasket): a big
-plastic laundry basket turned upside down over a hiding player. See items/__init__.py for the
-conventions (and props/basket.py / props/hamper.py for the wicker ones: this one is plastic).
+items/laundrybasket.py - the LaundryBasket item (ReplicatedStorage.ItemMeshes.LaundryBasket, and its
+max-level LaundryBasket_Gold): a big plastic laundry basket turned upside down over a hiding
+player. See items/__init__.py for the conventions (and props/basket.py / props/hamper.py for the
+wicker ones: this one is plastic).
 
-One swept shell (a rounded-rectangle outline, tapering toward the top, swept along a profile: the
-rolled lip on the floor, a solid band with a handle slot on each short side, eight rows of wide hole
-slots, a solid band and the rounded-over base on top). The holes sit in staggered rows like a weave;
-each is a real pocket (dark sides and back) so it reads as a hole from any angle. The base on top
-has a ring of small round holes; inside (seen only under the lip) is a darker wall. The ink outline
-is the hull of a hole-free copy of the shell (so holes never get ink inside them).
+One swept shell (a rounded-rectangle outline, tapering toward the top, swept along a profile: a fat
+rolled lip on the floor, a solid band with a handle slot on each short side, six rows of big hole
+slots, a solid top band with a moulded ridge and the rounded-over base on top). The holes sit in
+staggered rows like a weave; each is a real pocket (dark sides and back) so it reads as a hole from
+any angle. On the front and the back of the lower band a white label with an ink rim shows a little
+blue sock and two printed lines; a toon highlight (a dash and a dot) sits on the top band, a few pale
+scuffs mark the lip, and the base on top has a ring of round holes round a middle one; inside (seen
+only under the lip) is a darker wall.
+The ink outline is the hull of a hole-free copy of the shell (so holes never get ink inside them).
 
-1 unit = 1 stud: ~4.5 wide (X; 4.7 over the lip), ~3.4 deep (Y), ~5.5 tall - big enough to hide a player. Origin =
-the floor centre (the open side down); `_Grip` = the handle slot on the +X side (the game scales it
-down and turns it for carrying).
+LaundryBasket_Gold: the same shape, skeleton and markers in polished gold (the bake paints it as
+metal): a ring of faceted aqua gems round the top band, a white-gold label with a gem-studded crown
+instead of the sock, twinkles and glitter flecks on the bands.
+
+1 unit = 1 stud: ~4.5 wide (X; 4.8 over the lip), ~3.4 deep (Y), ~5.5 tall - big enough to hide a
+player. Origin = the floor centre (the open side down); `_Grip` = the handle slot on the +X side (the
+game scales it down and turns it for carrying).
+
+The skeleton (`rig`): `Root` at the floor centre (unweighted), `Top` (child of Root) from half
+height up to the top: the upper half. `Bottom` (child of Root, from the floor up to half height) only
+holds the lip and the lower wall still: Root must stay unweighted, so the lower half needs a bone of
+its own; the game never moves it. The walls hand over from Bottom to Top smoothly all the way from
+the lip to the top band (nearly linearly), so sliding Top down along its axis squashes the basket
+evenly and sliding it up stretches it (local +Y = up), turning it about its head leans the upper half
+over as one soft bend. `POSES` holds preview.py's test poses.
 """
 import math
 import bmesh
@@ -20,25 +36,47 @@ from mathutils import Vector
 import sockkit as K
 from sockkit import hexcol
 import items
+from items import movekit
 from props.slippers import _outward
-from items.staticballoon import bvh_of, decal, no_bounce, tone
+from items.staticballoon import bvh_of, decal, no_bounce, offset_poly, tone
 
 NAME = "LaundryBasket"
 
 MATERIALS = {"laundrybasket_plastic": "plastic", "laundrybasket_inside": "plastic", "laundrybasket_hole": "ink",
-             "laundrybasket_pocket": "plastic"}
+             "laundrybasket_pocket": "plastic", "laundrybasket_label": "paper", "laundrybasket_sock": "print",
+             "laundrybasket_scuff": "plastic", "laundrybasket_gloss": "decal",
+             "laundrybasket_gold": "metal", "laundrybasket_gold_label": "paper", "laundrybasket_gold_gem": "glass",
+             "laundrybasket_gold_shine": "decal", "laundrybasket_gold_glitter": "decal"}
 
 
-def _colours():
-    """Registers this item's palette colours. Called by build(), not at import: build_all.py imports
-    every item module before it builds the socks, so colours registered at import would take palette
-    cells ahead of the socks' (items must come last, see items/__init__.py)."""
-    global PLASTIC, POCKET, HOLE, INSIDE
-    PLASTIC = (hexcol("laundrybasket_plastic_light", "#8FE8F2"), hexcol("laundrybasket_plastic", "#45C6DF"),
-               hexcol("laundrybasket_plastic_dark", "#2C98BD"), hexcol("laundrybasket_plastic_deep", "#20729A"))
-    POCKET = (hexcol("laundrybasket_pocket", "#2580A8"), hexcol("laundrybasket_pocket_dark", "#1A5C84"))
-    HOLE = hexcol("laundrybasket_hole", "#14324E")
-    INSIDE = hexcol("laundrybasket_inside", "#1E6E93")
+def _colours(gold=False):
+    """Registers this item's palette colours and returns them. Called by build(), not at import:
+    build_all.py imports every item module before it builds the socks, so colours registered at
+    import would take palette cells ahead of the socks' (items must come last, see items/__init__.py)."""
+    if not gold:
+        return dict(
+            plastic=(hexcol("laundrybasket_plastic_light", "#8FE8F2"), hexcol("laundrybasket_plastic", "#45C6DF"),
+                     hexcol("laundrybasket_plastic_dark", "#2C98BD"), hexcol("laundrybasket_plastic_deep", "#20729A")),
+            pocket=(hexcol("laundrybasket_pocket", "#2580A8"), hexcol("laundrybasket_pocket_dark", "#1A5C84")),
+            hole=hexcol("laundrybasket_hole", "#14324E"),
+            inside=hexcol("laundrybasket_inside", "#1E6E93"),
+            label=(hexcol("laundrybasket_label", "#FFFFFF"), hexcol("laundrybasket_label_shade", "#E4EEF4")),
+            ink=hexcol("laundrybasket_label_ink", "#173A55"),
+            art=(hexcol("laundrybasket_sock", "#4E8FE8"), hexcol("laundrybasket_sock_cuff", "#FF6F8E"),
+                 hexcol("laundrybasket_sock_heel", "#2E64C2")),
+            gloss=hexcol("laundrybasket_gloss", "#D8FBFF"),
+            scuff=hexcol("laundrybasket_scuff", "#B7EDF6"))
+    G = movekit.gold("laundrybasket")
+    return dict(
+        plastic=(G.light, G.base, G.dark, G.deep),
+        pocket=(hexcol("laundrybasket_gold_pocket", "#B87418"), hexcol("laundrybasket_gold_pocket_dark", "#7E4A0C")),
+        hole=hexcol("laundrybasket_gold_hole", "#3E2206"),
+        inside=hexcol("laundrybasket_gold_inside", "#8E5410"),
+        label=(hexcol("laundrybasket_gold_label", "#FFF8E0"), hexcol("laundrybasket_gold_label_shade", "#F3E2B4")),
+        ink=hexcol("laundrybasket_gold_ink", "#5A3008"),
+        art=(G.base, G.light, G.dark),
+        gem=movekit.gem_colours("laundrybasket", "aqua", "#B6FBFF", "#2FD3E6", "#1489A8"),
+        gloss=G.shine, scuff=G.light, glitter=G.glitter)
 
 
 H = 5.5                          # height
@@ -46,13 +84,16 @@ A0, B0 = 2.25, 1.7               # half width / depth at the floor (the rim) ...
 A1, B1 = 1.86, 1.38              # ... and at the top (the base)
 RC = 0.62                        # corner radius
 WALL = 0.14                      # wall thickness (the inside wall, under the lip)
-DEPTH = 0.075                    # hole pocket depth
-NH = 22                          # holes round each row
+DEPTH = 0.09                     # hole pocket depth
+NH = 16                          # holes round each row
 NU = NH * 4                      # columns round the basket: a hole is 3 columns, the bar between 1
-ROW0, RIB, HOLE_H, ROWS = 1.15, 0.19, 0.29, 8
+ROW0, RIB, HOLE_H, ROWS = 1.15, 0.2, 0.4, 6
 HANDLE = (0.56, 0.98, 0.62)      # handle slot: bottom, top, half width (y)
+LIP = (-0.09, -0.15)             # the rolled lip bulges this far out (low, middle)
 OUTLINE_W = 0.07
 CUTS = (-0.5, -0.12, 0.6)
+GOLD_CUTS = (-0.2, 0.22, 0.7)   # the golden walls: tones by facing the key light (deep / dark / base / lit)
+LABEL_Z = 0.8                    # the label's centre height (on the lower band, front and back)
 
 
 def _ab(z):
@@ -93,17 +134,34 @@ def _at(j, z, inset):
     return Vector((q.x, q.y, z)), Vector((n.x, n.y, 0.0))
 
 
+def _rows_top():
+    return ROW0 + ROWS * (RIB + HOLE_H)
+
+
+def _lip():
+    """The rolled lip's profile (inset, z), from the floor up."""
+    lo, mid = LIP
+    return [(0.0, 0.0), (lo, 0.04), (mid, 0.15), (mid, 0.31), (lo, 0.42), (0.0, 0.47)]
+
+
+def _top_band(z):
+    """The solid top band from z (a moulded ridge round it) and the rounding over into the base."""
+    return [(0.0, z, "top"), (0.0, z + 0.08, "top"), (-0.045, z + 0.13, "top"), (-0.045, z + 0.22, "top"),
+            (0.0, z + 0.27, "top"), (0.0, H - 0.3, "top"), (0.04, H - 0.14, "top"), (0.11, H - 0.05, "top"),
+            (0.2, H, "top")]
+
+
 def _profile():
     """(inset, z, tag) up the outside: the rolled lip, the handle band, the hole rows, the top band,
     the rounding over into the base. Tags: 'lip', 'band', 'handle', 'rib', 'hole', 'top'."""
-    pr = [(WALL, 0.0, "lip"), (0.0, 0.0, "lip"), (-0.07, 0.04, "lip"), (-0.11, 0.14, "lip"), (-0.11, 0.3, "lip"),
-          (-0.07, 0.4, "lip"), (0.0, 0.45, "band"), (0.0, HANDLE[0], "handle"), (0.0, HANDLE[1], "band")]
+    pr = [(WALL, 0.0, "lip")] + [(i, z, "lip") for i, z in _lip()[:-1]]
+    pr += [(0.0, 0.47, "band"), (0.0, HANDLE[0], "handle"), (0.0, HANDLE[1], "band")]
     z = ROW0
     for r in range(ROWS):
         pr.append((0.0, z, "rib"))
         pr.append((0.0, z + RIB, "hole"))
         z += RIB + HOLE_H
-    pr += [(0.0, z, "top"), (0.0, H - 0.3, "top"), (0.04, H - 0.14, "top"), (0.11, H - 0.05, "top"), (0.2, H, "top")]
+    pr += _top_band(z)
     return pr
 
 
@@ -116,7 +174,7 @@ def _is_hole(tag, row, j):
     return False
 
 
-def _shell():
+def _shell(P, gold):
     pr = _profile()
     bm = bmesh.new()
     kind = bm.faces.layers.int.new("kind")   # 0 plastic, 1 pocket side, 2 pocket back
@@ -183,42 +241,57 @@ def _shell():
     pal = []
     for f in bm.faces:
         if f[kind] == 2:
-            pal.append(HOLE)
+            pal.append(P["hole"])
         elif f[kind] == 1:
             # the sill (facing up) and the side facing the light are lit, the lintel and far side shaded
-            pal.append(POCKET[0] if f.normal.z > 0.5 or f.normal.dot(Vector((-0.6, -0.6, 0.5))) > 0.45 else POCKET[1])
+            pal.append(P["pocket"][0] if f.normal.z > 0.5 or f.normal.dot(Vector((-0.6, -0.6, 0.5))) > 0.45
+                       else P["pocket"][1])
+        elif gold and abs(f.normal.z) < 0.6:     # polished walls: lit toward the key light
+            pal.append(tone(P["plastic"], f.normal.dot(movekit.KEY), GOLD_CUTS))
         else:
-            pal.append(tone(PLASTIC, f.normal.z, CUTS))
+            pal.append(tone(P["plastic"], f.normal.z, CUTS))
     flat = [i for i, f in enumerate(bm.faces) if f[kind] != 0]
     pc = K.Piece(K._bm_to_mesh(bm, "basket"), pal, False, True, "basket")
     pc.flat_faces = flat
     return pc
 
 
-def _inside():
-    """The inside wall and ceiling (only seen under the lip): a darker plastic, facing inward."""
+def _heights(step=0.35):
+    """Ring heights for the inside wall and the hull: the lip's, then every `step` up to the top
+    band's ridge (enough rows that both bend with the shell)."""
+    zs = [z for _i, z in _lip()]
+    top = _rows_top() + 0.08
+    n = max(1, int(math.ceil((top - zs[-1]) / step)))
+    return zs + [zs[-1] + (top - zs[-1]) * k / n for k in range(1, n + 1)]
+
+
+def _inside(P):
+    """The inside wall and ceiling (only seen under the lip): a darker plastic, facing inward (half
+    the outside's columns; rows every ~0.5 so it bends with the shell)."""
     bm = bmesh.new()
     rings = []
-    for z in (0.0, H * 0.5, H - WALL):
-        rings.append([bm.verts.new(_at(j, z, WALL)[0]) for j in range(NU)])
+    cols = NU // 2
+    zs = [0.0, 0.47] + [z for z in _heights(0.5) if z > 0.5] + [H - 0.3, H - WALL]
+    for z in zs:
+        rings.append([bm.verts.new(_at(j * 2, z, WALL)[0]) for j in range(cols)])
     for i in range(len(rings) - 1):
-        for j in range(NU):
-            k = (j + 1) % NU
+        for j in range(cols):
+            k = (j + 1) % cols
             bm.faces.new((rings[i][j], rings[i + 1][j], rings[i + 1][k], rings[i][k]))
     cv = bm.verts.new((0.0, 0.0, H - WALL))
-    for j in range(NU):
-        bm.faces.new((rings[-1][j], cv, rings[-1][(j + 1) % NU]))
+    for j in range(cols):
+        bm.faces.new((rings[-1][j], cv, rings[-1][(j + 1) % cols]))
     _outward(bm)
     bmesh.ops.reverse_faces(bm, faces=bm.faces[:])   # it faces the hollow inside
-    return K.Piece(K._bm_to_mesh(bm, "inside"), INSIDE, False, True, "inside")
+    return K.Piece(K._bm_to_mesh(bm, "inside"), P["inside"], False, True, "inside")
 
 
 def _envelope():
     """The hole-free outside (for the ink hull only), closed underneath."""
     cols = 64
     bm = bmesh.new()
-    pr = [(0.0, 0.0), (-0.07, 0.04), (-0.11, 0.14), (-0.11, 0.3), (-0.07, 0.4), (0.0, 0.45), (0.0, 2.0),
-          (0.0, 4.0), (0.0, H - 0.3), (0.04, H - 0.14), (0.11, H - 0.05), (0.2, H)]
+    pr = _lip() + [(0.0, z) for z in _heights()[len(_lip()):]]
+    pr += [(i, z) for i, z, _t in _top_band(_rows_top())[2:]]        # the ridge and the rounding
     rings = []
     for inset, z in pr:
         ring = []
@@ -241,32 +314,151 @@ def _envelope():
     return K.Piece(K._bm_to_mesh(bm, "envelope"), K.OUTLINE, True, True, "envelope")
 
 
-def _top_holes(bvh):
-    """A ring of small round holes in the base (on top, upside down)."""
+def _top_holes(P, bvh):
+    """A ring of round holes round a middle one in the base (on top, upside down)."""
     out = []
     down = Vector((0, 0, -1))
-    pts = []
-    for k in range(12):
-        a = k / 12 * math.tau
-        pts.append((1.15 * math.cos(a), 0.78 * math.sin(a)))
-    pts += [(0.0, 0.0), (0.5, 0.0), (-0.5, 0.0)]
+    pts = [(1.12 * math.cos(a), 0.76 * math.sin(a)) for a in (k / 10 * math.tau for k in range(10))]
+    pts += [(0.0, 0.0)]
     for (x, y) in pts:
-        circ = [(0.11 * math.cos(t), 0.11 * math.sin(t)) for t in (j / 12 * math.tau for j in range(12))]
-        out.append(decal(bvh, circ, Vector((x, y, H)), Vector((1, 0, 0)), Vector((0, 1, 0)), down, 0.006, HOLE,
-                         "hole", step=0.2))
+        r = 0.2 if (x, y) == (0.0, 0.0) else 0.14
+        out.append(decal(bvh, movekit.circle(r, 14), Vector((x, y, H)), Vector((1, 0, 0)), Vector((0, 1, 0)), down,
+                         0.006, P["hole"], "hole", step=0.2))
     return out
 
 
-def build():
-    _colours()
-    shell = _shell()
+def _rrect(w, h, r, n=4):
+    """A 2D rounded rectangle (CCW), half sizes w x h, corner radius r."""
+    out = []
+    for cx, cy, a0 in ((w - r, -h + r, -math.pi / 2), (w - r, h - r, 0.0), (-w + r, h - r, math.pi / 2),
+                       (-w + r, -h + r, math.pi)):
+        out += [(cx + r * math.cos(a0 + math.pi / 2 * k / n), cy + r * math.sin(a0 + math.pi / 2 * k / n))
+                for k in range(n + 1)]
+    return out
+
+
+SOCK = [(-0.13, 0.26), (0.09, 0.26), (0.09, -0.03), (0.2, -0.1), (0.25, -0.18), (0.2, -0.25), (0.06, -0.26),
+        (-0.1, -0.2), (-0.13, -0.08)]          # a little sock (cuff up, toe right), CCW
+CROWN = [(-0.24, -0.16), (0.24, -0.16), (0.29, 0.17), (0.12, 0.02), (0.0, 0.22), (-0.12, 0.02), (-0.29, 0.17)]
+
+
+def _labels(P, bvh, gold):
+    """A label on the front and the back of the lower band: white with an ink rim, a little sock and
+    two printed lines (gold: a crown studded with gems)."""
+    out = []
+    for face in (-1, 1):
+        along = Vector((0, -face, 0))
+        du, dv = Vector((-face, 0, 0)), Vector((0, 0, 1))
+        o = Vector((0, 0, LABEL_Z))
+        plate = _rrect(0.72, 0.26, 0.09)
+        out.append(decal(bvh, offset_poly(plate, 0.035, miter=1.5), o, du, dv, along, 0.006, P["ink"], "label_ink",
+                         step=0.1))
+        out.append(decal(bvh, plate, o, du, dv, along, 0.01, lambda q, n: P["label"][1] if q.y < -0.16 else
+                         P["label"][0], "label", step=0.1))
+        if gold:
+            crown = [(x * 0.95 - 0.36, y * 0.95) for x, y in CROWN]
+            out.append(decal(bvh, offset_poly(crown, 0.024, miter=1.6), o, du, dv, along, 0.013, P["ink"], "label_ink",
+                             step=0.06))
+            out.append(decal(bvh, crown, o, du, dv, along, 0.016, lambda q, n: P["art"][1] if q.y > 0.04 else
+                             P["art"][0], "art", step=0.06))
+            for gx in (-0.14, 0.0, 0.14):
+                out.append(decal(bvh, movekit.circle(0.036, 8, gx - 0.36, -0.07), o, du, dv, along, 0.019, P["gem"][1],
+                                 "gem", step=0.1))
+        else:
+            sock = [(x * 1.02 - 0.38, y * 0.86) for x, y in SOCK]
+            out.append(decal(bvh, offset_poly(sock, 0.024, miter=1.6), o, du, dv, along, 0.013, P["ink"], "label_ink",
+                             step=0.05))
+            out.append(decal(bvh, sock, o, du, dv, along, 0.016, lambda q, n: P["art"][1] if q.y > 0.13 else
+                             (P["art"][2] if q.x > -0.3 and q.y < -0.08 else P["art"][0]), "art", step=0.05))
+        for x0, x1, y in ((-0.02, 0.5, 0.08), (-0.02, 0.32, -0.09)):     # two printed lines (the brand)
+            out.append(decal(bvh, _rrect((x1 - x0) / 2, 0.045, 0.04, 2), o + dv * y + du * ((x0 + x1) / 2), du, dv,
+                             along, 0.013, P["art"][0] if not gold else P["art"][2], "art", step=0.2))
+    return out
+
+
+def _sheen(P, bvh, gold):
+    """A toon highlight on the top band, front-left; a few pale scuffs on the lip (gold:
+    twinkles and glitter flecks on the bands instead of scuffs)."""
+    out = []
+    z = _rows_top() + 0.37
+    for face in (-1, 1):
+        along = Vector((0, -face, 0))
+        du, dv = Vector((-face, 0, 0)), Vector((0, 0, 1))
+        o = Vector((0, 0, z))
+        if face < 0:     # a toon highlight on the front-left: a dash and a dot
+            out.append(decal(bvh, _rrect(0.34, 0.035, 0.034, 3), o + du * -0.85, du, dv, along, 0.006, P["gloss"],
+                             "gloss", step=0.2))
+            out.append(decal(bvh, movekit.circle(0.036, 8, -0.38, 0.0), o, du, dv, along, 0.006, P["gloss"], "gloss",
+                             step=0.2))
+        if gold:
+            for x, y, r in ((0.45, 0.0, 0.07), (-1.3, 0.0, 0.055), (1.25, 0.0, 0.05)):
+                out.append(decal(bvh, movekit.sparkle(r, 0.25, x, y), o, du, dv, along, 0.008, P["gloss"], "shine",
+                                 step=0.1))
+            for x, y in movekit.dots(10, 2.0 + face, (-1.2, -0.04), (1.2, 0.04), 0.18):
+                out.append(decal(bvh, movekit.circle(0.02, 6, x, y), o, du, dv, along, 0.008, P["glitter"], "glitter",
+                                 step=0.2))
+        else:
+            for x, y, ang, ln in ((0.9, 0.22, 0.3, 0.16), (-0.75, 0.24, -0.2, 0.12), (0.1, 0.2, 0.1, 0.1)):
+                c, s = math.cos(ang), math.sin(ang)
+                sc = [(x + c * u - s * v, y + s * u + c * v) for u, v in
+                      ((-ln, -0.008), (ln, -0.008), (ln, 0.008), (-ln, 0.008))]
+                out.append(decal(bvh, sc, Vector((0, 0, 0.0)), du, dv, along, 0.006, P["scuff"], "scuff", step=1.0))
+    return out
+
+
+def _gems(P):
+    """Gold only: a ring of faceted aqua gems round the top band's ridge."""
+    out = []
+    z = _rows_top() + 0.175
+    for k in range(12):
+        p, n = _at(NU * (k + 0.5) / 12, z, -0.045)
+        out.append(movekit.gem(P["gem"], p, n, 0.11, up=(0, 0, 1), name="gem"))
+    return out
+
+
+def build(gold=False):
+    name = NAME + ("_Gold" if gold else "")
+    P = _colours(gold)
+    shell = _shell(P, gold)
     bvh = bvh_of([shell])
-    p = [shell, _inside()] + _top_holes(bvh)
-    body, outline = K.finish(p, NAME, outline_width=OUTLINE_W, outline_only=[_envelope()])
+    p = [shell, _inside(P)] + _top_holes(P, bvh) + _labels(P, bvh, gold) + _sheen(P, bvh, gold)
+    if gold:
+        p += _gems(P)
+    body, outline = K.finish(p, name, outline_width=OUTLINE_W, outline_only=[_envelope()])
     no_bounce(outline)
     gz = (HANDLE[0] + HANDLE[1]) / 2
     grip, _n = _at(0, gz, DEPTH * 0.5)
-    return [body, outline] + K.markers(NAME) + [items.grip(NAME, grip)]
+    return [body, outline] + K.markers(name) + [items.grip(name, grip)]
 
 
-BUILDERS = {NAME: build}
+BUILDERS = {NAME: build, NAME + "_Gold": lambda: build(True)}
+
+
+# ---------------------------------------------------------------- skeleton
+LO, HI = 0.47, H - 0.42          # Bottom alone below LO (the lip), Top alone above HI (the top band)
+
+
+def _field(z):
+    """Bottom -> Top up the wall: half linear, half smoothstep (an even squash, soft at both ends)."""
+    t = max(0.0, min(1.0, (z - LO) / (HI - LO)))
+    w = 0.5 * t + 0.5 * t * t * (3 - 2 * t)
+    return {"Bottom": 1.0 - w, "Top": w}
+
+
+def rig(name, objs):
+    """`<Name>_Rig`: Root at the floor centre, Bottom (the lower half, held still), Top (the upper half)."""
+    bones = {"Root": movekit.bone("Root", None, (0, 0, 0), (0, 0, 0.5), "root"),
+             "Bottom": movekit.bone("Bottom", "Root", (0, 0, 0), (0, 0, H * 0.5), "bottom"),
+             "Top": movekit.bone("Top", "Root", (0, 0, H * 0.5), (0, 0, H), "top")}
+    return movekit.skin(name, objs, bones, lambda piece, tag, co: _field(co.z))
+
+
+# test poses for preview.py --pose (rigging.apply_pose: world axes, degrees; "slide" = studs along the
+# bone, here up)
+POSES = {
+    "rest": {},
+    "squash": {"Top": [("slide", -1.1)]},
+    "stretch": {"Top": [("slide", 0.8)]},
+    "lean": {"Top": [((1, 0, 0), 12)]},
+    "pounce": {"Top": [("slide", 0.5), ((0, 1, 0), -8)]},
+}
