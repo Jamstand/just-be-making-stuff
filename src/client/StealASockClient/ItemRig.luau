@@ -697,7 +697,10 @@ local function updateTowel(rig: Rig, t: number, near: boolean)
 		return
 	end
 	local since = clock - rig.towelSwing
-	local swinging = rig.towelSwing > 0 and (since < 0.9 or rig.holdW > 0.02)
+	-- the towel whips while the arm's swing plays (a held one stays up for the next crack); once that
+	-- has ended the towel hangs, even if the button goes down again during the cooldown (the arm is
+	-- down then too)
+	local swinging = rig.towelSwing > 0 and ItemRig.Has(rig.character, "swing")
 	if not swinging and not near then
 		return
 	end

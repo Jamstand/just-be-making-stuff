@@ -477,7 +477,7 @@ respawn, leaving and shutdown, and the animations on R15 and R6 rigs (joints bac
 the Blender towel inside its clean range). That proves the logic, not the look: everything below
 still needs eyes in Studio (the duck's waddle physics, slides, server tweens, the gold re-colour).
 
-Client (Items v2, `scratchpad/itemtest-c`: `python3 gen.py && ./luau run_client.luau`, 350 checks)
+Client (Items v2, `scratchpad/itemtest-c`: `python3 gen.py && ./luau run_client.luau`, 403 checks)
 also runs `ItemAim`, `ItemBones` and `ItemMoments`: every press / release (the balloon's charge 0 → 1,
 an early release, the server's own zap, a refused press, `Use`; glide, slam and the landing `false`;
 air dashes; the basket's pounce press; silence while cooling down), `Charge` / `Level`, the aim assist
@@ -485,16 +485,19 @@ air dashes; the basket's pounce press; silence while cooling down), `Charge` / `
 / pulse / gone), the finisher swing, every look's crack, every new FX kind with good and bad data on
 R15 and R6 around boned and bone-less models, the big moments (only `by` / targets, FOV and blur back
 exactly, a stronger shake for the victim, Reduce motion = a flash), the moving parts and golden auras,
-and no live instance growth over repeated rounds of every effect.
+and no live instance growth over repeated rounds of every effect; the towel's wiring: a snap's
+tumble, sock arc and big moment waiting for the crack (others' and your own), taps going as taps,
+a refused snap not counted, no swing while stunned or in a bubble (held: it cracks when you can).
 
 **Towel motion** (a kinematics sim, `scratchpad/towelsim`: `./gen.sh && ../itemtest-c/luau run.luau`,
-104 checks): the real `ItemRig` drives an R15 and an R6 stand-in (Roblox's joint offsets, the
+116 checks): the real `ItemRig` drives an R15 and an R6 stand-in (Roblox's joint offsets, the
 Animator's tool-hold arm written before each Stepped) holding the Blender towel (the bones exactly
 as in `Towel_Plain.glb`) and the Part towel, at 60 fps; the engine's sums (`Part0 * C0 * Transform *
 C1:Inverse()`, the grip, bone chains) place everything, and it checks where the hand and the towel's
 tip are: hanging in front at rest, up and over the shoulder in the wind-up, straight out in front at
 the crack, back over the shoulder between held cracks, the finisher's twist cracking in front,
-settling back after a tap, never into the floor, no jumps away from the crack.
+settling back after a tap, never into the floor, no jumps away from the crack, and a press during
+the cooldown leaves the towel hanging (the arm is down too).
 A towel with a second skeleton (an outline hull) must move exactly like one.
 `render_frames.py` (Blender) renders the frames with the real skinned towel, side and 3/4 views.
 
