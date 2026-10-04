@@ -41,11 +41,13 @@ the Towel Snap level x the Golden Towel, for the client's aim assist and reach a
   ready (`ItemClient.Press` / `Release`; `UseItem`'s `held` flag tells every other client to play
   the swings as one loop). Letting go stops it; so does the window losing focus or respawning.
 - **Feel (every client):** an overhead crack on every use, hit or miss — the arm takes the towel up
-  and back over the shoulder and lashes it down in front, the towel curls back, unrolls and cracks
-  at the tip (its `Seg1…Seg6` bones, or the Part towel's `Seg1…Seg6` motors), with a whoosh. While
-  held, the arm lifts the towel straight back over the shoulder after each crack, so the next crack
-  starts from up there: one continuous back-and-forth loop. Holding the towel between swings, the
-  arm rests lower and the towel hangs and sways. On a hit, at the moment of the crack: a crack
+  and back over the shoulder (it hangs down your back) and lashes it forward to about shoulder
+  height, the towel curls back, unrolls from the hand out and comes straight out in front of you
+  exactly at the crack (its `Seg1…Seg6` bones, or the Part towel's `Seg1…Seg6` motors), with a
+  whoosh. While held, the arm lifts the towel back over the shoulder after each crack (a quick back
+  cast), so the next crack starts from up there: one continuous back-and-forth loop. Holding the
+  towel between swings, the arm rests lower and the towel hangs and sways. The towel's tip never
+  goes into the floor under you (R6's arms, small avatars). On a hit, at the moment of the crack: a crack
   sound, a comic **SNAP!** (BOP! for a shove) with stars and a shockwave ring, and a tiny screen shake
   for the snapper (off with Reduce motion). Your own swing starts the instant you press (prediction);
   everyone else sees it when the server says so.
@@ -251,12 +253,19 @@ never fight it; when a move ends the Animator's pose is back (if no animation dr
 pose it had is put back). Moves are rotations in the character's own axes about each joint, so R15
 and R6 share them (R6 has no elbows or waist). The tumble spins the visual body about the root joint
 — the physics root never turns. Other players' characters are animated on every client; beyond 160
-studs the moves are skipped. A held towel droops and sways within 70 studs.
+studs the moves are skipped. A held towel droops and sways within 70 studs; every client starts
+animating someone's towel as soon as `Item_Towel` is in their character (or their `Item` attribute
+says Towel).
 
 The **towel whip** bends `Seg1…Seg6` about one axis in the handle's space (tip down = positive, with
-a little sideways sweep): it curls back for `WIND` (0.12 s), unrolls from the handle to the tip and
-cracks ~0.22 s in, wobbles and settles into the droop (or, held, curls back over the shoulder again
-with the arm for the next crack). On the Blender towel (a flat cloth) `Seg1` is the end gathered in the fist, so it stays nearly rigid, and
+a little sideways sweep): it curls back for `WIND` (0.12 s), unrolls from the handle to the tip (each
+segment over half the lash, a beat after the one before) so the tip comes straight exactly at the
+crack (`CRACK` 0.22 s, `CRACK_F` 0.32 s for the finisher), wobbles and settles into the droop (or,
+held, flies back over the shoulder with the arm for the next crack, `LIFT_TIME`). **Floor guard:**
+every frame the towel's tip height is worked out from the handle and the bends; if it would come
+within `FLOOR_GAP` (0.5 studs) of the floor under the character's feet, the bends are straightened
+toward the hand's line just enough, and if even a straight towel would reach the floor, its far end
+curls up off it. On the Blender towel (a flat cloth) `Seg1` is the end gathered in the fist, so it stays nearly rigid, and
 every joint is kept inside 45° (75° for `Seg5` / `Seg6`); the cloth itself bends cleanly to ~120°
 across it but only ~20° sideways.
 
@@ -268,9 +277,10 @@ back before the recoil, `spray` squeezes before pumping, `zap` crouches before t
 slam on the way down: tucked, arms up) and `land` (the slam's squat), `pounce` (crouch, spring out of
 the basket with the arms up), `bowl` (bowled over by a sliding peel-slipper: sliding on your bottom,
 arms windmilling), `startle` (honked at), `cheer` (an item upgraded: held up high), `nap` (nodding off).
-The **combo finisher** is the swing with `{ finisher = true }`: a higher wind-up with the shoulders
-turned away (`WIND_F` 0.2 s), a wide lash across the body with a twist through the waist and hips, the
-crack at `CRACK_F` (0.32 s), a held follow-through; the towel curls back deeper and cracks with a
+The **combo finisher** is the swing with `{ finisher = true }`: a wind-up over the shoulder with the
+shoulders turned away to the right and a lean back (`WIND_F` 0.2 s), a lash across the body with a
+twist through the waist and hips to the left, cracking a little left of straight ahead at `CRACK_F`
+(0.32 s), a held follow-through; the towel curls back deeper and cracks with a
 bigger wobble. The rigs run on their own clock: big moments freeze it for the hit-stop and slow it
 for the slow-motion feel (`ItemRig.SetTimeScale`, only on that screen, only the look).
 
@@ -434,9 +444,12 @@ players farther than 30 studs (the sock-home arc and your own effects always sho
   `CHAIN_HOP` (10 studs a golden arc jumps).
 - `Items/Looks.luau`: `GRIP` (how every item sits in the hand), `CARRY_BASKET`, the Part towels'
   colours (`TOWELS`), the gold re-colour (`GOLD_DARK`, `GOLD_LIGHT`, `GOLD_SHINE`).
-- `ItemRig.luau`: `WIND`, `DROOP`, `SWING_AXIS` (flip its sign if the towel whips the wrong way),
-  `BONE_WEIGHT` / `BONE_LIMIT`, every move's keyframes (the finisher: `FIN_UP` / `FIN_DOWN` /
-  `FIN_FOLLOW`, `WIND_F`, `CRACK_F`, `LIFT_F`), `RANGE`.
+- `ItemRig.luau`: `WIND`, `CRACK`, `LIFT`, `LIFT_TIME`, `DROOP`, `FLOOR_GAP`, `SWING_AXIS` (flip its
+  sign if the towel whips the wrong way), `BONE_WEIGHT` / `BONE_LIMIT`, every move's keyframes (the
+  swing: `SWING_UP` / `SWING_DOWN` / `SWING_FOLLOW`; the finisher: `FIN_UP` / `FIN_DOWN` /
+  `FIN_FOLLOW`, `WIND_F`, `CRACK_F`, `LIFT_F`), `RANGE`. The swing poses go on top of Roblox's
+  tool-hold arm (level, in front): a crack arm more than a little below level puts the towel into
+  the floor, and an `x` past ~2.4 on a wind-up throws the arm down your back.
 - `ItemFX.luau`: `ItemFX.Sounds`, `CRACK_T` / `CRACK_FINISHER` (when the burst lands after a swing),
   `LOOK_COLORS`, `GOLD`, `SOUND_RANGE`, `HIDE_OTHERS_RANGE`, `PROP_RANGE`, `RINGS_MAX`, `FLOATIES_MAX`.
 - `ItemAim.luau`: the reach arc (`EDGE` / `SIDE` dashes, `FAINT`, `PULSE`, its colours).
@@ -468,6 +481,16 @@ R15 and R6 around boned and bone-less models, the big moments (only `by` / targe
 exactly, a stronger shake for the victim, Reduce motion = a flash), the moving parts and golden auras,
 and no live instance growth over repeated rounds of every effect.
 
+**Towel motion** (a kinematics sim, `scratchpad/towelsim`: `./gen.sh && ../itemtest-c/luau run.luau`,
+68 checks): the real `ItemRig` drives an R15 and an R6 stand-in (Roblox's joint offsets, the
+Animator's tool-hold arm written before each Stepped) holding the Blender towel (the bones exactly
+as in `Towel_Plain.glb`) and the Part towel, at 60 fps; the engine's sums (`Part0 * C0 * Transform *
+C1:Inverse()`, the grip, bone chains) place everything, and it checks where the hand and the towel's
+tip are: hanging in front at rest, up and over the shoulder in the wind-up, straight out in front at
+the crack, back over the shoulder between held cracks, the finisher's twist cracking in front,
+settling back after a tap, never into the floor, no jumps away from the crack.
+`render_frames.py` (Blender) renders the frames with the real skinned towel, side and 3/4 views.
+
 ## Studio checklist
 
 1. **Sync** `src/` (Rojo or the MCP). Press Play: Output shows no `[Items]` errors; you have the
@@ -476,8 +499,11 @@ and no live instance growth over repeated rounds of every effect.
    other: swing + whoosh, the crack lands with SNAP!, the thief somersaults, the sock arcs home, a
    tiny shake for the snapper. Snap a non-thief: BOP!, a push, no stun.
 3. **The towel in the hand**: points forward out of the fist (if it points backward or up, change
-   `GRIP` in `Items/Looks.luau`), droops a little at rest, curls back over the shoulder and cracks
-   forward-down (if the whip bends the wrong way, flip `SWING_AXIS` in `ItemRig.luau`). Buy Towel
+   `GRIP` in `Items/Looks.luau`), the arm rests a little lower than level and the towel hangs from
+   the hand the moment you equip it (before any swing), the swing goes up and back over the shoulder
+   and cracks straight out in front of you at about chest height, never into the floor (if the whip
+   bends the wrong way, flip `SWING_AXIS` in `ItemRig.luau`). Hold it: crack, back over the
+   shoulder, crack … and every 3rd is the finisher, twisting across to the front-left. Buy Towel
    Snap levels: Plain → Striped → … → Champion; buy the Golden Towel (test purchase): Royal.
 4. **Each item** (unlock with cash or the Studio test purchase, put it in the bar): dash (distance
    feels right?), peel (the other player slips, you don't), bubble (a thief floats up, a non-thief

@@ -37,9 +37,12 @@ local TAU = math.pi * 2
 
 local RANGE = 160 -- studs from the camera: farther characters skip the moves (they'd be dots)
 local TOWEL_RANGE = 70 -- studs: a held towel droops and sways only this close
-local WIND = 0.12 -- swing: wind-up seconds; the crack comes ~0.1 s later (ItemFX.CRACK_T = 0.22)
+local WIND = 0.12 -- swing: wind-up seconds
+local CRACK = 0.22 -- swing: the crack (ItemFX.CRACK_T): the arm lands its lash, the towel's tip straightens
 local DROOP = 0.2 -- radians per towel segment at rest (the towel hangs from the hand)
+local FLOOR_GAP = 0.5 -- studs: the towel's tip stays at least this far above the floor under you
 local LIFT = 0.32 -- swing: when the follow-through ends and, while held, the arm lifts the towel again
+local LIFT_TIME = 0.4 -- held: seconds to lift the towel back over the shoulder (a back cast)
 local HELD_ARM = -0.5 -- radians the arm rests lower than Roblox's "holding a tool" pose
 -- the combo finisher: a longer, higher wind-up and a later crack (ItemFX.CRACK_FINISHER = 0.32)
 local WIND_F = 0.2
@@ -90,7 +93,8 @@ type Pose = { [string]: Vector3 } -- joint -> (x, y, z) radians in the character
 
 type Layer = { kind: string, t0: number, dur: number, data: { [string]: any } }
 
-type TowelSeg = { index: number, bone: Bone?, motor: Motor6D?, r: CFrame, rinv: CFrame, axis: Vector3, weight: number, limit: number }
+-- `along`: how far along the towel (the handle's +Z, studs from the grip) the segment's joint is
+type TowelSeg = { index: number, bone: Bone?, motor: Motor6D?, r: CFrame, rinv: CFrame, axis: Vector3, weight: number, limit: number, along: number }
 
 type Rig = {
 	character: Model,
@@ -98,7 +102,10 @@ type Rig = {
 	joints: { [string]: Joint },
 	layers: { Layer },
 	root: BasePart?,
+	humanoid: Humanoid?,
 	towelTool: Instance?,
+	towelHandle: BasePart?,
+	towelLength: number, -- studs from the grip to the towel's far edge
 	towelLook: any,
 	towelBuilt: number,
 	towelSegs: { TowelSeg },
@@ -166,7 +173,10 @@ local function getRig(character: Model): Rig
 			joints = joints,
 			layers = {},
 			root = if root and root:IsA("BasePart") then root else nil,
+			humanoid = character:FindFirstChildOfClass("Humanoid"),
 			towelTool = nil,
+			towelHandle = nil,
+			towelLength = 4,
 			towelLook = nil,
 			towelBuilt = 0,
 			towelSegs = {},
@@ -195,24 +205,29 @@ end
 
 local MOVES: { [string]: (pose: Pose, t: number, layer: Layer, rig: Rig) -> () } = {}
 
--- the Towel Snap: an overhead crack. Up and back over the shoulder, lashed down in front, a
--- follow-through; then either back to the hold (let go) or up over the shoulder again (held: the
--- next swing of the loop starts from there, `chain`). Rotations about x raise the arm forward/up.
--- The combo finisher (data.finisher) winds up higher with the shoulders turned away, then lashes
--- wide across the body with a twist through the waist and hips, and holds the follow-through.
-local SWING_UP = { RShoulder = Vector3.new(2.2, -0.25, 0.3), RElbow = Vector3.new(1.05, 0, 0), LShoulder = Vector3.new(0.3, 0, 0), Waist = Vector3.new(0.14, -0.2, 0), Neck = Vector3.new(0.1, -0.08, 0) }
-local SWING_DOWN = { RShoulder = Vector3.new(-1.0, 0.25, -0.15), RElbow = Vector3.new(0, 0, 0), LShoulder = Vector3.new(-0.25, 0, 0), Waist = Vector3.new(-0.2, 0.18, 0), Neck = Vector3.new(-0.12, 0.08, 0) }
-local SWING_FOLLOW = { RShoulder = Vector3.new(-0.75, 0.15, -0.1), RElbow = Vector3.new(0.25, 0, 0), LShoulder = Vector3.new(-0.1, 0, 0), Waist = Vector3.new(-0.1, 0.1, 0), Neck = Vector3.new(-0.05, 0.04, 0) }
-local FIN_UP = { RShoulder = Vector3.new(2.75, 0.55, 0.5), RElbow = Vector3.new(1.2, 0, 0), LShoulder = Vector3.new(0.7, 0, -0.35), Waist = Vector3.new(0.2, 0.55, 0), Neck = Vector3.new(0.14, -0.3, 0), Root = Vector3.new(0, 0.18, 0) }
-local FIN_DOWN = { RShoulder = Vector3.new(-0.85, -0.8, -0.25), RElbow = Vector3.new(0.05, 0, 0), LShoulder = Vector3.new(-0.45, 0, 0.3), Waist = Vector3.new(-0.28, -0.55, 0), Neck = Vector3.new(-0.15, 0.25, 0), Root = Vector3.new(0, -0.2, 0) }
-local FIN_FOLLOW = { RShoulder = Vector3.new(-0.7, -0.55, -0.1), RElbow = Vector3.new(0.3, 0, 0), LShoulder = Vector3.new(-0.15, 0, 0.12), Waist = Vector3.new(-0.12, -0.32, 0), Neck = Vector3.new(-0.06, 0.12, 0), Root = Vector3.new(0, -0.08, 0) }
+-- the Towel Snap: an overhead crack. Up and back over the shoulder, lashed forward to about
+-- shoulder height (the towel unrolls straight out in front, it cracks), a follow-through down to the
+-- hold; then either back to the hold (let go) or up over the shoulder again (held: the next swing
+-- of the loop starts from there, `chain`). Rotations about x raise the arm forward/up, about y turn
+-- it (and the waist) to the left. The poses go on top of Roblox's "holding a tool" arm (level, in
+-- front): the crack's arm sits a little below level, so the towel's line runs out in front of you,
+-- above the floor - not down at your feet.
+-- The combo finisher (data.finisher) winds up higher with the shoulders turned away (to the right),
+-- then lashes across the body with a twist through the waist and hips, cracking a little to the
+-- left of straight ahead, and holds the follow-through.
+local SWING_UP = { RShoulder = Vector3.new(2.1, -0.25, 0.3), RElbow = Vector3.new(0.85, 0, 0), LShoulder = Vector3.new(0.3, 0, 0), Waist = Vector3.new(0.14, -0.2, 0), Neck = Vector3.new(0.1, 0.12, 0) }
+local SWING_DOWN = { RShoulder = Vector3.new(-0.2, 0.2, -0.1), RElbow = Vector3.new(0.05, 0, 0), LShoulder = Vector3.new(-0.25, 0, 0), Waist = Vector3.new(-0.15, 0.18, 0), Neck = Vector3.new(-0.1, -0.1, 0) }
+local SWING_FOLLOW = { RShoulder = Vector3.new(-0.45, 0.15, -0.05), RElbow = Vector3.new(0.25, 0, 0), LShoulder = Vector3.new(-0.1, 0, 0), Waist = Vector3.new(-0.08, 0.1, 0), Neck = Vector3.new(-0.04, -0.06, 0) }
+local FIN_UP = { RShoulder = Vector3.new(2.05, -0.3, 0.35), RElbow = Vector3.new(0.75, 0, 0), LShoulder = Vector3.new(0.6, 0, -0.3), Waist = Vector3.new(0.2, -0.45, 0), Neck = Vector3.new(0.12, 0.35, 0), Root = Vector3.new(0, -0.12, 0) }
+local FIN_DOWN = { RShoulder = Vector3.new(-0.12, 0.15, -0.2), RElbow = Vector3.new(0.05, 0, 0), LShoulder = Vector3.new(-0.4, 0, 0.3), Waist = Vector3.new(-0.2, 0.25, 0), Neck = Vector3.new(-0.12, -0.18, 0), Root = Vector3.new(0, 0.08, 0) }
+local FIN_FOLLOW = { RShoulder = Vector3.new(-0.4, 0.4, -0.1), RElbow = Vector3.new(0.3, 0, 0), LShoulder = Vector3.new(-0.15, 0, 0.12), Waist = Vector3.new(-0.1, 0.35, 0), Neck = Vector3.new(-0.06, -0.22, 0), Root = Vector3.new(0, 0.12, 0) }
 local ZERO = Vector3.zero
 
 MOVES.swing = function(pose, t, layer, rig)
 	local chain = layer.data.chain == true
 	local fin = layer.data.finisher == true
 	local upT, downT, followT = SWING_UP, SWING_DOWN, SWING_FOLLOW
-	local wind, crack, lift = WIND, 0.22, LIFT
+	local wind, crack, lift = WIND, CRACK, LIFT
 	if fin then
 		upT, downT, followT = FIN_UP, FIN_DOWN, FIN_FOLLOW
 		wind, crack, lift = WIND_F, CRACK_F, LIFT_F
@@ -232,7 +247,7 @@ MOVES.swing = function(pose, t, layer, rig)
 		else
 			-- let go: settle back to the hold; held: lift it over the shoulder again for the next crack
 			local rest = follow * (1 - ease((t - lift) / 0.25))
-			local again = follow:Lerp(plainUp, ease((t - lift) / 0.55))
+			local again = follow:Lerp(plainUp, ease((t - lift) / LIFT_TIME))
 			v = rest:Lerp(again, rig.holdW)
 		end
 		add(pose, joint, v.X, v.Y, v.Z)
@@ -514,10 +529,14 @@ local function buildTowel(rig: Rig, tool: Instance)
 	rig.towelLook = tool:GetAttribute("Look")
 	rig.towelBuilt = os.clock()
 	rig.towelSegs = {}
+	rig.towelHandle = nil
 	local handle = tool:FindFirstChild("Handle")
 	if not (handle and handle:IsA("BasePart")) then
 		return
 	end
+	rig.towelHandle = handle
+	local tipAtt = handle:FindFirstChild("Tip")
+	rig.towelLength = if tipAtt and tipAtt:IsA("Attachment") and tipAtt.Position.Z > 1 then tipAtt.Position.Z else 4
 	for _, d in ipairs(tool:GetDescendants()) do
 		local index = segIndex(d.Name)
 		if index then
@@ -533,13 +552,93 @@ local function buildTowel(rig: Rig, tool: Instance)
 				if part then
 					local r = cf.Rotation
 					local axis = part.CFrame:VectorToObjectSpace(handle.CFrame:VectorToWorldSpace(SWING_AXIS))
-					table.insert(rig.towelSegs, { index = index, bone = d, motor = nil, r = r, rinv = r:Inverse(), axis = axis, weight = BONE_WEIGHT[index] or 1, limit = BONE_LIMIT[index] or 0.78 })
+					local along = handle.CFrame:PointToObjectSpace(part.CFrame * cf.Position).Z
+					table.insert(rig.towelSegs, { index = index, bone = d, motor = nil, r = r, rinv = r:Inverse(), axis = axis, weight = BONE_WEIGHT[index] or 1, limit = BONE_LIMIT[index] or 0.78, along = along })
 				end
 			elseif d:IsA("Motor6D") then
-				table.insert(rig.towelSegs, { index = index, bone = nil, motor = d, r = CFrame.identity, rinv = CFrame.identity, axis = SWING_AXIS, weight = 1, limit = 0.9 })
+				local part0 = d.Part0
+				local along = if part0 then handle.CFrame:PointToObjectSpace(part0.CFrame * d.C0.Position).Z else 0
+				table.insert(rig.towelSegs, { index = index, bone = nil, motor = d, r = CFrame.identity, rinv = CFrame.identity, axis = SWING_AXIS, weight = 1, limit = 0.9, along = along })
 			end
 		end
 	end
+	table.sort(rig.towelSegs, function(a, b)
+		return a.index < b.index
+	end)
+end
+
+-- Where the towel's tip is (world height) for these bends (one per segment, in order): the cloth
+-- runs along the handle's +Z and bends tip-down about the handle's X (SWING_AXIS's sideways part
+-- left out - this is only for the floor check).
+local function tipHeight(rig: Rig, handle: BasePart, angles: { number }): number
+	local segs = rig.towelSegs
+	local y, z, turn = 0, segs[1].along, 0
+	for k, seg in ipairs(segs) do
+		turn += angles[k]
+		local len = (if k < #segs then segs[k + 1].along else rig.towelLength) - seg.along
+		y -= len * sin(turn)
+		z += len * math.cos(turn)
+	end
+	return (handle.CFrame * Vector3.new(0, y, z)).Y
+end
+
+-- Keeps the towel's tip at or above `above` (world height): first straightens every bend toward
+-- the hand's line, just enough; if even a straight towel would reach the floor (the hand is that
+-- low), curls the far end up off it, the way cloth bends where it meets the ground. `angles` is
+-- changed in place.
+local function clearFloor(rig: Rig, handle: BasePart, angles: { number }, above: number)
+	if tipHeight(rig, handle, angles) >= above then
+		return
+	end
+	local n = #angles
+	local trial = table.create(n, 0)
+	-- bisect the least change that clears (lo: still too low, hi: clears)
+	local lo, hi = 0, 1
+	for _ = 1, 6 do
+		local k = (lo + hi) / 2
+		for i, a in ipairs(angles) do
+			trial[i] = a * (1 - k)
+		end
+		if tipHeight(rig, handle, trial) >= above then
+			hi = k
+		else
+			lo = k
+		end
+	end
+	for i, a in ipairs(angles) do
+		angles[i] = a * (1 - hi)
+	end
+	if tipHeight(rig, handle, angles) >= above then
+		return
+	end
+	local segs = rig.towelSegs
+	local function curl(u: number, into: { number })
+		for i = 1, n do
+			into[i] = clamp(angles[i] - u * (i - 1) / 5, -segs[i].limit, segs[i].limit)
+		end
+	end
+	lo, hi = 0, 1.2
+	for _ = 1, 6 do
+		local u = (lo + hi) / 2
+		curl(u, trial)
+		if tipHeight(rig, handle, trial) >= above then
+			hi = u
+		else
+			lo = u
+		end
+	end
+	curl(hi, angles)
+end
+
+-- The floor under the character: the bottom of its feet.
+local function floorOf(rig: Rig): number?
+	local root = rig.root
+	if not root then
+		return nil
+	end
+	local humanoid = rig.humanoid
+	local legs = if rig.r6 or not humanoid then 2 else humanoid.HipHeight
+	return root.Position.Y - root.Size.Y / 2 - legs
 end
 
 -- how far segment i curls back while the towel is up over the shoulder
@@ -553,6 +652,7 @@ end
 local function whip(t: number, i: number, sway: number, chain: boolean?, finisher: boolean?): number
 	local w = i / 6
 	local wind = if finisher then WIND_F else WIND
+	local lash = (if finisher then CRACK_F else CRACK) - wind
 	local depth = if finisher then 1.25 else 1
 	local curled = curledOf(i)
 	local deep = curled * depth
@@ -560,11 +660,14 @@ local function whip(t: number, i: number, sway: number, chain: boolean?, finishe
 		local from = if chain then curled else DROOP
 		return from + (deep - from) * ease(t / wind)
 	end
-	local tl = t - wind - (i - 1) * 0.018 -- the lash reaches each segment a little later
+	-- the lash unrolls the towel from the hand out: each segment straightens over half the lash, a
+	-- little after the one before it, so the tip comes straight exactly at the crack
+	local unrollT = lash * 0.5
+	local tl = t - wind - (i - 1) * (lash - unrollT) / 5
 	if tl <= 0 then
 		return deep
 	end
-	local unroll = ease(tl / 0.06)
+	local unroll = ease(tl / unrollT)
 	local wobble = (0.25 + 0.5 * w) * depth * sin(tl * 34) * exp(-tl * 8) * unroll
 	local settle = ease((tl - 0.15) / 0.25)
 	return deep * (1 - unroll) + wobble + (DROOP + sway) * settle
@@ -590,16 +693,27 @@ local function updateTowel(rig: Rig, t: number, near: boolean)
 	if not swinging and not near then
 		return
 	end
-	-- held: after the follow-through the towel curls back over the shoulder with the arm
+	-- held: after the follow-through the towel is lifted back over the shoulder with the arm (a
+	-- quick back cast: it flies up and over, a beat behind the hand) and hangs down your back
 	local lift = if rig.towelFinisher then LIFT_F else LIFT
-	local again = if swinging then rig.holdW * ease((since - lift) / 0.55) else 0
-	for _, seg in ipairs(rig.towelSegs) do
+	local again = if swinging then rig.holdW * ease((since - lift - 0.05) / LIFT_TIME) else 0
+	local angles = {}
+	for k, seg in ipairs(rig.towelSegs) do
 		local sway = 0.05 * sin(t * 2.1 + seg.index * 0.7)
 		local a = if swinging then whip(since, seg.index, sway, rig.towelChained, rig.towelFinisher) else DROOP + sway
 		if again > 0 then
 			a += (curledOf(seg.index) - a) * again
 		end
-		a = clamp(a * seg.weight, -seg.limit, seg.limit)
+		angles[k] = clamp(a * seg.weight, -seg.limit, seg.limit)
+	end
+	-- never into the floor (short avatars, R6's long arms, a low follow-through)
+	local handle = rig.towelHandle
+	local low = floorOf(rig)
+	if handle and low then
+		clearFloor(rig, handle, angles, low + FLOOR_GAP)
+	end
+	for k, seg in ipairs(rig.towelSegs) do
+		local a = angles[k]
 		if seg.bone then
 			local q = CFrame.fromAxisAngle(seg.axis, a)
 			seg.bone.Transform = seg.rinv * q * seg.r
