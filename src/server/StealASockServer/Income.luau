@@ -123,6 +123,8 @@ function Income.Push(player: Player)
 		items = items.items,
 		loadout = items.loadout,
 		towelLook = items.towelLook,
+		itemLevels = items.itemLevels,
+		towelReach = S.Upgrades.TowelRange(player), -- studs (Towel Snap level, Golden Towel): the aim assist and reach arc
 	})
 end
 

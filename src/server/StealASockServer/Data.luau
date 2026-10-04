@@ -23,6 +23,7 @@ local TEMPLATE = {
 	dexClaimed = {}, -- DexConfig milestone key -> true
 	items = {}, -- ItemConfig key -> true: items unlocked for good (Items.luau; the Towel is everyone's, never stored)
 	loadout = { "", "", "" }, -- the ItemConfig.LoadoutSize items next to the towel in the item bar, "" = empty slot
+	itemLevels = {}, -- ItemConfig key -> upgrade level 1..ItemConfig.MaxLevel (absent = 0; the last one is golden)
 }
 
 local SETTINGS_GAP = 1 -- seconds between SaveSettings calls per player

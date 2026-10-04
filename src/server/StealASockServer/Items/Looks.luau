@@ -9,7 +9,12 @@
 --
 -- A held item is a Tool whose invisible Handle sits exactly on the grip point, turned like the
 -- model, so every tool uses the same Grip (the front points forward out of the fist). Re-skinning
--- (Towel Snap levels, the Royal Towel) swaps the welded "Visual" model and keeps the Handle.
+-- (Towel Snap levels, the Royal Towel, an item turning golden) swaps the welded "Visual" model and
+-- keeps the Handle.
+--
+-- Golden items (upgrade level ItemConfig.MaxLevel): `<model>_Gold` from ItemMeshes (same markers,
+-- prefixed `<model>_Gold_`). While that model isn't imported, the regular model (or the Part build)
+-- gets a gold re-colour instead. Bones in a model are left alone (each client animates them).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MeshTemplate = require(script.Parent.Parent:WaitForChild("MeshTemplate"))
@@ -19,6 +24,10 @@ local S
 
 local GRIP = CFrame.Angles(0, math.pi, 0) -- handle space -> the hand's grip frame (front +Z forward)
 local CARRY_BASKET = 0.32 -- the Laundry Basket is scaled down this much while carried
+-- the gold re-colour (no `<model>_Gold` imported yet): dark parts -> GOLD_DARK, light -> GOLD_LIGHT
+local GOLD_DARK = Color3.fromRGB(190, 128, 26)
+local GOLD_LIGHT = Color3.fromRGB(255, 228, 125)
+local GOLD_SHINE = 0.12 -- Reflectance of re-coloured parts
 
 local meshFolder: Instance? = nil
 
@@ -79,6 +88,34 @@ local function quiet(model: Instance, anchored: boolean)
 			end
 		end
 	end
+end
+
+-- The gold re-colour, used while an item's `<model>_Gold` isn't imported: every visible part turns
+-- polished gold (darker where it was dark, so the shape still reads); glows, the ink outline and
+-- markers stay as they are. A painted mesh loses its texture (it would hide the colour).
+local function goldify(model: Instance)
+	local dr, dg, db = GOLD_DARK.R, GOLD_DARK.G, GOLD_DARK.B
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local name = d.Name
+			if d.Transparency < 1 and not isMarker(name) and not endsWith(name, "_Glow") and not endsWith(name, "_Outline") then
+				local c = d.Color
+				local k = math.clamp((0.3 * c.R + 0.59 * c.G + 0.11 * c.B) * 1.25, 0, 1)
+				d.Color = Color3.new(dr + (GOLD_LIGHT.R - dr) * k, dg + (GOLD_LIGHT.G - dg) * k, db + (GOLD_LIGHT.B - db) * k)
+				if d.Material ~= Enum.Material.Glass and d.Material ~= Enum.Material.Neon then
+					d.Material = Enum.Material.Metal
+				end
+				d.Reflectance = GOLD_SHINE
+				if d:IsA("MeshPart") then
+					local mesh = d :: any
+					mesh.TextureID = ""
+				end
+			end
+		elseif d:IsA("SurfaceAppearance") then
+			d:Destroy()
+		end
+	end
+	model:SetAttribute("GoldTint", true)
 end
 
 -- ---------- Part builds (used until the Blender models are imported) ----------
@@ -266,8 +303,10 @@ end
 
 -- ---------- mesh templates ----------
 
+type MeshInfo = { grip: Vector3?, tip: Vector3?, base: Vector3? }
+
 -- A prepared copy of ItemMeshes.<name> (front +Z, 1 unit = 1 stud) and its markers, or nil.
-local function fromMesh(name: string, scale: number?): (Model?, { grip: Vector3?, tip: Vector3?, base: Vector3? })
+local function fromMesh(name: string, scale: number?): (Model?, MeshInfo)
 	local template = meshFolder and meshFolder:FindFirstChild(name)
 	if not template then
 		return nil, {}
@@ -301,13 +340,25 @@ local function fromMesh(name: string, scale: number?): (Model?, { grip: Vector3?
 end
 
 -- The model to show for an item: its mesh, or the Part build. Returns the model and its points in
--- the model's own space (grip and tip; origin = grip / floor centre for the Part builds).
-local function visual(modelName: string, towelLook: string?, scale: number?): (Model, CFrame, Vector3?)
-	local model, info = fromMesh(modelName, scale)
+-- the model's own space (grip and tip; origin = grip / floor centre for the Part builds). `gold`:
+-- `<modelName>_Gold`, or a gold re-colour of the regular model while that isn't imported.
+local function visual(modelName: string, towelLook: string?, scale: number?, gold: boolean?): (Model, CFrame, Vector3?)
+	local model: Model?, info: MeshInfo = nil, {}
+	local tint = false
+	if gold then
+		model, info = fromMesh(modelName .. "_Gold", scale)
+		tint = model == nil
+	end
+	if not model then
+		model, info = fromMesh(modelName, scale)
+	end
 	if model then
 		local grip = info.grip or info.base or model:GetPivot().Position
 		local gripCF = CFrame.new(grip)
 		local tip = if info.tip then gripCF:PointToObjectSpace(info.tip) else nil
+		if tint then
+			goldify(model)
+		end
 		return model, gripCF, tip
 	end
 	local built: Model
@@ -321,6 +372,9 @@ local function visual(modelName: string, towelLook: string?, scale: number?): (M
 		built:ScaleTo(scale)
 	end
 	built:SetAttribute("Fallback", true)
+	if gold then
+		goldify(built)
+	end
 	local tipZ = built:GetAttribute("TipZ")
 	local tipY = built:GetAttribute("TipY")
 	local tip = if type(tipZ) == "number" then Vector3.new(0, if type(tipY) == "number" then tipY else 0, tipZ) * (scale or 1) else nil
@@ -365,17 +419,20 @@ function Looks.Init(s)
 	end
 end
 
--- The ItemMeshes name a key + look shows in the hand.
-function Looks.ModelName(key: string, look: string?): string
+-- The ItemMeshes name a key + look shows in the hand (`gold`: its golden `<model>_Gold`).
+function Looks.ModelName(key: string, look: string?, gold: boolean?): string
 	if key == "Towel" then
 		return "Towel_" .. (look or "Plain")
 	end
 	local item = S.Config.Item.Items[key]
-	return item and item.model or key
+	local name = item and item.model or key
+	return if gold then name .. "_Gold" else name
 end
 
--- Puts a fresh visual of the item into the tool, welded to its Handle (the old one goes).
-function Looks.Dress(tool: Tool, key: string, look: string?)
+-- Puts a fresh visual of the item into the tool, welded to its Handle (the old one goes). `level`
+-- (items, not the towel): the upgrade level; the tool gets attributes `Level` and `Gold` (golden at
+-- ItemConfig.MaxLevel: the `<model>_Gold` look).
+function Looks.Dress(tool: Tool, key: string, look: string?, level: number?)
 	local handle = tool:FindFirstChild("Handle")
 	if not (handle and handle:IsA("BasePart")) then
 		return
@@ -389,7 +446,8 @@ function Looks.Dress(tool: Tool, key: string, look: string?)
 		tipAtt:Destroy()
 	end
 	local scale = if key == "LaundryBasket" then CARRY_BASKET else nil
-	local model, gripCF, tip = visual(Looks.ModelName(key, look), if key == "Towel" then (look or "Plain") else nil, scale)
+	local gold = key ~= "Towel" and S.Config.Item.IsGold(level or 0)
+	local model, gripCF, tip = visual(Looks.ModelName(key, look), if key == "Towel" then (look or "Plain") else nil, scale, gold)
 	quiet(model, false)
 	-- move the model so its grip lands on the handle (both turned the same way)
 	model:PivotTo(handle.CFrame * gripCF:Inverse() * model:GetPivot())
@@ -401,10 +459,14 @@ function Looks.Dress(tool: Tool, key: string, look: string?)
 	att.Position = tip or Vector3.new(0, 0, 1)
 	att.Parent = handle
 	tool:SetAttribute("Look", look or "")
+	if key ~= "Towel" then
+		tool:SetAttribute("Level", level or 0)
+		tool:SetAttribute("Gold", if gold then true else nil)
+	end
 end
 
 -- A bar item's Tool (Item_<key>): invisible Handle on the grip, the model welded to it.
-function Looks.BuildTool(key: string, look: string?): Tool
+function Looks.BuildTool(key: string, look: string?, level: number?): Tool
 	local item = S.Config.Item.Items[key]
 	local tool = Instance.new("Tool")
 	tool.Name = "Item_" .. key
@@ -423,22 +485,36 @@ function Looks.BuildTool(key: string, look: string?): Tool
 	handle.Massless = true
 	handle.CastShadow = false
 	handle.Parent = tool
-	Looks.Dress(tool, key, look)
+	Looks.Dress(tool, key, look, level)
 	tool:SetAttribute("ItemKey", key)
 	return tool
 end
 
 -- A world object (peel, duck, cloud puff, canopy, basket). Returns the model (anchored or not)
 -- and its floor/grip point in its own space: place it with PivotTo(target * point:Inverse() * pivot).
-function Looks.World(name: string, anchored: boolean, scale: number?): (Model, CFrame)
-	local model, info = fromMesh(name, scale)
+-- `gold`: `<name>_Gold`, or a gold re-colour while that isn't imported (attribute `Gold` = true).
+function Looks.World(name: string, anchored: boolean, scale: number?, gold: boolean?): (Model, CFrame)
+	local found: Model?, info: MeshInfo = nil, {}
+	local tint = false
+	if gold then
+		found, info = fromMesh(name .. "_Gold", scale)
+		tint = found == nil
+	end
+	if not found then
+		found, info = fromMesh(name, scale)
+	end
+	local model: Model
 	local point: CFrame
-	if model then
+	if found then
+		model = found
 		local p = info.base or info.grip or model:GetPivot().Position
 		if name == "DryerSheet" and info.grip then
 			p = info.grip -- the canopy hangs from the centre underneath
 		end
 		point = CFrame.new(p)
+		if tint then
+			goldify(model)
+		end
 	else
 		local builder = FALLBACKS[name]
 		model = if builder then builder() else newModel(name)
@@ -447,14 +523,41 @@ function Looks.World(name: string, anchored: boolean, scale: number?): (Model, C
 		end
 		model:SetAttribute("Fallback", true)
 		point = CFrame.identity
+		if gold then
+			goldify(model)
+		end
 	end
 	quiet(model, anchored)
+	if gold then
+		model:SetAttribute("Gold", true)
+	end
 	return model, point
 end
 
 -- Places a world object so its point sits at `target`.
 function Looks.Place(model: Model, point: CFrame, target: CFrame)
 	model:PivotTo(target * point:Inverse() * model:GetPivot())
+end
+
+-- Makes a world object one unanchored assembly (the guard duck that waddles): an invisible,
+-- non-massless root part at `target` (where the object's point goes) with every part welded to
+-- it, the model's PrimaryPart. Bones are left alone. Returns the root part.
+function Looks.Assemble(model: Model, point: CFrame, target: CFrame): BasePart
+	Looks.Place(model, point, target)
+	local rootPart = Instance.new("Part")
+	rootPart.Name = "ItemRoot"
+	rootPart.Size = Vector3.new(1, 1, 1)
+	rootPart.Transparency = 1
+	rootPart.CanCollide = false
+	rootPart.CanQuery = false
+	rootPart.CanTouch = false
+	rootPart.CastShadow = false
+	rootPart.Anchored = false
+	rootPart.CFrame = target
+	rootPart.Parent = model
+	weldAll(model, rootPart)
+	model.PrimaryPart = rootPart
+	return rootPart
 end
 
 -- Welds a world object to a character part (carried canopy, basket over a hider). The basket

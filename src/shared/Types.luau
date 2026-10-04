@@ -78,6 +78,7 @@ export type StateView = {
 	loadout: { string }, -- ItemConfig.LoadoutSize keys next to the towel, "" = empty slot
 	towelLook: string, -- ItemConfig.TowelLooks entry or TowelRoyal
 	itemLevels: { [string]: number }, -- ItemConfig key -> upgrade level 0..ItemConfig.MaxLevel (absent = 0)
+	towelReach: number, -- studs: the Towel Snap's reach right now (upgrades and the Royal Towel), for aim help
 }
 
 -- What every menu RemoteFunction returns. `err` is shown to the player when ok is false.

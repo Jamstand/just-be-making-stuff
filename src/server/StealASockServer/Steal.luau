@@ -254,7 +254,9 @@ function Steal.Claim(player: Player)
 end
 
 -- Sends the carried sock back to its owner's drawer. reason: "died" | "left" | "snapped" | "ejected"
--- | "dropped" | "slipped" (banana peel) | "bubbled" (Bubble Blaster) | "zapped" (Static Balloon)
+-- | "dropped" | "slipped" (banana peel) | "bubbled" (Bubble Blaster) | "zapped" (Static Balloon), and
+-- the item twists' "bumped", "bowled", "honked", "napped", "slammed", "pounced" (Items.Rules toasts
+-- the thief for those itself)
 function Steal.Return(player: Player, reason: string)
 	local carry = carriers[player]
 	if not carry then

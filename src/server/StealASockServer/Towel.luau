@@ -5,6 +5,10 @@
 -- no stun, ShoveGrace before they can be pushed again). Reach and knockback come from Upgrades
 -- (Towel Snap levels, Golden Towel pass). The towel's look follows the Towel Snap level
 -- (ItemConfig.TowelLooks: Plain -> Champion); the Golden Towel pass shows the Royal Towel.
+-- Holding the towel down (UseItem held = true) counts a combo (Items.TowelCombo): every
+-- ItemConfig.TowelCombo.count-th crack in a row is a FINISHER - a wider cone (TowelCombo.cone) and
+-- TowelCombo.knockMult x the knockback. A finisher hit, and any snap on a thief, is a big moment
+-- (Items.Moment) for the snapper and the one they hit.
 local Players = game:GetService("Players")
 
 local Towel = {}
@@ -66,6 +70,8 @@ function Towel.Snap(player: Player, facing: Vector3?): Player?
 	end
 	local aim = dir :: Vector3
 	local range = S.Upgrades.TowelRange(player)
+	local combo, finisher = S.Items.TowelCombo(player)
+	local cone = if finisher then Item.TowelCombo.cone else Item.TowelCone
 	local carriers = S.Steal.Carriers()
 	local thief, thiefDist = nil, math.huge
 	local other, otherDist = nil, math.huge
@@ -75,7 +81,7 @@ function Towel.Snap(player: Player, facing: Vector3?): Player?
 			local offset = theirRoot.Position - myRoot.Position
 			local dist = offset.Magnitude
 			local flat = Vector3.new(offset.X, 0, offset.Z)
-			local inCone = flat.Magnitude < 1 or aim:Dot(flat.Unit) >= Item.TowelCone
+			local inCone = flat.Magnitude < 1 or aim:Dot(flat.Unit) >= cone
 			if dist <= range and inCone then
 				if carriers[p] then
 					if dist < thiefDist then
@@ -89,7 +95,15 @@ function Towel.Snap(player: Player, facing: Vector3?): Player?
 	end
 	local target = thief or other
 	local look = Towel.Look(player)
-	S.Items.FX("swing", { player = player, key = "Towel", look = look, hit = target ~= nil, held = S.Items.TowelHeld(player) })
+	S.Items.FX("swing", {
+		player = player,
+		key = "Towel",
+		look = look,
+		hit = target ~= nil,
+		held = S.Items.TowelHeld(player),
+		combo = combo,
+		finisher = finisher,
+	})
 	if not target then
 		return nil
 	end
@@ -100,19 +114,26 @@ function Towel.Snap(player: Player, facing: Vector3?): Player?
 	local position = theirRoot.Position
 	local away = Vector3.new(position.X - myRoot.Position.X, 0, position.Z - myRoot.Position.Z)
 	local push = if away.Magnitude > 1e-3 then away.Unit else aim
-	local knock = Eco.TowelKnockback * S.Upgrades.TowelKnockbackMult(player)
+	local mult = if finisher then Item.TowelCombo.knockMult else 1
+	local knock = Eco.TowelKnockback * S.Upgrades.TowelKnockbackMult(player) * mult
+	local up = Eco.TowelKnockUp * mult
 	S.FX("snap", position, Color3.fromRGB(255, 255, 255)) -- the socks nearby flinch (SockAnim)
 	S.Items.PopOut(target, "snap") -- a hidden player can still be snapped: the basket pops
-	S.Items.FX("snap", { position = position, by = player, target = target, thief = thief ~= nil, look = look })
+	S.Items.FX("snap", { position = position, by = player, target = target, thief = thief ~= nil, look = look, finisher = finisher })
 	if thief then
 		S.Items.SendSockHome(target, "snapped")
-		S.Items.Knock(target, push, knock, Eco.TowelKnockUp)
+		S.Items.Knock(target, push, knock, up)
 		S.Items.Stun(target, Eco.TowelStunSeconds)
 		S.Items.FX("tumble", { player = target, dir = push, seconds = Eco.TowelStunSeconds + 0.35 })
-		S.Toast(player, "SNAP! You got " .. target.DisplayName .. "! 🏓", "good")
+		S.Toast(player, (if finisher then "SUPER SNAP! You got " else "SNAP! You got ") .. target.DisplayName .. "! 🏓", "good")
 	else
-		S.Items.Knock(target, push, knock * Item.ShoveMult, Eco.TowelKnockUp * Item.ShoveMult)
+		S.Items.Knock(target, push, knock * Item.ShoveMult, up * Item.ShoveMult)
 		S.Items.FX("tumble", { player = target, dir = push, seconds = SHOVE_TUMBLE, soft = true })
+	end
+	if finisher then
+		S.Items.Moment("finisher", position, player, { target }, if thief then 1 else 0.7)
+	elseif thief then
+		S.Items.Moment("snap", position, player, { target }, 0.5)
 	end
 	return target
 end
