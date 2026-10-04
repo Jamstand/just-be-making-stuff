@@ -56,11 +56,13 @@ the Towel Snap level x the Golden Towel, for the client's aim assist and reach a
   the level or the pass changes (`Towel.Refresh` → `Items.RefreshTowel`).
 - The **aim** sent with `UseItem` is where you clicked / tapped in the world (or where you face when
   you use the bar); it only turns the cone.
-- **Combo finisher (server, `Items.TowelCombo`):** held snaps (`UseItem` held = true) each within
-  `TowelCombo.window` (1.6 s) of the last count up 1, 2, 3, 1, 2, 3 …; every `TowelCombo.count`-th is
-  a **finisher**: a wider cone (`TowelCombo.cone`, a cos(): about 81° either side) and
-  `TowelCombo.knockMult` x the knockback (and knock-up), on a thief or a shove. A tap (held = nil /
-  false) resets the count (the tap itself is combo 1); a refused use doesn't count. The `swing` FX
+- **Combo finisher (server, `Items.TowelCombo`):** every press's first snap is a tap (`UseItem`
+  held = false) and starts the count at 1; the held snaps after it (held = true), each within
+  `TowelCombo.window` (1.6 s) of the last, count up 2, 3, 1, 2, 3 …; every `TowelCombo.count`-th is a
+  **finisher** (so the 3rd crack of a hold): a wider cone (`TowelCombo.cone`, a cos(): about 81°
+  either side) and `TowelCombo.knockMult` x the knockback (and knock-up), on a thief or a shove.
+  Tapping never builds a combo; a refused use doesn't count (on the server, or in your client's
+  prediction). The `swing` FX
   carries `combo` (1..count) and `finisher`; `snap` carries `finisher`. A finisher hit is a big moment
   (`moment` "finisher", strength 1 on a thief, 0.7 on a shove); a plain snap on a thief is one too
   ("snap", 0.5).
@@ -119,7 +121,7 @@ cleared on `PlayerRemoving`.
 
 | Item | `held = true` | `held = false` | `held = nil` (old clients, `Use`) |
 | --- | --- | --- | --- |
-| Towel | part of a held loop: counts the combo | a tap (resets the combo) | a tap |
+| Towel | a later snap of a held loop: counts the combo up | a tap / a press's first snap: the combo starts at 1 | a tap |
 | Static Balloon | start rubbing it (`ChargeStart`); again while rubbing: nothing | zap now with the charge (nothing charging: ok, nothing) | zap at once (with any charge there is) |
 | Glider | a press: start a glide (any jump), or SLAM while gliding | "I landed": a slam lands, else a quiet stop (also when it already ended) | start, or end the glide (the old toggle) |
 | Laundry Basket | hide, or pop out **with a pounce** while hidden | nothing | as true |
@@ -231,7 +233,7 @@ distance, glide speeds, slam speed, charge time, cooldowns) is read at your leve
 
 | Item | Press | Release |
 | --- | --- | --- |
-| Towel | the held loop: a snap now and one every cooldown while any source holds it (`held = true`, the combo); your predicted swing is the finisher on every 3rd held crack | the loop ends when every source let go |
+| Towel | the held loop: a snap now (a tap, `held = false`) and one every cooldown while any source holds it (`held = true`, the combo); your predicted swing is the finisher on every 3rd crack of a hold. Stunned or in a bubble: no swing (the bar shakes once per press); held, it cracks the moment you can | the loop ends when every source let go |
 | Static Balloon | starts rubbing it (`held = true`): `Charge` rises 0 → 1 over `chargeSeconds` (from the character's `ChargeStart` once the server answers), the rubbing pose, crackles | zaps now (`held = false`) with the charge; a release before the press's answer is queued and sent right after it. If the server zaps by itself (full + 2 s) the charge just ends (no release is sent) |
 | Glider | in the air: glide (`held = true`); gliding: **SLAM** (`held = true`) — you're driven down at `slamSpeed` with a dive pose | — (landing sends `held = false`, which also lands a slam at once) |
 | Slipper Dash | a dash; within 1.2 s of a dash and in the air, `airDashes` more although the cooldown runs | — |

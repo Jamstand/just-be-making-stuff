@@ -367,15 +367,13 @@ function Items.TowelCombo(player: Player): (number, boolean)
 end
 
 -- Held towel uses within TowelCombo.window s of the last one count up; every count-th is a
--- finisher; a tap resets the count.
+-- finisher; a tap (every press's first snap, held = false / nil) starts a new count at 1.
 local function countCombo(st: PlayerState, isHeld: boolean, t: number)
 	local combo = Cfg.TowelCombo
 	if isHeld and st.combo > 0 and t - st.comboAt <= combo.window then
 		st.combo += 1
-	elseif isHeld then
-		st.combo = 1
 	else
-		st.combo = 0
+		st.combo = 1
 	end
 	st.comboAt = t
 	st.comboShown = if st.combo > 0 then (st.combo - 1) % combo.count + 1 else 1

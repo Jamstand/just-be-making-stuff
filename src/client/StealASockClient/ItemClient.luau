@@ -81,6 +81,8 @@ local towelSources: { [any]: boolean } = {} -- whatever is holding the towel but
 local towelLoop = 0 -- bumped to stop the current loop
 local towelFromClick = false -- a held click in the world aims each snap at the mouse
 local towelAssist = false -- a touch / gamepad holds the towel: each snap turns to the nearest target
+local towelFresh = false -- this press hasn't snapped yet: its first snap goes as a tap (held = false)
+local towelToldDizzy = false -- this press already said "too dizzy" (once per press)
 local hooked: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 local combo = { count = 0, last = -math.huge } -- the towel combo as predicted here (the server's count corrects it)
 
@@ -447,16 +449,15 @@ local function serverUntil(result: any): number
 end
 
 -- The towel combo as the server counts it: held uses within TowelCombo.window s of the last one
--- count up, every count-th is a finisher, a tap resets it. Returns: is this use the finisher?
+-- count up, every count-th is a finisher; a tap (every press's first snap) starts a new count at 1.
+-- Returns: is this use the finisher?
 local function countCombo(heldDown: boolean): boolean
 	local C = ItemConfig.TowelCombo
 	local t = os.clock()
 	if heldDown and combo.count > 0 and t - combo.last <= C.window then
 		combo.count += 1
-	elseif heldDown then
-		combo.count = 1
 	else
-		combo.count = 0
+		combo.count = 1
 	end
 	combo.last = t
 	return combo.count > 0 and combo.count % C.count == 0
@@ -466,6 +467,16 @@ end
 local function finisherNext(): boolean
 	local C = ItemConfig.TowelCombo
 	return next(towelSources) ~= nil and combo.count > 0 and os.clock() - combo.last <= C.window and combo.count % C.count == C.count - 1
+end
+
+-- stunned or floating in a bubble: the server refuses every use until it ends
+local function dizzy(): boolean
+	local character = me and me.Character
+	if not character then
+		return false
+	end
+	local stun = character:GetAttribute("StunUntil")
+	return (type(stun) == "number" and stun > now()) or character:GetAttribute("Encased") == true
 end
 
 -- One use: local prediction + UseItem. Returns whether it asked. Silent when it does nothing.
@@ -494,6 +505,7 @@ local function use(key: any, fromClick: boolean, heldFlag: boolean?, assist: boo
 	end
 	-- predict: show it now, the server's answer corrects it
 	local cooldownAtEnd = key == "Glider" or key == "LaundryBasket"
+	local undoCombo: { count: number, last: number }? = nil -- the towel combo before this use
 	if TOGGLES[key] then
 		predictedActive[key] = not active
 		if active then
@@ -505,6 +517,7 @@ local function use(key: any, fromClick: boolean, heldFlag: boolean?, assist: boo
 	else
 		local info: { [string]: any }? = nil
 		if key == "Towel" then
+			undoCombo = { count = combo.count, last = combo.last }
 			local finisher = countCombo(heldFlag == true)
 			info = { finisher = finisher }
 			if finisher and ItemAim then
@@ -520,6 +533,7 @@ local function use(key: any, fromClick: boolean, heldFlag: boolean?, assist: boo
 		end
 	end
 	changed(key)
+	local countedAt = combo.last
 	ask(key, aim, heldFlag, function(ok, result)
 		predictedActive[key] = nil
 		local untilTime = serverUntil(result)
@@ -530,6 +544,10 @@ local function use(key: any, fromClick: boolean, heldFlag: boolean?, assist: boo
 		else
 			if not inAir then
 				predicted[key] = nil
+			end
+			-- the server didn't count a refused snap: neither do we (unless another snap counted since)
+			if undoCombo and combo.last == countedAt then
+				combo.count, combo.last = undoCombo.count, undoCombo.last
 			end
 			if key == "Glider" and not active then
 				stopGlide(false)
@@ -681,8 +699,22 @@ local function towelTick(token: number)
 		stopTowelLoop()
 		return
 	end
+	if dizzy() then
+		-- stunned / in a bubble: no swing (the server would refuse it); held, it cracks the moment
+		-- you can again. A fresh press says why once.
+		if towelFresh and not towelToldDizzy then
+			towelToldDizzy = true
+			fail("Towel", { err = "You're too dizzy!" })
+		end
+		task.delay(0.1, towelTick, token)
+		return
+	end
 	if ItemClient.CooldownUntil("Towel") == 0 and not busy.Towel then
-		use("Towel", towelFromClick, true, towelAssist)
+		-- a press's first snap is a tap (held = false: a new combo, others see it settle); the rest
+		-- of the hold are held snaps (others see the loop, the combo counts up)
+		if use("Towel", towelFromClick, not towelFresh, towelAssist) then
+			towelFresh = false
+		end
 	end
 	task.delay(math.clamp(ItemClient.CooldownUntil("Towel") - now(), 0.03, 2), towelTick, token)
 end
@@ -724,6 +756,8 @@ function ItemClient.Press(key: string, source: any?)
 	end
 	if first then
 		towelLoop += 1
+		towelFresh = true
+		towelToldDizzy = false
 		ItemFX.SetHold(true)
 		towelTick(towelLoop)
 	end
