@@ -353,7 +353,7 @@ than 30 studs are hidden with Hide others' effects. One Highlight per revealed /
 | `Towel_Plain` … `Towel_Champion`, `Towel_Royal` | the towel in your hand (by look): a flat bath towel held at one end, with NO outline mesh (a painted ink edge, plus a Highlight outline on the nearest 6 held towels, 3 with Low graphics) | a flat Part towel in the look's colours, with Motor6D segments that whip the same way |
 | `DashSlippers`, `BananaPeel`, `BubbleBlaster`, `AlarmDuck`, `SoftenerBottle`, `StaticBalloon`, `DryerSheet`, `LaundryBasket` | the held tools (the basket at 0.32 scale) | Part builds of each |
 | `BananaPeel`, `AlarmDuck`, `SoftenerPuff`, `DryerSheet`, `LaundryBasket` | the world objects (peel, duck, cloud puffs, canopy, basket over a hider) | Part builds |
-| `<Name>_Gold` of each of the above (markers `<Name>_Gold_Base` …, `AlarmDuck_Gold_Glow`) | the golden (level 3) tools and world objects | the regular model (or Part build) re-coloured gold |
+| `<Name>_Gold` of each non-towel model above (markers `<Name>_Gold_Base` …, `AlarmDuck_Gold_Glow`) | the golden (level 3) tools and world objects | the regular model (or Part build) re-coloured gold |
 
 The server never anchors, moves or removes a model's bones (each client animates them); the guard
 duck is welded to an invisible `ItemRoot` and moved by its `AlignPosition`.
@@ -518,11 +518,13 @@ and no live instance growth over repeated rounds of every effect.
 Apply the item bar to the open place and test it. The code is in src/ (Rojo layout); docs/ITEMS.md
 explains every item. 1) Sync src/server/StealASockServer (Items folder with Looks and Rules, Towel,
 Steal, Upgrades, Monetize, Data, Income, init.server), src/client/StealASockClient (ItemClient,
-ItemFX, ItemRig, ItemAim, ItemBones, ItemMoments and the UI agent's ItemBar files) and src/shared into the place. 2) If
-assets/meshes/steal-a-sock/items/*.glb have been imported, make sure they sit in
-ReplicatedStorage.ItemMeshes with their exact names (Towel_Plain … Towel_Royal, DashSlippers,
-BananaPeel, BubbleBlaster, AlarmDuck, SoftenerBottle, SoftenerPuff, DryerSheet, LaundryBasket,
-StaticBalloon). 3) Play with 2 players (Clients and Servers) and go through the "Studio checklist" in
+ItemFX, ItemRig, ItemAim, ItemBones, ItemMoments and the UI agent's ItemBar files) and src/shared into the place. 2) Import
+assets/meshes/steal-a-sock/items/*.glb (File → Import 3D, untick Merge Meshes, keep the rig / pick
+Custom if a Rig Type is shown) and put them in ReplicatedStorage.ItemMeshes with their exact names,
+replacing any older model of the same name: Towel_Plain … Towel_Royal, DashSlippers, BananaPeel,
+BubbleBlaster, AlarmDuck, SoftenerBottle, SoftenerPuff, DryerSheet, LaundryBasket, StaticBalloon,
+and the golden twins <Name>_Gold of the nine non-towel ones (DashSlippers_Gold … StaticBalloon_Gold).
+Each rigged model should keep its Bones (e.g. AlarmDuck: Root, Body, Head, Bill, Tail). 3) Play with 2 players (Clients and Servers) and go through the "Studio checklist" in
 docs/ITEMS.md; read Output for [Items] / [ItemFX] / [ItemRig] warnings. 4) Things to look at closely
 and fix if wrong: the towel's orientation in the hand (GRIP in Items/Looks.luau), the whip direction
 (SWING_AXIS in ItemRig.luau: flip the sign if it curls the wrong way), the glider canopy height
