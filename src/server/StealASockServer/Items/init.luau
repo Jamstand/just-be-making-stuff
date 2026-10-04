@@ -524,6 +524,7 @@ function Items.SendSockHome(thief: Player, reason: string): boolean
 		local record = S.Base.ByOwnerId(sock.ownerId)
 		if record then
 			Items.FX("sockhome", {
+				thief = thief, -- (a towel snap's arc waits for the crack on each client)
 				from = from,
 				to = S.Base.SlotCFrame(record, sock.slot, sock.model).Position,
 				color = S.Registry.Tier(sock).color,

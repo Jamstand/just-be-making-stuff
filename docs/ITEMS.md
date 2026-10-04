@@ -132,7 +132,11 @@ A release (`held = false`, not the towel) has its own rate limit (`useItem:<key>
 ## Big moments
 
 `moment { kind, position, by: Player?, targets: { Player }, strength: 0..1 }` to everyone (ItemFX
-plays the hit-stop / slow-motion / shake for `by` and the targets, the burst for everyone else):
+plays the hit-stop / slow-motion / shake for `by` and the targets, the burst for everyone else).
+A towel snap's messages (`swing`, `snap`, `sockhome`, `tumble`, `moment`) all arrive as the swing
+starts; each client holds the victim's tumble, their sock's arc home and the moment until that
+towel's crack (`CRACK_T` / `CRACK_FINISHER` after the swing began on that screen), the way `snap`'s
+burst already waited. The server's knockback itself is not delayed (it pushes at once).
 
 | `kind` | When | strength |
 | --- | --- | --- |
@@ -183,7 +187,7 @@ second; the bar only shakes); the Item Shop shows `BuyItem` / `SetLoadout` error
 
 `ItemFX` (server → clients, `(kind, data)`; all players unless noted): `swing { player, key, look,
 hit, held, combo, finisher }`, `snap { position, by, target, thief, look, finisher }`,
-`tumble { player, dir, seconds, soft? }`, `sockhome { from, to, color, uid }`,
+`tumble { player, dir, seconds, soft? }`, `sockhome { thief, from, to, color, uid }`,
 `use { player, key, position?, out? }`, `dash { player }`, `bump { player, target, position }`,
 `slip { player, position, seconds }`, `bowl { player, from, to }`,
 `bubble { id, from, dir, speed, range, by, bounces }`, `bubblebounce { id, position, dir, steer? }`

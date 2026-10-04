@@ -1576,6 +1576,22 @@ HANDLERS.swing = function(data)
 	end)
 end
 
+-- A towel snap's consequences on the clients - the victim's tumble, their sock flying home, the
+-- big moment's freeze - land when the snapper's towel cracks, not when the server's messages arrive
+-- (with the swing, a beat before the crack). `snap` comes first and notes when its victim's crack
+-- is due; the others wait for it.
+local crackDue: { [Player]: number } = setmetatable({}, { __mode = "k" }) :: any
+
+local function atCrack(p: Player?, fn: () -> ())
+	local due = p and crackDue[p]
+	local wait = if due then due - os.clock() else 0
+	if wait > 0.01 then
+		task.delay(wait, fn)
+	else
+		fn()
+	end
+end
+
 HANDLERS.snap = function(data)
 	local position = vec(data.position)
 	if not position then
@@ -1590,6 +1606,9 @@ HANDLERS.snap = function(data)
 	local crackT = if finisher then CRACK_FINISHER else CRACK_T
 	local since = if by then os.clock() - (lastSwing[by] or 0) else 1
 	local delay = math.clamp(crackT - since, 0, crackT)
+	if target then
+		crackDue[target] = os.clock() + delay
+	end
 	task.delay(delay, function()
 		ItemFX.PlayAt(if thief then "crack" else "bop", position, if finisher then 0.85 else 1)
 		if finisher then
@@ -1619,17 +1638,21 @@ HANDLERS.tumble = function(data)
 	end
 	local soft = data.soft == true
 	local seconds = num(data.seconds, 0.6)
-	ItemRig.Play(p.Character, "tumble", { dir = vec(data.dir), seconds = seconds, soft = soft })
-	ItemFX.PlayAt("boing", rootPos(p), if soft then 1.25 else 1)
-	if not soft then
-		dizzy(p.Character, seconds + 0.5)
-	end
+	atCrack(p, function()
+		ItemRig.Play(p.Character, "tumble", { dir = vec(data.dir), seconds = seconds, soft = soft })
+		ItemFX.PlayAt("boing", rootPos(p), if soft then 1.25 else 1)
+		if not soft then
+			dizzy(p.Character, seconds + 0.5)
+		end
+	end)
 end
 
 HANDLERS.sockhome = function(data)
 	local from, to = vec(data.from), vec(data.to)
 	if from and to then
-		arcHome(from, to, if typeof(data.color) == "Color3" then data.color else YELLOW, if type(data.uid) == "number" then data.uid else nil)
+		atCrack(playerOf(data.thief), function()
+			arcHome(from, to, if typeof(data.color) == "Color3" then data.color else YELLOW, if type(data.uid) == "number" then data.uid else nil)
+		end)
 	end
 end
 
@@ -2152,14 +2175,17 @@ HANDLERS.moment = function(data)
 		end
 	end
 	local mine = by == me or target
-	if position and shown(position, mine) then
-		emit("goldStars", position, math.floor(10 + 14 * strength))
-		emit("stars", position, math.floor(8 + 10 * strength), YELLOW)
-		floorRing(groundAt(position), 4 + 6 * strength, GOLD, 0.5)
-	end
-	if ItemMoments and mine then
-		ItemMoments.Play(if target then "target" else "by", strength, reduceMotion)
-	end
+	local first = if type(data.targets) == "table" then playerOf(data.targets[1]) else nil
+	atCrack(first, function()
+		if position and shown(position, mine) then
+			emit("goldStars", position, math.floor(10 + 14 * strength))
+			emit("stars", position, math.floor(8 + 10 * strength), YELLOW)
+			floorRing(groundAt(position), 4 + 6 * strength, GOLD, 0.5)
+		end
+		if ItemMoments and mine then
+			ItemMoments.Play(if target then "target" else "by", strength, reduceMotion)
+		end
+	end)
 end
 
 -- an item upgraded: a sparkle on that player's held item (a big gold one when it turns golden)
