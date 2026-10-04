@@ -1,13 +1,16 @@
 -- ItemClient: the item bar's engine on this client. ItemBar draws the bar and calls this; the
 -- server decides everything (Items.luau) and this only asks, predicts and shows.
 -- API (the contract with ItemBar; docs/ITEMS.md):
---   ItemClient.Use(key)             a quick press + release (the towel: one tap-snap, which resets its combo)
+--   ItemClient.Use(key)             a quick press + release (the towel: takes it out / puts it away)
 --   ItemClient.Press(key, source?) / ItemClient.Release(key, source?)
 --                                   a button / key / click going down and up (`source` tells holds apart: a
 --                                   key, a touch's InputObject, "mouse", "tool" for a click in the world).
 --                                   Per item (UseItem's `held` flag, docs/ITEMS.md):
---                                     Towel          keeps snapping while any source is held (an overhead-crack
---                                                    loop, one snap per cooldown, held = true: the combo)
+--                                     Towel          its slot / key (any source but "tool"): a TAP (let go within
+--                                                    TAP_MAX) takes the towel out or puts it away; held longer, it
+--                                                    snaps and keeps snapping while held (an overhead-crack loop,
+--                                                    one snap per cooldown; the later snaps held = true: the combo).
+--                                                    A click in the world ("tool") snaps at once and loops while held.
 --                                     StaticBalloon  Press starts rubbing it (held = true), Release zaps with the
 --                                                    charge (held = false); the server zaps by itself when full
 --                                     Glider         Press glides (whenever you're in the air) or, gliding, SLAMS
@@ -20,7 +23,8 @@
 --   ItemClient.Held(): string?
 --   ItemClient.CooldownUntil(key): number   workspace:GetServerTimeNow() it's ready again (0 = ready)
 --   ItemClient.CooldownLength(key): number  seconds of that cooldown at the item's level (for the ring)
---   ItemClient.IsActive(key): boolean       Glider gliding, Basket hiding, a Duck or Peel out, the Balloon charging
+--   ItemClient.IsActive(key): boolean       Glider gliding, Basket hiding, a Duck or Peel out, the Balloon charging,
+--                                           the Towel in your hand
 --   ItemClient.Charge(key): number          0..1 while the Static Balloon charges, else 0 (the bar's charge ring)
 --   ItemClient.Level(key): number           the item's upgrade level (player attribute Lv_<key>), 0 = none
 --   ItemClient.Changed: RBXScriptSignal     (key) cooldown / active / held / charge / level changed
@@ -68,6 +72,7 @@ local TOGGLES: { [string]: boolean } = { LaundryBasket = true } -- a press while
 local FACE_AIM: { [string]: boolean } = { Towel = true, BubbleBlaster = true, SoftenerCloud = true } -- a click turns you to it
 local AIR_DASH_WINDOW = 1.2 -- seconds after a dash in which the air dashes are allowed (the server's too)
 local CRACK_FINISHER = 0.32 -- seconds into the finisher swing when the towel cracks (the arc pulses)
+local TAP_MAX = 0.22 -- the towel's slot / key let go within this is a tap (toggle it in / out of the hand); held longer, it snaps
 local SLAM_MAX = 1.5 -- seconds a slam drives you down at most
 local BALLOON = "StaticBalloon"
 
@@ -83,6 +88,7 @@ local towelFromClick = false -- a held click in the world aims each snap at the 
 local towelAssist = false -- a touch / gamepad holds the towel: each snap turns to the nearest target
 local towelFresh = false -- this press hasn't snapped yet: its first snap goes as a tap (held = false)
 local towelToldDizzy = false -- this press already said "too dizzy" (once per press)
+local towelTaps: { [any]: { wasOut: boolean } } = {} -- slot / key presses still inside TAP_MAX: a tap, unless held on
 local hooked: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 local combo = { count = 0, last = -math.huge } -- the towel combo as predicted here (the server's count corrects it)
 
@@ -180,6 +186,9 @@ function ItemClient.IsActive(key: string): boolean
 	end
 	if key == "StaticBalloon" and charging then
 		return true
+	end
+	if key == "Towel" then
+		return held == "Towel" -- out, in your hand (the slot shows it; a tap puts it away)
 	end
 	local guess = predictedActive[key]
 	if guess ~= nil then
@@ -683,6 +692,7 @@ end
 local function stopTowelLoop()
 	towelLoop += 1
 	table.clear(towelSources)
+	table.clear(towelTaps)
 	towelFromClick = false
 	towelAssist = false
 	ItemFX.SetHold(false)
@@ -719,6 +729,25 @@ local function towelTick(token: number)
 	task.delay(math.clamp(ItemClient.CooldownUntil("Towel") - now(), 0.03, 2), towelTick, token)
 end
 
+-- `src` holds the towel button down: the snap loop runs until every source lets go
+local function holdTowel(src: any, source: any?)
+	local first = not towelHeld()
+	towelSources[src] = true
+	if src == "tool" then
+		towelFromClick = true
+	end
+	if assistFor(source) then
+		towelAssist = true
+	end
+	if first then
+		towelLoop += 1
+		towelFresh = true
+		towelToldDizzy = false
+		ItemFX.SetHold(true)
+		towelTick(towelLoop)
+	end
+end
+
 function ItemClient.Press(key: string, source: any?)
 	if type(key) ~= "string" or not ItemConfig.Items[key] then
 		return
@@ -743,24 +772,26 @@ function ItemClient.Press(key: string, source: any?)
 		return
 	end
 	local src = if source ~= nil then source else "api"
-	if towelSources[src] then
+	if towelSources[src] or towelTaps[src] then
 		return
 	end
-	local first = not towelHeld()
-	towelSources[src] = true
 	if src == "tool" then
-		towelFromClick = true
+		holdTowel(src, source) -- a click in the world: a snap now, more while it's held
+		return
 	end
-	if assistFor(source) then
-		towelAssist = true
+	-- the slot / a key: out it comes at once; let go within TAP_MAX and that's all (a tap: toggled
+	-- out - or away, if it was out), hold on and it starts snapping
+	local wasOut = held == "Towel"
+	towelTaps[src] = { wasOut = wasOut }
+	if not wasOut then
+		ItemClient.Hold("Towel")
 	end
-	if first then
-		towelLoop += 1
-		towelFresh = true
-		towelToldDizzy = false
-		ItemFX.SetHold(true)
-		towelTick(towelLoop)
-	end
+	task.delay(TAP_MAX, function()
+		if towelTaps[src] then
+			towelTaps[src] = nil
+			holdTowel(src, source)
+		end
+	end)
 end
 
 function ItemClient.Release(key: string, source: any?)
@@ -772,6 +803,14 @@ function ItemClient.Release(key: string, source: any?)
 		return
 	end
 	local src = if source ~= nil then source else "api"
+	local tap = towelTaps[src]
+	if tap then
+		towelTaps[src] = nil -- let go in time: a tap. Out it came on the press; out already: away
+		if tap.wasOut then
+			ItemClient.Hold(nil)
+		end
+		return
+	end
 	towelSources[src] = nil
 	if src == "tool" then
 		towelFromClick = false
@@ -783,11 +822,10 @@ function ItemClient.Release(key: string, source: any?)
 	end
 end
 
--- A quick press + release. The towel: one tap-snap (it resets the combo; aim assist on touch /
--- gamepad as for a press).
+-- A quick press + release. The towel: a tap on its slot - out it comes, or away it goes.
 function ItemClient.Use(key: string)
 	if key == "Towel" then
-		use("Towel", false, nil, assistFor(nil))
+		ItemClient.Hold(if held == "Towel" then nil else "Towel")
 		return
 	end
 	ItemClient.Press(key, "use")

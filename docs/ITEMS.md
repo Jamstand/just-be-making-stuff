@@ -36,10 +36,15 @@ the Towel Snap level x the Golden Towel, for the client's aim assist and reach a
 - **A thief:** full knockback + `TowelStunSeconds` stun + a somersault, and the stolen sock flies
   home on an arc (`Steal.Return(…, "snapped")` + the `sockhome` effect). The socks nearby still
   flinch (`S.FX("snap")`).
-- **Hold to keep cracking:** a tap is one snap; **holding** the towel slot, **Q** / **1**, gamepad
-  **Y**, or the mouse / a finger in the world keeps snapping, one snap each time the 1 s cooldown is
-  ready (`ItemClient.Press` / `Release`; `UseItem`'s `held` flag tells every other client to play
-  the swings as one loop). Letting go stops it; so does the window losing focus or respawning.
+- **Out and away:** a **tap** on the towel slot, **Q** / **1** or gamepad **Y** takes the towel out
+  of your backpack (its slot glows while it's in your hand); another tap puts it away
+  (`ItemClient.Press` / `Release` let go within `TAP_MAX`, 0.22 s). A tap in the world with the
+  towel in hand (`Tool.Activated`) is one snap.
+- **Hold to keep cracking:** **holding** the towel slot, **Q** / **1**, gamepad **Y** (past
+  `TAP_MAX`), or the mouse / a finger in the world (at once) keeps snapping, one snap each time the
+  1 s cooldown is ready; the first snap of a hold is a tap (`UseItem` held = false), the rest say
+  `held = true`, which tells every other client to play the swings as one loop. Letting go stops
+  it; so does the window losing focus or respawning.
 - **Feel (every client):** an overhead crack on every use, hit or miss — the arm takes the towel up
   and back over the shoulder (it hangs down your back) and lashes it forward to about shoulder
   height, the towel curls back, unrolls from the hand out and comes straight out in front of you
@@ -233,7 +238,7 @@ distance, glide speeds, slam speed, charge time, cooldowns) is read at your leve
 
 | Item | Press | Release |
 | --- | --- | --- |
-| Towel | the held loop: a snap now (a tap, `held = false`) and one every cooldown while any source holds it (`held = true`, the combo); your predicted swing is the finisher on every 3rd crack of a hold. Stunned or in a bubble: no swing (the bar shakes once per press); held, it cracks the moment you can | the loop ends when every source let go |
+| Towel | the slot / a key: the towel comes out at once; let go within `TAP_MAX` (0.22 s) and that was a tap (out - or, if it was already out, put away on the release), held longer it starts the loop: a snap (a tap, `held = false`) and one every cooldown while any source holds it (`held = true`, the combo); your predicted swing is the finisher on every 3rd crack of a hold. A click in the world (`"tool"`) starts the loop at once. Stunned or in a bubble: no swing (the bar shakes once per press); held, it cracks the moment you can | a tap: toggled; a hold: the loop ends when every source let go |
 | Static Balloon | starts rubbing it (`held = true`): `Charge` rises 0 → 1 over `chargeSeconds` (from the character's `ChargeStart` once the server answers), the rubbing pose, crackles | zaps now (`held = false`) with the charge; a release before the press's answer is queued and sent right after it. If the server zaps by itself (full + 2 s) the charge just ends (no release is sent) |
 | Glider | in the air: glide (`held = true`); gliding: **SLAM** (`held = true`) — you're driven down at `slamSpeed` with a dive pose | — (landing sends `held = false`, which also lands a slam at once) |
 | Slipper Dash | a dash; within 1.2 s of a dash and in the air, `airDashes` more although the cooldown runs | — |
@@ -477,7 +482,7 @@ respawn, leaving and shutdown, and the animations on R15 and R6 rigs (joints bac
 the Blender towel inside its clean range). That proves the logic, not the look: everything below
 still needs eyes in Studio (the duck's waddle physics, slides, server tweens, the gold re-colour).
 
-Client (Items v2, `scratchpad/itemtest-c`: `python3 gen.py && ./luau run_client.luau`, 403 checks)
+Client (Items v2, `scratchpad/itemtest-c`: `python3 gen.py && ./luau run_client.luau`, 414 checks)
 also runs `ItemAim`, `ItemBones` and `ItemMoments`: every press / release (the balloon's charge 0 → 1,
 an early release, the server's own zap, a refused press, `Use`; glide, slam and the landing `false`;
 air dashes; the basket's pounce press; silence while cooling down), `Charge` / `Level`, the aim assist
@@ -487,7 +492,10 @@ R15 and R6 around boned and bone-less models, the big moments (only `by` / targe
 exactly, a stronger shake for the victim, Reduce motion = a flash), the moving parts and golden auras,
 and no live instance growth over repeated rounds of every effect; the towel's wiring: a snap's
 tumble, sock arc and big moment waiting for the crack (others' and your own), taps going as taps,
-a refused snap not counted, no swing while stunned or in a bubble (held: it cracks when you can).
+a refused snap not counted, no swing while stunned or in a bubble (held: it cracks when you can);
+the towel slot: a tap takes the towel out (no snap, `IsActive`, Changed) and another puts it away,
+`Use` toggles, a press held past `TAP_MAX` snaps (the first as a tap) and keeps snapping, and the
+towel stays out after a hold.
 
 **Towel motion** (a kinematics sim, `scratchpad/towelsim`: `./gen.sh && ../itemtest-c/luau run.luau`,
 116 checks): the real `ItemRig` drives an R15 and an R6 stand-in (Roblox's joint offsets, the
@@ -503,8 +511,9 @@ A towel with a second skeleton (an outline hull) must move exactly like one.
 
 ## Studio checklist
 
-1. **Sync** `src/` (Rojo or the MCP). Press Play: Output shows no `[Items]` errors; you have the
-   towel (Part towel if the Blender towels aren't imported yet).
+1. **Sync** `src/` (Rojo or the MCP). Press Play: Output shows no `[Items]` errors; tap the towel
+   slot (or 1 / Q): the towel comes out and the slot glows; tap again: it goes away (Part towel if
+   the Blender towels aren't imported yet).
 2. **Two players** (Test → Clients and Servers, 2 players). Steal a sock with one, snap them with the
    other: swing + whoosh, the crack lands with SNAP!, the thief somersaults, the sock arcs home, a
    tiny shake for the snapper. Snap a non-thief: BOP!, a push, no stun.

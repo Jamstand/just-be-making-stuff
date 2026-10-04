@@ -5,16 +5,17 @@
 -- the towel; a gamepad uses Y and the d-pad) go down as ItemClient.Press(key, source) and come up
 -- as ItemClient.Release(key, source) - from anywhere, the finger may have slid off - and ItemClient,
 -- the bar's engine (prediction, the UseItem remote, cooldowns, effects), decides what that means
--- for the item (the towel keeps snapping while held, the Static Balloon charges until you let go,
--- the glider slams on a second press, ...). An empty slot is a "+" that opens the Item Shop on its
--- Items tab.
+-- for the item (a tap on the towel takes it out or puts it away and holding it keeps snapping, the
+-- Static Balloon charges until you let go, the glider slams on a second press, ...). An empty slot
+-- is a "+" that opens the Item Shop on its Items tab.
 --
 -- A slot shows the item's 3D model (ItemIcon; its emoji until the model is imported), its key
 -- (keyboard / gamepad only), its upgrade level as 3 small pips (StateView itemLevels) - at the
 -- max level a gold frame with a soft shimmer and the golden `<model>_Gold` model - a dark sweep with
 -- the seconds left while it cools down (a pop and a sound when it's ready again), a ring that fills
 -- while it charges (ItemClient.Charge: the Static Balloon), a pulsing glow while it's active
--- (ItemClient.IsActive: gliding, hiding under the basket, a peel or duck out), a raised white rim
+-- (ItemClient.IsActive: gliding, hiding under the basket, a peel or duck out, the towel in your
+-- hand), a raised white rim
 -- while you hold it, and a shake with the error sound when ItemClient.Failed says no (the gameplay
 -- side already toasts why). When the loadout changes the new slots pop in one by one; a new towel
 -- look sparkles in; a level up pops its pip in, and turning golden bursts the gold frame in.

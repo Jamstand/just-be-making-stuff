@@ -34,11 +34,12 @@ towel's current look, then the **3 items** you picked in the Item Shop.
   (**Q** also the towel), or a gamepad's **Y** (towel) and **d-pad** left / up / right (items). The
   press goes to the item as soon as it goes down and the release when it comes up - from anywhere,
   so a finger that slid off the slot still lets go (and if the game window loses focus everything
-  is let go). What that means is the item's own business (`ItemClient`, docs/ITEMS.md): **hold** the
-  towel to keep cracking it (one snap per cooldown), **hold** the Static Balloon to charge it and
-  let go to zap, press the glider again mid-air to slam, and so on; most items just go off on the
-  press. Key hints show on keyboards and gamepads, not on touch screens; hovering a slot with the
-  mouse shows its name.
+  is let go). What that means is the item's own business (`ItemClient`, docs/ITEMS.md): a **tap**
+  on the towel takes it out of (or puts it back into) your backpack and its slot glows while it's
+  in your hand, **holding** the towel's slot (or a click / finger held in the world) keeps cracking
+  it (one snap per cooldown), **hold** the Static Balloon to charge it and let go to zap, press the
+  glider again mid-air to slam, and so on; most items just go off on the press. Key hints show on
+  keyboards and gamepads, not on touch screens; hovering a slot with the mouse shows its name.
 - **Cooldown:** a dark sweep clears clockwise with the seconds left; when the item is ready again
   the slot pops (with a little sound for cooldowns of 2 s or more - not the towel's quick one).
   Pressing a slot that is cooling down only nudges its seconds; the item still hears it (the towel
