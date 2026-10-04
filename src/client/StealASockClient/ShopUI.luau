@@ -7,16 +7,20 @@
 --    brings (the 3D towel, or a drawn one in the look's colours, and the look's name).
 --  * Items - the item bar's items (ItemConfig, all but the towel everyone has). One card per item:
 --    its 3D model, name, what it does and its cooldown. Locked: a cash button (BuyItem; the same
---    affordable / can't-afford behaviour as the upgrades) and a Robux shortcut (StorePurchase
---    "product", the item's one-time developer product, price from StoreConfig). Unlocked: "Add to
---    bar" / "In bar ✓", which opens a picker of the LoadoutSize bar slots (SetLoadout; picking a
---    slot another item is in swaps them, "Take it out" empties its slot).
+--    affordable / can't-afford behaviour as the upgrades), a Robux shortcut (StorePurchase
+--    "product", the item's one-time developer product, price from StoreConfig) and a compact list
+--    of its upgrade levels. Unlocked: "Add to bar" / "In bar ✓", which opens a picker of the
+--    LoadoutSize bar slots (SetLoadout; picking a slot another item is in swaps them, "Take it out"
+--    empties its slot), and the Upgrade row: 3 pips, what the next level does and a cash button
+--    (UpgradeItem, ItemConfig.Levels; can't-afford like the others), "MAX ✦ GOLDEN" once the last
+--    level has turned the item golden (the card then shows the gold model on a gold halo).
 -- The server checks every price and applies every effect; the client only asks.
 --
--- Motion: on open the cards stagger in (upgrade pips pop in one by one); switching tabs glides the
--- new page in from its side. A cash purchase flies coins from the cash pill into the card and pops
--- "LEVEL n!" / "UNLOCKED!"; the HUD shows the big item-unlock card (Celebrate "item"). Decorative
--- loops (icon sways, pulses, shines) only run for the page on screen; Anim honours Reduce motion.
+-- Motion: on open the cards stagger in (pips pop in one by one); switching tabs glides the new page
+-- in from its side. A cash purchase flies coins from the cash pill into the card and pops
+-- "LEVEL n!" / "UNLOCKED!" / "GOLDEN!"; the HUD shows the big item-unlock card (Celebrate "item")
+-- and the level-up toast / golden flourish (Celebrate "itemUpgrade"). Decorative loops (icon sways,
+-- pulses, shines) only run for the page on screen; Anim honours Reduce motion.
 -- ShopUI.OpenItems() opens the shop on the Items tab (the item bar's empty "+" slots).
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
@@ -51,6 +55,10 @@ end
 local ShopUI = {}
 
 local CARD_HEIGHT = 222
+local ITEM_CARD_HEIGHT = 304 -- item cards also carry the Upgrade row
+local ITEM_BUTTON_Y = 126 -- an item card's buttons (cash + Robux, or Add to bar)
+local UP_Y, UP_H = 196, 84 -- its Upgrade row (unlocked) / level list (locked)
+local UP_PIP_W, UP_PIP_H, UP_PIP_GAP = 24, 14, 5
 local GAP = 12 -- between cards
 local TWO_COLUMNS_FROM = 600 -- card area width (reference px) that fits two columns
 local PILL_ROW = 66 -- the cash pill's row
@@ -68,6 +76,9 @@ local DESC_COLOR = Theme.Color.Text:Lerp(Theme.Color.Muted, 0.45)
 local MUTED_HEX = "#" .. Theme.Color.Muted:ToHex()
 local MONEY_HEX = "#" .. Theme.Color.Money:ToHex()
 local TITLE_HEX = "#" .. Theme.Color.Title:ToHex()
+local GOLD_HEX = "#" .. Theme.Color.Gold2:ToHex()
+local GOLD_HALO = Color3.fromRGB(255, 204, 72) -- a golden item's halo and pips
+local GOLD_EDGE = Color3.fromRGB(196, 128, 24)
 
 local TABS = {
 	{ name = "Upgrades", label = "🔧 Upgrades" },
@@ -100,12 +111,21 @@ type ItemCard = {
 	slot: Frame,
 	inner: Frame,
 	stage: Frame, -- the halo the picture sits on
-	badge: TextLabel, -- 🔒 / ✓
+	icon: any?, -- its ItemIcon (nil when that module is missing)
+	badge: TextLabel, -- 🔒 / ✓ / ✦
 	info: TextLabel,
 	cash: TextButton,
 	robux: TextButton?,
 	barButton: TextButton,
 	note: TextLabel,
+	upBox: Frame, -- the Upgrade row (unlocked) / the level list (locked)
+	upPipRow: Frame,
+	upPips: { Frame },
+	upFilled: { number }, -- each pip: 0 empty, 1 filled, 2 gold
+	upLevel: TextLabel,
+	upDesc: TextLabel,
+	upButton: TextButton,
+	preview: TextLabel,
 	unlocked: boolean,
 	inBar: number?, -- the bar slot it's in
 	style: string, -- the cash button's style
@@ -116,6 +136,12 @@ type ItemCard = {
 	confirmedAt: number,
 	waiting: boolean,
 	waitToken: number,
+	level: number, -- upgrade level (0..#ItemConfig.Levels[key])
+	gold: boolean,
+	upStyle: string,
+	upBusy: boolean,
+	upToken: number,
+	levelConfirmedAt: number,
 }
 
 type Page = {
@@ -125,6 +151,7 @@ type Page = {
 	dot: Frame,
 	scroll: ScrollingFrame,
 	grid: UIGridLayout,
+	cardHeight: number,
 }
 
 local player = Players.LocalPlayer
@@ -690,7 +717,147 @@ local function itemFailed(card: ItemCard, button: GuiObject, text: string)
 end
 
 local function cooldownText(card: ItemCard): string
-	return "⏱ " .. tostring(card.def.cooldown) .. "s cooldown"
+	local seconds = ItemConfig.Stat(card.key, card.level, "cooldown") -- (upgrades can shorten it)
+	if seconds <= 0 then
+		seconds = card.def.cooldown
+	end
+	return "⏱ " .. tostring(seconds) .. "s cooldown"
+end
+
+-- ---------- item upgrades (ItemConfig.Levels; the last level turns the item golden) ----------
+
+-- A level's line for the card ("6 s -> 4.5 s" reads "6 s → 4.5 s").
+local function levelDesc(desc: string): string
+	local out = string.gsub(desc, "%->", "→")
+	return out
+end
+
+local function itemLevels(card: ItemCard): { any }?
+	return ItemConfig.Levels[card.key]
+end
+
+local function upgradePrice(card: ItemCard): number?
+	local levels = itemLevels(card)
+	local nextLevel = if levels then levels[card.level + 1] else nil
+	return if nextLevel then nextLevel.price else nil
+end
+
+-- Fills the Upgrade row's pips up to the level (all gold once golden); new ones pop.
+local function setUpPips(card: ItemCard, animate: boolean)
+	for i, pip in ipairs(card.upPips) do
+		local shown = if card.gold then 2 elseif i <= card.level then 1 else 0
+		local was = card.upFilled[i]
+		if shown ~= was then
+			card.upFilled[i] = shown
+			local color = if shown == 2 then GOLD_HALO elseif shown == 1 then card.def.color else Theme.Color.InsetDark
+			if animate then
+				Anim.tween(pip, 0.25, { BackgroundColor3 = color }, Enum.EasingStyle.Quad)
+				if was == 0 then
+					Anim.bump(pip, 1.5)
+				end
+			else
+				pip.BackgroundColor3 = color
+			end
+		end
+	end
+end
+
+-- The golden look of a maxed item: the gold model on a gold halo, a ✦ badge, gold pips.
+local function setGoldLook(card: ItemCard, gold: boolean, animate: boolean)
+	if card.gold == gold then
+		return
+	end
+	card.gold = gold
+	card.stage.BackgroundColor3 = if gold then GOLD_HALO else card.def.color
+	card.stage.BackgroundTransparency = if gold then 0.35 else 0.55
+	local stroke = card.stage:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Color = if gold then GOLD_EDGE else card.def.color:Lerp(Theme.Color.Stroke, 0.35)
+	end
+	if card.icon then
+		card.icon:Set(card.key, nil, gold)
+	end
+	if card.unlocked then
+		card.badge.Text = if gold then "✦" else "✓"
+		card.badge.TextColor3 = if gold then GOLD_EDGE else Theme.Color.Money
+	end
+	local box = card.upBox:FindFirstChildOfClass("UIStroke")
+	if box then
+		box.Color = if gold then GOLD_EDGE else Theme.Color.Stroke
+		box.Transparency = if gold then 0.1 else 0.6
+	end
+	if animate and gold then
+		Anim.bump(card.stage, 1.25)
+		Anim.bump(card.badge, 1.6)
+		burst(card.stage, GOLD_HALO)
+		task.delay(0.3, function()
+			if card.gold then
+				burst(card.stage, Theme.Color.White)
+			end
+		end)
+		if card.icon and not Anim.Reduced then
+			card.icon:Spin(0.9)
+		end
+	end
+end
+
+-- The Upgrade row (unlocked: pips, next level, price button) or the level list (locked).
+local function refreshUpgrade(card: ItemCard, animate: boolean)
+	local levels = itemLevels(card)
+	if not levels or #levels == 0 then
+		card.upBox.Visible = false
+		return
+	end
+	card.upBox.Visible = true
+	local unlocked = card.unlocked
+	card.preview.Visible = not unlocked
+	card.upPipRow.Visible = unlocked
+	card.upLevel.Visible = unlocked
+	card.upDesc.Visible = unlocked
+	card.upButton.Visible = unlocked
+	if not unlocked then
+		setShine(card.upButton, false)
+		return
+	end
+	setUpPips(card, animate)
+	local maxLevel = #levels
+	local maxed = card.level >= maxLevel
+	if maxed then
+		card.upLevel.Text = "Lv " .. maxLevel .. "  ✦ GOLDEN"
+		card.upLevel.TextColor3 = GOLD_EDGE
+		card.upDesc.Text = levelDesc(levels[maxLevel].desc)
+		card.upDesc.TextColor3 = Theme.Color.Gold2
+	else
+		card.upLevel.Text = string.format("Lv %d  →  %d", card.level, card.level + 1)
+		card.upLevel.TextColor3 = Theme.Color.Title
+		card.upDesc.Text = levelDesc(levels[card.level + 1].desc)
+		card.upDesc.TextColor3 = Theme.Color.Text
+	end
+	if card.upBusy then
+		return
+	end
+	local button = card.upButton
+	local style
+	local price = upgradePrice(card)
+	if not price then
+		style = "gold"
+		button.Text = "MAX ✦ GOLDEN"
+	else
+		style = if currentCash() >= price then "green" else "grey"
+		button.Text = money(price)
+	end
+	if style ~= card.upStyle then
+		local was = card.upStyle
+		card.upStyle = style
+		Theme.restyle(button, style)
+		if animate and style == "green" and was == "grey" then
+			Anim.bump(button, 1.12) -- you can afford it now
+		end
+	end
+	if style == "grey" then
+		outlineGrey(button)
+	end
+	setShine(button, itemsOn() and style ~= "grey", if style == "gold" then 4.5 else 2.6)
 end
 
 -- Buttons and badge for the card's state: locked (cash + Robux) or unlocked (Add to bar / In bar).
@@ -699,6 +866,8 @@ local function refreshItemCard(card: ItemCard, animate: boolean)
 	local at = table.find(loadout, card.key)
 	card.inBar = at
 	card.info.Text = cooldownText(card) .. (if card.unlocked and at then "  ·  in your bar" else "")
+	refreshUpgrade(card, animate)
+	setShine(card.stage, itemsOn() and card.gold, 3.2)
 	if card.unlocked then
 		card.cash.Visible = false
 		if card.robux then
@@ -749,8 +918,8 @@ local function setUnlocked(card: ItemCard, on: boolean, animate: boolean)
 		return
 	end
 	card.unlocked = on
-	card.badge.Text = if on then "✓" else "🔒"
-	card.badge.TextColor3 = if on then Theme.Color.Money else Theme.Color.Text
+	card.badge.Text = if on then (if card.gold then "✦" else "✓") else "🔒"
+	card.badge.TextColor3 = if on then (if card.gold then GOLD_EDGE else Theme.Color.Money) else Theme.Color.Text
 	if on then
 		card.waiting = false
 		card.waitToken += 1
@@ -758,6 +927,7 @@ local function setUnlocked(card: ItemCard, on: boolean, animate: boolean)
 	refreshItemCard(card, false)
 	if animate and on then
 		Anim.popIn(card.barButton)
+		Anim.popIn(card.upBox)
 		Anim.bump(card.inner, 1.05)
 		Anim.bump(card.badge, 1.5)
 		burst(card.stage, card.def.color)
@@ -863,6 +1033,92 @@ local function onBuyItem(card: ItemCard)
 		end
 		refreshItemCard(card, false)
 		itemFailed(card, card.cash, if ok and type(result) == "table" and type(result.err) == "string" then result.err else "Couldn't buy that - try again")
+	end)
+end
+
+-- Our UpgradeItem came back ok: the pips fill with a pop, coins fly in, "LEVEL n!"; the last level
+-- turns the card golden (the HUD plays the level-up toast / golden flourish from Celebrate).
+local function itemUpgraded(card: ItemCard, level: number)
+	card.level = math.max(card.level, level)
+	card.levelConfirmedAt = os.clock()
+	local levels = itemLevels(card)
+	local gold = levels ~= nil and #levels > 0 and card.level >= #levels
+	if not itemsOn() then
+		card.upBusy = false
+		setGoldLook(card, gold, false)
+		refreshItemCard(card, false)
+		return
+	end
+	setGoldLook(card, gold, true)
+	setUpPips(card, true)
+	local pip = card.upPips[card.level]
+	if pip then
+		burst(pip, if gold then GOLD_HALO else card.def.color)
+	end
+	refreshItemCard(card, true) -- (busy: the button keeps its "✓" beat below)
+	Anim.bump(card.inner, 1.05)
+	if coin then
+		Anim.flyCoins(coin, card.upButton, 7)
+	end
+	local above = Anim.centerOf(card.inner) - Vector2.new(0, 40 * Theme.Scale())
+	Anim.numberPop(if gold then "GOLDEN! ✦" else "LEVEL " .. card.level .. "!", above, if gold then GOLD_HALO else card.def.color, 34)
+	UISound.Play("buy")
+	card.upButton.Text = "✓"
+	task.delay(0.7, function()
+		card.upBusy = false
+		refreshUpgrade(card, true)
+	end)
+end
+
+-- The next upgrade level with cash (UpgradeItem). Same rules as the other cash buttons.
+local function onUpgrade(card: ItemCard)
+	if card.upBusy or not card.unlocked then
+		return
+	end
+	local price = upgradePrice(card)
+	if not price then
+		Anim.bump(card.upButton, 1.08)
+		itemNote(card, "Fully upgraded - it's golden! ✦", Theme.Color.Gold2)
+		return
+	end
+	local cash = currentCash()
+	if cash < price then
+		Anim.wiggle(card.upButton)
+		UISound.Play("error")
+		itemNote(card, "Need $" .. Util.FormatCash(math.ceil(price - cash)) .. " more", Theme.Color.Bad)
+		return
+	end
+	local remote = remoteFn("UpgradeItem")
+	if not remote then
+		itemFailed(card, card.upButton, "The shop is still opening - try again")
+		return
+	end
+	card.upBusy = true
+	card.upToken += 1
+	local token = card.upToken
+	card.upButton.Text = "• • •"
+	setShine(card.upButton, false)
+	task.delay(REMOTE_TIMEOUT, function()
+		-- the server never answered: give the button back (the State still brings the level)
+		if card.upBusy and card.upToken == token then
+			card.upBusy = false
+			refreshUpgrade(card, false)
+		end
+	end)
+	task.spawn(function()
+		local ok, result = pcall(function()
+			return remote:InvokeServer(card.key)
+		end)
+		if card.upToken ~= token then
+			return -- a newer tap owns the button now
+		end
+		if ok and type(result) == "table" and result.ok == true then
+			itemUpgraded(card, if type(result.level) == "number" then result.level else card.level + 1)
+			return
+		end
+		card.upBusy = false
+		refreshUpgrade(card, false)
+		itemFailed(card, card.upButton, if ok and type(result) == "table" and type(result.err) == "string" then result.err else "Couldn't upgrade that - try again")
 	end)
 end
 
@@ -1176,8 +1432,9 @@ local function buildItemCard(parent: Instance, key: string, index: number): Item
 	Theme.corner(stage, UDim.new(0.5, 0))
 	Theme.stroke(stage, def.color:Lerp(Theme.Color.Stroke, 0.35), 3, 0.2)
 	stage.Parent = inner
+	local icon = nil
 	if ItemIcon then
-		local icon = ItemIcon.new(stage, { key = key })
+		icon = ItemIcon.new(stage, { key = key })
 		icon.Frame.Size = UDim2.fromScale(0.92, 0.92)
 	else
 		local glyph = Theme.label(stage, def.icon, 46, Theme.Color.White)
@@ -1220,7 +1477,7 @@ local function buildItemCard(parent: Instance, key: string, index: number): Item
 	info.ZIndex = 13
 	fit(info, 14, 9)
 
-	local buttonY = 126
+	local buttonY = ITEM_BUTTON_Y
 	local cash = Theme.button(inner, money(def.price), "green", if product then UDim2.new(0.5, -18, 0, BUTTON_H) else UDim2.new(1, -24, 0, BUTTON_H), 26)
 	cash.Name = "BuyCash"
 	cash.Position = UDim2.fromOffset(12, buttonY)
@@ -1242,10 +1499,92 @@ local function buildItemCard(parent: Instance, key: string, index: number): Item
 	barButton.Visible = false
 	Anim.button(barButton, "click")
 
+	-- the Upgrade row: pips + "Lv 1 → 2" and what the next level does on the left, the price on the right
+	local upBox = Instance.new("Frame")
+	upBox.Name = "Upgrade"
+	upBox.Position = UDim2.fromOffset(12, UP_Y)
+	upBox.Size = UDim2.new(1, -24, 0, UP_H)
+	upBox.BackgroundColor3 = Theme.Color.White
+	upBox.BackgroundTransparency = 0.35
+	upBox.BorderSizePixel = 0
+	upBox.ZIndex = 13
+	Theme.corner(upBox, 14)
+	Theme.stroke(upBox, Theme.Color.Stroke, 2, 0.6)
+	upBox.Parent = inner
+	local levels = ItemConfig.Levels[key] or {}
+	local pipRow = Instance.new("Frame")
+	pipRow.Name = "Pips"
+	pipRow.BackgroundTransparency = 1
+	pipRow.Position = UDim2.fromOffset(10, 9)
+	pipRow.Size = UDim2.fromOffset(#levels * (UP_PIP_W + UP_PIP_GAP), UP_PIP_H)
+	pipRow.ZIndex = 14
+	pipRow.Parent = upBox
+	local upPips, upFilled = {}, {}
+	for i = 1, #levels do
+		local pip = Instance.new("Frame")
+		pip.Name = "Pip" .. i
+		pip.AnchorPoint = Vector2.new(0.5, 0.5)
+		pip.Position = UDim2.fromOffset((i - 1) * (UP_PIP_W + UP_PIP_GAP) + UP_PIP_W / 2, UP_PIP_H / 2)
+		pip.Size = UDim2.fromOffset(UP_PIP_W, UP_PIP_H)
+		pip.BackgroundColor3 = Theme.Color.InsetDark
+		pip.BorderSizePixel = 0
+		pip.ZIndex = 14
+		Theme.corner(pip, 7)
+		Theme.stroke(pip, Theme.Color.Stroke, 2)
+		Theme.gloss(pip, 7)
+		pip.Parent = pipRow
+		table.insert(upPips, pip)
+		table.insert(upFilled, 0)
+	end
+	local pipsW = #levels * (UP_PIP_W + UP_PIP_GAP) + 10
+	local upLevel = Theme.label(upBox, "", 15, Theme.Color.Title)
+	upLevel.Name = "LevelLine"
+	upLevel.Position = UDim2.fromOffset(10 + pipsW, 4)
+	upLevel.Size = UDim2.new(0.58, -(pipsW + 14), 0, 24)
+	upLevel.TextXAlignment = Enum.TextXAlignment.Left
+	upLevel.ZIndex = 14
+	fit(upLevel, 15, 9)
+	local upDesc = Theme.label(upBox, "", 14, Theme.Color.Text, Theme.FontBody)
+	upDesc.Name = "Next"
+	upDesc.Position = UDim2.fromOffset(10, 30)
+	upDesc.Size = UDim2.new(0.58, -14, 0, UP_H - 36)
+	upDesc.TextXAlignment = Enum.TextXAlignment.Left
+	upDesc.TextYAlignment = Enum.TextYAlignment.Top
+	upDesc.TextWrapped = true
+	upDesc.ZIndex = 14
+	fit(upDesc, 14, 8)
+	local upButton = Theme.button(upBox, "", "green", UDim2.new(0.42, -8, 0, BUTTON_H), 24)
+	upButton.Name = "UpgradeButton"
+	upButton.AnchorPoint = Vector2.new(1, 0.5)
+	upButton.Position = UDim2.new(1, -8, 0.5, 0)
+	upButton.ZIndex = 14
+	Anim.button(upButton, "click")
+	-- locked: the levels it will have, compact
+	local lines = { string.format('<font color="%s">⬆ Upgrades after unlocking</font>', TITLE_HEX) }
+	for i, lv in ipairs(levels) do
+		local text = escape(levelDesc(lv.desc))
+		if i == #levels then
+			text = string.format('<font color="%s">%d ✦ %s</font>', GOLD_HEX, i, text)
+		else
+			text = string.format('<font color="%s">%d</font>  %s', MUTED_HEX, i, text)
+		end
+		table.insert(lines, text)
+	end
+	local preview = Theme.label(upBox, table.concat(lines, "\n"), 13, DESC_COLOR, Theme.FontBody)
+	preview.Name = "Levels"
+	preview.RichText = true
+	preview.Position = UDim2.fromOffset(10, 5)
+	preview.Size = UDim2.new(1, -20, 1, -10)
+	preview.TextXAlignment = Enum.TextXAlignment.Left
+	preview.TextYAlignment = Enum.TextYAlignment.Top
+	preview.TextWrapped = true
+	preview.ZIndex = 14
+	fit(preview, 13, 8)
+
 	local note = Theme.label(inner, "", 14, Theme.Color.Bad, Theme.FontBody)
 	note.Name = "Note"
 	note.AnchorPoint = Vector2.new(0.5, 0.5)
-	note.Position = UDim2.new(0.5, 0, 0, buttonY + BUTTON_H + 4 + 9)
+	note.Position = UDim2.new(0.5, 0, 0, UP_Y + UP_H + 4 + 9)
 	note.Size = UDim2.new(1, -24, 0, 18)
 	note.TextTransparency = 1
 	note.ZIndex = 13
@@ -1258,12 +1597,21 @@ local function buildItemCard(parent: Instance, key: string, index: number): Item
 		slot = slot,
 		inner = inner,
 		stage = stage,
+		icon = icon,
 		badge = badge,
 		info = info,
 		cash = cash,
 		robux = robux,
 		barButton = barButton,
 		note = note,
+		upBox = upBox,
+		upPipRow = pipRow,
+		upPips = upPips,
+		upFilled = upFilled,
+		upLevel = upLevel,
+		upDesc = upDesc,
+		upButton = upButton,
+		preview = preview,
 		unlocked = false,
 		inBar = nil,
 		style = "green",
@@ -1274,7 +1622,16 @@ local function buildItemCard(parent: Instance, key: string, index: number): Item
 		confirmedAt = 0,
 		waiting = false,
 		waitToken = 0,
+		level = 0,
+		gold = false,
+		upStyle = "green",
+		upBusy = false,
+		upToken = 0,
+		levelConfirmedAt = 0,
 	}
+	upButton.Activated:Connect(function()
+		onUpgrade(card)
+	end)
 	cash.Activated:Connect(function()
 		onBuyItem(card)
 	end)
@@ -1302,9 +1659,11 @@ local function anyAffordableUpgrade(): boolean
 	return false
 end
 
+-- an item to unlock, or an unlocked item's next upgrade level
 local function anyAffordableItem(): boolean
 	for _, card in ipairs(itemCards) do
-		if not card.unlocked and currentCash() >= card.def.price then
+		local price = if card.unlocked then upgradePrice(card) else card.def.price
+		if price and currentCash() >= price then
 			return true
 		end
 	end
@@ -1458,7 +1817,7 @@ local function buildTabs(header: Frame): Frame
 	return bar
 end
 
-local function buildPage(host: Frame, name: string): (ScrollingFrame, UIGridLayout)
+local function buildPage(host: Frame, name: string, cardHeight: number): (ScrollingFrame, UIGridLayout)
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = name
 	scroll.BackgroundTransparency = 1
@@ -1478,7 +1837,7 @@ local function buildPage(host: Frame, name: string): (ScrollingFrame, UIGridLayo
 
 	local grid = Instance.new("UIGridLayout")
 	grid.CellPadding = UDim2.fromOffset(GAP, GAP)
-	grid.CellSize = UDim2.new(0.5, -(GAP / 2 + 1), 0, CARD_HEIGHT)
+	grid.CellSize = UDim2.new(0.5, -(GAP / 2 + 1), 0, cardHeight)
 	grid.FillDirection = Enum.FillDirection.Horizontal
 	grid.FillDirectionMaxCells = 2
 	grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
@@ -1524,7 +1883,7 @@ local function fitLayout(content: Frame, header: Frame, tabs: Frame, hint: TextL
 		for _, page in ipairs(pageList) do
 			if page.grid.FillDirectionMaxCells ~= cols then
 				page.grid.FillDirectionMaxCells = cols
-				page.grid.CellSize = UDim2.new(1 / cols, if cols == 2 then -(GAP / 2 + 1) else 0, 0, CARD_HEIGHT)
+				page.grid.CellSize = UDim2.new(1 / cols, if cols == 2 then -(GAP / 2 + 1) else 0, 0, page.cardHeight)
 			end
 		end
 	end
@@ -1556,6 +1915,7 @@ local function applyState(animate: boolean)
 	end
 	refreshTowelPreview(animate and upgradesOn())
 	local items = if type(lastState.items) == "table" then lastState.items else {}
+	local levels = if type(lastState.itemLevels) == "table" then lastState.itemLevels else {}
 	for _, card in ipairs(itemCards) do
 		local unlocked = items[card.key] == true or (card.unlocked and os.clock() - card.confirmedAt < CONFIRM_SECONDS)
 		if unlocked ~= card.unlocked then
@@ -1563,6 +1923,17 @@ local function applyState(animate: boolean)
 		end
 		if unlocked and card.waiting then
 			stopWaiting(card)
+		end
+		local maxLevel = #(ItemConfig.Levels[card.key] or {})
+		local level = if type(levels[card.key]) == "number" then math.clamp(math.floor(levels[card.key]), 0, maxLevel) else 0
+		if card.upBusy or (level < card.level and os.clock() - card.levelConfirmedAt < CONFIRM_SECONDS) then
+			level = card.level -- our own upgrade is on its way (its answer shows it), or this State is older
+		end
+		if level ~= card.level then
+			local up = level > card.level
+			card.level = level
+			setGoldLook(card, maxLevel > 0 and level >= maxLevel, animate and itemsOn() and up)
+			setUpPips(card, animate and itemsOn() and up)
 		end
 		refreshItemCard(card, animate and itemsOn())
 	end
@@ -1598,8 +1969,13 @@ end
 local function entrance(name: string)
 	local inners = {} :: { GuiObject }
 	if name == "Items" then
-		for _, card in ipairs(itemCards) do
+		for i, card in ipairs(itemCards) do
 			table.insert(inners, card.inner)
+			if card.unlocked then
+				for j, pip in ipairs(card.upPips) do
+					popFromZero(pip, (i - 1) * 0.05 + 0.2 + j * 0.06)
+				end
+			end
 		end
 	else
 		for i, card in ipairs(cardList) do
@@ -1673,13 +2049,27 @@ local function onClose()
 	updateBadge()
 end
 
--- Celebrate {kind, data}: the HUD shows the big card; this panel finishes the item's buttons.
+-- Celebrate {kind, data}: the HUD shows the big card / toast; this panel finishes the item's card.
 local function onCelebrate(kind, data)
-	if kind ~= "item" or type(data) ~= "table" or type(data.key) ~= "string" then
+	if (kind ~= "item" and kind ~= "itemUpgrade") or type(data) ~= "table" or type(data.key) ~= "string" then
 		return
 	end
 	local card = itemByKey[data.key]
 	if not card then
+		return
+	end
+	if kind == "itemUpgrade" then
+		local level = if type(data.level) == "number" then math.floor(data.level) else 0
+		if card.upBusy or level <= card.level then
+			return -- our own UpgradeItem: its answer animates the card
+		end
+		local maxLevel = #(ItemConfig.Levels[card.key] or {})
+		card.level = math.min(level, maxLevel)
+		card.levelConfirmedAt = os.clock()
+		setGoldLook(card, maxLevel > 0 and card.level >= maxLevel, itemsOn())
+		setUpPips(card, itemsOn())
+		refreshItemCard(card, itemsOn())
+		updateBadge()
 		return
 	end
 	stopWaiting(card)
@@ -1721,8 +2111,9 @@ function ShopUI.Init()
 	host.Parent = content
 
 	for i, tab in ipairs(TABS) do
-		local scroll, grid = buildPage(host, tab.name)
-		local page = { name = tab.name, index = i, scroll = scroll, grid = grid } :: any
+		local cardHeight = if tab.name == "Items" then ITEM_CARD_HEIGHT else CARD_HEIGHT
+		local scroll, grid = buildPage(host, tab.name, cardHeight)
+		local page = { name = tab.name, index = i, scroll = scroll, grid = grid, cardHeight = cardHeight } :: any
 		pages[tab.name] = page
 		table.insert(pageList, page)
 	end

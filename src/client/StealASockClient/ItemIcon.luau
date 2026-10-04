@@ -3,15 +3,22 @@
 -- from a slight 3/4 angle (long items like the towel from the side). Until the model is there the
 -- icon shows the ItemConfig emoji, and the towel a little drawn towel in its look's colours.
 --
--- Models may arrive late or never: one listener on the ItemMeshes folder swaps every icon still
--- waiting for that model over the moment it appears. Icons are still pictures (no per-frame work);
--- each model is prepared once and cloned per icon.
+-- A max-level (golden) item shows its `<model>_Gold` model; until that one is imported it shows the
+-- regular model, and until that one the emoji.
 --
--- ItemIcon.new(parent, opts?) -> icon. opts: size (px; default fills the parent), key, look,
--- zIndex. icon.Frame (a transparent square), icon:Set(key?, look?) (nil = blank), icon:Is3D(),
+-- Models may arrive late or never: one listener on the ItemMeshes folder swaps every icon still
+-- waiting for a (better) model over the moment it appears. Icons are still pictures (no per-frame
+-- work, except a Spin while it plays); each model is prepared once and cloned per icon.
+--
+-- ItemIcon.new(parent, opts?) -> icon. opts: size (px; default fills the parent), key, look, gold,
+-- zIndex. icon.Frame (a transparent square), icon:Set(key?, look?, gold?) (nil = blank),
+-- icon:Is3D(), icon:Shown() (the model name on screen, nil for the fallback), icon:Spin(seconds?)
+-- (a one-turn turntable spin that settles facing front - the caller checks Reduce motion),
 -- icon:Destroy(). ItemIcon.Looks[look] = { name, color, trim }: each towel look's colours, for
 -- swatches.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local ItemConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("ItemConfig"))
 
@@ -23,6 +30,7 @@ local rgb = Color3.fromRGB
 local WHITE = Color3.new(1, 1, 1)
 local BLACK = Color3.new(0, 0, 0)
 local FOLDER = "ItemMeshes"
+local GOLD = "_Gold" -- the golden (max level) version of a model: `<model>_Gold`
 local FOV = 30
 local PITCH = math.rad(14) -- the camera stands a little above
 local YAW = math.rad(28) -- the 3/4 view
@@ -60,13 +68,17 @@ function ItemIcon.LookName(look: string?): string
 	return if l then l.name else tostring(look or "Plain")
 end
 
--- The ItemMeshes model an item shows (the towel: one per look).
-function ItemIcon.ModelName(key: string, look: string?): string?
+-- The ItemMeshes model an item shows (the towel: one per look; gold: the max-level `<model>_Gold`).
+function ItemIcon.ModelName(key: string, look: string?, gold: boolean?): string?
 	if key == "Towel" then
 		return "Towel_" .. (look or ItemConfig.TowelLooks[1])
 	end
 	local item = ItemConfig.Items[key]
-	return if item then item.model else nil
+	local model = if item then item.model else nil
+	if model and gold then
+		return model .. GOLD
+	end
+	return model
 end
 
 -- ---------- preparing a model ----------
@@ -197,9 +209,12 @@ local function preparedFor(name: string): Prepared?
 	return if cached then cached else nil
 end
 
--- A camera that fits the box into a square viewport and centres its picture.
-local function frameCamera(minV: Vector3, maxV: Vector3, name: string?): CFrame
-	local view = (name and (VIEWS[name] or (string.sub(name, 1, 6) == "Towel_" and TOWEL_VIEW))) or {}
+-- A camera that fits the box into a square viewport and centres its picture. Returns the camera
+-- and the point it looks at (a Spin turns the camera around it).
+local function frameCamera(minV: Vector3, maxV: Vector3, name: string?): (CFrame, Vector3)
+	-- a golden model is framed like its regular one
+	local viewName = if name and endsWith(name, GOLD) then string.sub(name, 1, #name - #GOLD) else name
+	local view = (viewName and (VIEWS[viewName] or (string.sub(viewName, 1, 6) == "Towel_" and TOWEL_VIEW))) or {}
 	if view.top then
 		minV = Vector3.new(minV.X, maxV.Y - (maxV.Y - minV.Y) * view.top, minV.Z)
 	end
@@ -239,20 +254,25 @@ local function frameCamera(minV: Vector3, maxV: Vector3, name: string?): CFrame
 		end
 		focus += rot:VectorToWorldSpace(Vector3.new((loX + hiX) / 2, (loY + hiY) / 2, 0) * dist)
 	end
-	return CFrame.new(focus) * rot * CFrame.new(0, 0, dist)
+	return CFrame.new(focus) * rot * CFrame.new(0, 0, dist), focus
 end
 
 -- ---------- late models ----------
 
-local waiting = {} :: { [string]: { [any]: boolean } } -- model name -> icons showing their fallback
+local waiting = {} :: { [string]: { [any]: boolean } } -- model name -> icons that would show it (a fallback or a lesser model is up)
 
 local function notify(name: string?)
+	-- gather first: a refresh changes what the icons wait for
+	local due = {} :: { [any]: boolean }
 	for modelName, icons in pairs(waiting) do
 		if name == nil or modelName == name then
 			for icon in pairs(icons) do
-				task.spawn(icon.Refresh, icon)
+				due[icon] = true
 			end
 		end
+	end
+	for icon in pairs(due) do
+		task.spawn(icon.Refresh, icon)
 	end
 end
 
@@ -341,25 +361,52 @@ function ItemIcon.new(parent: Instance?, opts: { [string]: any }?)
 	local icon = { Frame = root }
 	local curKey: string? = nil
 	local curLook: string? = nil
-	local curName: string? = nil
+	local curGold = false
+	local names = {} :: { string } -- the models this icon would show, best first (gold, then regular)
 	local shown: Prepared? = nil -- the prepared model on screen (nil: the fallback)
 	local vp: ViewportFrame? = nil
 	local world: WorldModel? = nil
 	local model: Model? = nil
 	local fallback: GuiObject? = nil
 	local destroyed = false
+	local shownCF: CFrame? = nil -- the camera framing the model on screen, and the point it looks at
+	local shownFocus: Vector3? = nil
+	local spinConn: RBXScriptConnection? = nil
+
+	local function stopSpin()
+		if spinConn then
+			spinConn:Disconnect()
+			spinConn = nil
+		end
+	end
 
 	local function unwait()
-		local name = curName
-		if name and waiting[name] then
-			waiting[name][icon] = nil
-			if next(waiting[name]) == nil then
-				waiting[name] = nil
+		for _, name in ipairs(names) do
+			local list = waiting[name]
+			if list then
+				list[icon] = nil
+				if next(list) == nil then
+					waiting[name] = nil
+				end
 			end
 		end
 	end
 
+	-- waits for names[1..upTo] (the models better than the one on screen)
+	local function waitFor(upTo: number)
+		for i = 1, math.min(upTo, #names) do
+			local name = names[i]
+			local list = waiting[name]
+			if not list then
+				list = {}
+				waiting[name] = list
+			end
+			list[icon] = true
+		end
+	end
+
 	local function clear()
+		stopSpin()
 		if model then
 			model:Destroy()
 			model = nil
@@ -398,13 +445,14 @@ function ItemIcon.new(parent: Instance?, opts: { [string]: any }?)
 		local copy = p.master:Clone()
 		copy.Parent = world
 		model = copy
-		local cf = frameCamera(p.minV, p.maxV, p.name)
+		local cf, focus = frameCamera(p.minV, p.maxV, p.name)
 		if cam then
 			cam.CFrame = cf
 		end
 		f.LightDirection = cf:VectorToWorldSpace(Vector3.new(0.55, -0.8, -0.6)).Unit -- from the upper left, in front
 		f.Visible = true
 		shown = p
+		shownCF, shownFocus = cf, focus
 	end
 
 	local function showFallback()
@@ -421,54 +469,97 @@ function ItemIcon.new(parent: Instance?, opts: { [string]: any }?)
 		end
 	end
 
-	-- Shows the model if it's there now (waiting icons are refreshed by the folder listener).
-	function icon.Refresh(_self)
-		if destroyed or not curName then
-			return
-		end
-		local p = preparedFor(curName)
-		if p then
-			unwait()
-			if shown ~= p then
-				show3D(p)
+	-- The best model that is there now (it keeps waiting for the better ones), else the fallback.
+	local function apply()
+		unwait()
+		for rank, name in ipairs(names) do
+			local p = preparedFor(name)
+			if p then
+				if shown ~= p then
+					show3D(p)
+				end
+				waitFor(rank - 1)
+				return
 			end
-		elseif shown or not fallback then
+		end
+		if shown or not fallback then
 			showFallback()
 		end
+		waitFor(#names)
 	end
 
-	function icon:Set(key: string?, look: string?)
+	-- Shows the best model there now (waiting icons are refreshed by the folder listener).
+	function icon.Refresh(_self)
+		if destroyed or not curKey then
+			return
+		end
+		apply()
+	end
+
+	function icon:Set(key: string?, look: string?, gold: boolean?)
 		if destroyed then
 			return
 		end
-		local name = if key then ItemIcon.ModelName(key, look) else nil
-		if key == curKey and look == curLook then
+		local g = gold == true and key ~= nil and key ~= "Towel"
+		if key == curKey and look == curLook and g == curGold then
 			return
 		end
 		unwait()
-		curKey, curLook, curName = key, look, name
+		curKey, curLook, curGold = key, look, g
+		names = {}
 		clear()
 		if not key then
 			return
 		end
-		local p = if name then preparedFor(name) else nil
-		if p then
-			show3D(p)
-			return
-		end
-		showFallback()
+		local name = ItemIcon.ModelName(key, look)
 		if name then
-			local list = waiting[name]
-			if not list then
-				list = {}
-				waiting[name] = list
+			if g then
+				table.insert(names, name .. GOLD)
 			end
-			list[icon] = true
+			table.insert(names, name)
 		end
+		apply()
 	end
 
 	function icon:Is3D(): boolean
 		return shown ~= nil
+	end
+
+	function icon:Shown(): string?
+		return if shown then shown.name else nil
+	end
+
+	-- One turntable turn that slows down and settles facing front (the golden flourish). The
+	-- fallback emoji spins flat instead.
+	function icon:Spin(seconds: number?)
+		if destroyed then
+			return
+		end
+		local length = math.max(seconds or 1, 0.1)
+		stopSpin()
+		local f = vp
+		local cam = if f then f.CurrentCamera else nil
+		local baseCF, focus = shownCF, shownFocus
+		if shown and cam and baseCF and focus then
+			local pivot = CFrame.new(focus)
+			local start = os.clock()
+			local conn
+			conn = RunService.RenderStepped:Connect(function()
+				local a = math.clamp((os.clock() - start) / length, 0, 1)
+				local turn = (1 - a) ^ 3 * math.pi * 2 -- fast at first, easing into place
+				cam.CFrame = pivot * CFrame.Angles(0, turn, 0) * pivot:Inverse() * baseCF
+				if a >= 1 then
+					conn:Disconnect()
+					if spinConn == conn then
+						spinConn = nil
+					end
+				end
+			end)
+			spinConn = conn
+		elseif fallback then
+			fallback.Rotation = -360
+			TweenService:Create(fallback, TweenInfo.new(length, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { Rotation = 0 }):Play()
+		end
 	end
 
 	function icon:Destroy()
@@ -476,6 +567,7 @@ function ItemIcon.new(parent: Instance?, opts: { [string]: any }?)
 			return
 		end
 		destroyed = true
+		stopSpin()
 		unwait()
 		root:Destroy()
 	end
@@ -483,12 +575,13 @@ function ItemIcon.new(parent: Instance?, opts: { [string]: any }?)
 	root.Destroying:Once(function()
 		if not destroyed then
 			destroyed = true
+			stopSpin()
 			unwait()
 		end
 	end)
 
 	if type(o.key) == "string" then
-		icon:Set(o.key, if type(o.look) == "string" then o.look else nil)
+		icon:Set(o.key, if type(o.look) == "string" then o.look else nil, o.gold == true)
 	end
 	return icon
 end

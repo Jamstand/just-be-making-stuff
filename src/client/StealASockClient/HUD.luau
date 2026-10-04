@@ -10,9 +10,9 @@
 -- narrow to fit them beside the chips they start under the chip row); the carry banner
 -- bottom-centre, just above the item bar (ItemBarLayout says where the bar is on this screen, so it
 -- is also clear of the jump button), and the drawer list stops above the bar where they'd meet. The
--- top bar, the top-right (Roblox menu / player list) and the bottom-right stay free. Toasts and
--- celebration cards live in a second screen (SockHUDTop, above the menus) so purchase feedback
--- shows over an open panel.
+-- top bar, the top-right (Roblox menu / player list) and the bottom-right stay free. Toasts (and
+-- the item level-up toasts) and celebration cards live in a second screen (SockHUDTop, above the
+-- menus) so purchase feedback shows over an open panel.
 --
 -- Settings honoured: Reduce motion (through Anim, and the HUD's own loops restart when it flips),
 -- Pop-up messages (off = only "bad" toasts), Server announcements (off = no banner).
@@ -58,6 +58,8 @@ local WHITE = Color3.new(1, 1, 1)
 local BLACK = Color3.new(0, 0, 0)
 local GOLD_TEXT = rgb(255, 236, 140) -- "+$500" pops and rewards
 local SEAL_TEXT = rgb(110, 60, 8)
+local GOLD_CARD = rgb(255, 186, 52) -- the golden item flourish
+local GOLD_EDGE = rgb(176, 108, 22)
 
 -- layout, reference px
 local EDGE = 12
@@ -1669,6 +1671,216 @@ CELEBRATE.upgrade = function(data)
 	task.wait(0.6)
 end
 
+-- ✦ sparkles bursting out of a gui (the golden flourish). Reduce motion: none.
+local function sparkles(at: GuiObject, count: number, color: Color3)
+	if Anim.Reduced then
+		return
+	end
+	for i = 1, count do
+		local star = Theme.label(at, "✦", math.random(16, 26), if i % 3 == 0 then WHITE else color)
+		star.Name = "Sparkle"
+		star.AnchorPoint = Vector2.new(0.5, 0.5)
+		star.Position = UDim2.fromScale(0.5, 0.5)
+		star.Size = UDim2.fromOffset(28, 28)
+		star.ZIndex = 9
+		Theme.textStroke(star, GOLD_EDGE, 1.5)
+		local angle = (i / count) * math.pi * 2 + math.random() * 0.4
+		local dist = at.AbsoluteSize.X / refScale() * 0.55 + math.random() * 30
+		local fly = Anim.tween(star, 0.7 + math.random() * 0.3, {
+			Position = UDim2.new(0.5, math.cos(angle) * dist, 0.5, math.sin(angle) * dist),
+			Rotation = math.random(-160, 160),
+			TextTransparency = 1,
+		}, Enum.EasingStyle.Quint)
+		fly.Completed:Once(function()
+			star:Destroy()
+		end)
+	end
+end
+
+-- A level-up toast in the toast lane (levels below the golden one): the item, "LEVEL n!", its pips
+-- (the new one pops in) and what the level does. Tap it to dismiss early.
+local function levelToast(key: string, display: string, level: number)
+	local item = ItemConfig.Items[key]
+	local levels = ItemConfig.Levels[key] or {}
+	local color = if item then item.color else C.Gold2
+	local _, _, edge = shades(color)
+	local h = 82
+	toastCount += 1
+	local holder = holderFrame("LevelUp", 0, -toastCount, toastBox) -- newest on top, like the toasts
+	local card = Instance.new("TextButton")
+	card.Name = "Card"
+	card.Text = ""
+	card.AutoButtonColor = false
+	card.AnchorPoint = Vector2.new(0.5, 0)
+	card.Position = UDim2.new(0.5, 0, 0, -18)
+	card.Size = UDim2.new(1, 0, 0, h)
+	tint(card, color, 16, 3)
+	Theme.gloss(card, 16)
+	card.Parent = holder
+
+	local stage = Instance.new("Frame")
+	stage.Name = "Stage"
+	stage.AnchorPoint = Vector2.new(0, 0.5)
+	stage.Position = UDim2.new(0, 8, 0.5, 0)
+	stage.Size = UDim2.fromOffset(66, 66)
+	stage.BackgroundColor3 = WHITE
+	stage.BackgroundTransparency = 0.45
+	stage.BorderSizePixel = 0
+	stage.ZIndex = 4
+	Theme.corner(stage, UDim.new(0.5, 0))
+	Theme.stroke(stage, WHITE, 2.5, 0.2)
+	stage.Parent = card
+	if ItemIcon then
+		local icon = ItemIcon.new(stage, { key = key, zIndex = 5 })
+		icon.Frame.Size = UDim2.fromScale(0.9, 0.9)
+	else
+		local glyph = Theme.label(stage, if item then item.icon else "⬆", 34, WHITE)
+		glyph.Size = UDim2.fromScale(1, 1)
+		glyph.ZIndex = 5
+	end
+
+	local name = bold(card, display, 20, edge, 2)
+	name.Name = "Title"
+	name.TextXAlignment = Enum.TextXAlignment.Left
+	name.Position = UDim2.fromOffset(84, 6)
+	name.Size = UDim2.new(1, -(84 + 128), 0, 28) -- (clear of "LEVEL n!" on the right)
+	fit(name, 20, 11)
+	local lv = bold(card, "LEVEL " .. level .. "!", 24, C.Ink, 2.5)
+	lv.Name = "Level"
+	lv.TextColor3 = GOLD_TEXT
+	lv.TextXAlignment = Enum.TextXAlignment.Right
+	lv.AnchorPoint = Vector2.new(1, 0)
+	lv.Position = UDim2.new(1, -10, 0, 5)
+	lv.Size = UDim2.fromOffset(112, 30)
+	fit(lv, 24, 14)
+
+	local pips = {} :: { Frame }
+	for i = 1, #levels do
+		local pip = Instance.new("Frame")
+		pip.Name = "Pip" .. i
+		pip.AnchorPoint = Vector2.new(0.5, 0.5)
+		pip.Position = UDim2.fromOffset(84 + (i - 1) * 25 + 10, 54)
+		pip.Size = UDim2.fromOffset(20, 12)
+		pip.BackgroundColor3 = if i < level then GOLD_TEXT else edge
+		pip.BorderSizePixel = 0
+		pip.ZIndex = 5
+		Theme.corner(pip, 6)
+		Theme.stroke(pip, C.Ink, 1.5)
+		pip.Parent = card
+		table.insert(pips, pip)
+	end
+	local descX = 84 + #levels * 25 + 6
+	local lvDef = levels[level]
+	local desc = bold(card, if lvDef then (string.gsub(lvDef.desc, "%->", "→")) else "", 14, edge, 1.5)
+	desc.Name = "Desc"
+	desc.TextXAlignment = Enum.TextXAlignment.Left
+	desc.Position = UDim2.fromOffset(descX, 40)
+	desc.Size = UDim2.new(1, -(descX + 10), 0, 28)
+	desc.TextWrapped = true
+	fit(desc, 14, 9)
+
+	Anim.tween(holder, 0.25, { Size = UDim2.new(1, 0, 0, h) }, Enum.EasingStyle.Quad)
+	Anim.tween(card, 0.4, { Position = UDim2.new(0.5, 0, 0, 0) }, Enum.EasingStyle.Back)
+	Anim.popIn(card)
+	UISound.Play("whoosh")
+	-- the new level's pip lights up with a pop
+	task.delay(0.35, function()
+		local pip = pips[level]
+		if pip and pip.Parent then
+			pip.BackgroundColor3 = GOLD_TEXT
+			if not Anim.Reduced then
+				local s = Anim.scale(pip)
+				s.Scale = 0.2
+				Anim.tween(s, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
+				sparkles(pip, 5, GOLD_TEXT)
+			end
+			Anim.bump(lv, 1.18)
+			UISound.Play("pop", 1.15)
+		end
+	end)
+	local closed = false
+	local function close()
+		if closed then
+			return
+		end
+		closed = true
+		popAway(card, function()
+			local tw = Anim.tween(holder, 0.22, { Size = UDim2.new(1, 0, 0, 0) }, Enum.EasingStyle.Quad)
+			tw.Completed:Once(function()
+				holder:Destroy()
+			end)
+		end)
+	end
+	card.Activated:Connect(close)
+	task.delay(TOAST_TIME + 0.4, close)
+end
+
+-- An item upgrade (Item Shop): a level-up toast; the last level turns it golden - the big card,
+-- the gold model spinning in, sparkles and confetti.
+CELEBRATE.itemUpgrade = function(data)
+	local key = tostring(data.key)
+	local item = ItemConfig.Items[key]
+	local levels = ItemConfig.Levels[key] or {}
+	local display = tostring(data.display or (if item then item.display else "Item"))
+	local level = math.floor(num(data.level))
+	local gold = data.gold == true or (#levels > 0 and level >= #levels)
+	if not gold then
+		levelToast(key, display, level)
+		task.wait(0.5)
+		return
+	end
+	local top = levels[#levels]
+	local artStage: Frame? = nil
+	UISound.Play("confetti")
+	Anim.confetti(nil, 90)
+	playCard({
+		color = GOLD_CARD,
+		tag = "GOLDEN!",
+		title = "✦ " .. display .. " ✦",
+		sub = if top then (string.gsub(top.desc, "%->", "→")) else nil,
+		art = function(stage: Frame)
+			artStage = stage
+			stage.BackgroundColor3 = rgb(255, 246, 204)
+			stage.BackgroundTransparency = 0.25
+			local stroke = stage:FindFirstChildOfClass("UIStroke")
+			if stroke then
+				stroke.Color = GOLD_EDGE
+				stroke.Transparency = 0
+			end
+			if ItemIcon then
+				local icon = ItemIcon.new(stage)
+				icon:Set(key, nil, true) -- the `<model>_Gold` model (the regular one until it's imported)
+				icon.Frame.Size = UDim2.fromScale(0.86, 0.86)
+				if not Anim.Reduced then
+					task.delay(0.15, function()
+						icon:Spin(1.3) -- it spins in as the picture pops onto the card
+					end)
+				end
+			else
+				local glyph = Theme.label(stage, if item then item.icon else "✦", 60, WHITE)
+				glyph.Size = UDim2.fromScale(1, 1)
+				if not Anim.Reduced then
+					glyph.Rotation = -360
+					Anim.tween(glyph, 1.2, { Rotation = 0 }, Enum.EasingStyle.Cubic)
+				end
+			end
+		end,
+		big = true,
+	}, 3.8, function(card)
+		Anim.confetti(Anim.centerOf(card), 60)
+		UISound.Play("success")
+		local stage = artStage
+		if stage then
+			sparkles(stage, 12, GOLD_TEXT)
+			task.delay(0.45, function()
+				if stage.Parent then
+					sparkles(stage, 8, WHITE)
+				end
+			end)
+		end
+	end)
+end
+
 -- One celebration at a time, in order.
 local function enqueue(play: () -> ())
 	if #queue >= QUEUE_MAX then
@@ -2001,7 +2213,8 @@ function HUD.Announce(text: string, color: Color3?)
 	end)
 end
 
--- Big moments from the server (Types.CelebrateKind). Queued so two never overlap.
+-- Big moments from the server (Types.CelebrateKind: dexNew, pass, product, milestone, rareDrop,
+-- upgrade, item, itemUpgrade). Queued so two never overlap.
 function HUD.Celebrate(kind: string, data)
 	if not built or type(data) ~= "table" then
 		return

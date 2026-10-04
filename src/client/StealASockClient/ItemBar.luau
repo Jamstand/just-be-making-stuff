@@ -1,20 +1,28 @@
 -- ItemBar: the candy item bar along the bottom of the screen. It replaces Roblox's hotbar (hidden
 -- here, retried until Roblox accepts it): the towel slot first and biggest (on phones it's the main
 -- button), showing your towel's current look, then the ItemConfig.LoadoutSize items you picked in
--- the Item Shop. Tap / click a slot or press 1-4 (Q also snaps the towel; a gamepad uses Y and the
--- d-pad) to use it now - that goes to ItemClient, the bar's engine (prediction, the UseItem remote,
--- cooldowns, effects). An empty slot is a "+" that opens the Item Shop on its Items tab.
+-- the Item Shop. Every slot is a button you press and let go: a finger / click on it, 1-4 (Q also
+-- the towel; a gamepad uses Y and the d-pad) go down as ItemClient.Press(key, source) and come up
+-- as ItemClient.Release(key, source) - from anywhere, the finger may have slid off - and ItemClient,
+-- the bar's engine (prediction, the UseItem remote, cooldowns, effects), decides what that means
+-- for the item (the towel keeps snapping while held, the Static Balloon charges until you let go,
+-- the glider slams on a second press, ...). An empty slot is a "+" that opens the Item Shop on its
+-- Items tab.
 --
 -- A slot shows the item's 3D model (ItemIcon; its emoji until the model is imported), its key
--- (keyboard / gamepad only), a dark sweep with the seconds left while it cools down (a pop and a
--- sound when it's ready again), a pulsing glow while it's active (ItemClient.IsActive: gliding,
--- hiding under the basket, a peel or duck out), a raised white rim while you hold it, and a shake
--- with the error sound when ItemClient.Failed says no (the gameplay side already toasts why). When
--- the loadout changes the new slots pop in one by one; a new towel look sparkles in.
+-- (keyboard / gamepad only), its upgrade level as 3 small pips (StateView itemLevels) - at the
+-- max level a gold frame with a soft shimmer and the golden `<model>_Gold` model - a dark sweep with
+-- the seconds left while it cools down (a pop and a sound when it's ready again), a ring that fills
+-- while it charges (ItemClient.Charge: the Static Balloon), a pulsing glow while it's active
+-- (ItemClient.IsActive: gliding, hiding under the basket, a peel or duck out), a raised white rim
+-- while you hold it, and a shake with the error sound when ItemClient.Failed says no (the gameplay
+-- side already toasts why). When the loadout changes the new slots pop in one by one; a new towel
+-- look sparkles in; a level up pops its pip in, and turning golden bursts the gold frame in.
 --
 -- Placement: ItemBarLayout (shared with the HUD, which keeps the carry banner above the bar).
 -- Without ItemClient (still starting, missing or broken) the bar stays and a tap calls the UseItem
--- remote itself. Nothing runs per frame except the sweep of a slot that is cooling down.
+-- remote itself. Nothing runs per frame except the sweep of a slot that is cooling down and the
+-- ring of a slot that is charging.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
@@ -48,11 +56,21 @@ local ItemIcon = optional("ItemIcon")
 local ItemBar = {}
 
 local WHITE = Color3.new(1, 1, 1)
+local rgb = Color3.fromRGB
 local C = Theme.Color
 local SLOTS = ItemConfig.LoadoutSize
 local LIFT = 8 -- the slot of the item you hold rises this much (reference px)
-local SWEEP_COLOR = Color3.fromRGB(24, 14, 40)
+local SWEEP_COLOR = rgb(24, 14, 40)
 local SWEEP_ALPHA = 0.36 -- the cooldown sweep's transparency
+local PIP = 9 -- a level pip (reference px)
+local PIP_GAP = 3
+local PIP_OFF = rgb(104, 84, 124)
+local GOLD_PIP = rgb(255, 214, 80)
+local GOLD_RIM = rgb(255, 200, 64) -- the max-level frame
+local GOLD_TOP, GOLD_BOTTOM = rgb(255, 244, 196), rgb(240, 186, 70) -- ...and its tile
+local CHARGE_RING = 7 -- the charge ring shows this far around the tile (reference px)
+local CHARGE_TRACK = rgb(74, 42, 94)
+local CHARGE_FILL = rgb(255, 232, 92)
 local LOUD_READY = 2 -- cooldowns at least this long (s) chime when they end; the towel's quick one doesn't
 local POLL_SIGNALLED = 1 -- seconds between safety re-reads of ItemClient (it also signals Changed)
 local POLL_UNSIGNALLED = 0.25 -- ...and without a Changed signal
@@ -89,6 +107,15 @@ type Slot = {
 	keycap: Frame,
 	keyText: TextLabel,
 	keycapQ: Frame?,
+	pips: Frame, -- the level pips' capsule
+	pipDots: { Frame },
+	goldFrame: Frame, -- the max-level frame
+	charge: Frame, -- the charge ring (behind the tile; only its edge shows)
+	chargeFill: Frame,
+	chargeR: Frame,
+	chargeL: Frame,
+	chargeGradR: UIGradient,
+	chargeGradL: UIGradient,
 	cooling: boolean,
 	untilT: number,
 	length: number,
@@ -97,6 +124,12 @@ type Slot = {
 	held: boolean,
 	shakeToken: number,
 	failedAt: number,
+	level: number,
+	levelKey: string, -- the key `level` belongs to ("-": none yet)
+	gold: boolean,
+	charging: boolean, -- the ring is up
+	chargeFull: boolean,
+	pointerPressed: boolean, -- a click / finger went down on the tile (its Activated is that press's)
 }
 
 local built = false
@@ -110,6 +143,7 @@ local nameToken = 0
 local slots = {} :: { Slot }
 local layout: any = nil
 local towelLook = ItemConfig.TowelLooks[1]
+local itemLevels = {} :: { [string]: number } -- StateView itemLevels
 local gotState = false
 local inputMode = if Theme.IsTouch then "touch" else "keys" -- "keys" | "pad" | "touch"
 local shopOpener: (() -> ())? = nil
@@ -124,6 +158,9 @@ local directBusy = {} :: { [string]: boolean }
 
 local cooling = {} :: { [Slot]: boolean }
 local coolConn: RBXScriptConnection? = nil
+local chargeWatch = {} :: { [Slot]: boolean } -- slots whose charge is read every frame (pressed, or charging)
+local chargeConn: RBXScriptConnection? = nil
+local presses = {} :: { [any]: { slot: Slot, key: string } } -- what each input that is down pressed (source -> slot)
 
 -- ---------- ItemClient, safely ----------
 
@@ -168,6 +205,29 @@ end
 local function heldKey(): string?
 	local v = if client then clientCall("Held") else nil
 	return if type(v) == "string" then v else nil
+end
+
+-- Items that charge while held (they have a `chargeSeconds` number: the Static Balloon).
+local function canCharge(key: string): boolean
+	return key ~= "" and ItemConfig.Stat(key, 0, "chargeSeconds") > 0
+end
+
+-- 0..1 while the item charges (ItemClient.Charge), else 0.
+local function chargeOf(key: string): number
+	local v = if client and key ~= "" then clientCall("Charge", key) else nil
+	return if type(v) == "number" and v == v then math.clamp(v, 0, 1) else 0
+end
+
+-- The item's upgrade level: the State's, or ItemClient.Level (the Lv_<key> attribute) when that is
+-- newer (levels only go up).
+local function levelOf(key: string): number
+	if key == "" or key == "Towel" then
+		return 0
+	end
+	local fromState = itemLevels[key]
+	local v = if client then clientCall("Level", key) else nil
+	local fromClient = if type(v) == "number" and v == v then v else 0
+	return math.max(if type(fromState) == "number" and fromState == fromState then fromState else 0, fromClient)
 end
 
 -- ---------- small helpers ----------
@@ -259,7 +319,7 @@ end
 local function setPicture(slot: Slot)
 	local key = slot.key
 	if slot.icon then
-		slot.icon:Set(if key == "" then nil else key, if key == "Towel" then towelLook else nil)
+		slot.icon:Set(if key == "" then nil else key, if key == "Towel" then towelLook else nil, slot.gold)
 	elseif slot.emoji then
 		local item = ItemConfig.Items[key]
 		slot.emoji.Text = if item then item.icon else ""
@@ -269,7 +329,10 @@ end
 local function paint(slot: Slot)
 	local key = slot.key
 	local item = if key ~= "" then ItemConfig.Items[key] else nil
-	if item then
+	if item and slot.gold then
+		slot.grad.Color = ColorSequence.new(GOLD_TOP, GOLD_BOTTOM:Lerp(item.color, 0.25))
+		slot.glow.BackgroundColor3 = GOLD_TOP
+	elseif item then
 		slot.grad.Color = ColorSequence.new(item.color:Lerp(WHITE, 0.55), item.color:Lerp(WHITE, 0.1))
 		slot.glow.BackgroundColor3 = item.color:Lerp(WHITE, 0.35)
 	else
@@ -280,19 +343,163 @@ local function paint(slot: Slot)
 	setPicture(slot)
 end
 
-local function setSweep(slot: Slot, remaining: number)
-	-- the dark part covers the clock face from (1 - remaining) of a turn round to 12 o'clock;
-	-- each half is a full-size dark tile cut by a hard-edged gradient, turned to the edge's angle
+-- One clock-face sweep: the covered part runs from (1 - remaining) of a turn round to 12 o'clock;
+-- each half is a full-size tile cut by a hard-edged gradient, turned to the edge's angle.
+local function setHalves(right: Frame, left: Frame, gradR: UIGradient, gradL: UIGradient, remaining: number)
 	local a = (1 - math.clamp(remaining, 0, 1)) * 360
 	if a < 180 then
-		slot.sweepR.Visible = true
-		slot.gradR.Rotation = a
-		slot.sweepL.Visible = true
-		slot.gradL.Rotation = 180
+		right.Visible = true
+		gradR.Rotation = a
+		left.Visible = true
+		gradL.Rotation = 180
 	else
-		slot.sweepR.Visible = false
-		slot.sweepL.Visible = a < 359.5
-		slot.gradL.Rotation = a
+		right.Visible = false
+		left.Visible = a < 359.5
+		gradL.Rotation = a
+	end
+end
+
+local function setSweep(slot: Slot, remaining: number)
+	setHalves(slot.sweepR, slot.sweepL, slot.gradR, slot.gradL, remaining)
+end
+
+-- ---------- level pips and the golden look ----------
+
+-- A gentle gold light sweep across the tile (Anim.shine; it rests while Reduce motion is on).
+local function setShimmer(slot: Slot, on: boolean)
+	local sheen = slot.tile:FindFirstChild("Sheen")
+	if on and not sheen then
+		Anim.shine(slot.tile, 3.4)
+		local s = slot.tile:FindFirstChild("Sheen")
+		if s and s:IsA("Frame") then
+			s.BackgroundColor3 = rgb(255, 248, 210)
+			s.BackgroundTransparency = 0.3 -- soft
+			s.ZIndex = 5 -- over the picture, under the seconds
+		end
+	elseif not on and sheen then
+		sheen:Destroy()
+	end
+end
+
+local function setGold(slot: Slot, on: boolean, animate: boolean)
+	if slot.gold == on then
+		return
+	end
+	slot.gold = on
+	paint(slot) -- the golden tile and the `<model>_Gold` picture
+	setShimmer(slot, on)
+	if on and animate then
+		Anim.popIn(slot.goldFrame)
+		Anim.bump(slot.tile, 1.2)
+		burst(slot, GOLD_RIM, true)
+		task.delay(0.25, function()
+			if slot.gold then
+				burst(slot, WHITE, true)
+			end
+		end)
+	else
+		slot.goldFrame.Visible = on
+	end
+end
+
+-- Shows the slot's upgrade level (pips; gold at the max level). A level up pops the new pips in.
+local function setLevel(slot: Slot, level: number, animate: boolean)
+	local key = slot.key
+	local levels = if key ~= "" and key ~= "Towel" then ItemConfig.Levels[key] else nil
+	local maxLevel = if levels then #levels else 0
+	local lv = math.clamp(math.floor(level), 0, maxLevel)
+	if slot.levelKey == key and slot.level == lv then
+		return
+	end
+	local fresh = slot.levelKey ~= key -- a new item in the slot: no level-up show
+	local before = if fresh then lv else slot.level
+	slot.levelKey, slot.level = key, lv
+	local gold = levels ~= nil and maxLevel > 0 and ItemConfig.IsGold(lv)
+	local item = ItemConfig.Items[key]
+	local on = if item then item.color:Lerp(WHITE, 0.3) else WHITE
+	slot.pips.Visible = levels ~= nil
+	for i, dot in ipairs(slot.pipDots) do
+		dot.Visible = i <= maxLevel
+		local filled = i <= lv
+		dot.BackgroundColor3 = if gold then GOLD_PIP elseif filled then on else PIP_OFF
+		if animate and not fresh and filled and i > before and not Anim.Reduced then
+			local s = Anim.scale(dot)
+			s.Scale = 0
+			Anim.tween(s, 0.4, { Scale = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out, (i - before - 1) * 0.1)
+		end
+	end
+	if animate and not fresh and lv > before then
+		Anim.bump(slot.pips, 1.35)
+	end
+	setGold(slot, gold, animate and not fresh)
+end
+
+-- ---------- the charge ring (ItemClient.Charge) ----------
+
+local function hideCharge(slot: Slot)
+	if not slot.charging then
+		return
+	end
+	slot.charging = false
+	slot.chargeFull = false
+	Anim.stop(slot.charge, "pulse")
+	Anim.scale(slot.charge).Scale = 1
+	slot.charge.Visible = false
+	slot.chargeFill.BackgroundColor3 = CHARGE_FILL
+	Anim.tween(Anim.scale(slot.picture), 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+end
+
+local function showCharge(slot: Slot, c: number)
+	if not slot.charging then
+		slot.charging = true
+		slot.charge.Visible = true
+		slot.charge.Position = tilePos(slot)
+	end
+	-- the unfilled part (the track) covers from c of a turn round to 12 o'clock
+	setHalves(slot.chargeR, slot.chargeL, slot.chargeGradR, slot.chargeGradL, 1 - c)
+	if not Anim.Reduced then
+		Anim.scale(slot.picture).Scale = 1 + 0.12 * c -- the item swells as it charges
+	end
+	if c >= 1 and not slot.chargeFull then
+		slot.chargeFull = true
+		slot.chargeFill.BackgroundColor3 = WHITE
+		Anim.pulse(slot.charge, 1.06, 0.35)
+		burst(slot, CHARGE_FILL, true)
+		UISound.Play("pop", 1.35)
+	end
+end
+
+local function stepCharge()
+	for slot in pairs(chargeWatch) do
+		local c = if canCharge(slot.key) then chargeOf(slot.key) else 0
+		if c > 0 then
+			showCharge(slot, c)
+		else
+			hideCharge(slot)
+			local pressed = false
+			for _, p in pairs(presses) do
+				if p.slot == slot then
+					pressed = true
+				end
+			end
+			if not pressed then
+				chargeWatch[slot] = nil -- (a charge started elsewhere is noticed by refreshSlot)
+			end
+		end
+	end
+	if next(chargeWatch) == nil and chargeConn then
+		chargeConn:Disconnect()
+		chargeConn = nil
+	end
+end
+
+local function watchCharge(slot: Slot)
+	if not canCharge(slot.key) then
+		return
+	end
+	chargeWatch[slot] = true
+	if not chargeConn then
+		chargeConn = RunService.RenderStepped:Connect(stepCharge)
 	end
 end
 
@@ -323,6 +530,7 @@ local function setHeld(slot: Slot, on: boolean)
 	slot.rim.Color = if on then WHITE else C.Stroke
 	slot.rim.Thickness = if on then 4.5 else 3
 	Anim.tween(slot.tile, 0.3, { Position = tilePos(slot) }, Enum.EasingStyle.Back)
+	Anim.tween(slot.charge, 0.3, { Position = tilePos(slot) }, Enum.EasingStyle.Back) -- the ring rises with it
 end
 
 -- The no-no: a quick side-to-side shake and a red rim (a sideways shake, not a turn, so the
@@ -411,14 +619,19 @@ local function startCooling(slot: Slot, untilT: number)
 	end
 end
 
--- Re-reads cooldown, active and held for a slot from ItemClient.
+-- Re-reads cooldown, active, held, charge and level for a slot from ItemClient.
 local function refreshSlot(slot: Slot)
 	local key = slot.key
 	if key == "" then
 		finishCooling(slot, false)
 		setActive(slot, false)
 		setHeld(slot, false)
+		hideCharge(slot)
 		return
+	end
+	setLevel(slot, levelOf(key), shown)
+	if not chargeWatch[slot] and canCharge(key) and chargeOf(key) > 0 then
+		watchCharge(slot) -- charging from somewhere else (a click in the world with it in hand)
 	end
 	local untilT = cooldownUntil(key)
 	if untilT > workspace:GetServerTimeNow() + 0.05 then
@@ -504,36 +717,8 @@ local function openShop()
 	end
 end
 
--- ---------- holding the towel down (ItemClient.Press / Release: it keeps cracking while held) ----------
-
-local towelPresses: { [any]: boolean } = {} -- the presses holding the towel slot down: an input's source
-
-local function canHold(): boolean
-	return client ~= nil and type(client.Press) == "function" and type(client.Release) == "function"
-end
-
-local function pressTowel(slot: Slot, source: any, fromKey: boolean)
-	if towelPresses[source] then
-		return
-	end
-	towelPresses[source] = true
-	if fromKey then
-		Anim.bump(slot.tile, 0.88)
-	end
-	if slot.cooling then
-		Anim.bump(slot.seconds, 1.3) -- it starts snapping as soon as it's ready
-	end
-	clientCall("Press", "Towel", source)
-	task.defer(refreshKey, "Towel")
-end
-
-local function releaseTowel(source: any)
-	if towelPresses[source] then
-		towelPresses[source] = nil
-		clientCall("Release", "Towel", source)
-	end
-end
-
+-- One quick use (no ItemClient.Press: an older or missing engine; a slot activated without a press,
+-- like a gamepad's UI selection). Nothing while it cools down.
 local function useSlot(slot: Slot, fromKey: boolean)
 	if not built then
 		return
@@ -558,6 +743,57 @@ local function useSlot(slot: Slot, fromKey: boolean)
 	task.defer(refreshKey, slot.key) -- (ItemClient.Changed usually beats this)
 end
 
+-- ---------- pressing and letting go (ItemClient.Press / Release, every slot) ----------
+
+local function canPress(): boolean
+	return client ~= nil and type(client.Press) == "function" and type(client.Release) == "function"
+end
+
+-- An input went down on a slot. ItemClient decides what it does - even while the slot cools down
+-- (the towel snaps as soon as it's ready, a dash may still have an air dash), so a cooling slot
+-- only nudges its seconds.
+local function pressSlot(slot: Slot, source: any, fromKey: boolean)
+	if not built or presses[source] then
+		return
+	end
+	local key = slot.key
+	if key == "" then
+		useSlot(slot, fromKey) -- the "+": the Item Shop
+		return
+	end
+	presses[source] = { slot = slot, key = key }
+	if fromKey then
+		Anim.bump(slot.tile, 0.88) -- (taps get Anim.button's press springs)
+	end
+	if slot.cooling then
+		Anim.bump(slot.seconds, 1.3)
+	end
+	clientCall("Press", key, source)
+	watchCharge(slot)
+	task.defer(refreshKey, key) -- (ItemClient.Changed usually beats this)
+end
+
+-- That input came up (anywhere: a finger may have slid off the slot): the item it pressed lets go.
+local function releaseSource(source: any)
+	local p = presses[source]
+	if not p then
+		return
+	end
+	presses[source] = nil
+	clientCall("Release", p.key, source)
+	task.defer(refreshKey, p.key)
+end
+
+local function releaseAll()
+	local sources = {}
+	for source in pairs(presses) do
+		table.insert(sources, source)
+	end
+	for _, source in ipairs(sources) do
+		releaseSource(source)
+	end
+end
+
 -- ---------- building ----------
 
 local function keycap(parent: Instance, text: string, right: boolean): (Frame, TextLabel)
@@ -577,7 +813,7 @@ local function keycap(parent: Instance, text: string, right: boolean): (Frame, T
 	return cap, t
 end
 
-local function sweepHalf(sweep: Frame, right: boolean, radius: number): (Frame, UIGradient)
+local function sweepHalf(sweep: Frame, right: boolean, radius: number, color: Color3?, alpha: number?): (Frame, UIGradient)
 	local clip = Instance.new("Frame")
 	clip.Name = if right then "Right" else "Left"
 	clip.BackgroundTransparency = 1
@@ -587,8 +823,8 @@ local function sweepHalf(sweep: Frame, right: boolean, radius: number): (Frame, 
 	clip.Parent = sweep
 	local dark = Instance.new("Frame")
 	dark.Name = "Dark"
-	dark.BackgroundColor3 = SWEEP_COLOR
-	dark.BackgroundTransparency = SWEEP_ALPHA
+	dark.BackgroundColor3 = color or SWEEP_COLOR
+	dark.BackgroundTransparency = alpha or SWEEP_ALPHA
 	dark.BorderSizePixel = 0
 	dark.Position = UDim2.fromScale(if right then -1 else 0, 0)
 	dark.Size = UDim2.fromScale(2, 1)
@@ -626,6 +862,32 @@ local function buildSlot(index: number, size: number): Slot
 	Theme.corner(glow, radius + 8)
 	Theme.stroke(glow, WHITE, 3, 0.15)
 	glow.Parent = holder
+
+	-- the charge ring: a bright rounded square behind the tile, so only a band round its edge shows;
+	-- an opaque track (two half sweeps, like the cooldown) covers the part not charged yet
+	local charge = Instance.new("Frame")
+	charge.Name = "Charge"
+	charge.AnchorPoint = Vector2.new(0.5, 0.5)
+	charge.Position = UDim2.fromScale(0.5, 0.5)
+	charge.Size = UDim2.new(1, 2 * CHARGE_RING, 1, 2 * CHARGE_RING)
+	charge.BackgroundTransparency = 1
+	charge.Visible = false
+	charge.Parent = holder
+	local chargeFill = Instance.new("Frame")
+	chargeFill.Name = "Fill"
+	chargeFill.Size = UDim2.fromScale(1, 1)
+	chargeFill.BackgroundColor3 = CHARGE_FILL
+	chargeFill.BorderSizePixel = 0
+	Theme.corner(chargeFill, radius + CHARGE_RING)
+	chargeFill.Parent = charge
+	local track = Instance.new("Frame")
+	track.Name = "Track"
+	track.BackgroundTransparency = 1
+	track.Size = UDim2.fromScale(1, 1)
+	track.ZIndex = 2
+	track.Parent = charge
+	local chargeR, chargeGradR = sweepHalf(track, true, radius + CHARGE_RING, CHARGE_TRACK, 0)
+	local chargeL, chargeGradL = sweepHalf(track, false, radius + CHARGE_RING, CHARGE_TRACK, 0)
 
 	local tile = Instance.new("TextButton")
 	tile.Name = "Tile"
@@ -692,6 +954,52 @@ local function buildSlot(index: number, size: number): Slot
 		capQ = keycap(tile, "Q", true)
 	end
 
+	-- the max-level frame: a gold band just inside the plum rim
+	local goldFrame = Instance.new("Frame")
+	goldFrame.Name = "Gold"
+	goldFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	goldFrame.Position = UDim2.fromScale(0.5, 0.5)
+	goldFrame.Size = UDim2.new(1, -8, 1, -8)
+	goldFrame.BackgroundTransparency = 1
+	goldFrame.ZIndex = 3
+	goldFrame.Visible = false
+	Theme.corner(goldFrame, radius - 4)
+	local goldStroke = Theme.stroke(goldFrame, GOLD_RIM, 3.5)
+	local goldShade = Instance.new("UIGradient") -- a light top edge, a deeper bottom one
+	goldShade.Color = ColorSequence.new(WHITE, rgb(214, 190, 150))
+	goldShade.Rotation = 90
+	goldShade.Parent = goldStroke
+	goldFrame.Parent = tile
+
+	-- the upgrade level: up to ItemConfig.MaxLevel pips in a little capsule along the bottom
+	local maxPips = ItemConfig.MaxLevel
+	local pips = Instance.new("Frame")
+	pips.Name = "Level"
+	pips.AnchorPoint = Vector2.new(0.5, 1)
+	pips.Position = UDim2.new(0.5, 0, 1, -3)
+	pips.Size = UDim2.fromOffset(maxPips * PIP + (maxPips - 1) * PIP_GAP + 8, PIP + 6)
+	pips.BackgroundColor3 = C.Ink
+	pips.BackgroundTransparency = 0.3
+	pips.BorderSizePixel = 0
+	pips.ZIndex = 7
+	pips.Visible = false
+	Theme.corner(pips, UDim.new(0.5, 0))
+	pips.Parent = tile
+	local pipDots = {}
+	for i = 1, maxPips do
+		local dot = Instance.new("Frame")
+		dot.Name = "Pip" .. i
+		dot.AnchorPoint = Vector2.new(0.5, 0.5)
+		dot.Position = UDim2.fromOffset(4 + (i - 1) * (PIP + PIP_GAP) + PIP / 2, 3 + PIP / 2)
+		dot.Size = UDim2.fromOffset(PIP, PIP)
+		dot.BackgroundColor3 = PIP_OFF
+		dot.BorderSizePixel = 0
+		dot.ZIndex = 8
+		Theme.corner(dot, UDim.new(0.5, 0))
+		dot.Parent = pips
+		table.insert(pipDots, dot)
+	end
+
 	local slot: Slot = {
 		index = index,
 		key = "",
@@ -715,6 +1023,15 @@ local function buildSlot(index: number, size: number): Slot
 		keycap = cap,
 		keyText = capText,
 		keycapQ = capQ,
+		pips = pips,
+		pipDots = pipDots,
+		goldFrame = goldFrame,
+		charge = charge,
+		chargeFill = chargeFill,
+		chargeR = chargeR,
+		chargeL = chargeL,
+		chargeGradR = chargeGradR,
+		chargeGradL = chargeGradL,
 		cooling = false,
 		untilT = 0,
 		length = 1,
@@ -723,19 +1040,35 @@ local function buildSlot(index: number, size: number): Slot
 		held = false,
 		shakeToken = 0,
 		failedAt = -10,
+		level = 0,
+		levelKey = "-",
+		gold = false,
+		charging = false,
+		chargeFull = false,
+		pointerPressed = false,
 	}
 	Anim.button(tile, "none") -- press springs; using an item makes its own sounds (ItemFX)
 	tile.Activated:Connect(function()
-		if slot.key == "Towel" and canHold() then
-			return -- the towel goes down on the press (InputBegan) and keeps snapping while held
+		if slot.pointerPressed then
+			slot.pointerPressed = false
+			return -- it went down on the press (InputBegan) and comes up when that input ends
 		end
-		useSlot(slot, false)
+		useSlot(slot, false) -- the "+", no ItemClient.Press, or an activation without a press
 	end)
 	tile.InputBegan:Connect(function(input)
 		local kind = input.UserInputType
-		if slot.key == "Towel" and built and canHold() and (kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch) then
-			pressTowel(slot, if kind == Enum.UserInputType.Touch then input else "mouse", false)
+		if kind ~= Enum.UserInputType.MouseButton1 and kind ~= Enum.UserInputType.Touch then
+			return
 		end
+		if not built or slot.key == "" or not canPress() then
+			return -- (the tile's Activated handles it)
+		end
+		local source = if kind == Enum.UserInputType.Touch then input else "mouse"
+		if source == "mouse" then
+			releaseSource("mouse") -- a click whose button-up got lost
+		end
+		slot.pointerPressed = true
+		pressSlot(slot, source, false)
 	end)
 	if not Theme.IsTouch then
 		tile.MouseEnter:Connect(function()
@@ -929,22 +1262,26 @@ function ItemBar.Init(itemClient: any?)
 		-- position in `slots` (1 = the towel)
 		local at = if code == TOWEL_KEY then 1 else (table.find(NUMBER_KEYS, code) or table.find(KEYPAD_KEYS, code) or table.find(PAD_KEYS, code))
 		local slot = if at then slots[at] else nil
-		if slot and slot.key == "Towel" and built and canHold() then
-			pressTowel(slot, code, true) -- held: keeps snapping
+		if slot and slot.key ~= "" and canPress() then
+			pressSlot(slot, code, true) -- down now, up when the key comes up
 		elseif slot then
 			useSlot(slot, true)
 		end
 	end)
-	-- let go of the towel (a key, the mouse anywhere, a finger anywhere: it may have slid off the slot)
+	-- letting go (a key, the mouse anywhere, a finger anywhere: it may have slid off the slot)
 	UserInputService.InputEnded:Connect(function(input)
 		local kind = input.UserInputType
 		if kind == Enum.UserInputType.MouseButton1 then
-			releaseTowel("mouse")
+			releaseSource("mouse")
 		elseif kind == Enum.UserInputType.Touch then
-			releaseTowel(input)
+			releaseSource(input)
 		else
-			releaseTowel(input.KeyCode)
+			releaseSource(input.KeyCode)
 		end
+	end)
+	-- the window lost focus: its key-ups won't come, so let go of everything now
+	pcall(function()
+		UserInputService.WindowFocusReleased:Connect(releaseAll)
 	end)
 	UserInputService.LastInputTypeChanged:Connect(function(inputType)
 		local mode = modeFor(inputType)
@@ -1014,6 +1351,7 @@ function ItemBar.SetState(state)
 	end
 	local animate = gotState and shown
 	gotState = true
+	itemLevels = if type(state.itemLevels) == "table" then state.itemLevels else {}
 	local look = if type(state.towelLook) == "string" and state.towelLook ~= "" then state.towelLook else ItemConfig.TowelLooks[1]
 	if look ~= towelLook then
 		towelLook = look
@@ -1038,6 +1376,9 @@ function ItemBar.SetState(state)
 			finishCooling(slot, false)
 			setActive(slot, false)
 			setHeld(slot, false)
+			hideCharge(slot)
+			chargeWatch[slot] = nil
+			setLevel(slot, levelOf(key), false) -- (repaints when the golden look changes)
 			paint(slot)
 			refreshSlot(slot)
 			if animate then
@@ -1054,6 +1395,8 @@ function ItemBar.SetState(state)
 					end)
 				end
 			end
+		else
+			setLevel(slot, levelOf(key), animate) -- an upgrade: the pip pops in (and the golden look bursts in)
 		end
 	end
 	show()
