@@ -1,10 +1,16 @@
 -- ItemRig: procedural character animation for the item bar, on every client for every player
 -- (ItemFX asks for it). Nothing here is an animation asset and nothing replicates:
---   * body moves (swing, throw, place, shoot, spray, zap, dash, slip, tumble, float, glide, sleepy,
---     static) are written into the character's Motor6D.Transform on RunService.Stepped, which runs
+--   * body moves (swing and its combo finisher, place, shoot, spray, zap, dash, slip, tumble, float,
+--     dive / land (the glide slam), pounce, bowl (sliding on a peel), startle (a honk), cheer (an
+--     upgrade), nap, and the persistent glide, sleepy, static, charge (rubbing the balloon)) are
+--     written into the character's Motor6D.Transform on RunService.Stepped, which runs
 --     AFTER the Animator each frame: our rotation is laid on top of whatever the default Animate
 --     script plays (walk, idle, toolnone), so the two never fight; when a move ends we stop writing
 --     and the Animator's own pose is back the next frame (or we put back the last one it wrote).
+--     Every move has an anticipation (a small wind-up the other way) and a follow-through (an
+--     overshoot that settles), so it reads from far away.
+--   * the rigs run on their own clock, which big moments slow down or freeze for a hit-stop
+--     (SetTimeScale; ItemMoments drives it) - only on this client, only the look.
 --   * the Towel Snap is an overhead crack: the towel goes up and back over the shoulder and is
 --     lashed down in front. Holding the button keeps it going: after each crack the arm lifts the
 --     towel back over the shoulder and the next crack comes as soon as the cooldown allows
@@ -16,8 +22,10 @@
 -- Poses are rotations in the character's own axes (x right, y up, z back) about each joint, so R15
 -- and R6 share every move (R6 has no elbows / waist: the waist folds into the root).
 -- API: ItemRig.Play(character, kind, data?), ItemRig.Stop(character, kind), ItemRig.Has(character, kind),
---      ItemRig.SetWhipHold(character, on, seconds?),
+--      ItemRig.SetWhipHold(character, on, seconds?), ItemRig.SetTimeScale(scale),
 --      ItemRig.SetReduced(on), ItemRig.Count() -> active rigs (tests)
+--      (swing data: { finisher = true } = the combo finisher: a high wind-up, a wide lash across
+--      with a body twist; charge data: { on, charge = 0..1 })
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
@@ -33,6 +41,13 @@ local WIND = 0.12 -- swing: wind-up seconds; the crack comes ~0.1 s later (ItemF
 local DROOP = 0.2 -- radians per towel segment at rest (the towel hangs from the hand)
 local LIFT = 0.32 -- swing: when the follow-through ends and, while held, the arm lifts the towel again
 local HELD_ARM = -0.5 -- radians the arm rests lower than Roblox's "holding a tool" pose
+-- the combo finisher: a longer, higher wind-up and a later crack (ItemFX.CRACK_FINISHER = 0.32)
+local WIND_F = 0.2
+local CRACK_F = 0.32
+local LIFT_F = 0.44
+
+local clock = os.clock() -- the rigs' own time: real time, slowed or frozen by big moments
+local timeScale = 1
 
 -- ---------- small maths ----------
 
@@ -87,8 +102,9 @@ type Rig = {
 	towelLook: any,
 	towelBuilt: number,
 	towelSegs: { TowelSeg },
-	towelSwing: number, -- os.clock() of the last swing (0 = none)
+	towelSwing: number, -- the rigs' clock at the last swing (0 = none)
 	towelChained: boolean, -- that swing started with the towel already up (a held loop)
+	towelFinisher: boolean, -- that swing is the combo finisher (a bigger whip)
 	whipHoldUntil: number, -- os.clock() until which the towel button counts as held (0 = not)
 	holdW: number, -- 0..1, eased toward "held": lifts the towel again after a crack
 	idleW: number, -- 0..1, eased toward "holding the towel, not swinging": the lowered arm
@@ -156,6 +172,7 @@ local function getRig(character: Model): Rig
 			towelSegs = {},
 			towelSwing = 0,
 			towelChained = false,
+			towelFinisher = false,
 			whipHoldUntil = 0,
 			holdW = 0,
 			idleW = 0,
@@ -181,36 +198,53 @@ local MOVES: { [string]: (pose: Pose, t: number, layer: Layer, rig: Rig) -> () }
 -- the Towel Snap: an overhead crack. Up and back over the shoulder, lashed down in front, a
 -- follow-through; then either back to the hold (let go) or up over the shoulder again (held: the
 -- next swing of the loop starts from there, `chain`). Rotations about x raise the arm forward/up.
+-- The combo finisher (data.finisher) winds up higher with the shoulders turned away, then lashes
+-- wide across the body with a twist through the waist and hips, and holds the follow-through.
 local SWING_UP = { RShoulder = Vector3.new(2.2, -0.25, 0.3), RElbow = Vector3.new(1.05, 0, 0), LShoulder = Vector3.new(0.3, 0, 0), Waist = Vector3.new(0.14, -0.2, 0), Neck = Vector3.new(0.1, -0.08, 0) }
 local SWING_DOWN = { RShoulder = Vector3.new(-1.0, 0.25, -0.15), RElbow = Vector3.new(0, 0, 0), LShoulder = Vector3.new(-0.25, 0, 0), Waist = Vector3.new(-0.2, 0.18, 0), Neck = Vector3.new(-0.12, 0.08, 0) }
 local SWING_FOLLOW = { RShoulder = Vector3.new(-0.75, 0.15, -0.1), RElbow = Vector3.new(0.25, 0, 0), LShoulder = Vector3.new(-0.1, 0, 0), Waist = Vector3.new(-0.1, 0.1, 0), Neck = Vector3.new(-0.05, 0.04, 0) }
+local FIN_UP = { RShoulder = Vector3.new(2.75, 0.55, 0.5), RElbow = Vector3.new(1.2, 0, 0), LShoulder = Vector3.new(0.7, 0, -0.35), Waist = Vector3.new(0.2, 0.55, 0), Neck = Vector3.new(0.14, -0.3, 0), Root = Vector3.new(0, 0.18, 0) }
+local FIN_DOWN = { RShoulder = Vector3.new(-0.85, -0.8, -0.25), RElbow = Vector3.new(0.05, 0, 0), LShoulder = Vector3.new(-0.45, 0, 0.3), Waist = Vector3.new(-0.28, -0.55, 0), Neck = Vector3.new(-0.15, 0.25, 0), Root = Vector3.new(0, -0.2, 0) }
+local FIN_FOLLOW = { RShoulder = Vector3.new(-0.7, -0.55, -0.1), RElbow = Vector3.new(0.3, 0, 0), LShoulder = Vector3.new(-0.15, 0, 0.12), Waist = Vector3.new(-0.12, -0.32, 0), Neck = Vector3.new(-0.06, 0.12, 0), Root = Vector3.new(0, -0.08, 0) }
+local ZERO = Vector3.zero
 
 MOVES.swing = function(pose, t, layer, rig)
 	local chain = layer.data.chain == true
-	for joint, up in pairs(SWING_UP) do
-		local down, follow = SWING_DOWN[joint], SWING_FOLLOW[joint]
+	local fin = layer.data.finisher == true
+	local upT, downT, followT = SWING_UP, SWING_DOWN, SWING_FOLLOW
+	local wind, crack, lift = WIND, 0.22, LIFT
+	if fin then
+		upT, downT, followT = FIN_UP, FIN_DOWN, FIN_FOLLOW
+		wind, crack, lift = WIND_F, CRACK_F, LIFT_F
+	end
+	for joint, up in pairs(upT) do
+		local down, follow = downT[joint] or ZERO, followT[joint] or ZERO
+		local plainUp = SWING_UP[joint] or ZERO
 		local v: Vector3
-		if t < WIND then
-			v = if chain then up else up * ease(t / WIND) -- a held loop is already up there
-		elseif t < 0.22 then
-			v = up:Lerp(down, ease((t - WIND) / (0.22 - WIND))) -- the lash: the crack lands at 0.22
-		elseif t < LIFT then
-			v = down:Lerp(follow, ease((t - 0.22) / (LIFT - 0.22)))
+		if t < wind then
+			-- a held loop is already up there (the finisher rises from the plain hold to its own)
+			local from = if chain then plainUp else ZERO
+			v = from:Lerp(up, ease(t / wind))
+		elseif t < crack then
+			v = up:Lerp(down, ease((t - wind) / (crack - wind))) -- the lash: the crack lands at `crack`
+		elseif t < lift then
+			v = down:Lerp(follow, ease((t - crack) / (lift - crack)))
 		else
 			-- let go: settle back to the hold; held: lift it over the shoulder again for the next crack
-			local rest = follow * (1 - ease((t - LIFT) / 0.25))
-			local again = follow:Lerp(up, ease((t - LIFT) / 0.55))
+			local rest = follow * (1 - ease((t - lift) / 0.25))
+			local again = follow:Lerp(plainUp, ease((t - lift) / 0.55))
 			v = rest:Lerp(again, rig.holdW)
 		end
 		add(pose, joint, v.X, v.Y, v.Z)
 	end
 end
 
--- drop a peel / set the duck down: bend, reach down, come back up
+-- drop a peel / set the duck down: a little lift first, bend and reach down, back up past the
+-- start and settle
 MOVES.place = function(pose, t)
-	local bend = keys(t, { { 0, 0 }, { 0.2, -0.45 }, { 0.32, -0.45 }, { 0.6, 0 } })
+	local bend = keys(t, { { 0, 0 }, { 0.08, 0.06 }, { 0.24, -0.5 }, { 0.36, -0.5 }, { 0.55, 0.05 }, { 0.68, 0 } })
 	add(pose, "Waist", bend, 0, 0)
-	add(pose, "RShoulder", keys(t, { { 0, 0 }, { 0.2, -0.95 }, { 0.32, -0.95 }, { 0.6, 0 } }), 0, 0)
+	add(pose, "RShoulder", keys(t, { { 0, 0 }, { 0.08, 0.35 }, { 0.24, -1.0 }, { 0.36, -1.0 }, { 0.55, 0.12 }, { 0.68, 0 } }), 0, 0)
 	add(pose, "Neck", bend * 0.6, 0, 0)
 	add(pose, "RHip", -bend * 0.5, 0, 0)
 	add(pose, "LHip", -bend * 0.5, 0, 0)
@@ -218,35 +252,47 @@ MOVES.place = function(pose, t)
 	add(pose, "LKnee", bend * 0.9, 0, 0)
 end
 
--- Bubble Blaster: the other hand steadies it, a little recoil
+-- Bubble Blaster: aim (pulled back a touch), the other hand steadies it, a recoil kick, settle
 MOVES.shoot = function(pose, t)
-	add(pose, "RShoulder", keys(t, { { 0, 0 }, { 0.05, 0.3 }, { 0.2, 0.05 }, { 0.42, 0 } }), 0, 0)
-	add(pose, "LShoulder", keys(t, { { 0, 0 }, { 0.08, 1.25 }, { 0.3, 1.25 }, { 0.42, 0 } }), 0, keys(t, { { 0, 0 }, { 0.08, -0.55 }, { 0.3, -0.55 }, { 0.42, 0 } }))
-	add(pose, "Waist", 0, keys(t, { { 0, 0 }, { 0.08, 0.18 }, { 0.42, 0 } }), 0)
-	add(pose, "Root", keys(t, { { 0, 0 }, { 0.05, 0.06 }, { 0.25, 0 } }), 0, 0)
+	add(pose, "RShoulder", keys(t, { { 0, 0 }, { 0.06, -0.12 }, { 0.1, 0.4 }, { 0.24, 0.02 }, { 0.32, 0.08 }, { 0.46, 0 } }), 0, 0)
+	add(pose, "LShoulder", keys(t, { { 0, 0 }, { 0.08, 1.25 }, { 0.32, 1.25 }, { 0.46, 0 } }), 0, keys(t, { { 0, 0 }, { 0.08, -0.55 }, { 0.32, -0.55 }, { 0.46, 0 } }))
+	add(pose, "Waist", keys(t, { { 0, 0 }, { 0.06, -0.05 }, { 0.12, 0.08 }, { 0.46, 0 } }), keys(t, { { 0, 0 }, { 0.08, 0.18 }, { 0.46, 0 } }), 0)
+	add(pose, "Root", keys(t, { { 0, 0 }, { 0.06, -0.03 }, { 0.1, 0.08 }, { 0.28, 0 } }), 0, 0)
 end
 
--- Softener Cloud: a few quick trigger pumps
+-- Softener Cloud: a squeeze to aim, a few quick trigger pumps, a little shake-out
 MOVES.spray = function(pose, t, layer)
 	local fade = 1 - ease((t - layer.dur + 0.2) / 0.2)
 	local pump = math.abs(sin(t * 22)) * 0.14 * fade
-	add(pose, "RShoulder", (0.2 + pump) * min(t / 0.08, 1) * fade, 0, 0)
+	local squeeze = keys(t, { { 0, 0 }, { 0.07, -0.12 }, { 0.14, 0 } })
+	add(pose, "RShoulder", (0.2 + pump) * min(t / 0.08, 1) * fade + squeeze, 0, 0)
 	add(pose, "Waist", 0, 0.12 * sin(t * 6) * fade, 0)
+	add(pose, "RElbow", squeeze * -1.5, 0, 0)
 end
 
--- Static Balloon: thrust it up - ZAP - then rub it on your head, crackling
-MOVES.zap = function(pose, t)
+-- Static Balloon: a crouch, thrust it up - ZAP - then rub it on your head, crackling.
+-- data.charge (0..1): how charged it was (a fuller charge = a bigger thrust)
+MOVES.zap = function(pose, t, layer)
+	local c = 0.7 + 0.3 * (layer.data.charge or 0)
 	local rub = if t > 0.25 and t < 0.75 then sin(t * 40) * 0.3 * bump((t - 0.25) / 0.5) else 0
-	add(pose, "RShoulder", keys(t, { { 0, 0 }, { 0.1, 2.3 }, { 0.25, 2.3 }, { 0.35, 1.5 }, { 0.75, 1.5 }, { 1.0, 0 } }), rub, keys(t, { { 0, 0 }, { 0.25, 0 }, { 0.35, -0.55 }, { 0.75, -0.55 }, { 1.0, 0 } }))
+	add(pose, "RShoulder", keys(t, { { 0, 0 }, { 0.05, -0.2 }, { 0.12, 2.4 * c }, { 0.25, 2.3 * c }, { 0.35, 1.5 }, { 0.75, 1.5 }, { 1.0, 0 } }), rub, keys(t, { { 0, 0 }, { 0.25, 0 }, { 0.35, -0.55 }, { 0.75, -0.55 }, { 1.0, 0 } }))
 	add(pose, "RElbow", keys(t, { { 0, 0 }, { 0.25, 0 }, { 0.35, 1.3 }, { 0.75, 1.3 }, { 1.0, 0 } }), 0, 0)
-	add(pose, "Neck", 0, rub * 0.5, 0)
-	add(pose, "Root", 0, 0, if t > 0.05 and t < 0.3 then sin(t * 60) * 0.05 else 0) -- a little shiver
+	add(pose, "Neck", keys(t, { { 0, 0 }, { 0.05, -0.1 }, { 0.12, 0.15 }, { 0.3, 0 } }), rub * 0.5, 0)
+	local crouch = keys(t, { { 0, 0 }, { 0.05, -0.35 }, { 0.12, 0.05 }, { 0.25, 0 } })
+	add(pose, "RKnee", crouch, 0, 0)
+	add(pose, "LKnee", crouch, 0, 0)
+	add(pose, "RHip", -crouch * 0.5, 0, 0)
+	add(pose, "LHip", -crouch * 0.5, 0, 0)
+	add(pose, "Root", 0, 0, if t > 0.05 and t < 0.3 then sin(t * 60) * 0.05 * c else 0) -- a little shiver
 end
 
--- Slipper Dash: lean in, arms back, a long stride
+-- Slipper Dash: a quick lean back, then lean in, arms back, a long stride; a skid at the end
 MOVES.dash = function(pose, t, layer)
-	local k = bump(t / layer.dur)
-	add(pose, "Root", -0.35 * k, 0, 0)
+	local u = t / layer.dur
+	local k = bump(u)
+	local antic = keys(t, { { 0, 0 }, { 0.04, 0.12 }, { 0.08, 0 } })
+	local skid = keys(u, { { 0, 0 }, { 0.75, 0 }, { 0.88, 0.12 }, { 1, 0 } })
+	add(pose, "Root", -0.35 * k + antic + skid, 0, 0)
 	add(pose, "RShoulder", -0.9 * k, 0, 0.15 * k)
 	add(pose, "LShoulder", -0.9 * k, 0, -0.15 * k)
 	add(pose, "RHip", 0.6 * k, 0, 0)
@@ -317,10 +363,113 @@ MOVES.static = function(pose, t, layer)
 	add(pose, "LShoulder", 0, 0, -0.12 * k)
 end
 
+-- Static Balloon held down: rubbing the balloon on your head, faster and buzzier as it charges
+-- (data.charge 0..1)
+MOVES.charge = function(pose, t, layer)
+	local k = layer.data.w or 0
+	local c = clamp(layer.data.charge or 0, 0, 1)
+	local rub = sin(t * (18 + 14 * c)) * (0.18 + 0.2 * c) * k
+	add(pose, "RShoulder", 1.9 * k, rub, -0.35 * k)
+	add(pose, "RElbow", 1.25 * k, 0, 0)
+	add(pose, "Neck", -0.12 * k, rub * 0.4, 0.06 * sin(t * 9) * k)
+	add(pose, "LShoulder", 0.35 * k, 0, -0.2 * k)
+	add(pose, "Root", 0, 0, (if c > 0.6 then sin(t * 55) * 0.03 * (c - 0.6) / 0.4 else 0) * k) -- buzzing when full
+end
+
+-- the glide slam, on the way down: a quick tuck, then bottom-first with the arms up
+MOVES.dive = function(pose, t, layer)
+	local k = keys(t, { { 0, 0 }, { 0.08, 1 } }) * clamp((layer.dur - t) / 0.15, 0, 1)
+	local tuck = keys(t, { { 0, 0 }, { 0.06, 1.3 }, { 0.16, 0.9 } })
+	add(pose, "RShoulder", 2.8 * k, 0, 0.35 * k)
+	add(pose, "LShoulder", 2.8 * k, 0, -0.35 * k)
+	add(pose, "RHip", tuck * k, 0, 0)
+	add(pose, "LHip", tuck * k, 0, 0)
+	add(pose, "RKnee", -1.2 * k, 0, 0)
+	add(pose, "LKnee", -1.2 * k, 0, 0)
+	add(pose, "Root", -0.2 * k, 0, 0)
+end
+
+-- the slam lands: a deep squat with the arms flung out, then up again
+MOVES.land = function(pose, t)
+	local s = keys(t, { { 0, 0 }, { 0.05, 1 }, { 0.2, 0.8 }, { 0.5, 0 } })
+	add(pose, "RHip", 0.7 * s, 0, 0)
+	add(pose, "LHip", 0.7 * s, 0, 0)
+	add(pose, "RKnee", -1.1 * s, 0, 0)
+	add(pose, "LKnee", -1.1 * s, 0, 0)
+	add(pose, "Waist", -0.25 * s, 0, 0)
+	add(pose, "RShoulder", 0.4 * s, 0, 1.0 * s)
+	add(pose, "LShoulder", 0.4 * s, 0, -1.0 * s)
+	add(pose, "Neck", -0.15 * s, 0, 0)
+end
+
+-- out of the Laundry Basket with a pounce: crouch, spring up with the arms out, land
+MOVES.pounce = function(pose, t)
+	local crouch = keys(t, { { 0, 0 }, { 0.12, 1 }, { 0.2, 0 }, { 0.55, 0 }, { 0.62, 0.5 }, { 0.75, 0 } })
+	local spring = keys(t, { { 0, 0 }, { 0.12, 0 }, { 0.22, 1 }, { 0.45, 0.9 }, { 0.6, 0 } })
+	add(pose, "RHip", 0.8 * crouch - 0.2 * spring, 0, 0)
+	add(pose, "LHip", 0.8 * crouch - 0.2 * spring, 0, 0)
+	add(pose, "RKnee", -1.2 * crouch, 0, 0)
+	add(pose, "LKnee", -1.2 * crouch, 0, 0)
+	add(pose, "RShoulder", -0.6 * crouch + 2.7 * spring, 0, 0.6 * spring)
+	add(pose, "LShoulder", -0.6 * crouch + 2.7 * spring, 0, -0.6 * spring)
+	add(pose, "Waist", -0.3 * crouch + 0.15 * spring, 0, 0)
+	add(pose, "Root", -0.1 * crouch - 0.12 * spring, 0, 0)
+end
+
+-- bowled over by a sliding peel-slipper: sliding along on your bottom, arms windmilling
+MOVES.bowl = function(pose, t, layer)
+	local d = layer.dur
+	local k = keys(t, { { 0, 0 }, { 0.12, 1 }, { d - 0.25, 1 }, { d, 0 } })
+	local lean = if reduced then 0.45 else 0.85
+	add(pose, "Root", lean * k, 0, 0.12 * sin(t * 9) * k)
+	add(pose, "RHip", 1.3 * k, 0, 0)
+	add(pose, "LHip", 1.1 * k, 0, 0)
+	add(pose, "RShoulder", (1.8 + 0.5 * sin(t * 16)) * k, 0, 0.5 * k)
+	add(pose, "LShoulder", (1.8 + 0.5 * sin(t * 16 + PI)) * k, 0, -0.5 * k)
+end
+
+-- honked at by a duck: a jump of fright
+MOVES.startle = function(pose, t)
+	local s = keys(t, { { 0, 0 }, { 0.06, 1 }, { 0.2, 0.8 }, { 0.45, 0 } })
+	add(pose, "RShoulder", 1.6 * s, 0, 0.7 * s)
+	add(pose, "LShoulder", 1.6 * s, 0, -0.7 * s)
+	add(pose, "Neck", 0.3 * s, 0, 0)
+	add(pose, "Waist", 0.12 * s, 0, 0)
+	add(pose, "Root", -0.06 * s, 0, 0)
+end
+
+-- an item upgraded: hold it up high and give it a shake, with a little hop
+MOVES.cheer = function(pose, t)
+	local up = keys(t, { { 0, 0 }, { 0.08, -0.2 }, { 0.22, 2.6 }, { 0.6, 2.6 }, { 0.8, 0 } })
+	local b = bump(t / 0.8)
+	add(pose, "RShoulder", up, 0, 0.2 * sin(t * 30) * b)
+	add(pose, "LShoulder", up * 0.5, 0, -0.4 * b)
+	add(pose, "Neck", 0.2 * b, 0, 0)
+	local hop = keys(t, { { 0, 0 }, { 0.1, 0.35 }, { 0.22, 0 } })
+	add(pose, "RKnee", -hop, 0, 0)
+	add(pose, "LKnee", -hop, 0, 0)
+end
+
+-- the Softener Cloud's nap: nodding off where you stand
+MOVES.nap = function(pose, t, layer)
+	local d = layer.dur
+	local k = keys(t, { { 0, 0 }, { 0.35, 1 }, { d - 0.25, 1 }, { d, 0 } })
+	local bob = 0.1 * sin(t * 2.4)
+	add(pose, "Neck", (-0.65 + bob) * k, 0, 0.18 * k)
+	add(pose, "Waist", -0.25 * k, 0, 0.05 * k)
+	add(pose, "RShoulder", -0.15 * k, 0, -0.1 * k)
+	add(pose, "LShoulder", -0.15 * k, 0, 0.1 * k)
+	add(pose, "RKnee", -0.25 * k, 0, 0)
+	add(pose, "LKnee", -0.25 * k, 0, 0)
+	add(pose, "Root", 0, 0, 0.05 * sin(t * 1.2) * k)
+end
+
 local DURATION: { [string]: number } = {
-	swing = LIFT + 0.25, place = 0.6, shoot = 0.42, spray = 0.75, zap = 1.0, dash = 0.35, tumble = 0.8, slip = 1.2, float = 2,
+	swing = LIFT + 0.25, place = 0.68, shoot = 0.46, spray = 0.75, zap = 1.0, dash = 0.35, tumble = 0.8, slip = 1.2, float = 2,
+	dive = 1.0, land = 0.5, pounce = 0.75, bowl = 0.9, startle = 0.45, cheer = 0.8, nap = 1.5,
 }
-local PERSISTENT: { [string]: boolean } = { glide = true, sleepy = true, static = true }
+local FINISHER_DUR = LIFT_F + 0.3
+local PERSISTENT: { [string]: boolean } = { glide = true, sleepy = true, static = true, charge = true }
 
 -- ---------- writing joints ----------
 
@@ -399,21 +548,26 @@ local function curledOf(i: number): number
 end
 
 -- radians segment i bends at time t after a swing started (math.huge: no swing); `chain`: the towel
--- was already curled back over the shoulder (a held loop)
-local function whip(t: number, i: number, sway: number, chain: boolean?): number
+-- was already curled back over the shoulder (a held loop); `finisher`: the combo finisher - a
+-- longer curl back (WIND_F), a deeper curl and a bigger crack wobble
+local function whip(t: number, i: number, sway: number, chain: boolean?, finisher: boolean?): number
 	local w = i / 6
+	local wind = if finisher then WIND_F else WIND
+	local depth = if finisher then 1.25 else 1
 	local curled = curledOf(i)
-	if t < WIND then
-		return if chain then curled else DROOP + (curled - DROOP) * ease(t / WIND)
+	local deep = curled * depth
+	if t < wind then
+		local from = if chain then curled else DROOP
+		return from + (deep - from) * ease(t / wind)
 	end
-	local tl = t - WIND - (i - 1) * 0.018 -- the lash reaches each segment a little later
+	local tl = t - wind - (i - 1) * 0.018 -- the lash reaches each segment a little later
 	if tl <= 0 then
-		return curled
+		return deep
 	end
 	local unroll = ease(tl / 0.06)
-	local wobble = (0.25 + 0.5 * w) * sin(tl * 34) * exp(-tl * 8) * unroll
+	local wobble = (0.25 + 0.5 * w) * depth * sin(tl * 34) * exp(-tl * 8) * unroll
 	local settle = ease((tl - 0.15) / 0.25)
-	return curled * (1 - unroll) + wobble + (DROOP + sway) * settle
+	return deep * (1 - unroll) + wobble + (DROOP + sway) * settle
 end
 
 local function updateTowel(rig: Rig, t: number, near: boolean)
@@ -431,16 +585,17 @@ local function updateTowel(rig: Rig, t: number, near: boolean)
 	if not rig.towelTool or #rig.towelSegs == 0 then
 		return
 	end
-	local since = os.clock() - rig.towelSwing
-	local swinging = rig.towelSwing > 0 and (since < 0.8 or rig.holdW > 0.02)
+	local since = clock - rig.towelSwing
+	local swinging = rig.towelSwing > 0 and (since < 0.9 or rig.holdW > 0.02)
 	if not swinging and not near then
 		return
 	end
 	-- held: after the follow-through the towel curls back over the shoulder with the arm
-	local again = if swinging then rig.holdW * ease((since - LIFT) / 0.55) else 0
+	local lift = if rig.towelFinisher then LIFT_F else LIFT
+	local again = if swinging then rig.holdW * ease((since - lift) / 0.55) else 0
 	for _, seg in ipairs(rig.towelSegs) do
 		local sway = 0.05 * sin(t * 2.1 + seg.index * 0.7)
-		local a = if swinging then whip(since, seg.index, sway, rig.towelChained) else DROOP + sway
+		local a = if swinging then whip(since, seg.index, sway, rig.towelChained, rig.towelFinisher) else DROOP + sway
 		if again > 0 then
 			a += (curledOf(seg.index) - a) * again
 		end
@@ -457,7 +612,9 @@ end
 -- ---------- the loop ----------
 
 local function step(dt: number)
-	local now = os.clock()
+	clock += dt * timeScale
+	local now = clock
+	local real = os.clock()
 	local blend = min(1, dt * 8)
 	local cam = workspace.CurrentCamera
 	local camPos = if cam then cam.CFrame.Position else Vector3.zero
@@ -470,7 +627,7 @@ local function step(dt: number)
 			local pose: Pose = {}
 			local any = false
 			rig.turn = nil
-			rig.holdW += ((if now < rig.whipHoldUntil then 1 else 0) - rig.holdW) * min(1, dt * 10)
+			rig.holdW += ((if real < rig.whipHoldUntil then 1 else 0) - rig.holdW) * min(1, dt * 10)
 			for i = #rig.layers, 1, -1 do
 				local layer = rig.layers[i]
 				local t = now - layer.t0
@@ -552,7 +709,8 @@ end
 -- ---------- API ----------
 
 -- Plays a move on a character (anyone's). data: tumble { dir: Vector3 (world), seconds, soft },
--- slip / float { seconds }, persistent ones { on = true / false }.
+-- slip / float / bowl / nap / dive { seconds }, swing { finisher }, zap { charge }, persistent ones
+-- { on = true / false } (charge also { charge = 0..1 }).
 function ItemRig.Play(character: Model?, kind: string, data: { [string]: any }?)
 	if not character then
 		return
@@ -566,13 +724,16 @@ function ItemRig.Play(character: Model?, kind: string, data: { [string]: any }?)
 		for _, layer in ipairs(rig.layers) do
 			if layer.kind == kind then
 				layer.data.on = opts.on ~= false
+				if type(opts.charge) == "number" then
+					layer.data.charge = opts.charge
+				end
 				return
 			end
 		end
 		if opts.on == false then
 			return
 		end
-		table.insert(rig.layers, { kind = kind, t0 = os.clock(), dur = math.huge, data = { on = true, w = 0 } })
+		table.insert(rig.layers, { kind = kind, t0 = clock, dur = math.huge, data = { on = true, w = 0, charge = opts.charge } })
 		return
 	end
 	local dur = DURATION[kind]
@@ -581,8 +742,12 @@ function ItemRig.Play(character: Model?, kind: string, data: { [string]: any }?)
 		local chain = rig.holdW > 0.5 and ItemRig.Has(character, "swing")
 		opts = table.clone(opts)
 		opts.chain = chain
-		rig.towelSwing = os.clock()
+		rig.towelSwing = clock
 		rig.towelChained = chain
+		rig.towelFinisher = opts.finisher == true
+		if opts.finisher == true then
+			dur = FINISHER_DUR
+		end
 	end
 	if not dur then
 		return -- a towel-only swing for a kind with no body move
@@ -609,7 +774,12 @@ function ItemRig.Play(character: Model?, kind: string, data: { [string]: any }?)
 			table.remove(rig.layers, i)
 		end
 	end
-	table.insert(rig.layers, { kind = kind, t0 = os.clock(), dur = dur, data = opts })
+	table.insert(rig.layers, { kind = kind, t0 = clock, dur = dur, data = opts })
+end
+
+-- How fast the rigs' own clock runs (1 = real time, 0 = frozen: a hit-stop). Big moments only.
+function ItemRig.SetTimeScale(scale: number)
+	timeScale = clamp(scale, 0, 1)
 end
 
 -- The towel button is held (on) or let go. `seconds`: how long it counts as held without being told
