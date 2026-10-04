@@ -36,6 +36,7 @@ from sky.common import ARENA_TO_BLENDER, MeshBuilder, Palette, arena_to_blender
 W, H = 2048, 1152
 FOV = 64.0  # horizontal, degrees: what the player sees of each layer
 LAYERS = ("Sky", "Landmarks", "Haze")
+DOME_RADIUS = 150000.0  # everything in a scene must sit inside the sky dome
 # Config.Art.SkyLayers' parallax speeds. The game draws each layer this much
 # bigger than the screen so it can slide (SkyBackdrop.margin), so each layer
 # is rendered with a matching wider view: its middle is the composed picture
@@ -366,13 +367,15 @@ class Vista:
     def _stars(self, g, direction, sky):
         sep = g.new("ShaderNodeSeparateXYZ")
         g.link(direction, sep.inputs[0])
+        # Cells about 25 px apart and stars a few px across, so they survive
+        # anti-aliasing and the brush filter.
         vor = g.new("ShaderNodeTexVoronoi", voronoi_dimensions="3D", feature="F1")
-        vor.inputs["Scale"].default_value = 260.0
+        vor.inputs["Scale"].default_value = 70.0
         vor.inputs["Randomness"].default_value = 1.0
         g.link(direction, vor.inputs["Vector"])
-        size = g.map_range(vor.outputs["Color"], 0.0, 1.0, 0.025, 0.07)  # uses the color's first channel
+        size = g.map_range(g.new_value(vor.outputs["Color"]), 0.0, 1.0, 0.05, 0.13)
         star = g.math("LESS_THAN", vor.outputs["Distance"], size)
-        keep = g.math("GREATER_THAN", g.new_value(vor.outputs["Color"]), 0.55)  # only some cells get a star
+        keep = g.math("GREATER_THAN", g.new_value(vor.outputs["Color"]), 0.5)  # only some cells get a star
         fade = g.map_range(sep.outputs["Z"], 0.05, 0.4)
         amount = g.math("MULTIPLY", g.math("MULTIPLY", star, keep), g.math("MULTIPLY", fade, self.look["stars"]))
         return g.mix("ADD", amount, sky, (1.6, 1.6, 1.7, 1.0))
@@ -423,7 +426,7 @@ class Vista:
         g.link(sky, emit.inputs["Color"])
         g.link(emit.outputs[0], out.inputs["Surface"])
 
-        bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=32, radius=20000, location=(0, 0, 0))
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=32, radius=DOME_RADIUS, location=(0, 0, 0))
         dome = bpy.context.active_object
         dome.name = "SkyDome"
         dome.data.materials.append(mat)
@@ -452,7 +455,7 @@ class Vista:
     def _camera(self):
         cam = common.perspective_camera("VistaCam", (0, 0, 0), arena_to_blender(tuple(self.forward * 100)), FOV)
         cam.data.clip_start = 1.0
-        cam.data.clip_end = 60000
+        cam.data.clip_end = DOME_RADIUS * 1.5
         cam.data.sensor_fit = "HORIZONTAL"
         return cam
 
@@ -477,6 +480,8 @@ class Vista:
             fs.linesets.remove(ls)
         scale, strength = self.style.get("ink_scale", 1.0), self.style.get("ink_alpha", 1.0)
         for group, width, alpha in (("Solid", 2.6 * scale, strength), ("Cloud", 1.7 * scale, 0.55 * strength)):
+            if not self.collections[(vl.name, group)].objects:
+                continue  # Freestyle errors on a line set with nothing to draw
             ls = fs.linesets.new(f"{vl.name}{group}Ink")
             ls.select_by_visibility = True
             ls.select_by_edge_types = True
@@ -578,6 +583,7 @@ class Vista:
         scene.view_settings.look = "None"
         scene.render.use_single_layer = False
         scene.render.image_settings.color_mode = "RGBA"
+        scene.render.image_settings.compression = 90
         cam = scene.camera
         paths = {}
         for layer in LAYERS:

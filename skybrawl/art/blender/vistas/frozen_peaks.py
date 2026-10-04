@@ -1,11 +1,14 @@
 """
 FrozenPeaks background: an ice citadel under the aurora, on a clear blue
 night. A pale stone-and-ice citadel with crystal spires, glowing windows and
-a lit great gate crowns a snowy crag on the left, with a bridge down to an
-outpost tower. Jagged snow-capped peaks rise on the right with a frozen
-waterfall and giant glowing ice crystals at their feet. A big moon, stars
-and aurora curtains fill the upper sky over a moonlit sea of clouds; snow
-mist drifts along the bottom.
+a lit great gate crowns a floating, broken-off mountaintop on the left (built
+like the stage: snow drips, blue rock strata with a band of ice, a jagged
+underside) with a frozen waterfall spilling off its rim and a bridge to an
+outpost tower. Jagged snow-capped peaks rise from the clouds on the right
+with giant glowing ice crystals and pines on their dark foothills. A big
+moon, stars, a shooting star and two aurora curtains fill the upper sky over
+a moonlit sea of clouds and a far snowy range; snow mist drifts along the
+bottom.
 """
 
 import math
@@ -207,8 +210,8 @@ def wall(solid, a, b, height, thick, color="stone", cap="snow"):
     n = max(2, int(length / (thick * 1.7)))
     for i in range(n):
         t = (i + 0.5) / n
-        solid.box((ax + dx * t, cy + height + thick * 0.3, az + dz * t), (length / n * 0.55, thick * 0.6, thick * 1.05),
-                  color, bevel=0, rotation=(0, ang, 0))
+        solid.box((ax + dx * t, cy + height + thick * 0.3, az + dz * t),
+                  (length / n * 0.55, thick * 0.6, thick * 1.05), color, bevel=0, rotation=(0, ang, 0))
     solid.box((cx, cy + height + thick * 0.03, cz), (length * 1.01, thick * 0.12, thick * 1.25), cap, bevel=0,
               rotation=(0, ang, 0))
 
@@ -252,6 +255,7 @@ def arch_bridge(solid, glow, a, b, width, thick, rise, spring, color="stone", ra
 
 
 def pines_on(solid, v, spots, r):
+    """Snowy pines at screen spots (u, v, depth, height as a screen fraction)."""
     for u, sv, d, frac in spots:
         h = frac * v.unit(d) * r.uniform(0.85, 1.15)
         P.pine(solid, v.at(u, sv, d), h, "pine", "pine_dark", "snow", "trunk", tiers=3)
@@ -331,8 +335,6 @@ def far(v, r):
 
 
 # Landmarks ------------------------------------------------------------------
-
-ISLE = ("snow", "snow_shade", "rock", "rock_dark")
 
 
 def sky_rock(solid, glow, top, size, r, spikes=(), icicles=8, crystals=None, depth=0.8, band=True,

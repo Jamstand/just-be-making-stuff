@@ -63,10 +63,13 @@ the background its depth:
 | `Landmarks` | `art/export/skies/painted/<MapId>_Landmarks.png` | the map's distant vista, transparent PNG |
 | `Haze` | `art/export/skies/painted/<MapId>_Haze.png` | near clouds and haze, transparent PNG |
 
+`art/previews/vistas/<MapId>_blend.jpg` shows each map's three layers stacked
+the way the game first shows them.
+
 1. Open **View > Asset Manager**, click **Bulk Import** and select the
-   twelve PNGs in `art/export/skies/painted/`. (No painted set yet? The
-   older Blender skies in `art/export/skies/<MapId>.png` work as the `Sky`
-   layer on their own.)
+   twelve PNGs in `art/export/skies/painted/`. (The older single-image skies
+   in `art/export/skies/<MapId>.png` also still work, as a `Sky` layer on
+   their own.)
 2. Right-click each uploaded image > **Copy Asset ID**.
 3. Paste the ids into `src/shared/Config.luau`, under
    `Config.Art.SkyImages` (just the number, or `rbxassetid://123`). A layer
@@ -83,8 +86,11 @@ SkyImages = {
 
 The layers' depth and scroll speed are in `Config.Art.SkyLayers`. The nearer
 layers are drawn a little larger than the screen so they can slide (the
-`Haze` layer shows roughly its middle 75%), so the paintings keep their
-important shapes away from the edges.
+`Haze` layer shows roughly its middle 75% until the camera pans). The
+paintings are rendered with that extra border built in, so panning reveals
+more of the scene. If you change a layer's `Parallax`, change it in
+`art/blender/sky/vista.py` (`PARALLAX`) too and re-render the backgrounds
+(`tests/art` checks that the two match).
 
 ## 4. Keep the imports
 
