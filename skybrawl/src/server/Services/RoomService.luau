@@ -341,7 +341,8 @@ local function canJoin(player, room, viaCode)
 	if room.settings.private and not viaCode then
 		return false, "That room is private. Ask the host for the code."
 	end
-	if room.settings.friendsOnly and not viaCode and not isFriend(player, room.host.UserId) then
+	-- Friends-only applies to code joins too; a leaked code doesn't bypass it.
+	if room.settings.friendsOnly and not isFriend(player, room.host.UserId) then
 		return false, "That room is for the host's friends only."
 	end
 	local rating = ratingFor(player, room.settings.mode)

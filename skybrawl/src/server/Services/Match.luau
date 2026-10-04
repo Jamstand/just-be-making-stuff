@@ -100,6 +100,7 @@ function Match:newFighter(id, team)
 		invulnUntil = 0,
 		lastHitBy = nil,
 		lastHitTime = 0,
+		hitstunUntil = 0,
 		kos = 0,
 		falls = 0,
 		damageDealt = 0,
@@ -638,6 +639,7 @@ function Match:ApplyHit(attacker, target, move, charge, facing, sourceX, ranged)
 
 	target.lastHitBy = attacker and attacker.id or nil
 	target.lastHitTime = now
+	target.hitstunUntil = now + hitstun
 	if target.isBot and target.state then
 		FighterSim.applyHit(target.state, kbx, kby, hitstun)
 	end
@@ -1066,6 +1068,8 @@ local DODGE_INVULN = {
 
 -- Client-reported cooldowns are only trusted this much, to allow for lag.
 local COOLDOWN_LENIENCY = 0.6
+-- A fighter in hitstun can't act; allow this much lag at the end of it.
+local HITSTUN_SLACK = 0.1
 
 local DODGE_COOLDOWN = {
 	Spot = Config.Physics.SpotDodgeCooldown,
@@ -1128,6 +1132,12 @@ function Match:OnAction(player, kind, data)
 		return
 	end
 	if self.phase ~= "Playing" or not f.alive or type(data) ~= "table" then
+		return
+	end
+	-- FighterSim can't attack, dodge or throw during hitstun, and the server
+	-- knows how long the hitstun it dealt lasts.
+	local inHitstun = now < f.hitstunUntil - HITSTUN_SLACK
+	if inHitstun and (kind == "Attack" or kind == "Dodge" or kind == "Throw") then
 		return
 	end
 
