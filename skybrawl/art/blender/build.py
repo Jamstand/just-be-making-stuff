@@ -20,7 +20,7 @@ if HERE not in sys.path:
 
 FIGHTERS = ["kestrel", "brann", "yuki", "moss", "vex", "sol"]
 MAPS = ["sky_ship", "volcanic_forge", "frozen_peaks", "jungle_temple"]
-VISTA_STYLE = "painterly"
+VISTA_STYLE = "blend"
 
 
 def available(package, names):
@@ -62,7 +62,7 @@ def build_skies(names=None):
 
 def build_vistas(names=None):
     """Painted 3-layer backgrounds. Names are map scripts (sky_ship, ...);
-    add "graphic" or "painterly" to pick the look (default VISTA_STYLE),
+    add "graphic", "painterly" or "blend" to pick the look (default VISTA_STYLE),
     and "test" to render only the previews (layers go to a scratch folder)."""
     from sky import vista
 

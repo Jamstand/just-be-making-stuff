@@ -49,6 +49,7 @@ COLORS = {
 LOOK = {
     "dome": [(-0.35, "#f0b08c"), (-0.02, "#ffd79a"), (0.08, "#ffe8b6"), (0.3, "#93d3e8"), (0.8, "#2c74b6")],
     "sun": (-0.56, 0.76),
+    "sky_fog_scale": 3.6,
 }
 
 ISLE = ("grass", "grass_dark", "rock", "rock_dark")
@@ -76,7 +77,7 @@ def far(v, r):
     for u, d, w, h in ((-0.78, 15000, 0.34, 2.4), (-0.5, 19000, 0.22, 1.8), (0.62, 16000, 0.38, 2.7),
                        (0.95, 20000, 0.25, 1.9), (0.12, 22000, 0.18, 1.5)):
         base = v.at(u, -0.3, d)
-        K.cumulus(clouds, (base[0], -1400, base[2]), w * v.unit(d), "cloud", r, height=h, depth=0.6, puffs=8)
+        K.cumulus(clouds, (base[0], -1400, base[2]), w * v.unit(d), "cloud", r, height=h, depth=0.6, puffs=10)
     for u, sv, d, length in ((0.1, 0.8, 9000, 0.16), (0.42, 0.72, 10000, 0.2), (0.85, 0.86, 8000, 0.12),
                              (-0.05, 0.9, 8500, 0.12), (0.62, 0.95, 9000, 0.1)):
         for k in range(3):

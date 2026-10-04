@@ -73,6 +73,21 @@ STYLES = {
         "sun_bands": False,
         "beams": 0.22,
     },
+    # painterly light and brushwork with thin, soft ink lines
+    "blend": {
+        "ramp": "EASE",
+        "steps": (0.05, 0.42, 0.85),
+        "ink": True,
+        "ink_scale": 0.6,
+        "ink_alpha": 0.75,
+        "ink_color": "ink_soft",
+        "rim": 0.85,
+        "brush": 7,
+        "grain": 0.12,
+        "bloom": 0.45,
+        "sun_bands": False,
+        "beams": 0.2,
+    },
 }
 
 # Each map's colors and light. Colors are '#rrggbb' sRGB.
@@ -97,6 +112,13 @@ DEFAULT_LOOK = {
     "halo_size": 38.0,  # degrees around the sun the glow reaches
     "halo_strength": 0.6,
     "ink": "#1b2346",
+    "ink_soft": "#3a3366",
+    "sun_size": 3.0,  # degrees across the sun (or moon) disc
+    "stars": 0.0,  # 0..1, a night sky's stars
+    # Aurora curtains (night skies): a list of {base, height, waves, phase,
+    # amp, strength} in dome elevation terms, plus "aurora_colors".
+    "aurora": None,
+    "aurora_colors": ["#5cffb0", "#37d9c9", "#8a6bff"],
     "glow_strength": 2.6,
     "pitch": 6.0,  # camera tilt up, degrees
 }
@@ -161,6 +183,12 @@ class _Graph:
             el.color = lin(color) if isinstance(color, str) else color
         self.link(fac, node.inputs["Fac"])
         return node.outputs["Color"]
+
+    def new_value(self, color):
+        """The first channel of a color socket, as a float."""
+        node = self.new("ShaderNodeSeparateColor")
+        self.link(color, node.inputs[0])
+        return node.outputs[0]
 
     def combine(self, value):
         """A gray color from a float socket."""
@@ -335,6 +363,43 @@ class Vista:
         self._sun_dot = dot.outputs["Value"]
         return sky
 
+    def _stars(self, g, direction, sky):
+        sep = g.new("ShaderNodeSeparateXYZ")
+        g.link(direction, sep.inputs[0])
+        vor = g.new("ShaderNodeTexVoronoi", voronoi_dimensions="3D", feature="F1")
+        vor.inputs["Scale"].default_value = 260.0
+        vor.inputs["Randomness"].default_value = 1.0
+        g.link(direction, vor.inputs["Vector"])
+        size = g.map_range(vor.outputs["Color"], 0.0, 1.0, 0.025, 0.07)  # uses the color's first channel
+        star = g.math("LESS_THAN", vor.outputs["Distance"], size)
+        keep = g.math("GREATER_THAN", g.new_value(vor.outputs["Color"]), 0.55)  # only some cells get a star
+        fade = g.map_range(sep.outputs["Z"], 0.05, 0.4)
+        amount = g.math("MULTIPLY", g.math("MULTIPLY", star, keep), g.math("MULTIPLY", fade, self.look["stars"]))
+        return g.mix("ADD", amount, sky, (1.6, 1.6, 1.7, 1.0))
+
+    def _aurora(self, g, direction, sky, c):
+        """One aurora curtain: a wavy band above the horizon, bright and
+        sharp at its foot, fading upward, streaked with vertical rays."""
+        sep = g.new("ShaderNodeSeparateXYZ")
+        g.link(direction, sep.inputs[0])
+        azimuth = g.math("ARCTAN2", sep.outputs["X"], sep.outputs["Y"])
+        wave = g.math("SINE", g.math("ADD", g.math("MULTIPLY", azimuth, c.get("waves", 3.0)), c.get("phase", 0.0)))
+        wave2 = g.math("SINE", g.math("ADD", g.math("MULTIPLY", azimuth, c.get("waves", 3.0) * 2.7), 1.3))
+        base = g.math("ADD", g.math("MULTIPLY", wave, c.get("amp", 0.05)),
+                      g.math("ADD", g.math("MULTIPLY", wave2, c.get("amp", 0.05) * 0.35), c["base"]))
+        t = g.math("DIVIDE", g.math("SUBTRACT", sep.outputs["Z"], base), c["height"])
+        inside = g.map_range(t, -0.04, 0.05)
+        top = g.math("POWER", g.map_range(t, 0.0, 1.0, 1.0, 0.0), 1.7)
+        noise = g.new("ShaderNodeTexNoise", noise_dimensions="1D")
+        noise.inputs["Scale"].default_value = 1.0
+        noise.inputs["Detail"].default_value = 4.0
+        g.link(g.math("MULTIPLY", azimuth, c.get("rays", 34.0)), noise.inputs["W"])
+        rays = g.map_range(noise.outputs["Fac"], 0.3, 0.7, 0.3, 1.0)
+        amount = g.math("MULTIPLY", g.math("MULTIPLY", inside, top), g.math("MULTIPLY", rays, c.get("strength", 1.0)))
+        cols = self.look["aurora_colors"]
+        color = g.ramp(g.map_range(t, 0.0, 1.0), [(i / (len(cols) - 1), col) for i, col in enumerate(cols)])
+        return g.mix("ADD", amount, sky, color)
+
     def _dome(self):
         look = self.look
         mat = bpy.data.materials.new("VistaDome")
@@ -344,7 +409,14 @@ class Vista:
         coord = g.new("ShaderNodeTexCoord")
         sky = self._sky_color(g, coord.outputs["Object"])
         dot = self._sun_dot
-        disc = g.map_range(dot, math.cos(math.radians(3.3)), math.cos(math.radians(3.0)))
+        norm = g.new("ShaderNodeVectorMath", operation="NORMALIZE")
+        g.link(coord.outputs["Object"], norm.inputs[0])
+        if look["stars"]:
+            sky = self._stars(g, norm.outputs["Vector"], sky)
+        for curtain in look["aurora"] or ():
+            sky = self._aurora(g, norm.outputs["Vector"], sky, curtain)
+        half = look["sun_size"] / 2
+        disc = g.map_range(dot, math.cos(math.radians(half * 1.1)), math.cos(math.radians(half)))
         sun = lin(look["sun_color"])
         sky = g.mix("MIX", disc, sky, (sun[0] * 2.5, sun[1] * 2.5, sun[2] * 2.5, 1.0))
         emit = g.new("ShaderNodeEmission")
@@ -403,7 +475,8 @@ class Vista:
         fs.crease_angle = math.radians(110)
         for ls in list(fs.linesets):
             fs.linesets.remove(ls)
-        for group, width, alpha in (("Solid", 2.6, 1.0), ("Cloud", 1.7, 0.55)):
+        scale, strength = self.style.get("ink_scale", 1.0), self.style.get("ink_alpha", 1.0)
+        for group, width, alpha in (("Solid", 2.6 * scale, strength), ("Cloud", 1.7 * scale, 0.55 * strength)):
             ls = fs.linesets.new(f"{vl.name}{group}Ink")
             ls.select_by_visibility = True
             ls.select_by_edge_types = True
@@ -414,7 +487,7 @@ class Vista:
             ls.select_crease = group == "Solid"
             ls.select_external_contour = True
             style = ls.linestyle
-            r, gr, b, _ = lin(look["ink"])
+            r, gr, b, _ = lin(look[self.style.get("ink_color", "ink")])
             style.color = (r, gr, b)
             style.alpha = alpha
             style.thickness = width / m  # the game zooms the layer back up by m
