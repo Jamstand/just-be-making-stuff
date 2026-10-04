@@ -33,6 +33,7 @@ local roomOf = {} -- [Player] = room
 local nextId = 0
 local nextBotId = 0
 local friendCache = {} -- [Player] = { [hostUserId] = { value, time } }
+local creating = {} -- [Player] = true while a Create request is in flight
 local rng = Random.new()
 
 local R = Config.Rooms
@@ -222,14 +223,8 @@ local function freeTeam(room)
 end
 
 local function reassignTeams(room)
-	local old = room.members
-	room.members = {}
-	for _, m in old do
-		m.team = freeTeam(room)
-		table.insert(room.members, m)
-	end
+	-- Drop bots first when the room shrinks, then re-deal teams to whoever's left.
 	while #room.members > room.settings.maxPlayers do
-		-- Drop bots first when the room shrinks.
 		local removed = false
 		for i = #room.members, 1, -1 do
 			if room.members[i].bot then
@@ -241,6 +236,12 @@ local function reassignTeams(room)
 		if not removed then
 			break
 		end
+	end
+	local old = room.members
+	room.members = {}
+	for _, m in old do
+		m.team = freeTeam(room)
+		table.insert(room.members, m)
 	end
 end
 
@@ -354,6 +355,9 @@ local function canJoin(player, room, viaCode)
 end
 
 local function busyReason(player)
+	if creating[player] then
+		return "Your room is still being created."
+	end
 	if services.MatchService.getMatchOf(player) then
 		return "You're in a match."
 	end
@@ -461,13 +465,22 @@ function actions.Create(player, raw)
 		return false, "This server has too many rooms. Join one instead!"
 	end
 	raw = type(raw) == "table" and raw or {}
-	nextId += 1
 	local name = type(raw.name) == "string" and raw.name:sub(1, R.NameMaxLength) or ""
 	name = name:gsub("^%s+", ""):gsub("%s+$", "")
+	-- Filtering yields; block other requests from this player meanwhile.
+	creating[player] = true
+	local ok, filtered = pcall(function()
+		return #name > 0 and filterName(name, player) or (player.DisplayName .. "'s Room")
+	end)
+	creating[player] = nil
+	if not player.Parent then
+		return false, "You left."
+	end
+	nextId += 1
 	local room = {
 		id = nextId,
 		code = newCode(),
-		name = #name > 0 and filterName(name, player) or (player.DisplayName .. "'s Room"),
+		name = ok and filtered or (player.DisplayName .. "'s Room"),
 		host = player,
 		settings = sanitizeSettings(raw, nil),
 		members = {},
@@ -546,7 +559,11 @@ function actions.Update(player, raw)
 	end
 	local oldMode = room.settings.mode
 	local oldMax = room.settings.maxPlayers
-	room.settings = sanitizeSettings(raw, room.settings)
+	local newSettings = sanitizeSettings(raw, room.settings)
+	if humanCount(room) > newSettings.maxPlayers then
+		return false, string.format("That mode fits %d players, but %d are in the room.", newSettings.maxPlayers, humanCount(room))
+	end
+	room.settings = newSettings
 	if type(raw) == "table" and type(raw.name) == "string" then
 		local name = raw.name:sub(1, R.NameMaxLength):gsub("^%s+", ""):gsub("%s+$", "")
 		if #name > 0 then
@@ -648,10 +665,17 @@ function actions.Start(player)
 	if #room.members < 2 then
 		return false, "You need at least 2 fighters. Add a bot!"
 	end
+	if #room.members > s.maxPlayers then
+		return false, "Too many fighters for this mode."
+	end
 	if s.mode ~= "FFA" then
 		local counts = teamCounts(room)
 		if not counts[1] or not counts[2] then
 			return false, "Both teams need at least one fighter."
+		end
+		local size = Config.Modes[s.mode].TeamSize
+		if counts[1] > size or counts[2] > size then
+			return false, string.format("Teams can have at most %d fighter%s.", size, size == 1 and "" or "s")
 		end
 	end
 	for _, m in room.members do
@@ -739,6 +763,7 @@ function RoomService.start()
 			removeMember(room, player, false)
 		end
 		friendCache[player] = nil
+		creating[player] = nil
 	end)
 end
 

@@ -666,6 +666,8 @@ function FighterSim.applyHit(s, kbx, kby, hitstun)
 end
 
 function FighterSim.respawn(s, x, y, facing, invuln)
+	-- Attack sequence numbers keep counting so the server never sees one reused.
+	local seq = s.seq
 	local fresh = FighterSim.newState(x, y, facing)
 	for k in s do
 		s[k] = nil
@@ -673,6 +675,7 @@ function FighterSim.respawn(s, x, y, facing, invuln)
 	for k, v in fresh do
 		s[k] = v
 	end
+	s.seq = seq or 0
 	s.invuln = invuln or 0
 	return s
 end

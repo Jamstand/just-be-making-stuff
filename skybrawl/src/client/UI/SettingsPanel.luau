@@ -22,6 +22,8 @@ local make = UIKit.make
 
 local SettingsPanel = {}
 
+local bindsConnection = nil
+
 local ACTION_LABELS = {
 	Left = "Move left",
 	Right = "Move right",
@@ -244,7 +246,10 @@ local function buildControls(page)
 		renderBinds()
 	end, { LayoutOrder = o(), Size = UDim2.fromOffset(200, 40), Parent = page })
 
-	Settings.Changed:Connect(function(key)
+	if bindsConnection then
+		bindsConnection:Disconnect()
+	end
+	bindsConnection = Settings.Changed:Connect(function(key)
 		if key == "Keybinds" then
 			renderBinds()
 		end
@@ -304,6 +309,8 @@ function SettingsPanel.create(gui, close)
 	return {
 		window = window,
 		open = function()
+			-- Rebuild so values changed elsewhere (e.g. the in-match menu) show.
+			buildPages()
 			window.Visible = true
 		end,
 		close = function()

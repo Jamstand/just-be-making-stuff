@@ -250,21 +250,33 @@ The tests cover:
 - the KO percent of each weapon's side heavy against a defender that
   tries to recover (hammer about 115%, sword about 140%, fists about 175%)
 
-Re-run them after changing physics or knockback numbers.
+`lune run tests/bots` runs headless bot-vs-bot fights on every map. It
+checks that bots land hits, score KOs, rarely fall off on their own, and
+that Hard beats Easy.
+
+Re-run both after changing physics, knockback or bot numbers. Format with
+[StyLua](https://github.com/JohnnyMorganz/StyLua) (`stylua src tests`;
+config in `stylua.toml`).
 
 ## Known limitations
 
 - **Movement is client-authoritative**, like default Roblox characters.
-  The server validates hits (timing, range, invulnerability, teams), but a
-  modified client could still move faster than allowed. Add server-side
-  speed checks before scaling up.
+  The server checks the rest:
+  - hits (timing, range, invulnerability, teams)
+  - attack and dodge pacing
+  - charge values
+  - pickups and throws
+
+  A modified client could still move faster than allowed, so add
+  server-side speed checks before scaling up.
 - **Matchmaking is per server.** Queues and rooms only see players on the
   same server (up to ~30). Cross-server matchmaking would need
   MemoryStoreService + TeleportService reserved servers.
-- **No DataStore session locking.** Saves use `UpdateAsync` with retries,
-  and a profile that failed to load is never saved. Joining a second
-  server while the first is still saving could lose the last few seconds
-  of progress.
+- **Session locking is light.** A server claims a profile when it loads
+  it. An older server that still holds the profile can't overwrite it. A
+  player rejoining fast waits a few seconds for the old server's final
+  save. A profile that failed to load is never saved. For a big game,
+  consider a battle-tested library such as ProfileStore.
 - With the **Flat 2D** camera look the camera sits far from the stage. On
   the very lowest graphics quality, Roblox may stop drawing distant
   scenery; use 2.5D there.

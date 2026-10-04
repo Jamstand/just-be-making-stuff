@@ -38,6 +38,7 @@ local bigText = nil
 local feed = nil
 local notice = nil
 local pauseOverlay = nil
+local pauseGui = nil
 local endsAt = nil
 local current = nil -- match table from MatchClient
 local timerConnection = nil
@@ -183,13 +184,19 @@ function MatchHUD.ko(victim, attacker)
 end
 
 function MatchHUD.ended()
-	timerLabel.Visible = false
-	notice.Visible = false
-	pauseOverlay.Visible = false
+	if timerLabel then
+		timerLabel.Visible = false
+	end
+	if notice then
+		notice.Visible = false
+	end
+	if pauseOverlay then
+		pauseOverlay.Visible = false
+	end
 end
 
 local function togglePause(force)
-	if not gui or not gui.Enabled then
+	if not gui or not pauseOverlay then
 		return
 	end
 	if force ~= nil then
@@ -200,14 +207,22 @@ local function togglePause(force)
 end
 
 local function buildPause()
+	-- Its own ScreenGui, drawn above the mobile touch controls.
+	pauseGui = make("ScreenGui", {
+		Name = "SkybrawlPause",
+		ResetOnSpawn = false,
+		DisplayOrder = 25,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		Parent = player:WaitForChild("PlayerGui"),
+	})
 	pauseOverlay = make("Frame", {
 		Name = "Pause",
 		BackgroundColor3 = T.Backdrop,
 		BackgroundTransparency = 0.45,
 		Size = UDim2.fromScale(1, 1),
 		Visible = false,
-		ZIndex = 20,
-		Parent = gui,
+		Active = true,
+		Parent = pauseGui,
 	})
 	local panel = UIKit.panel({
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -259,6 +274,10 @@ function MatchHUD.show(match)
 	if gui then
 		gui:Destroy()
 	end
+	if pauseGui then
+		pauseGui:Destroy()
+		pauseGui = nil
+	end
 	cards = {}
 	gui = make("ScreenGui", {
 		Name = "SkybrawlHUD",
@@ -281,11 +300,6 @@ function MatchHUD.show(match)
 		cardsFrame.Position = UDim2.new(0.5, 0, 0, 52)
 		make("UIScale", { Scale = 0.75, Parent = cardsFrame })
 	end
-	for i, f in match.order do
-		buildCard(f, i)
-		MatchHUD.updateFighter(f)
-	end
-
 	local mapInfo = Maps.get(match.info.mapId)
 	UIKit.label(string.format("%s  ·  %s%s", Config.Modes[match.info.mode].Label, mapInfo and mapInfo.Name or "", match.info.ranked and "  ·  Ranked" or ""), 14, {
 		AnchorPoint = Vector2.new(0.5, 0),
@@ -317,22 +331,29 @@ function MatchHUD.show(match)
 		Parent = gui,
 	})
 	make("UIScale", { Parent = bigText })
+	local touch = UserInputService.TouchEnabled
 	feed = make("Frame", {
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -12, 0, 60),
+		Position = UDim2.new(1, -12, 0, touch and 128 or 60),
 		Size = UDim2.fromOffset(320, 200),
 		Parent = gui,
 	}, { UIKit.list(Enum.FillDirection.Vertical, 4, Enum.HorizontalAlignment.Right) })
 	notice = UIKit.heading("", 26, {
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 64),
+		Position = UDim2.new(0.5, 0, 0, touch and 128 or 64),
 		Size = UDim2.fromOffset(500, 34),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextStrokeTransparency = 0.3,
 		Visible = false,
 		Parent = gui,
 	})
+
+	-- Cards last: updateFighter() writes to `notice` and the labels above.
+	for i, f in match.order do
+		buildCard(f, i)
+		MatchHUD.updateFighter(f)
+	end
 
 	UIKit.button("Menu (P)", "ghost", function()
 		togglePause()
@@ -365,6 +386,10 @@ function MatchHUD.hide()
 	if gui then
 		gui:Destroy()
 		gui = nil
+	end
+	if pauseGui then
+		pauseGui:Destroy()
+		pauseGui = nil
 	end
 	cards = {}
 	current = nil

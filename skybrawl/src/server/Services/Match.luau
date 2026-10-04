@@ -284,10 +284,9 @@ function Match:spawnBotModel(f)
 	f.root = root
 	f.humanoid = humanoid
 	f.feetOffset = Util.feetOffset(model)
+	-- Anchored until GO so the bot doesn't fall while players load in.
+	root.Anchored = true
 	model.Parent = self.folder
-	pcall(function()
-		root:SetNetworkOwner(nil)
-	end)
 	disableHumanoidStates(humanoid)
 	self.services.CharacterService.setupCharacter(model)
 	self.services.CharacterService.setNameplate(model, {
@@ -448,6 +447,12 @@ function Match:Start()
 	for _, f in self.fighters do
 		if f.isBot and f.state then
 			f.state.frozen = false
+			if f.root then
+				f.root.Anchored = false
+				pcall(function()
+					f.root:SetNetworkOwner(nil)
+				end)
+			end
 		end
 		f.awaitingUntil = os.clock() + 3
 	end
@@ -522,6 +527,10 @@ function Match:stepBot(f, dt)
 end
 
 function Match:recordAttack(f, seq, slot, move, facing)
+	local existing = table.find(f.attackOrder, seq)
+	if existing then
+		table.remove(f.attackOrder, existing)
+	end
 	f.attacks[seq] = {
 		slot = slot,
 		move = move,
@@ -575,6 +584,9 @@ function Match:Step(dt)
 		if f.isBot then
 			self:stepBot(f, dt)
 		end
+		if self.phase ~= "Playing" then
+			return
+		end
 	end
 
 	for _, f in self.fighters do
@@ -587,6 +599,9 @@ function Match:Step(dt)
 				end
 			elseif out then
 				self:KO(f, x, y)
+				if self.phase ~= "Playing" then
+					return
+				end
 			end
 		end
 	end
@@ -601,7 +616,7 @@ end
 
 -- Hits --------------------------------------------------------------------
 
-function Match:ApplyHit(attacker, target, move, charge, facing, sourceX)
+function Match:ApplyHit(attacker, target, move, charge, facing, sourceX, ranged)
 	if self:IsInvulnerable(target) or not target.alive then
 		return false
 	end
@@ -637,6 +652,7 @@ function Match:ApplyHit(attacker, target, move, charge, facing, sourceX)
 		hitstun = hitstun,
 		force = force,
 		heavy = move.Kind == "Heavy",
+		ranged = ranged == true,
 		x = tx,
 		y = ty + Config.Physics.FighterHeight * 0.55,
 	})
@@ -657,7 +673,8 @@ function Match:onHitReport(f, data)
 	end
 	local move = rec.move
 	local now = os.clock()
-	if now - rec.start > Weapons.maxAttackWindow(move) + Config.Combat.HitTimeSlack then
+	local age = now - rec.start
+	if age < move.Startup * 0.5 or age > Weapons.maxAttackWindow(move) + Config.Combat.HitTimeSlack then
 		return
 	end
 	if self:SameTeam(f, target) and not self.config.friendlyFire then
@@ -706,8 +723,8 @@ function Match:KO(f, x, y)
 	self:SetWeapon(f, "Unarmed")
 	if f.isBot and f.state then
 		f.state.frozen = true
+		f.root.Anchored = true
 		f.root.CFrame = Util.fighterCFrame(self.origin, 0, GRAVEYARD_Y, f.feetOffset, 1)
-		f.root.AssemblyLinearVelocity = Vector3.zero
 	end
 
 	local b = self.world.blast
@@ -748,6 +765,12 @@ function Match:Respawn(f)
 	f.lastX, f.lastY = spot[1], spot[2]
 	if f.isBot then
 		FighterSim.respawn(f.state, spot[1], spot[2], facing, Config.Combat.RespawnInvuln)
+		if f.root then
+			f.root.Anchored = false
+			pcall(function()
+				f.root:SetNetworkOwner(nil)
+			end)
+		end
 	else
 		f.awaitingSpawn = true
 		f.awaitingUntil = now + 3
@@ -773,7 +796,8 @@ function Match:Forfeit(f)
 	if self.config.winRule == "Stocks" then
 		f.stocks = 0
 	end
-	if self.phase == "Playing" and self.config.ranked and f.player and not f.ratingApplied then
+	local wasPreFight = self.phase == "Loading" or self.phase == "Countdown"
+	if (self.phase == "Playing" or wasPreFight) and self.config.ranked and f.player and not f.ratingApplied then
 		f.ratingApplied = true
 		local total, count = 0, 0
 		for _, other in self.fighters do
@@ -793,7 +817,10 @@ function Match:Forfeit(f)
 		self.onPlayerLeft(f.player)
 	end
 	self:Broadcast("Left", { fighterId = f.id })
-	if self.phase == "Playing" then
+	if wasPreFight and self.config.ranked then
+		-- Nobody gets a free ranked win from a dodge before the fight starts.
+		self:Finish("Abandoned")
+	elseif self.phase == "Playing" then
 		self:CheckEnd()
 	elseif self.phase ~= "Ended" then
 		local anyone = false
@@ -1015,7 +1042,7 @@ function Match:stepProjectiles(dt)
 						if FighterSim.overlaps(x1, y1, x2, y2, hx1, hy1, hx2, hy2) then
 							proj.hits[target.id] = true
 							local facing = proj.vx >= 0 and 1 or -1
-							local hit = self:ApplyHit(owner, target, proj.move, proj.charge, facing, proj.x - facing)
+							local hit = self:ApplyHit(owner, target, proj.move, proj.charge, facing, proj.x - facing, true)
 							if hit and not proj.pierce then
 								self:endProjectile(id, proj)
 								break
@@ -1034,7 +1061,43 @@ local DODGE_INVULN = {
 	Spot = Config.Physics.SpotDodgeTime,
 	AirSpot = Config.Physics.SpotDodgeTime,
 	Air = Config.Physics.AirDodgeInvuln,
+	Dash = 0,
 }
+
+-- Client-reported cooldowns are only trusted this much, to allow for lag.
+local COOLDOWN_LENIENCY = 0.6
+
+local DODGE_COOLDOWN = {
+	Spot = Config.Physics.SpotDodgeCooldown,
+	AirSpot = Config.Physics.AirDodgeCooldown,
+	Air = Config.Physics.AirDodgeCooldown,
+	Dash = Config.Physics.DashCooldown,
+}
+
+-- Finite number check for anything a client sends (NaN and inf rejected).
+local function finite(value)
+	return type(value) == "number" and value == value and math.abs(value) < 1e9
+end
+
+local function validSeq(value)
+	return finite(value) and value % 1 == 0
+end
+
+-- Whether a new attack may start now. Attacks can't overlap in FighterSim,
+-- so a new one can only begin once the previous one is (mostly) over,
+-- unless it was cut short by landing (air attacks) or by getting hit.
+function Match:canStartAttack(f, now)
+	local seq = f.attackOrder[#f.attackOrder]
+	local prev = seq and f.attacks[seq]
+	if not prev then
+		return true
+	end
+	if prev.move.Air or f.lastHitTime > prev.start then
+		return now - prev.start >= 0.05
+	end
+	local duration = prev.move.Startup + prev.move.Active + prev.move.Recovery
+	return now - prev.start >= duration * COOLDOWN_LENIENCY
+end
 
 function Match:OnAction(player, kind, data)
 	local f = self.playerFighters[player]
@@ -1069,11 +1132,11 @@ function Match:OnAction(player, kind, data)
 	end
 
 	if kind == "Attack" then
-		if type(data.slot) ~= "string" or type(data.seq) ~= "number" then
+		if type(data.slot) ~= "string" or not validSeq(data.seq) then
 			return
 		end
 		local move = Weapons.getAttack(f.weapon, data.slot)
-		if not move then
+		if not move or not self:canStartAttack(f, now) then
 			return
 		end
 		local facing = data.facing == -1 and -1 or 1
@@ -1081,29 +1144,42 @@ function Match:OnAction(player, kind, data)
 		self:recordAttack(f, data.seq, data.slot, move, facing)
 		self:Broadcast("Action", { fighterId = f.id, kind = "Attack", slot = data.slot, weapon = f.weapon, facing = facing, seq = data.seq }, player)
 	elseif kind == "Release" then
-		local rec = type(data.seq) == "number" and f.attacks[data.seq]
-		if rec and type(data.charge) == "number" then
+		local rec = validSeq(data.seq) and f.attacks[data.seq]
+		if rec and finite(data.charge) then
 			local maxCharge = rec.move.Charge or 0
 			local elapsed = now - rec.start + 0.15
 			rec.charge = math.clamp(data.charge, 0, maxCharge > 0 and math.min(1, elapsed / maxCharge) or 0)
 			self:Broadcast("Action", { fighterId = f.id, kind = "Release", seq = data.seq, charge = rec.charge }, player)
 		end
 	elseif kind == "Fire" then
-		local rec = type(data.seq) == "number" and f.attacks[data.seq]
-		if rec and rec.move.Projectile and not rec.fired and now - rec.start < Weapons.maxAttackWindow(rec.move) + Config.Combat.HitTimeSlack then
-			rec.fired = true
-			self:fireProjectiles(f, rec)
+		local rec = validSeq(data.seq) and f.attacks[data.seq]
+		if rec and rec.move.Projectile and not rec.fired then
+			local age = now - rec.start
+			if age >= rec.move.Startup * 0.5 and age < Weapons.maxAttackWindow(rec.move) + Config.Combat.HitTimeSlack then
+				rec.fired = true
+				self:fireProjectiles(f, rec)
+			end
 		end
 	elseif kind == "Hit" then
-		self:onHitReport(f, data)
+		if validSeq(data.seq) then
+			self:onHitReport(f, data)
+		end
 	elseif kind == "Dodge" then
 		local invuln = DODGE_INVULN[data.kind]
-		if invuln then
+		if invuln == nil then
+			return
+		end
+		local cooldown = DODGE_COOLDOWN[data.kind] * COOLDOWN_LENIENCY
+		local last = f.lastDodge and f.lastDodge[data.kind]
+		if last and now - last < cooldown then
+			return
+		end
+		f.lastDodge = f.lastDodge or {}
+		f.lastDodge[data.kind] = now
+		if invuln > 0 then
 			f.invulnUntil = math.max(f.invulnUntil, now + invuln + Config.Combat.DodgeInvulnSlack)
 		end
-		if type(data.kind) == "string" then
-			self:Broadcast("Action", { fighterId = f.id, kind = "Dodge", dodgeKind = data.kind }, player)
-		end
+		self:Broadcast("Action", { fighterId = f.id, kind = "Dodge", dodgeKind = data.kind }, player)
 	elseif kind == "Throw" then
 		local dirY = data.dirY == 1 and 1 or (data.dirY == -1 and -1 or 0)
 		self:ThrowWeapon(f, dirY, data.facing)
@@ -1119,20 +1195,30 @@ function Match:CheckEnd()
 		return
 	end
 	local humans = false
+	local humanTeams = {}
 	local teams = {}
 	local teamCount = 0
 	for _, f in self.fighters do
 		if f.player and not f.left then
 			humans = true
+			humanTeams[f.team] = true
 		end
 		if not f.eliminated and not teams[f.team] then
 			teams[f.team] = true
 			teamCount += 1
 		end
 	end
+	-- Once no team with a player on it can still win, there's nothing left
+	-- to watch (e.g. bots finishing an FFA among themselves).
+	local humanTeamAlive = false
+	for team in humanTeams do
+		if teams[team] then
+			humanTeamAlive = true
+		end
+	end
 	if not humans then
 		self:Finish("Abandoned")
-	elseif teamCount <= 1 then
+	elseif teamCount <= 1 or not humanTeamAlive then
 		self:Finish("Decided")
 	end
 end
@@ -1202,6 +1288,9 @@ function Match:Finish(reason)
 	for _, f in self.fighters do
 		if f.isBot and f.state then
 			f.state.frozen = true
+			if f.root and f.root.Parent then
+				f.root.Anchored = true
+			end
 		end
 	end
 
@@ -1279,12 +1368,12 @@ function Match:Finish(reason)
 				results = results,
 				rewards = rewards[player],
 				you = f.id,
-				returnIn = Config.Match.ResultsSeconds,
+				returnIn = reason == "Abandoned" and 3 or Config.Match.ResultsSeconds,
 			})
 		end
 	end
 
-	task.delay(reason == "Abandoned" and 0 or Config.Match.ResultsSeconds, function()
+	task.delay(reason == "Abandoned" and 3 or Config.Match.ResultsSeconds, function()
 		self:Cleanup()
 	end)
 end

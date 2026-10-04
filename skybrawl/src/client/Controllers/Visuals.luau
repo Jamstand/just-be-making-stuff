@@ -43,6 +43,7 @@ local rng = Random.new()
 
 local REST = {}
 
+-- stylua: ignore start
 local POSES = {
 	Punch = {
 		Windup = { RightArm = { 40, 0, 0 }, LeftArm = { 60, 0, 0 }, Torso = { 0, 25, 0 } },
@@ -120,6 +121,7 @@ local POSES = {
 		Strike = { RightArm = { 40, 0, 45 }, LeftArm = { 40, 0, -45 }, Root = { 22, 0, 0 } },
 	},
 }
+-- stylua: ignore end
 
 local JOINTS = {
 	R15 = {
@@ -295,7 +297,11 @@ local function updateRig(rig, dt)
 		resetPose(rig)
 	end
 
-	local trailOn = rig.anim ~= nil and t > startup * 0.5 and t < startup + active + 0.06
+	local trailOn = rig.anim ~= nil
+		and anim.name ~= "Hurt"
+		and anim.name ~= "Throw"
+		and t > startup * 0.5
+		and t < startup + active + 0.06
 	if trailOn ~= rig.trailOn then
 		rig.trailOn = trailOn
 		setTrail(model, trailOn)

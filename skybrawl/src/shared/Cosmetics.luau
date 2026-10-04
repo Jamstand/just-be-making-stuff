@@ -26,6 +26,7 @@ Cosmetics.Defaults = {
 	Title = "ti_rookie",
 }
 
+-- stylua: ignore start
 local items = {
 	-- Weapon colors
 	{ Id = "wc_steel", Category = "WeaponColor", Name = "Steel", Price = 0, Primary = Color3.fromRGB(205, 210, 220), Secondary = Color3.fromRGB(110, 72, 45), Material = "Metal" },
@@ -61,6 +62,7 @@ local items = {
 	{ Id = "ti_champion", Category = "Title", Name = "Champion", Price = 1000 },
 	{ Id = "ti_legend", Category = "Title", Name = "Legend", Price = 2500 },
 }
+-- stylua: ignore end
 
 Cosmetics.Items = items
 Cosmetics.ById = {}

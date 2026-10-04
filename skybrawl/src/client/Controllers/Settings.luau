@@ -103,7 +103,23 @@ function Settings.init()
 		end
 		loaded = true
 		local saved = Util.deepCopy(profile.Settings or {})
+		-- Keybind lists are reconciled per action only: a saved list (even an
+		-- empty one) wins, so cleared or moved keys don't come back.
+		local savedBinds = type(saved.Keybinds) == "table" and saved.Keybinds or {}
+		saved.Keybinds = nil
 		Settings.values = Util.reconcile(saved, Config.DefaultSettings)
+		local binds = {}
+		for device, defaults in Config.DefaultKeybinds do
+			local deviceBinds = type(savedBinds[device]) == "table" and savedBinds[device] or {}
+			binds[device] = {}
+			for action, list in defaults do
+				binds[device][action] = deviceBinds[action] or table.clone(list)
+			end
+			for action, list in deviceBinds do
+				binds[device][action] = binds[device][action] or list
+			end
+		end
+		Settings.values.Keybinds = binds
 		for key, value in Settings.values do
 			Settings.Changed:Fire(key, value)
 		end

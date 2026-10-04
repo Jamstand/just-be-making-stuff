@@ -33,12 +33,14 @@
 
 local Weapons = {}
 
+-- stylua: ignore start
 Weapons.Slots = {
 	"NLight", "SLight", "DLight",
 	"NAir", "SAir", "DAir",
 	"NHeavy", "SHeavy", "DHeavy",
 	"Recovery", "GroundPound",
 }
+-- stylua: ignore end
 
 Weapons.SlotNames = {
 	NLight = "Neutral Light",
@@ -126,6 +128,7 @@ local function groundPound(t)
 	return t
 end
 
+-- stylua: ignore start
 Weapons.List = {
 	Unarmed = {
 		Id = "Unarmed",
@@ -274,6 +277,7 @@ Weapons.List = {
 		}),
 	},
 }
+-- stylua: ignore end
 
 Weapons.Order = { "Sword", "Hammer", "Spear", "Gauntlets", "Scythe", "Bow" }
 

@@ -303,7 +303,7 @@ local function step(dt)
 	end
 
 	applyTransform(m)
-	local anim = FighterSim.animState(sim)
+	local anim = (sim.frozen and m.me.alive) and "Idle" or FighterSim.animState(sim)
 	CharacterAnimator.setState(anim, anim == "Run" and math.max(0.6, math.abs(sim.vx) / 16) or 1)
 end
 
@@ -392,12 +392,20 @@ local function onStart(info)
 	CameraController.setProvider(cameraData)
 	Visuals.startMatch(info.origin)
 	CharacterAnimator.setMatchMode(true)
-	MatchHUD.show(m)
-	if UserInputService.TouchEnabled then
-		MobileControls.show()
-	end
 	RunService:BindToRenderStep(STEP_NAME, Enum.RenderPriority.Input.Value + 1, step)
 	fighterAction:FireServer("Ready")
+
+	-- UI last, and never allowed to block the fight itself.
+	local ok, err = pcall(MatchHUD.show, m)
+	if not ok then
+		warn("[MatchClient] HUD failed:", err)
+	end
+	if UserInputService.TouchEnabled then
+		ok, err = pcall(MobileControls.show)
+		if not ok then
+			warn("[MatchClient] touch controls failed:", err)
+		end
+	end
 end
 
 local handlers = {}
@@ -435,7 +443,8 @@ function handlers.Hit(d)
 	if victim then
 		victim.damage = d.total
 	end
-	if attacker ~= match.me then
+	-- Your own melee hits already sparked locally; ranged hits are server-side.
+	if attacker ~= match.me or d.ranged then
 		Visuals.hitSpark(d.x, d.y, d.heavy, d.force)
 		Sound.play("Hit", d.heavy and 0.8 or 0.5, d.heavy and 0.8 or 1.1)
 	end

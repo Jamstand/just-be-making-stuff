@@ -30,8 +30,14 @@ DataService.ProfileChanged = Util.Signal.new()
 local profiles = {} -- [Player] = profile
 local canSave = {} -- [Player] = boolean
 local loading = {} -- [Player] = true while loading
+local sessionStart = {} -- [Player] = os.time() when this server took the profile
+local pendingSaves = 0
 local store = nil
 local warnedNoStore = false
+
+-- A profile another server touched this recently is treated as still in use
+-- there (usually it's finishing the save from when the player left).
+local SESSION_STALE_SECONDS = Config.Data.AutosaveSeconds * 2 + 30
 
 local DEFAULT_PROFILE = {
 	Version = 1,
@@ -205,15 +211,38 @@ local function loadProfile(player)
 	local ok = false
 	local ds = getStore()
 	if ds then
-		for attempt = 1, 3 do
-			ok, data = pcall(function()
-				return ds:GetAsync(keyFor(player))
+		-- Load and claim the profile in one step, so an older server that's
+		-- still holding it can't overwrite it afterwards (see saveProfile).
+		local attempts = 5
+		for attempt = 1, attempts do
+			local heldElsewhere = false
+			local err
+			ok, err = pcall(function()
+				ds:UpdateAsync(keyFor(player), function(old)
+					data = old
+					heldElsewhere = type(old) == "table"
+						and old.SessionJob ~= nil
+						and old.SessionJob ~= game.JobId
+						and os.time() - (old.SessionTime or 0) < SESSION_STALE_SECONDS
+					if heldElsewhere and attempt < attempts then
+						return nil
+					end
+					local claimed = type(old) == "table" and old or {}
+					claimed.SessionJob = game.JobId
+					claimed.SessionTime = os.time()
+					return claimed
+				end)
 			end)
 			if ok then
-				break
+				if not heldElsewhere or attempt == attempts then
+					break
+				end
+				-- Give the other server a moment to finish its last save.
+				task.wait(2)
+			else
+				warn(string.format("[DataService] load attempt %d failed for %s: %s", attempt, player.Name, tostring(err)))
+				task.wait(attempt)
 			end
-			warn(string.format("[DataService] load attempt %d failed for %s: %s", attempt, player.Name, tostring(data)))
-			task.wait(attempt)
 		end
 	end
 	loading[player] = nil
@@ -232,6 +261,7 @@ local function loadProfile(player)
 	end
 
 	profiles[player] = profile
+	sessionStart[player] = os.time()
 	canSave[player] = ok and ds ~= nil
 	if not canSave[player] then
 		Net.get("Toast"):FireClient(player, "Progress can't be saved right now. You can still play!", "warn")
@@ -240,26 +270,43 @@ local function loadProfile(player)
 	DataService.push(player)
 end
 
-local function saveProfile(player)
+-- `releasing` marks the profile as free for other servers (player left).
+local function saveProfile(player, releasing)
 	local profile = profiles[player]
 	local ds = getStore()
 	if not profile or not canSave[player] or not ds then
 		return false
 	end
+	local startedAt = sessionStart[player] or 0
+	pendingSaves += 1
 	local ok, err
+	local takenOver = false
 	for attempt = 1, 3 do
 		ok, err = pcall(function()
-			ds:UpdateAsync(keyFor(player), function()
+			ds:UpdateAsync(keyFor(player), function(old)
+				-- Another server loaded this profile after we did: its copy is
+				-- newer, so don't overwrite it.
+				if type(old) == "table" and old.SessionJob and old.SessionJob ~= game.JobId and (old.SessionTime or 0) > startedAt then
+					takenOver = true
+					return nil
+				end
+				profile.SessionJob = if releasing then nil else game.JobId
+				profile.SessionTime = os.time()
 				return profile
 			end)
 		end)
 		if ok then
-			return true
+			break
 		end
 		warn(string.format("[DataService] save attempt %d failed for %s: %s", attempt, player.Name, tostring(err)))
 		task.wait(attempt)
 	end
-	return false
+	pendingSaves -= 1
+	if takenOver then
+		warn("[DataService] skipped saving", player.Name, "- another server has a newer copy")
+		canSave[player] = false
+	end
+	return ok and not takenOver
 end
 
 -- API ---------------------------------------------------------------------
@@ -303,9 +350,10 @@ function DataService.start()
 	Players.PlayerRemoving:Connect(function(player)
 		-- Deferred so match/room cleanup (which may record a loss) runs first.
 		task.defer(function()
-			saveProfile(player)
+			saveProfile(player, true)
 			profiles[player] = nil
 			canSave[player] = nil
+			sessionStart[player] = nil
 		end)
 	end)
 
@@ -346,16 +394,13 @@ function DataService.start()
 		if RunService:IsStudio() and not getStore() then
 			return
 		end
-		local pending = 0
 		for _, player in Players:GetPlayers() do
-			pending += 1
-			task.spawn(function()
-				saveProfile(player)
-				pending -= 1
-			end)
+			task.spawn(saveProfile, player, true)
 		end
+		-- Also waits for saves already in flight (e.g. the last player leaving).
+		task.wait()
 		local deadline = os.clock() + 25
-		while pending > 0 and os.clock() < deadline do
+		while pendingSaves > 0 and os.clock() < deadline do
 			task.wait(0.1)
 		end
 	end)
