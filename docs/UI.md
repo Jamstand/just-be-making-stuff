@@ -191,6 +191,7 @@ it to `""` to silence it. Players set the volumes in Settings (Music, Sound effe
 | `whoosh` | banners and toasts sliding in, the item bar arriving | Roblox_UI_Whoosh_02 (15675028888) |
 | `pop` | small pop-ins (badges, cards); an item bar slot ready again, a new item in the bar, a charge ring full, a level-up toast's pip lighting up | Roblox GUI - Bubble (17208204604) |
 | `sell` | a sock was sold | CoinTransfer_01 (127645268874265) |
-| `music` | background music loop (starts once the saved Music volume is known) | Roblox_UI_Loop_Calm_Music (15675069601) |
+| `music` | background music loop in the game (starts once the saved Music volume is known; after the title screen it crossfades in) | Roblox_UI_Loop_Calm_Music (15675069601) |
+| `title` | the title screen's music loop (a bouncy retro flute tune in a major key, 106 bpm; it crossfades to `music` on PLAY) | Roblox_RetroFluteMusic_01 (15930255433) |
 
 All sounds are preloaded when the game starts, so the first click isn't silent.
