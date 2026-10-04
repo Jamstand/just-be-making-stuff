@@ -9,6 +9,7 @@ rewards spring with a little overshoot, and big moments get coins, number pops a
 
 | Where | What | Module |
 | --- | --- | --- |
+| Full screen, on join | The title screen (main menu) over the live bedroom, until you press PLAY | `MainMenu.luau` |
 | Top-left | Cash pill (rolling number, coins fly in when you earn), income, drawer lock, cash waiting on your pad | `HUD.luau` |
 | Left column | Drawer · Shop · Store · Sockdex · Settings buttons (red bubbles when something needs you: an affordable upgrade or item, new Sockdex finds or a claimable milestone, Rare Sock Drops waiting for a slot) | `Menu.luau` |
 | Next to the column | Your drawer list (tap a sock for its card) | `HUD.luau` |
@@ -23,6 +24,38 @@ settings), `Menu.luau` (the column and the one-panel-at-a-time manager). Sizes a
 pixels for a 720 px tall screen; phones scale everything by about 0.72, so buttons stay at least
 60 px tall in the code (about 44 px on a phone; the Item Shop's and the item bar's use 62+ so they
 clear 44 px). Item pictures: `ItemIcon.luau`.
+
+## Title screen (main menu)
+
+When you join you land on a title screen over the live bedroom (`MainMenu.luau`), with its own
+music, before the HUD shows:
+
+- **Camera:** a loop of slow cinematic shots of the room, each 7-8.5 s, with a soft dip to night
+  between them: along the clothesline of socks, high over the rug, into the Great Dryer's galaxy,
+  past the row of drawers, up at the giant bed under the moon window. The shots are world positions
+  from the server's `Map.Layout` (`MainMenu.Shots`; move them if the map moves). Without the map
+  (`workspace.StealASock`) the camera circles your character instead. The game streams the area
+  each shot looks at when Streaming is on.
+- **Logo:** "STEAL A" over SOCK as four candy toy blocks (red, yellow, blue, coral - the SOCK blocks
+  of `docs/concept/bedroom_keyframe.png`). They drop in one by one with a bounce and a little thud,
+  bob, and now and then one hops and spins. Two living 3D socks dance either side of the logo
+  (`SockCard.Viewer` with SockAnim's idle; Argylo and DJ Dryer first, a new pair every shot) when
+  the screen is wide enough; sparkles drift up; the tagline reads "Steal socks • Snap thieves •
+  Fill your drawer!". It all scales to fit: phones in portrait get a smaller logo and no 3D socks.
+- **Buttons:** a big pulsing **PLAY** (also Enter, Space or gamepad A) and **Settings** (the
+  Settings panel opens over the title).
+- **Music:** the title's own loop, `title` in `UISound` (a bouncy retro flute tune), at your
+  Music volume. It starts once the saved settings arrive (a muted player hears nothing).
+- **PLAY:** the logo blocks fling up off the screen, the buttons and socks pop away, the camera
+  swoops down in a curve to just behind your character, then the game camera takes over. The HUD,
+  menu column and item bar come back, your controls unlock and the music crossfades to the game's
+  loop.
+- **While it shows:** the HUD, menu column and item bar are hidden (toasts, celebrations and the
+  Settings panel still show), so is Roblox's player list, and your character can't move. With
+  **Reduce motion** the blocks and socks sit still, there are no sparkles, the shots run slower
+  without the handheld drift and PLAY fades instead of swooping.
+- **Testing in Studio:** set the workspace attribute `SkipTitleScreen` = true (Workspace →
+  Attributes) to go straight into the game while you test something else. It only works in Studio.
 
 ## Item bar
 

@@ -5,8 +5,9 @@
 -- UI modules: Theme (look + factories), Anim (all motion), UISound (all UI sounds), ClientSettings
 -- (the player's settings), Menu (column + panel manager), HUD, ShopUI, StoreUI, DexUI, SockCard,
 -- SettingsUI, Performance (the settings that change the 3D world), ItemBar (the item bar that
--- replaces Roblox's hotbar; ItemBarLayout and ItemIcon are its helpers). Every screen gets
--- SetState(state) with the StateView (Shared.Types) once a second.
+-- replaces Roblox's hotbar; ItemBarLayout and ItemIcon are its helpers), MainMenu (the title
+-- screen you land on: it hides the others until PLAY). Every screen gets SetState(state) with the
+-- StateView (Shared.Types) once a second.
 -- Items: ItemClient is the item bar's engine (using items, cooldowns; it starts ItemFX, the item
 -- effects, itself). It loads on its own thread, so a slow or broken start can't hold up the menus.
 -- 3D: SockFX (clothesline, dryer, fan, forcefield, bursts, outlines) and SockAnim (every sock's
@@ -73,6 +74,7 @@ local SockCard = screen("SockCard")
 local SettingsUI = screen("SettingsUI")
 local Performance = screen("Performance")
 local ItemBar = screen("ItemBar")
+local MainMenu = screen("MainMenu")
 
 run("Menu", Menu, "Init")
 run("HUD", HUD, "Init")
@@ -95,6 +97,8 @@ run("ItemBar", ItemBar, "SetShopOpener", function() -- an empty "+" slot opens t
 	end
 end)
 run("UISound", UISound, "Preload")
+-- the title screen last: it hides the screens above until PLAY (its music starts with the State)
+run("MainMenu", MainMenu, "Show")
 
 local screens = { HUD = HUD, ShopUI = ShopUI, StoreUI = StoreUI, DexUI = DexUI, SockCard = SockCard, ItemBar = ItemBar }
 local latestState: any = nil
@@ -131,7 +135,7 @@ Remotes:WaitForChild("State").OnClientEvent:Connect(function(state)
 	run("ClientSettings", ClientSettings, "Load", state.settings)
 	if not musicStarted then
 		musicStarted = true -- after the saved Music volume is applied, so a muted player hears nothing
-		run("UISound", UISound, "StartMusic")
+		run("UISound", UISound, "StartMusic") -- the title screen's loop while it shows, else the game's
 	end
 	for name, screen in pairs(screens) do
 		run(name, screen, "SetState", state)
