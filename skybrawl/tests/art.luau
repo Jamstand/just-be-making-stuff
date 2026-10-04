@@ -10,6 +10,9 @@
       - every map with a Kit has its Blender script and export
       - the painted sky layers fill the camera's view in every camera look,
         sit behind the maps' 3D scenery, and the nearer ones slide more
+      - the background renderer (art/blender/sky/vista.py) uses the same
+        layers and parallax speeds as Config.Art.SkyLayers, and every map
+        with a Kit has its painted background script and layer images
 ]]
 
 local fs = require("@lune/fs")
@@ -159,6 +162,35 @@ h.test("every map kit has its Blender script, export and sky", function()
 			h.expect(fs.isFile(root .. "/art/blender/maps/" .. scripts[map.Kit] .. ".py"), id .. " has no map script")
 			h.expect(fs.isFile(root .. "/art/export/maps/" .. map.Kit .. ".fbx"), id .. " kit not exported")
 			h.expect(fs.isFile(root .. "/art/export/skies/" .. id .. ".png"), id .. " sky not rendered")
+		end
+	end
+end)
+
+h.test("painted backgrounds match the game's sky layers", function()
+	local Config = h.require("Config")
+	-- vista.py renders each layer as wide as the game draws it, which
+	-- depends on the layer's parallax speed.
+	local source = fs.readFile(root .. "/art/blender/sky/vista.py")
+	local block = string.match(source, "PARALLAX = (%b{})")
+	h.expect(block, "vista.py has no PARALLAX table")
+	local names = {}
+	for _, spec in Config.Art.SkyLayers do
+		local value = string.match(block, '"' .. spec.Name .. '":%s*([%d%.]+)')
+		h.expect(value, "vista.py's PARALLAX has no " .. spec.Name)
+		h.near(tonumber(value), spec.Parallax, 1e-9, spec.Name .. " parallax in vista.py")
+		table.insert(names, spec.Name)
+	end
+	local layers = string.match(source, "LAYERS = (%b())")
+	h.expect(layers == '("' .. table.concat(names, '", "') .. '")', "vista.py's LAYERS differ from Config.Art.SkyLayers")
+
+	local scripts = { SkyShip = "sky_ship", VolcanicForge = "volcanic_forge", FrozenPeaks = "frozen_peaks", JungleTemple = "jungle_temple" }
+	for id, map in Maps.List do
+		if map.Kit then
+			h.expect(fs.isFile(root .. "/art/blender/vistas/" .. scripts[map.Kit] .. ".py"), id .. " has no background script")
+			for _, spec in Config.Art.SkyLayers do
+				local file = root .. "/art/export/skies/painted/" .. id .. "_" .. spec.Name .. ".png"
+				h.expect(fs.isFile(file), id .. "'s " .. spec.Name .. " layer not rendered")
+			end
 		end
 	end
 end)
