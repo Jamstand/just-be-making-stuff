@@ -1,0 +1,240 @@
+--[[
+    Builds weapon visuals out of plain Parts, so the game needs no
+    uploaded meshes. Swap these for real models later by changing build().
+
+    Weapon frame: the grip is at the origin, the weapon points along +Y,
+    and its broad side lies along Z (so blades face the 2D camera when held).
+]]
+
+local Weapons = require(script.Parent.Weapons)
+local Cosmetics = require(script.Parent.Cosmetics)
+local Util = require(script.Parent.Util)
+
+local WeaponModels = {}
+
+local WOOD = Enum.Material.Wood
+
+local function materialOf(name)
+	local ok, material = pcall(function()
+		return Enum.Material[name]
+	end)
+	return ok and material or Enum.Material.Metal
+end
+
+local function newPart(name, size, cframe, color, material)
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Size = size
+	part.CFrame = cframe
+	part.Color = color
+	part.Material = material
+	part.Anchored = false
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.Massless = true
+	part.CastShadow = false
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	return part
+end
+
+local SHAPES = {}
+
+SHAPES.Sword = function(add, primary, secondary, mat)
+	add("Handle", Vector3.new(0.28, 1.2, 0.28), CFrame.new(0, 0.1, 0), secondary, WOOD)
+	add("Pommel", Vector3.new(0.4, 0.3, 0.4), CFrame.new(0, -0.55, 0), primary, mat)
+	add("Guard", Vector3.new(0.35, 0.25, 1.5), CFrame.new(0, 0.75, 0), primary, mat)
+	add("Blade", Vector3.new(0.16, 3.8, 0.6), CFrame.new(0, 2.8, 0), primary, mat, true)
+	add("Tip", Vector3.new(0.16, 0.4, 0.3), CFrame.new(0, 4.85, 0), primary, mat, true)
+	return Vector3.new(0, 1, 0), Vector3.new(0, 4.8, 0)
+end
+
+SHAPES.Hammer = function(add, primary, secondary, mat)
+	add("Handle", Vector3.new(0.32, 4.4, 0.32), CFrame.new(0, 1.4, 0), secondary, WOOD)
+	add("Head", Vector3.new(1.4, 1.6, 3.0), CFrame.new(0, 3.7, 0), primary, mat, true)
+	add("FaceA", Vector3.new(1.5, 1.2, 0.3), CFrame.new(0, 3.7, 1.45), secondary, mat)
+	add("FaceB", Vector3.new(1.5, 1.2, 0.3), CFrame.new(0, 3.7, -1.45), secondary, mat)
+	return Vector3.new(0, 2.5, 0), Vector3.new(0, 4.4, 0)
+end
+
+SHAPES.Spear = function(add, primary, secondary, mat)
+	add("Shaft", Vector3.new(0.24, 7.2, 0.24), CFrame.new(0, 2.4, 0), secondary, WOOD)
+	add("Collar", Vector3.new(0.36, 0.3, 0.36), CFrame.new(0, 5.9, 0), primary, mat)
+	add("Tip", Vector3.new(0.16, 1.6, 0.7), CFrame.new(0, 6.8, 0), primary, mat, true)
+	add("Butt", Vector3.new(0.3, 0.3, 0.3), CFrame.new(0, -1.2, 0), primary, mat)
+	return Vector3.new(0, 4, 0), Vector3.new(0, 7.5, 0)
+end
+
+SHAPES.Gauntlets = function(add, primary, secondary, mat)
+	add("Fist", Vector3.new(1.1, 1.2, 1.1), CFrame.new(0, 0.1, 0), primary, mat, true)
+	add("Cuff", Vector3.new(1.0, 0.6, 1.0), CFrame.new(0, -0.75, 0), secondary, mat)
+	for i, z in { -0.35, 0, 0.35 } do
+		add("Spike" .. i, Vector3.new(0.25, 0.45, 0.25), CFrame.new(0, 0.85, z), primary, mat, true)
+	end
+	return Vector3.new(0, 0, 0), Vector3.new(0, 0.9, 0)
+end
+
+SHAPES.Scythe = function(add, primary, secondary, mat)
+	add("Shaft", Vector3.new(0.24, 6.4, 0.24), CFrame.new(0, 2.2, 0), secondary, WOOD)
+	add("Collar", Vector3.new(0.34, 0.4, 0.34), CFrame.new(0, 5.3, 0), primary, mat)
+	add("Blade", Vector3.new(0.14, 0.7, 3.4), CFrame.new(0, 5.1, -1.6), primary, mat, true)
+	add("BladeTip", Vector3.new(0.14, 0.5, 1.2), CFrame.new(0, 4.7, -3.4) * CFrame.Angles(math.rad(-35), 0, 0), primary, mat, true)
+	return Vector3.new(0, 5, -0.5), Vector3.new(0, 5, -3.4)
+end
+
+SHAPES.Bow = function(add, primary, secondary, mat)
+	add("Grip", Vector3.new(0.3, 0.3, 0.9), CFrame.new(0, 0, 0), secondary, WOOD)
+	add("UpperLimb", Vector3.new(0.22, 0.25, 2.2), CFrame.new(0, -0.35, 1.25) * CFrame.Angles(math.rad(20), 0, 0), primary, mat, true)
+	add("LowerLimb", Vector3.new(0.22, 0.25, 2.2), CFrame.new(0, -0.35, -1.25) * CFrame.Angles(math.rad(-20), 0, 0), primary, mat, true)
+	add("String", Vector3.new(0.05, 0.05, 4.5), CFrame.new(0, -0.72, 0), Color3.fromRGB(240, 240, 230), Enum.Material.SmoothPlastic)
+	return Vector3.new(0, 0, -1), Vector3.new(0, 0, 1)
+end
+
+--[[
+    Returns a Model whose PrimaryPart ("Grip") sits at the origin. The other
+    parts are welded to it, so moving the grip moves the whole weapon.
+]]
+function WeaponModels.build(weaponId, colorId)
+	local scheme = Cosmetics.resolve("WeaponColor", colorId)
+	local shape = SHAPES[weaponId]
+	assert(shape, "no model for weapon " .. tostring(weaponId))
+
+	local model = Instance.new("Model")
+	model.Name = weaponId
+
+	local grip = newPart("Grip", Vector3.new(0.2, 0.2, 0.2), CFrame.new(), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic)
+	grip.Transparency = 1
+	grip.Parent = model
+	model.PrimaryPart = grip
+
+	local primary = scheme.Primary
+	local secondary = scheme.Secondary
+	local mat = materialOf(scheme.Material)
+
+	local function add(name, size, cframe, color, material, glows)
+		local part = newPart(name, size, cframe, color, material)
+		if glows and scheme.Glow and material ~= Enum.Material.Neon then
+			part.Reflectance = 0.15
+		end
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = grip
+		weld.Part1 = part
+		weld.Parent = part
+		part.Parent = model
+		return part
+	end
+
+	local trailBase, trailTip = shape(add, primary, secondary, mat)
+
+	if scheme.Glow then
+		local light = Instance.new("PointLight")
+		light.Color = primary
+		light.Range = 8
+		light.Brightness = 1.2
+		light.Parent = grip
+	end
+
+	-- Swing trail, toggled locally on each client while attacking.
+	local a0 = Instance.new("Attachment")
+	a0.Name = "TrailBase"
+	a0.Position = trailBase
+	a0.Parent = grip
+	local a1 = Instance.new("Attachment")
+	a1.Name = "TrailTip"
+	a1.Position = trailTip
+	a1.Parent = grip
+	local trail = Instance.new("Trail")
+	trail.Name = "SwingTrail"
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Lifetime = 0.16
+	trail.MinLength = 0.05
+	trail.FaceCamera = true
+	trail.LightEmission = 0.6
+	trail.Color = ColorSequence.new(primary:Lerp(Color3.new(1, 1, 1), 0.5))
+	trail.Transparency = NumberSequence.new(0.25, 1)
+	trail.Enabled = false
+	trail.Parent = grip
+
+	return model
+end
+
+local function handOffset(hand)
+	if hand.Name == "RightHand" or hand.Name == "LeftHand" then
+		return Vector3.new(0, -0.1, 0)
+	end
+	-- R6 arms are 2 studs long; the fist is at the bottom.
+	return Vector3.new(0, -hand.Size.Y / 2 + 0.1, 0)
+end
+
+-- Grip orientation relative to the hand: weapon +Y points forward along the
+-- hand's look direction, broad side up.
+local GRIP_ROTATION = CFrame.Angles(math.rad(-90), 0, 0)
+
+function WeaponModels.detach(character)
+	local existing = character:FindFirstChild("EquippedWeapon")
+	if existing then
+		existing:Destroy()
+	end
+end
+
+-- Welds a weapon to the character's hand(s). Returns the folder.
+function WeaponModels.attach(character, weaponId, colorId)
+	WeaponModels.detach(character)
+	if not Weapons.isWeapon(weaponId) then
+		return nil
+	end
+	local weapon = Weapons.get(weaponId)
+	local sides = weapon.Hand == "Both" and { "Right", "Left" } or { weapon.Hand }
+
+	local folder = Instance.new("Folder")
+	folder.Name = "EquippedWeapon"
+	for _, side in sides do
+		local hand = Util.getHand(character, side)
+		if hand then
+			local model = WeaponModels.build(weaponId, colorId)
+			model.Name = side
+			local c0 = CFrame.new(handOffset(hand)) * GRIP_ROTATION
+			model:PivotTo(hand.CFrame * c0)
+			local weld = Instance.new("Weld")
+			weld.Part0 = hand
+			weld.Part1 = model.PrimaryPart
+			weld.C0 = c0
+			weld.Parent = model.PrimaryPart
+			model.Parent = folder
+		end
+	end
+	folder.Parent = character
+	return folder
+end
+
+-- Turns the weapon on its side so the broad face points at the 2D camera.
+WeaponModels.DisplayRotation = CFrame.Angles(0, 0, math.rad(-45)) * CFrame.Angles(0, math.rad(90), 0)
+
+-- An anchored, glowing copy used for weapons lying on the stage.
+function WeaponModels.buildPickup(weaponId)
+	local model = WeaponModels.build(weaponId, nil)
+	model.PrimaryPart.Anchored = true
+	local weapon = Weapons.get(weaponId)
+
+	local light = Instance.new("PointLight")
+	light.Color = weapon.Color
+	light.Range = 10
+	light.Brightness = 2
+	light.Parent = model.PrimaryPart
+
+	local sparkle = Instance.new("ParticleEmitter")
+	sparkle.Color = ColorSequence.new(weapon.Color)
+	sparkle.LightEmission = 1
+	sparkle.Size = NumberSequence.new(0.35, 0)
+	sparkle.Lifetime = NumberRange.new(0.4, 0.8)
+	sparkle.Rate = 12
+	sparkle.Speed = NumberRange.new(1, 3)
+	sparkle.SpreadAngle = Vector2.new(180, 180)
+	sparkle.Parent = model.PrimaryPart
+
+	return model
+end
+
+return WeaponModels

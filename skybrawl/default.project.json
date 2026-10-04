@@ -1,0 +1,81 @@
+{
+  "name": "Skybrawl",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "Remotes": {
+        "$className": "Folder",
+        "Toast": { "$className": "RemoteEvent" },
+        "ProfileUpdate": { "$className": "RemoteEvent" },
+        "SaveSettings": { "$className": "RemoteEvent" },
+        "QueueUpdate": { "$className": "RemoteEvent" },
+        "RoomUpdate": { "$className": "RemoteEvent" },
+        "MatchEvent": { "$className": "RemoteEvent" },
+        "FighterAction": { "$className": "RemoteEvent" },
+        "GetProfile": { "$className": "RemoteFunction" },
+        "QueueRequest": { "$className": "RemoteFunction" },
+        "RoomRequest": { "$className": "RemoteFunction" },
+        "ShopRequest": { "$className": "RemoteFunction" }
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "Client": {
+          "$path": "src/client"
+        }
+      },
+      "StarterCharacterScripts": {
+        "$className": "StarterCharacterScripts",
+        "Animate": {
+          "$path": "src/character/Animate.client.luau"
+        }
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": {
+        "Gravity": 196.2,
+        "FallenPartsDestroyHeight": -500,
+        "StreamingEnabled": false
+      },
+      "SpawnLocation": {
+        "$className": "SpawnLocation",
+        "$properties": {
+          "Size": [8, 1, 8],
+          "Position": [0, 0.5, 18],
+          "Anchored": true,
+          "Duration": 0,
+          "Color": [0.98, 0.78, 0.27],
+          "Material": "Limestone",
+          "TopSurface": "Smooth",
+          "BottomSurface": "Smooth"
+        }
+      }
+    },
+    "Lighting": {
+      "$className": "Lighting",
+      "$properties": {
+        "Ambient": [0.45, 0.45, 0.52],
+        "OutdoorAmbient": [0.56, 0.56, 0.62],
+        "Brightness": 2.4,
+        "ClockTime": 14.5,
+        "GlobalShadows": true,
+        "EnvironmentDiffuseScale": 0.6,
+        "EnvironmentSpecularScale": 0.4,
+        "FogEnd": 100000
+      }
+    }
+  }
+}

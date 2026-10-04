@@ -1,0 +1,739 @@
+--[[
+    FighterSim: deterministic 2D platform-fighter movement.
+
+    The same code drives your own fighter on your client and every bot on
+    the server. It knows nothing about Instances: state is plain numbers in
+    arena-local coordinates (x/y is the fighter's feet), and the caller
+    copies the result onto the character each frame.
+
+    Input table:
+      moveX, moveY   -1..1 (moveY +1 is up)
+      jumpHeld, heavyHeld
+      buffer         { Jump, Light, Heavy, Dodge, Throw } seconds left on a
+                     buffered press; the sim zeroes an entry when it uses it
+
+    Context table:
+      world          from Maps.getWorld
+      weapon         weapon id ("Unarmed" when empty-handed)
+      armed          true when holding a weapon
+      nearPickup     true when a weapon pickup is in reach
+
+    step() appends events to the list it returns:
+      { type = "Attack", slot, seq, facing }
+      { type = "Release", seq, charge }       heavy charge released (0..1)
+      { type = "Fire", seq, slot, charge, facing }  projectile moves
+      { type = "Dodge", kind }                "Spot" | "Dash" | "Air" | "AirSpot"
+      { type = "Jump", kind }                 "Ground" | "Air" | "Wall"
+      { type = "Throw", dirY, facing }
+      { type = "Pickup" }
+      { type = "Land" }
+      { type = "AttackEnd", seq }
+]]
+
+local Config = require(script.Parent.Config)
+local Weapons = require(script.Parent.Weapons)
+
+local P = Config.Physics
+local MAX_STEP = 1 / 60
+local AXIS_DEADZONE = 0.35
+
+local FighterSim = {}
+
+local function sign(x)
+	if x > 0 then
+		return 1
+	elseif x < 0 then
+		return -1
+	end
+	return 0
+end
+
+local function approach(value, target, delta)
+	if value < target then
+		return math.min(value + delta, target)
+	end
+	return math.max(value - delta, target)
+end
+
+function FighterSim.newState(x, y, facing)
+	return {
+		x = x,
+		y = y,
+		vx = 0,
+		vy = 0,
+		facing = facing or 1,
+
+		grounded = false,
+		onSoft = false,
+		wallTouch = 0, -- side of a wall we're pressed against (-1/1)
+		wallSide = 0, -- side we're clinging to
+
+		airJumps = P.MaxAirJumps,
+		wallJumps = P.MaxWallJumps,
+		recoveryUsed = false,
+		groundPoundUsed = false,
+		airDodgeUsed = false,
+		dodgeCooldown = 0,
+		dashCooldown = 0,
+
+		action = nil, -- nil | "Attack" | "Dodge" | "Dash" | "Throw" | "Hitstun"
+		actionTime = 0,
+		actionDuration = 0,
+		dodgeKind = nil,
+		dodgeVX = 0,
+		dodgeVY = 0,
+
+		slot = nil,
+		move = nil,
+		seq = 0,
+		charge = 0,
+		charging = false,
+		attackAir = false,
+		motionTime = -1,
+		fired = false,
+
+		invuln = 0,
+		hitstun = 0,
+		dropThrough = 0,
+		landLag = 0,
+		fastFall = false,
+		jumpTime = -1,
+		prevMoveY = 0,
+		frozen = false,
+	}
+end
+
+local function emit(events, event)
+	table.insert(events, event)
+end
+
+local function endAttack(s, events)
+	if s.action == "Attack" then
+		emit(events, { type = "AttackEnd", seq = s.seq })
+	end
+	s.action = nil
+	s.move = nil
+	s.slot = nil
+	s.charging = false
+	s.motionTime = -1
+end
+
+local function chooseSlot(s, moveX, moveY, heavy)
+	local side = math.abs(moveX) > AXIS_DEADZONE
+	local down = moveY < -0.5
+	if s.grounded then
+		if heavy then
+			if down then
+				return "DHeavy"
+			elseif side then
+				return "SHeavy"
+			end
+			return "NHeavy"
+		end
+		if down then
+			return "DLight"
+		elseif side then
+			return "SLight"
+		end
+		return "NLight"
+	end
+	if heavy then
+		if down then
+			return "GroundPound"
+		end
+		return "Recovery"
+	end
+	if down then
+		return "DAir"
+	elseif side then
+		return "SAir"
+	end
+	return "NAir"
+end
+
+local function startAttack(s, slot, weaponId, moveX, events)
+	local move = Weapons.getAttack(weaponId, slot)
+	if not move then
+		return
+	end
+	if math.abs(moveX) > AXIS_DEADZONE then
+		s.facing = sign(moveX)
+	end
+	s.action = "Attack"
+	s.slot = slot
+	s.move = move
+	s.actionTime = 0
+	s.charge = 0
+	s.charging = (move.Charge or 0) > 0 and s.grounded
+	s.attackAir = not s.grounded
+	s.motionTime = -1
+	s.fired = false
+	s.fastFall = false
+	s.seq += 1
+	if slot == "Recovery" then
+		s.recoveryUsed = true
+	elseif slot == "GroundPound" then
+		s.groundPoundUsed = true
+	end
+	emit(events, { type = "Attack", slot = slot, seq = s.seq, facing = s.facing })
+end
+
+local function tryActions(s, input, moveX, moveY, ctx, events)
+	local buf = input.buffer
+	local canMove = (s.action == nil or s.action == "Dash") and s.landLag <= 0
+
+	-- Jump (also cancels a dash)
+	if buf.Jump > 0 and (s.action == nil or s.action == "Dash") then
+		if s.grounded then
+			s.action = nil
+			s.vy = P.JumpVelocity
+			s.grounded = false
+			s.jumpTime = 0
+			buf.Jump = 0
+			emit(events, { type = "Jump", kind = "Ground" })
+		elseif s.wallSide ~= 0 and s.wallJumps > 0 then
+			s.vy = P.WallJumpY
+			s.vx = -s.wallSide * P.WallJumpX
+			s.facing = -s.wallSide
+			s.wallJumps -= 1
+			s.wallSide = 0
+			s.fastFall = false
+			s.jumpTime = -1
+			buf.Jump = 0
+			emit(events, { type = "Jump", kind = "Wall" })
+		elseif s.airJumps > 0 then
+			s.vy = P.AirJumpVelocity
+			s.airJumps -= 1
+			s.fastFall = false
+			s.jumpTime = -1
+			if math.abs(moveX) > AXIS_DEADZONE then
+				s.vx = moveX * P.AirSpeed
+				s.facing = sign(moveX)
+			end
+			buf.Jump = 0
+			emit(events, { type = "Jump", kind = "Air" })
+		end
+	end
+
+	-- Dodge / dash
+	if buf.Dodge > 0 and canMove and s.dodgeCooldown <= 0 then
+		local sideways = math.abs(moveX) > AXIS_DEADZONE
+		if s.grounded then
+			if sideways then
+				if s.dashCooldown <= 0 then
+					s.action = "Dash"
+					s.actionTime = 0
+					s.actionDuration = P.DashTime
+					s.facing = sign(moveX)
+					s.vx = s.facing * P.DashSpeed
+					s.dashCooldown = P.DashCooldown
+					buf.Dodge = 0
+					emit(events, { type = "Dodge", kind = "Dash" })
+				end
+			else
+				s.action = "Dodge"
+				s.dodgeKind = "Spot"
+				s.actionTime = 0
+				s.actionDuration = P.SpotDodgeTime
+				s.invuln = math.max(s.invuln, P.SpotDodgeTime)
+				s.dodgeCooldown = P.SpotDodgeCooldown
+				buf.Dodge = 0
+				emit(events, { type = "Dodge", kind = "Spot" })
+			end
+		elseif not s.airDodgeUsed then
+			s.airDodgeUsed = true
+			s.fastFall = false
+			s.actionTime = 0
+			s.action = "Dodge"
+			if sideways or math.abs(moveY) > AXIS_DEADZONE then
+				local len = math.sqrt(moveX * moveX + moveY * moveY)
+				local dx, dy = moveX / len, moveY / len
+				s.dodgeKind = "Air"
+				s.dodgeVX = dx * P.AirDodgeSpeed
+				s.dodgeVY = dy * P.AirDodgeSpeed
+				s.actionDuration = P.AirDodgeTime
+				s.invuln = math.max(s.invuln, P.AirDodgeInvuln)
+				if math.abs(dx) > 0.2 then
+					s.facing = sign(dx)
+				end
+				emit(events, { type = "Dodge", kind = "Air" })
+			else
+				s.dodgeKind = "AirSpot"
+				s.actionDuration = P.SpotDodgeTime
+				s.invuln = math.max(s.invuln, P.SpotDodgeTime)
+				s.vx *= 0.3
+				s.vy = math.max(s.vy, 0) * 0.3
+				emit(events, { type = "Dodge", kind = "AirSpot" })
+			end
+			s.dodgeCooldown = P.AirDodgeCooldown
+			buf.Dodge = 0
+		end
+	end
+
+	canMove = (s.action == nil or s.action == "Dash") and s.landLag <= 0
+
+	-- Attacks (heavy wins if both are buffered)
+	if canMove and (buf.Heavy > 0 or buf.Light > 0) then
+		local heavy = buf.Heavy > 0
+		if heavy then
+			buf.Heavy = 0
+		else
+			buf.Light = 0
+		end
+		if not heavy and ctx.nearPickup and not ctx.armed then
+			emit(events, { type = "Pickup" })
+		else
+			local slot = chooseSlot(s, moveX, moveY, heavy)
+			local spent = (slot == "Recovery" and s.recoveryUsed) or (slot == "GroundPound" and s.groundPoundUsed)
+			if spent then
+				slot = nil
+			end
+			if slot then
+				s.action = nil
+				startAttack(s, slot, ctx.weapon, moveX, events)
+			end
+		end
+		canMove = false
+	end
+
+	-- Throw / pick up
+	if buf.Throw > 0 and canMove then
+		buf.Throw = 0
+		if ctx.armed then
+			if math.abs(moveX) > AXIS_DEADZONE then
+				s.facing = sign(moveX)
+			end
+			s.action = "Throw"
+			s.actionTime = 0
+			s.actionDuration = Config.WeaponDrops.ThrowRecovery
+			local dirY = 0
+			if moveY > 0.5 then
+				dirY = 1
+			elseif moveY < -0.5 then
+				dirY = -1
+			end
+			emit(events, { type = "Throw", dirY = dirY, facing = s.facing })
+		elseif ctx.nearPickup then
+			emit(events, { type = "Pickup" })
+		end
+	end
+end
+
+local function motionActive(s)
+	local move = s.move
+	return s.action == "Attack" and move ~= nil and move.Motion ~= nil and s.motionTime >= 0 and s.motionTime < move.Motion.Duration
+end
+
+local function updateAction(s, input, dt, events)
+	if s.action == "Attack" then
+		local move = s.move
+		if s.charging then
+			if input.heavyHeld and s.charge < move.Charge then
+				s.charge = math.min(move.Charge, s.charge + dt)
+			else
+				s.charging = false
+				emit(events, { type = "Release", seq = s.seq, charge = FighterSim.chargeFraction(s) })
+			end
+		else
+			s.actionTime += dt
+		end
+
+		local mo = move.Motion
+		if mo then
+			if s.motionTime < 0 and not s.charging and s.actionTime >= mo.At then
+				s.motionTime = 0
+			end
+			if s.motionTime >= 0 and s.motionTime < mo.Duration then
+				s.motionTime += dt
+				s.vx = mo.VX * s.facing
+				s.vy = mo.VY
+				if mo.VY > 0 then
+					s.grounded = false
+				end
+			end
+		end
+
+		if move.Projectile and not s.fired and not s.charging and s.actionTime >= move.Startup then
+			s.fired = true
+			emit(events, {
+				type = "Fire",
+				seq = s.seq,
+				slot = s.slot,
+				charge = FighterSim.chargeFraction(s),
+				facing = s.facing,
+			})
+		end
+
+		if s.actionTime >= move.Startup + move.Active + move.Recovery then
+			endAttack(s, events)
+		end
+	elseif s.action == "Dodge" or s.action == "Dash" or s.action == "Throw" then
+		s.actionTime += dt
+		if s.actionTime >= s.actionDuration then
+			if s.action == "Dodge" and s.dodgeKind == "Air" then
+				s.vx *= 0.35
+				s.vy *= 0.35
+			end
+			s.action = nil
+			s.dodgeKind = nil
+		end
+	end
+end
+
+local function updateMovement(s, input, moveX, moveY, dt)
+	-- Short hop: let go of jump early for a smaller hop.
+	if s.jumpTime >= 0 then
+		s.jumpTime += dt
+		if not input.jumpHeld and s.vy > 0 then
+			if s.jumpTime <= P.ShortHopWindow then
+				s.vy *= P.ShortHopMult
+			end
+			s.jumpTime = -1
+		elseif s.jumpTime > P.ShortHopWindow then
+			s.jumpTime = -1
+		end
+	end
+
+	local airDodging = s.action == "Dodge" and s.dodgeKind == "Air"
+	local moving = motionActive(s)
+
+	-- Horizontal
+	if s.action == "Dash" then
+		s.vx = s.facing * P.DashSpeed
+	elseif airDodging then
+		s.vx = s.dodgeVX
+		s.vy = s.dodgeVY
+	elseif not moving then
+		local control = 1
+		if s.action == "Attack" then
+			control = s.grounded and 0 or s.move.AirDrift
+		elseif s.action == "Dodge" or s.action == "Throw" then
+			control = s.grounded and 0 or 0.5
+		elseif s.landLag > 0 then
+			control = 0
+		end
+
+		local wants = math.abs(moveX) > 0.1 and control > 0
+		if s.grounded then
+			if wants then
+				s.vx = approach(s.vx, moveX * P.RunSpeed, P.GroundAccel * control * dt)
+			else
+				s.vx = approach(s.vx, 0, P.GroundDecel * dt)
+			end
+		else
+			local over = math.abs(s.vx) > P.AirSpeed
+			if over and (not wants or sign(moveX) == sign(s.vx)) then
+				-- Keep knockback momentum; bleed it off slowly.
+				s.vx = approach(s.vx, sign(s.vx) * P.AirSpeed, P.OverspeedDecel * dt)
+			elseif wants then
+				local accel = P.AirAccel * control
+				if over then
+					accel *= 0.5
+				end
+				s.vx = approach(s.vx, moveX * P.AirSpeed, accel * dt)
+			else
+				s.vx = approach(s.vx, 0, P.AirDecel * dt)
+			end
+		end
+
+		if s.action == nil and math.abs(moveX) > AXIS_DEADZONE then
+			s.facing = sign(moveX)
+		end
+	end
+
+	-- Wall cling: airborne, pressing into a wall.
+	s.wallSide = 0
+	if not s.grounded and s.wallTouch ~= 0 and s.action == nil and moveX * s.wallTouch > AXIS_DEADZONE then
+		s.wallSide = s.wallTouch
+		s.facing = -s.wallTouch
+	end
+
+	-- Fast fall
+	if not s.grounded and moveY <= -0.6 and s.vy < 8 then
+		if s.action == nil or (s.action == "Attack" and s.move.Air and not moving) then
+			s.fastFall = true
+		end
+	end
+
+	-- Gravity
+	if not airDodging and not moving then
+		local g = P.Gravity
+		if s.fastFall then
+			g *= P.FastFallGravityMult
+		elseif s.action == "Dodge" and s.dodgeKind == "AirSpot" then
+			g *= 0.25
+		end
+		s.vy -= g * dt
+		local maxFall = s.fastFall and P.FastFallSpeed or P.MaxFallSpeed
+		if s.wallSide ~= 0 then
+			maxFall = P.WallSlideSpeed
+		end
+		if s.vy < -maxFall then
+			s.vy = approach(s.vy, -maxFall, 300 * dt)
+		end
+	end
+end
+
+local function updateHitstun(s, moveX, dt)
+	s.hitstun -= dt
+	s.vy -= P.Gravity * P.HitstunGravityScale * dt
+	s.vx += moveX * P.DIAccel * dt
+	local drag = math.exp(-P.KnockbackDrag * dt)
+	s.vx *= drag
+	if s.vy > 0 then
+		s.vy *= drag
+	end
+	if s.grounded then
+		s.vx = approach(s.vx, 0, P.GroundDecel * 0.5 * dt)
+	end
+	if s.hitstun <= 0 then
+		s.hitstun = 0
+		s.action = nil
+	end
+end
+
+local function onLanded(s, events)
+	s.airJumps = P.MaxAirJumps
+	s.wallJumps = P.MaxWallJumps
+	s.recoveryUsed = false
+	s.groundPoundUsed = false
+	s.airDodgeUsed = false
+	s.fastFall = false
+	s.wallSide = 0
+	if s.action == "Attack" then
+		local move = s.move
+		if move.EndsOnLand then
+			if s.actionTime < move.Startup + move.Active then
+				s.actionTime = move.Startup + move.Active
+			end
+			s.motionTime = math.huge
+		elseif s.attackAir then
+			endAttack(s, events)
+			s.landLag = P.LandingLag * 2
+		end
+	elseif s.action == "Dodge" and s.dodgeKind ~= "Spot" then
+		s.action = nil
+		s.dodgeKind = nil
+	end
+	emit(events, { type = "Land" })
+end
+
+-- Axis-separated swept AABB against the arena's platforms.
+local function integrate(s, dt, world, events)
+	local halfW = P.FighterWidth / 2
+	local height = P.FighterHeight
+	local dx = s.vx * dt
+	local dy = s.vy * dt
+	local steps = math.max(1, math.ceil(math.max(math.abs(dx), math.abs(dy)) / 0.8))
+	dx /= steps
+	dy /= steps
+
+	local wasGrounded = s.grounded
+	local grounded = false
+	local onSoft = false
+	local wallTouch = 0
+	local x, y = s.x, s.y
+
+	for _ = 1, steps do
+		-- X axis: solid platforms only
+		local nx = x + dx
+		if dx ~= 0 then
+			for _, p in world.platforms do
+				if not p.soft and y + height > p.minY + 0.01 and y < p.maxY - 0.01 then
+					if nx + halfW > p.minX and nx - halfW < p.maxX then
+						if dx > 0 and x + halfW <= p.minX + 0.05 then
+							nx = p.minX - halfW
+							wallTouch = 1
+							s.vx = math.min(s.vx, 0)
+						elseif dx < 0 and x - halfW >= p.maxX - 0.05 then
+							nx = p.maxX + halfW
+							wallTouch = -1
+							s.vx = math.max(s.vx, 0)
+						end
+					end
+				end
+			end
+		end
+		x = nx
+
+		-- Y axis
+		local ny = y + dy
+		for _, p in world.platforms do
+			if x + halfW > p.minX + 0.01 and x - halfW < p.maxX - 0.01 then
+				if dy <= 0 and y >= p.maxY - 0.05 and ny <= p.maxY then
+					if not p.soft or s.dropThrough <= 0 then
+						ny = p.maxY
+						grounded = true
+						onSoft = p.soft
+					end
+				elseif dy > 0 and not p.soft and y + height <= p.minY + 0.05 and ny + height > p.minY then
+					ny = p.minY - height
+					s.vy = math.min(s.vy, 0)
+					dy = 0
+				end
+			end
+		end
+		if grounded then
+			dy = 0
+		end
+		y = ny
+	end
+
+	s.x, s.y = x, y
+	s.grounded = grounded
+	s.onSoft = onSoft
+	s.wallTouch = wallTouch
+	if grounded then
+		s.vy = 0
+		if not wasGrounded then
+			onLanded(s, events)
+		end
+	end
+end
+
+local function stepOnce(s, input, dt, ctx, events)
+	s.invuln = math.max(0, s.invuln - dt)
+	s.dodgeCooldown = math.max(0, s.dodgeCooldown - dt)
+	s.dashCooldown = math.max(0, s.dashCooldown - dt)
+	s.dropThrough = math.max(0, s.dropThrough - dt)
+	s.landLag = math.max(0, s.landLag - dt)
+
+	local moveX = math.clamp(input.moveX or 0, -1, 1)
+	local moveY = math.clamp(input.moveY or 0, -1, 1)
+	local downPressed = moveY <= -0.6 and s.prevMoveY > -0.6
+	s.prevMoveY = moveY
+
+	if s.action == "Hitstun" then
+		updateHitstun(s, moveX, dt)
+	else
+		-- Drop through a soft platform by tapping down.
+		if downPressed and s.grounded and s.onSoft and s.action == nil then
+			s.dropThrough = P.DropThroughTime
+			s.grounded = false
+			s.y -= 0.05
+		end
+		tryActions(s, input, moveX, moveY, ctx, events)
+		updateAction(s, input, dt, events)
+		updateMovement(s, input, moveX, moveY, dt)
+	end
+
+	integrate(s, dt, ctx.world, events)
+end
+
+function FighterSim.step(s, input, dt, ctx, events)
+	events = events or {}
+	if s.frozen or dt <= 0 then
+		return events
+	end
+	dt = math.min(dt, 0.1)
+	local steps = math.ceil(dt / MAX_STEP - 1e-6)
+	local sub = dt / steps
+	for _ = 1, steps do
+		stepOnce(s, input, sub, ctx, events)
+	end
+	return events
+end
+
+-- Called when a hit lands on this fighter.
+function FighterSim.applyHit(s, kbx, kby, hitstun)
+	if s.action == "Attack" then
+		s.move = nil
+		s.slot = nil
+		s.charging = false
+	end
+	s.action = "Hitstun"
+	s.dodgeKind = nil
+	s.hitstun = hitstun
+	s.vx = kbx
+	s.vy = kby
+	if s.grounded and kby < 0 then
+		s.vy = math.abs(kby) * 0.4
+	end
+	if s.vy > 0 then
+		s.grounded = false
+	end
+	s.motionTime = -1
+	s.fastFall = false
+	s.wallSide = 0
+	s.jumpTime = -1
+	-- Getting hit gives your recovery tools back.
+	s.recoveryUsed = false
+	s.groundPoundUsed = false
+	s.airDodgeUsed = false
+	if s.airJumps < 1 then
+		s.airJumps = 1
+	end
+end
+
+function FighterSim.respawn(s, x, y, facing, invuln)
+	local fresh = FighterSim.newState(x, y, facing)
+	for k in s do
+		s[k] = nil
+	end
+	for k, v in fresh do
+		s[k] = v
+	end
+	s.invuln = invuln or 0
+	return s
+end
+
+function FighterSim.chargeFraction(s)
+	local move = s.move
+	if not move or not move.Charge or move.Charge <= 0 then
+		return 0
+	end
+	return math.clamp(s.charge / move.Charge, 0, 1)
+end
+
+function FighterSim.isInvulnerable(s)
+	return s.invuln > 0
+end
+
+-- Melee hitbox for the current attack frame, or nil.
+function FighterSim.activeHitbox(s)
+	if s.action ~= "Attack" or s.charging then
+		return nil
+	end
+	local move = s.move
+	local box = move.Hitbox
+	if not box then
+		return nil
+	end
+	local t = s.actionTime
+	if t < move.Startup or t >= move.Startup + move.Active then
+		return nil
+	end
+	local cx = s.x + box.X * s.facing
+	local cy = s.y + box.Y
+	return cx - box.W / 2, cy - box.H / 2, cx + box.W / 2, cy + box.H / 2
+end
+
+function FighterSim.hurtbox(x, y)
+	local halfW = P.FighterWidth / 2
+	return x - halfW, y, x + halfW, y + P.FighterHeight
+end
+
+function FighterSim.overlaps(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2)
+	return ax1 < bx2 and ax2 > bx1 and ay1 < by2 and ay2 > by1
+end
+
+-- Locomotion animation name for the current state.
+function FighterSim.animState(s)
+	if s.action == "Hitstun" then
+		return "Fall"
+	end
+	if s.grounded then
+		if s.action == nil and math.abs(s.vx) > 2 then
+			return "Run"
+		elseif s.action == "Dash" then
+			return "Run"
+		end
+		return "Idle"
+	end
+	if s.vy > 4 then
+		return "Jump"
+	end
+	return "Fall"
+end
+
+return FighterSim
