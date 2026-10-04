@@ -151,11 +151,19 @@ function UIKit.button(text, style, onClick, props)
 		TweenService:Create(scale, TweenInfo.new(0.08), { Scale = 1 }):Play()
 	end)
 	if onClick then
+		-- Handlers often wait on the server; ignore clicks until they finish
+		-- so a double-click can't send the same request twice.
+		local running = false
 		button.Activated:Connect(function()
-			if button:GetAttribute("Disabled") then
+			if running or button:GetAttribute("Disabled") then
 				return
 			end
-			onClick(button)
+			running = true
+			local ok, err = pcall(onClick, button)
+			running = false
+			if not ok then
+				warn("[UIKit] button handler failed:", err)
+			end
 		end)
 	end
 	return button
