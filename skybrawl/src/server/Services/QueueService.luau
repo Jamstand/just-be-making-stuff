@@ -122,7 +122,10 @@ local function window(entry, now)
 	if waited >= Config.Queue.AnyoneAfterSeconds then
 		return math.huge
 	end
-	return math.min(Config.Queue.RatingWindowMax, Config.Queue.RatingWindowStart + Config.Queue.RatingWindowGrowth * waited)
+	return math.min(
+		Config.Queue.RatingWindowMax,
+		Config.Queue.RatingWindowStart + Config.Queue.RatingWindowGrowth * waited
+	)
 end
 
 local function tick1v1(now)

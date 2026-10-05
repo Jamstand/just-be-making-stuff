@@ -142,7 +142,9 @@ local function preview(viewport, world, camera, placeholder, legendId)
 			end
 		end
 		model.PrimaryPart = model:FindFirstChild("HumanoidRootPart")
-		local feet = model:FindFirstChildOfClass("Humanoid") and model.PrimaryPart.Size.Y / 2 + model:FindFirstChildOfClass("Humanoid").HipHeight or 3
+		local feet = model:FindFirstChildOfClass("Humanoid")
+				and model.PrimaryPart.Size.Y / 2 + model:FindFirstChildOfClass("Humanoid").HipHeight
+			or 3
 		showModel(viewport, world, camera, model, 5.2)
 		model:PivotTo(CFrame.new(0, feet, 0) * CFrame.Angles(0, math.rad(-35), 0))
 		FighterAnimator.track(model, { preview = true, legend = "Avatar" })
@@ -215,8 +217,16 @@ function FightersPanel.create(gui, close)
 	local function renderDetail()
 		UIKit.clear(info)
 		local legend = Legends.get(selected)
-		UIKit.heading(legend.Name, 30, { LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 34), TextColor3 = legend.Color, Parent = info })
-		UIKit.label(legend.Title, 16, { LayoutOrder = 2, Size = UDim2.new(1, 0, 0, 20), Font = T.BoldFont, Parent = info })
+		UIKit.heading(
+			legend.Name,
+			30,
+			{ LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 34), TextColor3 = legend.Color, Parent = info }
+		)
+		UIKit.label(
+			legend.Title,
+			16,
+			{ LayoutOrder = 2, Size = UDim2.new(1, 0, 0, 20), Font = T.BoldFont, Parent = info }
+		)
 		UIKit.label(legend.Description, 15, {
 			LayoutOrder = 3,
 			Size = UDim2.new(1, 0, 0, 40),
@@ -227,8 +237,13 @@ function FightersPanel.create(gui, close)
 		for i, name in Legends.StatNames do
 			statBar(name, legend.Stats[name], 3 + i, info)
 		end
-		local weaponsText = legend.Weapons and (legend.Weapons[1] .. "  +  " .. legend.Weapons[2]) or "Any weapon you pick up"
-		UIKit.heading("Weapons: " .. weaponsText, 17, { LayoutOrder = 10, Size = UDim2.new(1, 0, 0, 24), Parent = info })
+		local weaponsText = legend.Weapons and (legend.Weapons[1] .. "  +  " .. legend.Weapons[2])
+			or "Any weapon you pick up"
+		UIKit.heading(
+			"Weapons: " .. weaponsText,
+			17,
+			{ LayoutOrder = 10, Size = UDim2.new(1, 0, 0, 24), Parent = info }
+		)
 		if legend.Weapons then
 			local lines = {}
 			for _, weapon in legend.Weapons do
@@ -285,8 +300,16 @@ function FightersPanel.create(gui, close)
 				Position = UDim2.fromOffset(8, 8),
 				Parent = card,
 			}, { UIKit.corner(3) })
-			UIKit.heading(legend.Name, 18, { Position = UDim2.fromOffset(22, 10), Size = UDim2.new(1, -28, 0, 22), Parent = card })
-			UIKit.label(legend.Title, 13, { Position = UDim2.fromOffset(22, 34), Size = UDim2.new(1, -28, 0, 18), Parent = card })
+			UIKit.heading(
+				legend.Name,
+				18,
+				{ Position = UDim2.fromOffset(22, 10), Size = UDim2.new(1, -28, 0, 22), Parent = card }
+			)
+			UIKit.label(
+				legend.Title,
+				13,
+				{ Position = UDim2.fromOffset(22, 34), Size = UDim2.new(1, -28, 0, 18), Parent = card }
+			)
 			if profile and profile.Legend == id then
 				UIKit.label("SELECTED", 12, {
 					Position = UDim2.fromOffset(22, 54),

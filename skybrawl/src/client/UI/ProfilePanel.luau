@@ -22,7 +22,8 @@ function ProfilePanel.create(gui, close)
 	local scroll = UIKit.scroll({ Parent = body })
 	UIKit.list(Enum.FillDirection.Vertical, 10).Parent = scroll
 
-	local header = UIKit.panel({ LayoutOrder = 1, Size = UDim2.new(1, -8, 0, 90), BackgroundColor3 = T.Panel, Parent = scroll })
+	local header =
+		UIKit.panel({ LayoutOrder = 1, Size = UDim2.new(1, -8, 0, 90), BackgroundColor3 = T.Panel, Parent = scroll })
 	local name = UIKit.heading(Players.LocalPlayer.DisplayName, 28, {
 		Position = UDim2.fromOffset(16, 10),
 		Size = UDim2.new(1, -32, 0, 32),
@@ -56,9 +57,20 @@ function ProfilePanel.create(gui, close)
 	local function rankCard(title)
 		local card = UIKit.panel({ BackgroundColor3 = T.Panel, Parent = ranks })
 		UIKit.padding(14, 10).Parent = card
-		UIKit.label(title, 15, { Font = T.BoldFont, TextColor3 = T.Muted, Size = UDim2.new(1, 0, 0, 20), Parent = card })
-		local tier = UIKit.heading("", 30, { Position = UDim2.fromOffset(0, 22), Size = UDim2.new(1, 0, 0, 36), Parent = card })
-		local detail = UIKit.label("", 14, { Position = UDim2.fromOffset(0, 62), Size = UDim2.new(1, 0, 0, 36), TextColor3 = T.Muted, TextYAlignment = Enum.TextYAlignment.Top, Parent = card })
+		UIKit.label(
+			title,
+			15,
+			{ Font = T.BoldFont, TextColor3 = T.Muted, Size = UDim2.new(1, 0, 0, 20), Parent = card }
+		)
+		local tier =
+			UIKit.heading("", 30, { Position = UDim2.fromOffset(0, 22), Size = UDim2.new(1, 0, 0, 36), Parent = card })
+		local detail = UIKit.label("", 14, {
+			Position = UDim2.fromOffset(0, 62),
+			Size = UDim2.new(1, 0, 0, 36),
+			TextColor3 = T.Muted,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			Parent = card,
+		})
 		return tier, detail
 	end
 	local tier1, detail1 = rankCard("RANKED 1v1")
@@ -79,8 +91,18 @@ function ProfilePanel.create(gui, close)
 	local statLabels = {}
 	for i, key in { "Matches", "Wins", "Win rate", "KOs", "Falls", "Damage dealt" } do
 		local cell = UIKit.panel({ LayoutOrder = i, BackgroundColor3 = T.Panel, Parent = stats })
-		UIKit.label(key, 14, { Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -24, 0, 18), TextColor3 = T.Muted, Font = T.BoldFont, Parent = cell })
-		statLabels[key] = UIKit.heading("0", 28, { Position = UDim2.fromOffset(12, 30), Size = UDim2.new(1, -24, 0, 36), Parent = cell })
+		UIKit.label(key, 14, {
+			Position = UDim2.fromOffset(12, 8),
+			Size = UDim2.new(1, -24, 0, 18),
+			TextColor3 = T.Muted,
+			Font = T.BoldFont,
+			Parent = cell,
+		})
+		statLabels[key] = UIKit.heading(
+			"0",
+			28,
+			{ Position = UDim2.fromOffset(12, 30), Size = UDim2.new(1, -24, 0, 36), Parent = cell }
+		)
 	end
 
 	local function render(profile)
@@ -88,19 +110,38 @@ function ProfilePanel.create(gui, close)
 			return
 		end
 		name.Text = Players.LocalPlayer.DisplayName
-		level.Text = string.format("Level %d  ·  %d / %d XP  ·  %s coins", profile.Level, profile.XPInLevel, profile.XPForNext, Util.formatNumber(profile.Coins))
-		saving.Text = profile.Saving and "Progress saves automatically." or "Progress isn't saving right now (Studio without API access, or a DataStore outage)."
+		level.Text = string.format(
+			"Level %d  ·  %d / %d XP  ·  %s coins",
+			profile.Level,
+			profile.XPInLevel,
+			profile.XPForNext,
+			Util.formatNumber(profile.Coins)
+		)
+		saving.Text = profile.Saving and "Progress saves automatically."
+			or "Progress isn't saving right now (Studio without API access, or a DataStore outage)."
 		local t1, t2 = Ranks.tier(profile.Rating1v1), Ranks.tier(profile.Rating2v2)
 		tier1.Text = string.format("%s  %d", t1.Name, profile.Rating1v1)
 		tier1.TextColor3 = t1.Color
-		detail1.Text = string.format("Peak %d  ·  %d played%s", profile.Peak1v1, profile.Ranked1v1Played, profile.Ranked1v1Played < 10 and "  ·  placements" or "")
+		detail1.Text = string.format(
+			"Peak %d  ·  %d played%s",
+			profile.Peak1v1,
+			profile.Ranked1v1Played,
+			profile.Ranked1v1Played < 10 and "  ·  placements" or ""
+		)
 		tier2.Text = string.format("%s  %d", t2.Name, profile.Rating2v2)
 		tier2.TextColor3 = t2.Color
-		detail2.Text = string.format("Peak %d  ·  %d played%s", profile.Peak2v2, profile.Ranked2v2Played, profile.Ranked2v2Played < 10 and "  ·  placements" or "")
+		detail2.Text = string.format(
+			"Peak %d  ·  %d played%s",
+			profile.Peak2v2,
+			profile.Ranked2v2Played,
+			profile.Ranked2v2Played < 10 and "  ·  placements" or ""
+		)
 		statLabels["Matches"].Text = Util.formatNumber(profile.Matches)
 		statLabels["Wins"].Text = Util.formatNumber(profile.Wins)
 		local decided = profile.Wins + profile.Losses
-		statLabels["Win rate"].Text = decided > 0 and string.format("%d%%", math.floor(profile.Wins / decided * 100 + 0.5)) or "-"
+		statLabels["Win rate"].Text = decided > 0
+				and string.format("%d%%", math.floor(profile.Wins / decided * 100 + 0.5))
+			or "-"
 		statLabels["KOs"].Text = Util.formatNumber(profile.KOs)
 		statLabels["Falls"].Text = Util.formatNumber(profile.Falls)
 		statLabels["Damage dealt"].Text = Util.formatNumber(profile.DamageDealt)

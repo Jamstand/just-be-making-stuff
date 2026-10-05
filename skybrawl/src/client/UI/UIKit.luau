@@ -356,16 +356,22 @@ function UIKit.cycle(text, options, value, onChange)
 	end, { Size = UDim2.fromOffset(34, 34), Parent = holder })
 	UIKit.button(">", "ghost", function()
 		shift(1)
-	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.fromOffset(34, 34), Parent = holder })
+	end, {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+		Size = UDim2.fromOffset(34, 34),
+		Parent = holder,
+	})
 	render()
-	return row, function(v)
-		for i, option in options do
-			if option.value == v then
-				index = i
+	return row,
+		function(v)
+			for i, option in options do
+				if option.value == v then
+					index = i
+				end
 			end
+			render()
 		end
-		render()
-	end
 end
 
 -- Numeric ◀ value ▶ stepper. Returns row, set(value).
@@ -384,15 +390,16 @@ function UIKit.stepper(text, min, max, step, value, format, onChange)
 		end
 	end
 	local row, set = UIKit.cycle(text, options, nearest, onChange)
-	return row, function(v)
-		local best = options[1].value
-		for _, option in options do
-			if math.abs(option.value - v) < math.abs(best - v) then
-				best = option.value
+	return row,
+		function(v)
+			local best = options[1].value
+			for _, option in options do
+				if math.abs(option.value - v) < math.abs(best - v) then
+					best = option.value
+				end
 			end
+			set(best)
 		end
-		set(best)
-	end
 end
 
 function UIKit.textbox(placeholder, props)
@@ -460,14 +467,15 @@ function UIKit.cycleChip(prefix, options, value, onChange, props)
 		chip[key] = v
 	end
 	render()
-	return chip, function(v)
-		for i, option in options do
-			if option.value == v then
-				index = i
+	return chip,
+		function(v)
+			for i, option in options do
+				if option.value == v then
+					index = i
+				end
 			end
+			render()
 		end
-		render()
-	end
 end
 
 function UIKit.clear(frame, keepClasses)

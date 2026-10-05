@@ -106,11 +106,24 @@ function Duel.run(opts)
 		Duel.tick(a, ai, c)
 		Duel.tick(v, vi, vc)
 		if opts.trace then
-			print(string.format(
-				"a x%6.2f y%6.2f vx%6.1f vy%6.1f %-7s %-8s t%.2f | v x%6.2f y%6.2f vx%6.1f vy%6.1f %-7s hs%.2f",
-				a.x, a.y, a.vx, a.vy, tostring(a.action), tostring(a.slot or a.dodgeKind), a.actionTime,
-				v.x, v.y, v.vx, v.vy, tostring(v.action), v.hitstun
-			))
+			print(
+				string.format(
+					"a x%6.2f y%6.2f vx%6.1f vy%6.1f %-7s %-8s t%.2f | v x%6.2f y%6.2f vx%6.1f vy%6.1f %-7s hs%.2f",
+					a.x,
+					a.y,
+					a.vx,
+					a.vy,
+					tostring(a.action),
+					tostring(a.slot or a.dodgeKind),
+					a.actionTime,
+					v.x,
+					v.y,
+					v.vx,
+					v.vy,
+					tostring(v.action),
+					v.hitstun
+				)
+			)
 		end
 		local x1, y1, x2, y2 = FighterSim.activeHitbox(a)
 		if x1 and not logged[a.seq] then

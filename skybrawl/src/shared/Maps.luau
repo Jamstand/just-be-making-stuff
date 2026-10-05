@@ -189,8 +189,14 @@ Maps.List.JungleTemple = {
 -- stylua: ignore end
 
 Maps.Order = {
-	"SkyShip", "VolcanicForge", "FrozenPeaks", "JungleTemple",
-	"SkyholdKeep", "TwinIsles", "AncientRuins", "DuelRock",
+	"SkyShip",
+	"VolcanicForge",
+	"FrozenPeaks",
+	"JungleTemple",
+	"SkyholdKeep",
+	"TwinIsles",
+	"AncientRuins",
+	"DuelRock",
 }
 
 function Maps.get(mapId)

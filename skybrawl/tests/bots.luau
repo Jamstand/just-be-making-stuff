@@ -66,7 +66,12 @@ local function simulate(mapId, difficultyA, difficultyB, seconds, weaponA, weapo
 			end
 			local s = f.state
 			local input = f.brain:Update(DT)
-			local events = FighterSim.step(s, input, DT, { world = world, weapon = f.weapon, armed = Weapons.isWeapon(f.weapon), nearPickup = false })
+			local events = FighterSim.step(
+				s,
+				input,
+				DT,
+				{ world = world, weapon = f.weapon, armed = Weapons.isWeapon(f.weapon), nearPickup = false }
+			)
 			for _, ev in events do
 				if ev.type == "Attack" then
 					f.hitThisSeq = {}
@@ -105,10 +110,18 @@ end
 
 local function report(label, fighters)
 	local a, b = fighters[1], fighters[2]
-	print(string.format(
-		"  %-34s A: %3d hits %2d KOs %2d SDs   B: %3d hits %2d KOs %2d SDs",
-		label, a.hits, a.kos, a.selfDestructs, b.hits, b.kos, b.selfDestructs
-	))
+	print(
+		string.format(
+			"  %-34s A: %3d hits %2d KOs %2d SDs   B: %3d hits %2d KOs %2d SDs",
+			label,
+			a.hits,
+			a.kos,
+			a.selfDestructs,
+			b.hits,
+			b.kos,
+			b.selfDestructs
+		)
+	)
 end
 
 print("Bot fights (3 simulated minutes each)")
@@ -139,7 +152,10 @@ h.test("bots land hits and score KOs", function()
 end)
 
 h.test("bots rarely fall off on their own", function()
-	h.expect(totals.selfDestructs <= math.max(2, totals.falls * 0.25), string.format("%d of %d falls were self-destructs", totals.selfDestructs, totals.falls))
+	h.expect(
+		totals.selfDestructs <= math.max(2, totals.falls * 0.25),
+		string.format("%d of %d falls were self-destructs", totals.selfDestructs, totals.falls)
+	)
 end)
 
 h.test("hard bots beat easy bots", function()

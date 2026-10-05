@@ -11,6 +11,7 @@
     Clips are authored facing right; the game mirrors them for facing left.
 ]]
 
+-- stylua: ignore start
 local Data = {
 	Version = 2,
 	Joints = { "Root", "Waist", "Neck", "RightShoulder", "RightElbow", "RightWrist", "LeftShoulder", "LeftElbow", "LeftWrist", "RightHip", "RightKnee", "RightAnkle", "LeftHip", "LeftKnee", "LeftAnkle" },
@@ -37,5 +38,6 @@ for _, group in {
 		Data.Clips[name] = clip
 	end
 end
+-- stylua: ignore end
 
 return Data

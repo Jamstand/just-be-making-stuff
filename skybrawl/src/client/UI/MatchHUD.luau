@@ -51,12 +51,14 @@ local function popBig(text, color, duration)
 	bigText.TextStrokeTransparency = 0.2
 	local scale = bigText:FindFirstChildOfClass("UIScale")
 	scale.Scale = 1.6
-	TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+		:Play()
 	local token = {}
 	bigText:SetAttribute("Token", tostring(token))
 	task.delay(duration or 0.8, function()
 		if bigText:GetAttribute("Token") == tostring(token) then
-			TweenService:Create(bigText, TweenInfo.new(0.25), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+			TweenService:Create(bigText, TweenInfo.new(0.25), { TextTransparency = 1, TextStrokeTransparency = 1 })
+				:Play()
 		end
 	end)
 end
@@ -267,7 +269,12 @@ local function buildPause()
 	end, { Size = UDim2.fromOffset(170, 42), Parent = footer })
 	UIKit.button("Resume", "primary", function()
 		togglePause(false)
-	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.fromOffset(140, 42), Parent = footer })
+	end, {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+		Size = UDim2.fromOffset(140, 42),
+		Parent = footer,
+	})
 end
 
 function MatchHUD.show(match)
@@ -302,16 +309,25 @@ function MatchHUD.show(match)
 		make("UIScale", { Scale = 0.75, Parent = cardsFrame })
 	end
 	local mapInfo = Maps.get(match.info.mapId)
-	UIKit.label(string.format("%s  ·  %s%s", Config.Modes[match.info.mode].Label, mapInfo and mapInfo.Name or "", match.info.ranked and "  ·  Ranked" or ""), 14, {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 8),
-		Size = UDim2.fromOffset(400, 18),
-		TextXAlignment = Enum.TextXAlignment.Center,
-		Font = T.BoldFont,
-		TextColor3 = T.Muted,
-		TextStrokeTransparency = 0.5,
-		Parent = gui,
-	})
+	UIKit.label(
+		string.format(
+			"%s  ·  %s%s",
+			Config.Modes[match.info.mode].Label,
+			mapInfo and mapInfo.Name or "",
+			match.info.ranked and "  ·  Ranked" or ""
+		),
+		14,
+		{
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 8),
+			Size = UDim2.fromOffset(400, 18),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Font = T.BoldFont,
+			TextColor3 = T.Muted,
+			TextStrokeTransparency = 0.5,
+			Parent = gui,
+		}
+	)
 	timerLabel = UIKit.heading("", 30, {
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, 24),
@@ -441,7 +457,8 @@ local function showCombo(side, hits, isTrue)
 	w.tag.TextStrokeTransparency = 0.3
 	local scale = w.count:FindFirstChildOfClass("UIScale")
 	scale.Scale = 1.35
-	TweenService:Create(scale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	TweenService:Create(scale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+		:Play()
 	task.delay(1.4, function()
 		if w.token == token and w.frame.Parent then
 			local fade = TweenInfo.new(0.3)

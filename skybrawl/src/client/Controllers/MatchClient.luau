@@ -152,7 +152,11 @@ local function findPickup(m, x, y)
 		if model:IsA("Model") and model:GetAttribute("PickupId") then
 			local p = model:GetPivot().Position - m.origin
 			local px, py = p.X, p.Y - 1
-			if math.abs(px - x) <= Config.WeaponDrops.PickupRange and py >= y - 3 and py <= y + Config.Physics.FighterHeight + 1 then
+			if
+				math.abs(px - x) <= Config.WeaponDrops.PickupRange
+				and py >= y - 3
+				and py <= y + Config.Physics.FighterHeight + 1
+			then
 				return model
 			end
 		end
@@ -176,7 +180,14 @@ local function cameraData()
 	end
 	local sim = m.sim
 	return {
-		me = { x = sim.x, y = sim.y, vx = sim.vx, vy = sim.vy, facing = sim.facing, alive = m.me.alive and not Maps.isOutOfBounds(m.world, sim.x, sim.y) },
+		me = {
+			x = sim.x,
+			y = sim.y,
+			vx = sim.vx,
+			vy = sim.vy,
+			facing = sim.facing,
+			alive = m.me.alive and not Maps.isOutOfBounds(m.world, sim.x, sim.y),
+		},
 		fighters = fighters,
 	}
 end
@@ -243,7 +254,12 @@ local function detectHits(m)
 					if f.model then
 						FighterAnimator.hitstop(f.model, stop)
 					end
-					Visuals.hitSpark((math.max(x1, hx1) + math.min(x2, hx2)) / 2, (math.max(y1, hy1) + math.min(y2, hy2)) / 2, heavy, 0)
+					Visuals.hitSpark(
+						(math.max(x1, hx1) + math.min(x2, hx2)) / 2,
+						(math.max(y1, hy1) + math.min(y2, hy2)) / 2,
+						heavy,
+						0
+					)
 					Sound.play("Hit", heavy and 0.8 or 0.55, heavy and 0.8 or 1.15)
 				end
 			end
@@ -270,7 +286,10 @@ local function handleSimEvent(m, ev)
 		fighterAction:FireServer("Dodge", { kind = ev.kind })
 		Visuals.dodge(m.character, ev.kind)
 		if ev.kind ~= "Dash" and ev.kind ~= "Chase" then
-			Visuals.flicker(m.character, ev.kind == "Air" and Config.Physics.AirDodgeInvuln or Config.Physics.SpotDodgeTime)
+			Visuals.flicker(
+				m.character,
+				ev.kind == "Air" and Config.Physics.AirDodgeInvuln or Config.Physics.SpotDodgeTime
+			)
 		end
 	elseif kind == "Throw" then
 		fighterAction:FireServer("Throw", { dirY = ev.dirY, facing = ev.facing })
@@ -340,7 +359,11 @@ local function step(dt)
 	if sim.wallSide ~= 0 and not sim.grounded then
 		anim = "WallSlide"
 	end
-	FighterAnimator.setLocomotion(m.character, anim, anim == "Run" and math.clamp(math.abs(sim.vx) / Config.Physics.RunSpeed, 0.6, 1.4) or 1)
+	FighterAnimator.setLocomotion(
+		m.character,
+		anim,
+		anim == "Run" and math.clamp(math.abs(sim.vx) / Config.Physics.RunSpeed, 0.6, 1.4) or 1
+	)
 end
 
 -- Server events -----------------------------------------------------------

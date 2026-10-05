@@ -87,7 +87,10 @@ h.test("each legend has two weapons with three signatures each", function()
 					h.expect(move.Signature, id .. " " .. weapon .. " " .. slot .. " has no signature")
 					h.expect(move.AnimKey == id .. "." .. weapon .. "." .. slot, "anim key " .. move.AnimKey)
 					h.expect(move.Hitbox or move.Projectile, id .. " " .. weapon .. " " .. slot .. " needs a hitbox")
-					h.expect(move.Kind == "Heavy" and move.Charge > 0, id .. " " .. weapon .. " " .. slot .. " is a heavy")
+					h.expect(
+						move.Kind == "Heavy" and move.Charge > 0,
+						id .. " " .. weapon .. " " .. slot .. " is a heavy"
+					)
 				end
 			end
 		end
@@ -102,7 +105,10 @@ h.test("signatures are distinct and roughly as strong as the shared heavies", fu
 				local sig = Legends.getAttack(id, weapon, slot)
 				local base = Weapons.getAttack(weapon, slot)
 				local ratio = sig.Damage / base.Damage
-				h.expect(ratio > 0.4 and ratio < 1.5, string.format("%s %s %s damage ratio %.2f", id, weapon, slot, ratio))
+				h.expect(
+					ratio > 0.4 and ratio < 1.5,
+					string.format("%s %s %s damage ratio %.2f", id, weapon, slot, ratio)
+				)
 			end
 		end
 	end
@@ -125,7 +131,10 @@ h.test("legends alternate between their two weapons; avatars take anything", fun
 	h.expect(Legends.weaponFromPickup("Avatar", "Spear", "Sword") == "Spear")
 	-- a room that only drops some weapons
 	h.expect(Legends.weaponFromPickup("Kestrel", "Sword", "Bow", { Sword = true }) == "Sword", "only Sword allowed")
-	h.expect(Legends.weaponFromPickup("Brann", "Sword", nil, { Sword = true }) == "Sword", "neither of Brann's weapons allowed")
+	h.expect(
+		Legends.weaponFromPickup("Brann", "Sword", nil, { Sword = true }) == "Sword",
+		"neither of Brann's weapons allowed"
+	)
 	h.expect(Legends.weaponFromPickup("Sol", "Hammer", "Sword", { Sword = true, Hammer = true }) == "Hammer")
 	h.expect(Legends.weaponSkin("Brann", "Hammer") == "BrannHammer")
 	h.expect(Legends.weaponSkin("Brann", "Sword") == "Sword")
@@ -247,20 +256,61 @@ local chaseDiag = { "Dodge", toward = 0.7, y = 0.7, when = afterActive }
 -- Each route is tried at a few spacings; it should be a true combo at 0%
 -- for at least one of them and at none of them at 140%.
 local ROUTES = {
-	{ name = "Fists down light > jump > side air", weapon = "Unarmed", legend = "Avatar", steps = { { "Light", y = -1 }, jumpIn, { "Light", toward = 1 } } },
-	{ name = "Sword neutral light > jump > side air", weapon = "Sword", legend = "Kestrel", steps = { { "Light" }, jumpIn, { "Light", toward = 1 } } },
-	{ name = "Hammer down light > jump > neutral air", weapon = "Hammer", legend = "Brann", steps = { { "Light", y = -1 }, jumpIn, { "Light" } } },
-	{ name = "Spear down light > jump > neutral air", weapon = "Spear", legend = "Yuki", steps = { { "Light", y = -1 }, jumpIn, { "Light" } } },
-	{ name = "Gauntlets down light > chase dodge > side air", weapon = "Gauntlets", legend = "Brann", steps = { { "Light", y = -1 }, chaseDiag, { "Light", toward = 1 } } },
-	{ name = "Gauntlets neutral light > jump > side air", weapon = "Gauntlets", legend = "Vex", steps = { { "Light" }, jumpIn, { "Light", toward = 1 } } },
-	{ name = "Scythe neutral light > jump > neutral air", weapon = "Scythe", legend = "Moss", steps = { { "Light" }, jumpIn, { "Light" } } },
+	{
+		name = "Fists down light > jump > side air",
+		weapon = "Unarmed",
+		legend = "Avatar",
+		steps = { { "Light", y = -1 }, jumpIn, { "Light", toward = 1 } },
+	},
+	{
+		name = "Sword neutral light > jump > side air",
+		weapon = "Sword",
+		legend = "Kestrel",
+		steps = { { "Light" }, jumpIn, { "Light", toward = 1 } },
+	},
+	{
+		name = "Hammer down light > jump > neutral air",
+		weapon = "Hammer",
+		legend = "Brann",
+		steps = { { "Light", y = -1 }, jumpIn, { "Light" } },
+	},
+	{
+		name = "Spear down light > jump > neutral air",
+		weapon = "Spear",
+		legend = "Yuki",
+		steps = { { "Light", y = -1 }, jumpIn, { "Light" } },
+	},
+	{
+		name = "Gauntlets down light > chase dodge > side air",
+		weapon = "Gauntlets",
+		legend = "Brann",
+		steps = { { "Light", y = -1 }, chaseDiag, { "Light", toward = 1 } },
+	},
+	{
+		name = "Gauntlets neutral light > jump > side air",
+		weapon = "Gauntlets",
+		legend = "Vex",
+		steps = { { "Light" }, jumpIn, { "Light", toward = 1 } },
+	},
+	{
+		name = "Scythe neutral light > jump > neutral air",
+		weapon = "Scythe",
+		legend = "Moss",
+		steps = { { "Light" }, jumpIn, { "Light" } },
+	},
 }
 local GAPS = { 2.2, 3, 4 }
 
 local TRACE = require("@lune/process").env.TRACE
 if TRACE then
 	local r = ROUTES[tonumber(TRACE)]
-	Duel.run({ weapon = r.weapon, legend = r.legend, route = r.steps, gap = GAPS[tonumber(require("@lune/process").env.GAP or "2") or 2], trace = true })
+	Duel.run({
+		weapon = r.weapon,
+		legend = r.legend,
+		route = r.steps,
+		gap = GAPS[tonumber(require("@lune/process").env.GAP or "2") or 2],
+		trace = true,
+	})
 end
 
 local comboReport = {}
@@ -269,7 +319,8 @@ for _, route in ROUTES do
 		local lowBest, highWorst
 		for _, gap in GAPS do
 			local low = Duel.run({ weapon = route.weapon, legend = route.legend, route = route.steps, gap = gap })
-			local high = Duel.run({ weapon = route.weapon, legend = route.legend, route = route.steps, gap = gap, damage = 140 })
+			local high =
+				Duel.run({ weapon = route.weapon, legend = route.legend, route = route.steps, gap = gap, damage = 140 })
 			if Duel.isTrue(low, 2) or not lowBest then
 				lowBest = lowBest and Duel.isTrue(lowBest, 2) and lowBest or low
 			end
@@ -277,7 +328,15 @@ for _, route in ROUTES do
 				highWorst = highWorst and Duel.isTrue(highWorst, 2) and highWorst or high
 			end
 		end
-		table.insert(comboReport, string.format("       %-50s 0%%: %-24s 140%%: %s", route.name, Duel.describe(lowBest), Duel.describe(highWorst)))
+		table.insert(
+			comboReport,
+			string.format(
+				"       %-50s 0%%: %-24s 140%%: %s",
+				route.name,
+				Duel.describe(lowBest),
+				Duel.describe(highWorst)
+			)
+		)
 		h.expect(Duel.isTrue(lowBest, 2), "not a true combo at 0%: " .. Duel.describe(lowBest))
 		h.expect(not Duel.isTrue(highWorst, 2), "still true at 140% (should only string): " .. Duel.describe(highWorst))
 	end)

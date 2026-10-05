@@ -243,7 +243,14 @@ local function loadProfile(player)
 				-- Give the other server a moment to finish its last save.
 				task.wait(2)
 			else
-				warn(string.format("[DataService] load attempt %d failed for %s: %s", attempt, player.Name, tostring(err)))
+				warn(
+					string.format(
+						"[DataService] load attempt %d failed for %s: %s",
+						attempt,
+						player.Name,
+						tostring(err)
+					)
+				)
 				task.wait(attempt)
 			end
 		end
@@ -292,7 +299,12 @@ local function saveProfile(player, releasing)
 			ds:UpdateAsync(keyFor(player), function(old)
 				-- Another server loaded this profile after we did: its copy is
 				-- newer, so don't overwrite it.
-				if type(old) == "table" and old.SessionJob and old.SessionJob ~= game.JobId and (old.SessionTime or 0) > startedAt then
+				if
+					type(old) == "table"
+					and old.SessionJob
+					and old.SessionJob ~= game.JobId
+					and (old.SessionTime or 0) > startedAt
+				then
 					takenOver = true
 					return nil
 				end

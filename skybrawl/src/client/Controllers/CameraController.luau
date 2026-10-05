@@ -119,7 +119,13 @@ local function desiredView(aspect)
 		if not best then
 			return me.x, me.y + 6, Config.Camera.FollowViewHeight
 		end
-		return frameRect(math.min(me.x, best.x), math.min(me.y, best.y), math.max(me.x, best.x), math.max(me.y, best.y) + height, aspect)
+		return frameRect(
+			math.min(me.x, best.x),
+			math.min(me.y, best.y),
+			math.max(me.x, best.x),
+			math.max(me.y, best.y) + height,
+			aspect
+		)
 	end
 	return frameAll()
 end

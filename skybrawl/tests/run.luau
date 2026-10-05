@@ -405,7 +405,10 @@ end
 
 h.test("hammer KOs earlier than unarmed", function()
 	local hammer, fists = koPercent("Hammer", "SHeavy"), koPercent("Unarmed", "SHeavy")
-	h.expect(hammer and fists and hammer < fists, string.format("hammer %s vs fists %s", tostring(hammer), tostring(fists)))
+	h.expect(
+		hammer and fists and hammer < fists,
+		string.format("hammer %s vs fists %s", tostring(hammer), tostring(fists))
+	)
 end)
 
 print("Ranks")
@@ -443,7 +446,10 @@ h.test("every map has 4 spawns standing on solid ground inside the camera", func
 			h.expect(not Maps.isOutOfBounds(world, spot[1], spot[2]), id .. " respawn out of bounds")
 		end
 		local cam, blast = world.camera, world.blast
-		h.expect(cam.minX > blast.minX and cam.maxX < blast.maxX and cam.minY > blast.minY and cam.maxY < blast.maxY, id .. " camera inside blast zone")
+		h.expect(
+			cam.minX > blast.minX and cam.maxX < blast.maxX and cam.minY > blast.minY and cam.maxY < blast.maxY,
+			id .. " camera inside blast zone"
+		)
 	end
 end)
 
@@ -451,7 +457,10 @@ h.test("weapon spawns drop onto a platform", function()
 	for id, map in Maps.List do
 		local world = Maps.getWorld(id)
 		for _, spot in map.WeaponSpawns do
-			h.expect(Maps.groundBelow(world, spot[1], spot[2]) ~= nil, id .. " weapon spawn over the void at x=" .. spot[1])
+			h.expect(
+				Maps.groundBelow(world, spot[1], spot[2]) ~= nil,
+				id .. " weapon spawn over the void at x=" .. spot[1]
+			)
 		end
 	end
 end)

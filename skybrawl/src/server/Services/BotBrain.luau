@@ -114,7 +114,12 @@ end
 function BotBrain:pickTarget(s)
 	local best, bestDist
 	for _, other in self.match.fighters do
-		if other ~= self.fighter and other.alive and not other.eliminated and not self.match:SameTeam(self.fighter, other) then
+		if
+			other ~= self.fighter
+			and other.alive
+			and not other.eliminated
+			and not self.match:SameTeam(self.fighter, other)
+		then
 			local ox, oy = self.match:GetPosition(other)
 			local d = math.abs(ox - s.x) + math.abs(oy - s.y) * 0.7
 			if not best or d < bestDist then
@@ -165,7 +170,13 @@ function BotBrain:fight(s, target)
 	end
 
 	-- Bows shoot from range.
-	if weaponId == "Bow" and dist > 8 and dist < 40 and math.abs(dy) < 4 and rng:NextNumber() < skill.Aggression * 0.6 then
+	if
+		weaponId == "Bow"
+		and dist > 8
+		and dist < 40
+		and math.abs(dy) < 4
+		and rng:NextNumber() < skill.Aggression * 0.6
+	then
 		input.moveX = sign(dx) * 0.5
 		self:press("Light")
 		return

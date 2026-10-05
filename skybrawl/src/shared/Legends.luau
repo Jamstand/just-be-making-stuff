@@ -268,7 +268,14 @@ end
 -- Attacks -------------------------------------------------------------------
 
 local INHERIT = {
-	"Startup", "Active", "Recovery", "Damage", "BaseKnockback", "KnockbackScaling", "Angle", "Charge",
+	"Startup",
+	"Active",
+	"Recovery",
+	"Damage",
+	"BaseKnockback",
+	"KnockbackScaling",
+	"Angle",
+	"Charge",
 }
 
 local function signature(base, sig, legendId, weaponId, slot)

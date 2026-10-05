@@ -132,7 +132,16 @@ function RoomsPanel.create(gui, close)
 
 	do
 		local frame = make("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = content })
-		local filters = { mode = "Any", mapId = "Any", winRule = "Any", hideFull = false, hideInMatch = false, eligibleOnly = false, friendsOnly = false, search = "" }
+		local filters = {
+			mode = "Any",
+			mapId = "Any",
+			winRule = "Any",
+			hideFull = false,
+			hideInMatch = false,
+			eligibleOnly = false,
+			friendsOnly = false,
+			search = "",
+		}
 		local refresh
 
 		local filterBar = make("Frame", {
@@ -146,12 +155,21 @@ function RoomsPanel.create(gui, close)
 				SortOrder = Enum.SortOrder.LayoutOrder,
 			}),
 		})
-		local modeOptions = { { value = "Any", label = "Any" }, { value = "1v1", label = "1v1" }, { value = "2v2", label = "2v2" }, { value = "FFA", label = "FFA" } }
+		local modeOptions = {
+			{ value = "Any", label = "Any" },
+			{ value = "1v1", label = "1v1" },
+			{ value = "2v2", label = "2v2" },
+			{ value = "FFA", label = "FFA" },
+		}
 		local mapOptions = { { value = "Any", label = "Any" }, { value = "Random", label = "Random" } }
 		for _, id in Maps.Order do
 			table.insert(mapOptions, { value = id, label = Maps.get(id).Name })
 		end
-		local ruleOptions = { { value = "Any", label = "Any" }, { value = "Stocks", label = "Stocks" }, { value = "Timed", label = "Timed" } }
+		local ruleOptions = {
+			{ value = "Any", label = "Any" },
+			{ value = "Stocks", label = "Stocks" },
+			{ value = "Timed", label = "Timed" },
+		}
 
 		local function onFilter(key)
 			return function(value)
@@ -247,7 +265,8 @@ function RoomsPanel.create(gui, close)
 					TextWrapped = false,
 					Parent = row,
 				})
-				local tags = { "Host: " .. room.hostName, string.format("%d/%d players", room.players, room.maxPlayers) }
+				local tags =
+					{ "Host: " .. room.hostName, string.format("%d/%d players", room.players, room.maxPlayers) }
 				if room.isFriend then
 					table.insert(tags, "Friend")
 				end
@@ -267,33 +286,42 @@ function RoomsPanel.create(gui, close)
 					Font = T.BoldFont,
 					Parent = row,
 				})
-				UIKit.label(summary({
-					mode = room.mode,
-					winRule = room.winRule,
-					stocks = room.stocks,
-					timeLimit = room.timeLimit,
-					mapId = room.mapId,
-					damageMultiplier = room.damageMultiplier,
-					weapons = table.create(room.weaponCount, true),
-				}), 13, {
-					Position = UDim2.fromOffset(0, 40),
-					Size = UDim2.new(1, -130, 0, 16),
-					TextColor3 = T.Muted,
-					Parent = row,
-				})
+				UIKit.label(
+					summary({
+						mode = room.mode,
+						winRule = room.winRule,
+						stocks = room.stocks,
+						timeLimit = room.timeLimit,
+						mapId = room.mapId,
+						damageMultiplier = room.damageMultiplier,
+						weapons = table.create(room.weaponCount, true),
+					}),
+					13,
+					{
+						Position = UDim2.fromOffset(0, 40),
+						Size = UDim2.new(1, -130, 0, 16),
+						TextColor3 = T.Muted,
+						Parent = row,
+					}
+				)
 				local canJoin = room.eligible and not room.inMatch and room.players < room.maxPlayers
-				local join = UIKit.button(canJoin and "Join" or (room.inMatch and "Busy" or (room.eligible and "Full" or "Locked")), canJoin and "primary" or "ghost", function()
-					local okJoin, result = request("Join", room.id)
-					if not okJoin then
-						ClientState.toast(result or "Couldn't join.", "error")
-						refresh()
-					end
-				end, {
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, 0, 0.5, 0),
-					Size = UDim2.fromOffset(110, 40),
-					Parent = row,
-				})
+				local join = UIKit.button(
+					canJoin and "Join" or (room.inMatch and "Busy" or (room.eligible and "Full" or "Locked")),
+					canJoin and "primary" or "ghost",
+					function()
+						local okJoin, result = request("Join", room.id)
+						if not okJoin then
+							ClientState.toast(result or "Couldn't join.", "error")
+							refresh()
+						end
+					end,
+					{
+						AnchorPoint = Vector2.new(1, 0.5),
+						Position = UDim2.new(1, 0, 0.5, 0),
+						Size = UDim2.fromOffset(110, 40),
+						Parent = row,
+					}
+				)
 				UIKit.setEnabled(join, canJoin)
 			end
 		end
@@ -321,7 +349,10 @@ function RoomsPanel.create(gui, close)
 	local submitButton
 
 	do
-		local frame = make("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = content })
+		local frame = make(
+			"Frame",
+			{ BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = content }
+		)
 		local scroll = UIKit.scroll({ Size = UDim2.new(1, 0, 1, -54), Parent = frame })
 		UIKit.list(Enum.FillDirection.Vertical, 6).Parent = scroll
 		local order = 0
@@ -350,14 +381,19 @@ function RoomsPanel.create(gui, close)
 			end
 		end
 
-		local rowMode, setMode = UIKit.cycle("Mode", {
-			{ value = "1v1", label = "1v1" },
-			{ value = "2v2", label = "2v2" },
-			{ value = "FFA", label = "Free-for-all" },
-		}, form.mode, function(v)
-			form.mode = v
-			refreshVisibility()
-		end)
+		local rowMode, setMode = UIKit.cycle(
+			"Mode",
+			{
+				{ value = "1v1", label = "1v1" },
+				{ value = "2v2", label = "2v2" },
+				{ value = "FFA", label = "Free-for-all" },
+			},
+			form.mode,
+			function(v)
+				form.mode = v
+				refreshVisibility()
+			end
+		)
 		add(rowMode)
 		formSetters.mode = setMode
 
@@ -370,28 +406,49 @@ function RoomsPanel.create(gui, close)
 		end
 		formSetters.maxPlayers = setMax
 
-		local rowRule, setRule = UIKit.cycle("Win rule", {
-			{ value = "Stocks", label = "Stocks (lives)" },
-			{ value = "Timed", label = "Timed (most KOs)" },
-		}, form.winRule, function(v)
-			form.winRule = v
-			refreshVisibility()
-		end)
+		local rowRule, setRule = UIKit.cycle(
+			"Win rule",
+			{
+				{ value = "Stocks", label = "Stocks (lives)" },
+				{ value = "Timed", label = "Timed (most KOs)" },
+			},
+			form.winRule,
+			function(v)
+				form.winRule = v
+				refreshVisibility()
+			end
+		)
 		add(rowRule)
 		formSetters.winRule = setRule
 
-		local rowStocks, setStocks = UIKit.stepper("Stocks", Config.Rooms.StocksMin, Config.Rooms.StocksMax, 1, form.stocks, nil, function(v)
-			form.stocks = v
-		end)
+		local rowStocks, setStocks = UIKit.stepper(
+			"Stocks",
+			Config.Rooms.StocksMin,
+			Config.Rooms.StocksMax,
+			1,
+			form.stocks,
+			nil,
+			function(v)
+				form.stocks = v
+			end
+		)
 		add(rowStocks)
 		visibility[rowStocks] = function()
 			return form.winRule == "Stocks"
 		end
 		formSetters.stocks = setStocks
 
-		local rowTime, setTime = UIKit.stepper("Time limit", Config.Rooms.TimeMin, Config.Rooms.TimeMax, 30, form.timeLimit, Util.formatTime, function(v)
-			form.timeLimit = v
-		end)
+		local rowTime, setTime = UIKit.stepper(
+			"Time limit",
+			Config.Rooms.TimeMin,
+			Config.Rooms.TimeMax,
+			30,
+			form.timeLimit,
+			Util.formatTime,
+			function(v)
+				form.timeLimit = v
+			end
+		)
 		add(rowTime)
 		visibility[rowTime] = function()
 			return form.winRule == "Timed"
@@ -408,7 +465,8 @@ function RoomsPanel.create(gui, close)
 		add(rowMap)
 		formSetters.mapId = setMap
 
-		local weaponsRow = UIKit.panel({ BackgroundColor3 = T.Panel, BackgroundTransparency = 0.2, Size = UDim2.new(1, 0, 0, 100) })
+		local weaponsRow =
+			UIKit.panel({ BackgroundColor3 = T.Panel, BackgroundTransparency = 0.2, Size = UDim2.new(1, 0, 0, 100) })
 		UIKit.padding(12, 8).Parent = weaponsRow
 		UIKit.label("Weapons that drop", 16, { Font = T.BoldFont, Size = UDim2.new(1, 0, 0, 20), Parent = weaponsRow })
 		local weaponGrid = make("Frame", {
@@ -440,11 +498,19 @@ function RoomsPanel.create(gui, close)
 			end
 		end
 
-		local rowDamage, setDamage = UIKit.stepper("Damage", Config.Rooms.DamageMultMin, Config.Rooms.DamageMultMax, 0.25, form.damageMultiplier, function(v)
-			return "x" .. v
-		end, function(v)
-			form.damageMultiplier = v
-		end)
+		local rowDamage, setDamage = UIKit.stepper(
+			"Damage",
+			Config.Rooms.DamageMultMin,
+			Config.Rooms.DamageMultMax,
+			0.25,
+			form.damageMultiplier,
+			function(v)
+				return "x" .. v
+			end,
+			function(v)
+				form.damageMultiplier = v
+			end
+		)
 		add(rowDamage)
 		formSetters.damageMultiplier = setDamage
 
@@ -582,7 +648,10 @@ function RoomsPanel.create(gui, close)
 	-- Room view -----------------------------------------------------------
 
 	do
-		local frame = make("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = content })
+		local frame = make(
+			"Frame",
+			{ BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = content }
+		)
 		local title = UIKit.heading("", 24, {
 			Size = UDim2.new(1, -230, 0, 30),
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -618,7 +687,9 @@ function RoomsPanel.create(gui, close)
 			Position = UDim2.fromScale(0, 1),
 			Size = UDim2.new(1, 0, 0, 46),
 			Parent = frame,
-		}, { UIKit.list(Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Right, Enum.VerticalAlignment.Center) })
+		}, {
+			UIKit.list(Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Right, Enum.VerticalAlignment.Center),
+		})
 
 		local botDifficulty = "Normal"
 		local leaveButton = UIKit.button("Leave", "danger", function()
@@ -667,7 +738,10 @@ function RoomsPanel.create(gui, close)
 				table.insert(extras, "Friends only")
 			end
 			if room.settings.minRating or room.settings.maxRating then
-				table.insert(extras, string.format("Skill %s-%s", room.settings.minRating or 0, room.settings.maxRating or "any"))
+				table.insert(
+					extras,
+					string.format("Skill %s-%s", room.settings.minRating or 0, room.settings.maxRating or "any")
+				)
 			end
 			if not open then
 				table.insert(extras, "Match in progress")
@@ -704,7 +778,8 @@ function RoomsPanel.create(gui, close)
 					TextWrapped = false,
 					Parent = row,
 				})
-				local detail = m.isBot and (m.difficulty .. " bot") or string.format("Level %s  ·  %s rating", m.level or "?", m.rating or "?")
+				local detail = m.isBot and (m.difficulty .. " bot")
+					or string.format("Level %s  ·  %s rating", m.level or "?", m.rating or "?")
 				if teams then
 					detail = "Team " .. m.team .. "  ·  " .. detail
 				end
@@ -720,7 +795,14 @@ function RoomsPanel.create(gui, close)
 					Position = UDim2.new(1, -8, 0.5, 0),
 					Size = UDim2.fromOffset(260, 36),
 					Parent = row,
-				}, { UIKit.list(Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Right, Enum.VerticalAlignment.Center) })
+				}, {
+					UIKit.list(
+						Enum.FillDirection.Horizontal,
+						6,
+						Enum.HorizontalAlignment.Right,
+						Enum.VerticalAlignment.Center
+					),
+				})
 				local isMe = m.userId == player.UserId
 				if teams and open and (isHost or isMe) then
 					UIKit.button("Switch team", "ghost", function()

@@ -122,13 +122,20 @@ local function refresh()
 		if entry then
 			local userId = tonumber(entry.key)
 			local rating = entry.value
-			row.Text = string.format("  %d.  %s   —   %d  (%s)", i, userId and nameFor(userId) or "?", rating, Ranks.tier(rating).Name)
+			row.Text = string.format(
+				"  %d.  %s   —   %d  (%s)",
+				i,
+				userId and nameFor(userId) or "?",
+				rating,
+				Ranks.tier(rating).Name
+			)
 			row.TextColor3 = Ranks.tier(rating).Color
 		else
 			row.Text = ""
 		end
 	end
-	statusLabel.Text = #entries == 0 and "No ranked matches yet. Be the first!" or ("Updated " .. os.date("!%H:%M") .. " UTC")
+	statusLabel.Text = #entries == 0 and "No ranked matches yet. Be the first!"
+		or ("Updated " .. os.date("!%H:%M") .. " UTC")
 end
 
 local function flush()

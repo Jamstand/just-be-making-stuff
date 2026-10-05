@@ -137,7 +137,8 @@ local function sanitizeSettings(raw, old)
 	s.mode = Config.Modes[raw.mode] and raw.mode or old.mode
 	local modeInfo = Config.Modes[s.mode]
 	if s.mode == "FFA" then
-		s.maxPlayers = math.floor(clampNumber(raw.maxPlayers, 2, modeInfo.MaxPlayers, old.maxPlayers or modeInfo.MaxPlayers))
+		s.maxPlayers =
+			math.floor(clampNumber(raw.maxPlayers, 2, modeInfo.MaxPlayers, old.maxPlayers or modeInfo.MaxPlayers))
 	else
 		s.maxPlayers = modeInfo.MaxPlayers
 	end
@@ -347,10 +348,12 @@ local function canJoin(player, room, viaCode)
 	end
 	local rating = ratingFor(player, room.settings.mode)
 	if room.settings.minRating and rating < room.settings.minRating then
-		return false, string.format("Your rating (%d) is below this room's minimum (%d).", rating, room.settings.minRating)
+		return false,
+			string.format("Your rating (%d) is below this room's minimum (%d).", rating, room.settings.minRating)
 	end
 	if room.settings.maxRating and rating > room.settings.maxRating then
-		return false, string.format("Your rating (%d) is above this room's maximum (%d).", rating, room.settings.maxRating)
+		return false,
+			string.format("Your rating (%d) is above this room's maximum (%d).", rating, room.settings.maxRating)
 	end
 	return true
 end
@@ -562,7 +565,12 @@ function actions.Update(player, raw)
 	local oldMax = room.settings.maxPlayers
 	local newSettings = sanitizeSettings(raw, room.settings)
 	if humanCount(room) > newSettings.maxPlayers then
-		return false, string.format("That mode fits %d players, but %d are in the room.", newSettings.maxPlayers, humanCount(room))
+		return false,
+			string.format(
+				"That mode fits %d players, but %d are in the room.",
+				newSettings.maxPlayers,
+				humanCount(room)
+			)
 	end
 	room.settings = newSettings
 	if type(raw) == "table" and type(raw.name) == "string" then

@@ -99,7 +99,11 @@ function ResultsScreen.show(data, match)
 			Size = UDim2.new(0, 6, 1, 0),
 			Parent = row,
 		}, { UIKit.corner(3) })
-		UIKit.heading("#" .. r.placement, 20, { Position = UDim2.fromOffset(16, 0), Size = UDim2.new(0, 44, 1, 0), Parent = row })
+		UIKit.heading(
+			"#" .. r.placement,
+			20,
+			{ Position = UDim2.fromOffset(16, 0), Size = UDim2.new(0, 44, 1, 0), Parent = row }
+		)
 		UIKit.label(r.name .. (r.isBot and " (Bot)" or "") .. (r.left and " (left)" or ""), 16, {
 			Position = UDim2.fromOffset(64, 0),
 			Size = UDim2.new(0.45, -64, 1, 0),
@@ -126,7 +130,17 @@ function ResultsScreen.show(data, match)
 		end
 		if rewards.ratingMode then
 			local delta = rewards.ratingAfter - rewards.ratingBefore
-			table.insert(lines, string.format("%s rating: %d -> %d (%s%d)", rewards.ratingMode, rewards.ratingBefore, rewards.ratingAfter, delta >= 0 and "+" or "", delta))
+			table.insert(
+				lines,
+				string.format(
+					"%s rating: %d -> %d (%s%d)",
+					rewards.ratingMode,
+					rewards.ratingBefore,
+					rewards.ratingAfter,
+					delta >= 0 and "+" or "",
+					delta
+				)
+			)
 			if rewards.tierAfter ~= rewards.tierBefore then
 				table.insert(lines, (delta >= 0 and "Promoted to " or "Dropped to ") .. rewards.tierAfter)
 			end

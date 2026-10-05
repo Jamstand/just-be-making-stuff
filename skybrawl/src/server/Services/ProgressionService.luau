@@ -68,8 +68,14 @@ function ProgressionService.applyMatch(info, entries)
 			local won = entry.won == true
 			local c = Config.Rewards.Coins
 			local x = Config.Rewards.XP
-			local coins = math.floor(math.min(c.MaxPerMatch, (c.Played + c.PerKO * entry.kos + (won and c.Win or 0)) * mult))
-			local xp = math.floor(math.min(x.MaxPerMatch, (x.Played + x.PerKO * entry.kos + (won and x.Win or 0) + x.PerDamage * entry.damageDealt) * mult))
+			local coins =
+				math.floor(math.min(c.MaxPerMatch, (c.Played + c.PerKO * entry.kos + (won and c.Win or 0)) * mult))
+			local xp = math.floor(
+				math.min(
+					x.MaxPerMatch,
+					(x.Played + x.PerKO * entry.kos + (won and x.Win or 0) + x.PerDamage * entry.damageDealt) * mult
+				)
+			)
 
 			profile.Coins += coins
 			profile.XP += xp
@@ -103,7 +109,8 @@ function ProgressionService.applyMatch(info, entries)
 		if rewards then
 			out[player] = rewards
 			if rewards.levelAfter > rewards.levelBefore then
-				Net.get("Toast"):FireClient(player, string.format("Level up! You're now level %d.", rewards.levelAfter), "good")
+				Net.get("Toast")
+					:FireClient(player, string.format("Level up! You're now level %d.", rewards.levelAfter), "good")
 				services.CharacterService.refreshNameplate(player)
 			end
 			if rewards.ratingMode == "1v1" then

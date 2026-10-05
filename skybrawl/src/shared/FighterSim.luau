@@ -405,7 +405,11 @@ end
 
 local function motionActive(s)
 	local move = s.move
-	return s.action == "Attack" and move ~= nil and move.Motion ~= nil and s.motionTime >= 0 and s.motionTime < move.Motion.Duration
+	return s.action == "Attack"
+		and move ~= nil
+		and move.Motion ~= nil
+		and s.motionTime >= 0
+		and s.motionTime < move.Motion.Duration
 end
 
 local function updateAction(s, input, dt, events)

@@ -41,12 +41,20 @@ Match.__index = Match
 
 local GRAVEYARD_Y = 600
 local SKIN_TONES = {
-	Color3.fromRGB(255, 220, 190), Color3.fromRGB(234, 184, 146), Color3.fromRGB(198, 134, 98),
-	Color3.fromRGB(141, 85, 54), Color3.fromRGB(96, 62, 40), Color3.fromRGB(255, 205, 150),
+	Color3.fromRGB(255, 220, 190),
+	Color3.fromRGB(234, 184, 146),
+	Color3.fromRGB(198, 134, 98),
+	Color3.fromRGB(141, 85, 54),
+	Color3.fromRGB(96, 62, 40),
+	Color3.fromRGB(255, 205, 150),
 }
 local SHIRT_COLORS = {
-	Color3.fromRGB(70, 130, 220), Color3.fromRGB(220, 80, 80), Color3.fromRGB(90, 190, 110),
-	Color3.fromRGB(230, 170, 60), Color3.fromRGB(160, 100, 220), Color3.fromRGB(60, 190, 190),
+	Color3.fromRGB(70, 130, 220),
+	Color3.fromRGB(220, 80, 80),
+	Color3.fromRGB(90, 190, 110),
+	Color3.fromRGB(230, 170, 60),
+	Color3.fromRGB(160, 100, 220),
+	Color3.fromRGB(60, 190, 190),
 }
 
 function Match.new(id, config, services)
@@ -257,20 +265,22 @@ end
 -- Setup -------------------------------------------------------------------
 
 local function disableHumanoidStates(humanoid)
-	for _, state in {
-		Enum.HumanoidStateType.FallingDown,
-		Enum.HumanoidStateType.Ragdoll,
-		Enum.HumanoidStateType.GettingUp,
-		Enum.HumanoidStateType.Climbing,
-		Enum.HumanoidStateType.Swimming,
-		Enum.HumanoidStateType.Seated,
-		Enum.HumanoidStateType.Jumping,
-		Enum.HumanoidStateType.Freefall,
-		Enum.HumanoidStateType.Running,
-		Enum.HumanoidStateType.Landed,
-		Enum.HumanoidStateType.Flying,
-		Enum.HumanoidStateType.StrafingNoPhysics,
-	} do
+	for _, state in
+		{
+			Enum.HumanoidStateType.FallingDown,
+			Enum.HumanoidStateType.Ragdoll,
+			Enum.HumanoidStateType.GettingUp,
+			Enum.HumanoidStateType.Climbing,
+			Enum.HumanoidStateType.Swimming,
+			Enum.HumanoidStateType.Seated,
+			Enum.HumanoidStateType.Jumping,
+			Enum.HumanoidStateType.Freefall,
+			Enum.HumanoidStateType.Running,
+			Enum.HumanoidStateType.Landed,
+			Enum.HumanoidStateType.Flying,
+			Enum.HumanoidStateType.StrafingNoPhysics,
+		}
+	do
 		humanoid:SetStateEnabled(state, false)
 	end
 	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
@@ -337,7 +347,13 @@ function Match:preparePlayer(f)
 		repeat
 			task.wait(0.1)
 			character = player.Character
-		until (character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChildOfClass("Humanoid")) or os.clock() > deadline or not player.Parent
+		until (
+				character
+				and character:FindFirstChild("HumanoidRootPart")
+				and character:FindFirstChildOfClass("Humanoid")
+			)
+			or os.clock() > deadline
+			or not player.Parent
 		humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	end
 	if not character or not humanoid or not character:FindFirstChild("HumanoidRootPart") then
@@ -356,9 +372,12 @@ function Match:preparePlayer(f)
 	self.services.CharacterService.applyTrail(character, f.trail)
 	WeaponModels.detach(character)
 
-	table.insert(self.connections, humanoid.Died:Connect(function()
-		self:Forfeit(f)
-	end))
+	table.insert(
+		self.connections,
+		humanoid.Died:Connect(function()
+			self:Forfeit(f)
+		end)
+	)
 	return true
 end
 
@@ -488,12 +507,15 @@ function Match:Start()
 		endsAt = self.endClock and (workspace:GetServerTimeNow() + limit) or nil,
 	})
 
-	table.insert(self.connections, RunService.Heartbeat:Connect(function(dt)
-		local ok, err = pcall(self.Step, self, dt)
-		if not ok then
-			warn("[Match] step error:", err)
-		end
-	end))
+	table.insert(
+		self.connections,
+		RunService.Heartbeat:Connect(function(dt)
+			local ok, err = pcall(self.Step, self, dt)
+			if not ok then
+				warn("[Match] step error:", err)
+			end
+		end)
+	)
 	self:CheckEnd()
 end
 
@@ -582,7 +604,10 @@ function Match:handleBotEvent(f, ev)
 	if ev.type == "Attack" then
 		local move = Legends.getAttack(f.legend, f.weapon, ev.slot)
 		self:recordAttack(f, ev.seq, ev.slot, move, ev.facing)
-		self:Broadcast("Action", { fighterId = f.id, kind = "Attack", slot = ev.slot, weapon = f.weapon, facing = ev.facing, seq = ev.seq })
+		self:Broadcast(
+			"Action",
+			{ fighterId = f.id, kind = "Attack", slot = ev.slot, weapon = f.weapon, facing = ev.facing, seq = ev.seq }
+		)
 	elseif ev.type == "Release" then
 		local rec = f.attacks[ev.seq]
 		if rec then
@@ -760,7 +785,8 @@ function Match:KO(f, x, y)
 	local now = os.clock()
 	f.alive = false
 	f.falls += 1
-	local credit = f.lastHitBy and now - f.lastHitTime <= Config.Combat.KOCreditWindow and self.fighters[f.lastHitBy] or nil
+	local credit = f.lastHitBy and now - f.lastHitTime <= Config.Combat.KOCreditWindow and self.fighters[f.lastHitBy]
+		or nil
 	if credit and (credit == f or self:SameTeam(credit, f)) then
 		credit = nil
 	end
@@ -962,7 +988,8 @@ function Match:stepPickups(dt, now)
 		if count < Config.WeaponDrops.MaxOnStage then
 			self:spawnPickup()
 		end
-		self.nextPickupAt = now + self.rng:NextNumber(Config.WeaponDrops.SpawnIntervalMin, Config.WeaponDrops.SpawnIntervalMax)
+		self.nextPickupAt = now
+			+ self.rng:NextNumber(Config.WeaponDrops.SpawnIntervalMin, Config.WeaponDrops.SpawnIntervalMax)
 	end
 	for id, pickup in self.pickups do
 		if now - pickup.spawnedAt > Config.WeaponDrops.Lifetime then
@@ -976,7 +1003,9 @@ function Match:stepPickups(dt, now)
 			if pickup.y < self.world.blast.minY then
 				self:removePickup(id)
 			else
-				pickup.model:PivotTo(CFrame.new(self.origin + Vector3.new(pickup.x, pickup.y + 1, 0)) * WeaponModels.DisplayRotation)
+				pickup.model:PivotTo(
+					CFrame.new(self.origin + Vector3.new(pickup.x, pickup.y + 1, 0)) * WeaponModels.DisplayRotation
+				)
 			end
 		end
 	end
@@ -1090,7 +1119,11 @@ function Match:stepProjectiles(dt)
 		proj.vy -= proj.gravity * dt
 		proj.x += proj.vx * dt
 		proj.y += proj.vy * dt
-		if proj.age >= proj.lifetime or Maps.isOutOfBounds(self.world, proj.x, proj.y) or insideSolid(self.world, proj.x, proj.y) then
+		if
+			proj.age >= proj.lifetime
+			or Maps.isOutOfBounds(self.world, proj.x, proj.y)
+			or insideSolid(self.world, proj.x, proj.y)
+		then
 			self:endProjectile(id, proj)
 		else
 			local x1, y1 = proj.x - proj.w / 2, proj.y - proj.h / 2
@@ -1104,7 +1137,8 @@ function Match:stepProjectiles(dt)
 						if FighterSim.overlaps(x1, y1, x2, y2, hx1, hy1, hx2, hy2) then
 							proj.hits[target.id] = true
 							local facing = proj.vx >= 0 and 1 or -1
-							local hit = self:ApplyHit(owner, target, proj.move, proj.charge, facing, proj.x - facing, true)
+							local hit =
+								self:ApplyHit(owner, target, proj.move, proj.charge, facing, proj.x - facing, true)
 							if hit and not proj.pierce then
 								self:endProjectile(id, proj)
 								break
@@ -1230,20 +1264,31 @@ function Match:OnAction(player, kind, data)
 		local facing = data.facing == -1 and -1 or 1
 		f.facing = facing
 		self:recordAttack(f, data.seq, data.slot, move, facing)
-		self:Broadcast("Action", { fighterId = f.id, kind = "Attack", slot = data.slot, weapon = f.weapon, facing = facing, seq = data.seq }, player)
+		self:Broadcast(
+			"Action",
+			{ fighterId = f.id, kind = "Attack", slot = data.slot, weapon = f.weapon, facing = facing, seq = data.seq },
+			player
+		)
 	elseif kind == "Release" then
 		local rec = validSeq(data.seq) and f.attacks[data.seq]
 		if rec and finite(data.charge) then
 			local maxCharge = rec.move.Charge or 0
 			local elapsed = now - rec.start + 0.15
 			rec.charge = math.clamp(data.charge, 0, maxCharge > 0 and math.min(1, elapsed / maxCharge) or 0)
-			self:Broadcast("Action", { fighterId = f.id, kind = "Release", seq = data.seq, charge = rec.charge }, player)
+			self:Broadcast(
+				"Action",
+				{ fighterId = f.id, kind = "Release", seq = data.seq, charge = rec.charge },
+				player
+			)
 		end
 	elseif kind == "Fire" then
 		local rec = validSeq(data.seq) and f.attacks[data.seq]
 		if rec and rec.move.Projectile and not rec.fired then
 			local age = now - rec.start
-			if age >= rec.move.Startup * 0.5 and age < Weapons.maxAttackWindow(rec.move) + Config.Combat.HitTimeSlack then
+			if
+				age >= rec.move.Startup * 0.5
+				and age < Weapons.maxAttackWindow(rec.move) + Config.Combat.HitTimeSlack
+			then
 				rec.fired = true
 				self:fireProjectiles(f, rec)
 			end

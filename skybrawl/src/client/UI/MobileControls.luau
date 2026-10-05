@@ -78,25 +78,31 @@ local function buildJoystick(parent)
 		local areaPos = area.AbsolutePosition
 		base.Position = UDim2.fromOffset(pos.X - areaPos.X, pos.Y - areaPos.Y)
 	end)
-	table.insert(connections, UserInputService.TouchMoved:Connect(function(input)
-		if input ~= activeInput then
-			return
-		end
-		local delta = Vector2.new(input.Position.X, input.Position.Y) - center
-		if delta.Magnitude > JOYSTICK_RADIUS then
-			delta = delta.Unit * JOYSTICK_RADIUS
-		end
-		knob.Position = UDim2.new(0.5, delta.X, 0.5, delta.Y)
-		local x = delta.X / JOYSTICK_RADIUS
-		local y = -delta.Y / JOYSTICK_RADIUS
-		Input.mobile.moveX = math.abs(x) > 0.25 and x or 0
-		Input.mobile.moveY = math.abs(y) > 0.35 and y or 0
-	end))
-	table.insert(connections, UserInputService.TouchEnded:Connect(function(input)
-		if input == activeInput then
-			release()
-		end
-	end))
+	table.insert(
+		connections,
+		UserInputService.TouchMoved:Connect(function(input)
+			if input ~= activeInput then
+				return
+			end
+			local delta = Vector2.new(input.Position.X, input.Position.Y) - center
+			if delta.Magnitude > JOYSTICK_RADIUS then
+				delta = delta.Unit * JOYSTICK_RADIUS
+			end
+			knob.Position = UDim2.new(0.5, delta.X, 0.5, delta.Y)
+			local x = delta.X / JOYSTICK_RADIUS
+			local y = -delta.Y / JOYSTICK_RADIUS
+			Input.mobile.moveX = math.abs(x) > 0.25 and x or 0
+			Input.mobile.moveY = math.abs(y) > 0.35 and y or 0
+		end)
+	)
+	table.insert(
+		connections,
+		UserInputService.TouchEnded:Connect(function(input)
+			if input == activeInput then
+				release()
+			end
+		end)
+	)
 	return release
 end
 
@@ -126,24 +132,33 @@ local function buildButtons(parent)
 			Parent = holder,
 		}, { UIKit.corner(size // 2), UIKit.stroke(Color3.new(1, 1, 1), 2, 0.5) })
 		button.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if
+				input.UserInputType == Enum.UserInputType.Touch
+				or input.UserInputType == Enum.UserInputType.MouseButton1
+			then
 				Input.mobile.held[action] = true
 				Input.pressMobile(action)
 				button.BackgroundTransparency = 0
 			end
 		end)
 		button.InputEnded:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if
+				input.UserInputType == Enum.UserInputType.Touch
+				or input.UserInputType == Enum.UserInputType.MouseButton1
+			then
 				Input.mobile.held[action] = false
 				button.BackgroundTransparency = 0.25
 			end
 		end)
 	end
-	table.insert(connections, Settings.Changed:Connect(function(key, value)
-		if key == "MobileButtonScale" then
-			scale.Scale = value
-		end
-	end))
+	table.insert(
+		connections,
+		Settings.Changed:Connect(function(key, value)
+			if key == "MobileButtonScale" then
+				scale.Scale = value
+			end
+		end)
+	)
 end
 
 function MobileControls.show()

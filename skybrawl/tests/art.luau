@@ -95,15 +95,24 @@ h.test("movement clips exist for every state the animator plays", function()
 			h.expect(clips[weapon .. "." .. state], "missing " .. weapon .. "." .. state)
 		end
 	end
-	for _, name in { "AirJump", "Land", "Dash", "Dodge", "AirSpot", "AirDodge", "Chase", "Hurt", "Tumble", "WallSlide", "Throw" } do
+	for _, name in
+		{ "AirJump", "Land", "Dash", "Dodge", "AirSpot", "AirDodge", "Chase", "Hurt", "Tumble", "WallSlide", "Throw" }
+	do
 		h.expect(clips["Loco." .. name], "missing Loco." .. name)
 	end
 end)
 
 h.test("every key is well formed and attacks span all three phases", function()
 	local styles = {
-		Linear = true, Constant = true, Quad = true, Cubic = true, Quart = true, Quint = true,
-		Sine = true, Exponential = true, Circular = true,
+		Linear = true,
+		Constant = true,
+		Quad = true,
+		Cubic = true,
+		Quart = true,
+		Quint = true,
+		Sine = true,
+		Exponential = true,
+		Circular = true,
 	}
 	for name, clip in clips do
 		h.expect(#clip.Keys >= 2, name .. " has fewer than 2 keys")
@@ -155,7 +164,12 @@ h.test("weapon meshes cover the base weapons and every legend skin", function()
 end)
 
 h.test("every map kit has its Blender script, export and sky", function()
-	local scripts = { SkyShip = "sky_ship", VolcanicForge = "volcanic_forge", FrozenPeaks = "frozen_peaks", JungleTemple = "jungle_temple" }
+	local scripts = {
+		SkyShip = "sky_ship",
+		VolcanicForge = "volcanic_forge",
+		FrozenPeaks = "frozen_peaks",
+		JungleTemple = "jungle_temple",
+	}
 	for id, map in Maps.List do
 		if map.Kit then
 			h.expect(scripts[map.Kit], "unknown kit " .. map.Kit)
@@ -181,12 +195,23 @@ h.test("painted backgrounds match the game's sky layers", function()
 		table.insert(names, spec.Name)
 	end
 	local layers = string.match(source, "LAYERS = (%b())")
-	h.expect(layers == '("' .. table.concat(names, '", "') .. '")', "vista.py's LAYERS differ from Config.Art.SkyLayers")
+	h.expect(
+		layers == '("' .. table.concat(names, '", "') .. '")',
+		"vista.py's LAYERS differ from Config.Art.SkyLayers"
+	)
 
-	local scripts = { SkyShip = "sky_ship", VolcanicForge = "volcanic_forge", FrozenPeaks = "frozen_peaks", JungleTemple = "jungle_temple" }
+	local scripts = {
+		SkyShip = "sky_ship",
+		VolcanicForge = "volcanic_forge",
+		FrozenPeaks = "frozen_peaks",
+		JungleTemple = "jungle_temple",
+	}
 	for id, map in Maps.List do
 		if map.Kit then
-			h.expect(fs.isFile(root .. "/art/blender/vistas/" .. scripts[map.Kit] .. ".py"), id .. " has no background script")
+			h.expect(
+				fs.isFile(root .. "/art/blender/vistas/" .. scripts[map.Kit] .. ".py"),
+				id .. " has no background script"
+			)
 			for _, spec in Config.Art.SkyLayers do
 				local file = root .. "/art/export/skies/painted/" .. id .. "_" .. spec.Name .. ".png"
 				h.expect(fs.isFile(file), id .. "'s " .. spec.Name .. " layer not rendered")
@@ -300,7 +325,15 @@ h.test("sky layers fill the view, stay behind the scenery and parallax in order"
 					for i, part in parts do
 						local spec = layersSpec[i]
 						local planeZ = origin.Z - spec.Depth
-						local where = string.format("%s, %s look, aspect %.2f, view %d, pan (%.1f, %.1f)", spec.Name, look.Id, aspect, h2, pan.X, pan.Y)
+						local where = string.format(
+							"%s, %s look, aspect %.2f, view %d, pan (%.1f, %.1f)",
+							spec.Name,
+							look.Id,
+							aspect,
+							h2,
+							pan.X,
+							pan.Y
+						)
 						h.near(part.CFrame.Position.Z, planeZ, 1e-3, where .. ": depth")
 						h.expect(part.Size.X <= 2048 and part.Size.Y <= 2048, where .. ": plane too big")
 						local p = part.CFrame.Position
@@ -311,15 +344,31 @@ h.test("sky layers fill the view, stay behind the scenery and parallax in order"
 							local hit = position + dir * ((planeZ - position.Z) / dir.Z)
 							minX = math.min(minX, hit.X)
 							maxX = math.max(maxX, hit.X)
-							h.expect(math.abs(hit.X - p.X) <= part.Size.X / 2 + 1e-3, where .. ": view edge past the plane's side")
-							h.expect(math.abs(hit.Y - p.Y) <= part.Size.Y / 2 + 1e-3, where .. ": view edge past the plane's top or bottom")
+							h.expect(
+								math.abs(hit.X - p.X) <= part.Size.X / 2 + 1e-3,
+								where .. ": view edge past the plane's side"
+							)
+							h.expect(
+								math.abs(hit.Y - p.Y) <= part.Size.Y / 2 + 1e-3,
+								where .. ": view edge past the plane's top or bottom"
+							)
 						end
 						-- How far the plane has slid against the view, in half-views.
 						slides[i] = ((minX + maxX) / 2 - p.X) / ((maxX - minX) / 2)
 					end
 					if pan.X > 0 then
 						for i = 2, #slides do
-							h.expect(slides[i] > slides[i - 1] and slides[1] > 0, string.format("%s look, pan %.1f: layer %d slides %.3f vs %.3f", look.Id, pan.X, i, slides[i], slides[i - 1]))
+							h.expect(
+								slides[i] > slides[i - 1] and slides[1] > 0,
+								string.format(
+									"%s look, pan %.1f: layer %d slides %.3f vs %.3f",
+									look.Id,
+									pan.X,
+									i,
+									slides[i],
+									slides[i - 1]
+								)
+							)
 						end
 					end
 				end

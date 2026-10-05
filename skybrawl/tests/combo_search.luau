@@ -52,7 +52,8 @@ for _, weapon in { "Unarmed", "Sword", "Hammer", "Spear", "Gauntlets", "Scythe",
 								damage = damage,
 							})
 							if Duel.isTrue(hits, 2) then
-								local name = string.format("%s > %s > %s", opener[1], link[1], Duel.describe({ hits[2] }))
+								local name =
+									string.format("%s > %s > %s", opener[1], link[1], Duel.describe({ hits[2] }))
 								found[name] = true
 							end
 						end

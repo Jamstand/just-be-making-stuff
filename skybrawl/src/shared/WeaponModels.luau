@@ -86,15 +86,42 @@ SHAPES.Scythe = function(add, primary, secondary, mat)
 	add("Shaft", Vector3.new(0.24, 6.4, 0.24), CFrame.new(0, 2.2, 0), secondary, WOOD)
 	add("Collar", Vector3.new(0.34, 0.4, 0.34), CFrame.new(0, 5.3, 0), primary, mat)
 	add("Blade", Vector3.new(0.14, 0.7, 3.4), CFrame.new(0, 5.1, -1.6), primary, mat, true)
-	add("BladeTip", Vector3.new(0.14, 0.5, 1.2), CFrame.new(0, 4.7, -3.4) * CFrame.Angles(math.rad(-35), 0, 0), primary, mat, true)
+	add(
+		"BladeTip",
+		Vector3.new(0.14, 0.5, 1.2),
+		CFrame.new(0, 4.7, -3.4) * CFrame.Angles(math.rad(-35), 0, 0),
+		primary,
+		mat,
+		true
+	)
 	return Vector3.new(0, 5, -0.5), Vector3.new(0, 5, -3.4)
 end
 
 SHAPES.Bow = function(add, primary, secondary, mat)
 	add("Grip", Vector3.new(0.3, 0.3, 0.9), CFrame.new(0, 0, 0), secondary, WOOD)
-	add("UpperLimb", Vector3.new(0.22, 0.25, 2.2), CFrame.new(0, -0.35, 1.25) * CFrame.Angles(math.rad(20), 0, 0), primary, mat, true)
-	add("LowerLimb", Vector3.new(0.22, 0.25, 2.2), CFrame.new(0, -0.35, -1.25) * CFrame.Angles(math.rad(-20), 0, 0), primary, mat, true)
-	add("String", Vector3.new(0.05, 0.05, 4.5), CFrame.new(0, -0.72, 0), Color3.fromRGB(240, 240, 230), Enum.Material.SmoothPlastic)
+	add(
+		"UpperLimb",
+		Vector3.new(0.22, 0.25, 2.2),
+		CFrame.new(0, -0.35, 1.25) * CFrame.Angles(math.rad(20), 0, 0),
+		primary,
+		mat,
+		true
+	)
+	add(
+		"LowerLimb",
+		Vector3.new(0.22, 0.25, 2.2),
+		CFrame.new(0, -0.35, -1.25) * CFrame.Angles(math.rad(-20), 0, 0),
+		primary,
+		mat,
+		true
+	)
+	add(
+		"String",
+		Vector3.new(0.05, 0.05, 4.5),
+		CFrame.new(0, -0.72, 0),
+		Color3.fromRGB(240, 240, 230),
+		Enum.Material.SmoothPlastic
+	)
 	return Vector3.new(0, 0, -1), Vector3.new(0, 0, 1)
 end
 
@@ -165,7 +192,8 @@ function WeaponModels.build(weaponId, colorId, skinId)
 	local model = Instance.new("Model")
 	model.Name = weaponId
 
-	local grip = newPart("Grip", Vector3.new(0.2, 0.2, 0.2), CFrame.new(), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic)
+	local grip =
+		newPart("Grip", Vector3.new(0.2, 0.2, 0.2), CFrame.new(), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic)
 	grip.Transparency = 1
 	grip.Parent = model
 	model.PrimaryPart = grip

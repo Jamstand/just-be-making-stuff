@@ -76,7 +76,13 @@ function LegendRig.readModel(model, fighterName)
 		local head = vec(expected.Parts.Head.Center)
 		local off = (parts.Head.cframe.Position - head).Magnitude
 		if off > 1 then
-			warn(string.format("[LegendRig] %s's imported head is %.1f studs from where the export put it", fighterName, off))
+			warn(
+				string.format(
+					"[LegendRig] %s's imported head is %.1f studs from where the export put it",
+					fighterName,
+					off
+				)
+			)
 		end
 	end
 	return { parts = parts }

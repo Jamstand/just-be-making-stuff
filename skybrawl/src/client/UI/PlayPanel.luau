@@ -84,9 +84,20 @@ function PlayPanel.create(gui, close)
 		return subtitle
 	end
 
-	local sub1v1 = queueCard(1, "Ranked1v1", "Ranked 1v1", "3 stocks, matched by your 1v1 rating. Wins raise your rank.")
-	local sub2v2 = queueCard(2, "Ranked2v2", "Ranked 2v2", "Team up with another solo player against two others. Teams are balanced by rating.")
-	local subFFA = queueCard(3, "FFA", "Free-for-all", "Up to 4 players, everyone for themselves. Bots fill empty spots if it takes a while.")
+	local sub1v1 =
+		queueCard(1, "Ranked1v1", "Ranked 1v1", "3 stocks, matched by your 1v1 rating. Wins raise your rank.")
+	local sub2v2 = queueCard(
+		2,
+		"Ranked2v2",
+		"Ranked 2v2",
+		"Team up with another solo player against two others. Teams are balanced by rating."
+	)
+	local subFFA = queueCard(
+		3,
+		"FFA",
+		"Free-for-all",
+		"Up to 4 players, everyone for themselves. Bots fill empty spots if it takes a while."
+	)
 	subFFA.Text = "Casual · no rating"
 
 	-- vs Bots
@@ -100,13 +111,18 @@ function PlayPanel.create(gui, close)
 		Size = UDim2.new(1, -170, 0, 140),
 		Parent = botFrame,
 	}, { UIKit.list(Enum.FillDirection.Vertical, 4) })
-	local formatRow = UIKit.cycle("Format", {
-		{ value = "Duel", label = "1v1 Duel" },
-		{ value = "FFA", label = "Free-for-all (3 bots)" },
-		{ value = "2v2", label = "2v2 (bot teammate)" },
-	}, options.format, function(v)
-		options.format = v
-	end)
+	local formatRow = UIKit.cycle(
+		"Format",
+		{
+			{ value = "Duel", label = "1v1 Duel" },
+			{ value = "FFA", label = "Free-for-all (3 bots)" },
+			{ value = "2v2", label = "2v2 (bot teammate)" },
+		},
+		options.format,
+		function(v)
+			options.format = v
+		end
+	)
 	formatRow.LayoutOrder = 1
 	formatRow.Parent = controls
 	local difficulties = {}
@@ -129,7 +145,13 @@ function PlayPanel.create(gui, close)
 	mapRow.Parent = controls
 
 	UIKit.button("Start", "good", function()
-		if join("Bots", { format = options.format, difficulty = options.difficulty, mapId = options.mapId ~= "Random" and options.mapId or nil }) then
+		if
+			join("Bots", {
+				format = options.format,
+				difficulty = options.difficulty,
+				mapId = options.mapId ~= "Random" and options.mapId or nil,
+			})
+		then
 			close()
 		end
 	end, {
@@ -142,8 +164,18 @@ function PlayPanel.create(gui, close)
 	local function refresh()
 		local profile = ClientState.profile
 		if profile then
-			sub1v1.Text = string.format("%s · %d rating · %d played", Ranks.tier(profile.Rating1v1).Name, profile.Rating1v1, profile.Ranked1v1Played)
-			sub2v2.Text = string.format("%s · %d rating · %d played", Ranks.tier(profile.Rating2v2).Name, profile.Rating2v2, profile.Ranked2v2Played)
+			sub1v1.Text = string.format(
+				"%s · %d rating · %d played",
+				Ranks.tier(profile.Rating1v1).Name,
+				profile.Rating1v1,
+				profile.Ranked1v1Played
+			)
+			sub2v2.Text = string.format(
+				"%s · %d rating · %d played",
+				Ranks.tier(profile.Rating2v2).Name,
+				profile.Rating2v2,
+				profile.Ranked2v2Played
+			)
 			sub1v1.TextColor3 = Ranks.tier(profile.Rating1v1).Color
 			sub2v2.TextColor3 = Ranks.tier(profile.Rating2v2).Color
 		end

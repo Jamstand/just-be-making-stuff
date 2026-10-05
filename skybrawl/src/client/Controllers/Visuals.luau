@@ -158,7 +158,8 @@ local function fadeOut(part, duration, endSize)
 	if endSize then
 		goal.Size = endSize
 	end
-	local tween = TweenService:Create(part, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), goal)
+	local tween =
+		TweenService:Create(part, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), goal)
 	tween:Play()
 	task.delay(duration + 0.05, function()
 		part:Destroy()
@@ -170,7 +171,11 @@ local function shards(center, color, count, speed, life, size)
 		local angle = rng:NextNumber(0, math.pi * 2)
 		local dir = Vector3.new(math.cos(angle), math.sin(angle), rng:NextNumber(-0.3, 0.3))
 		local p = effectPart(Vector3.new(size, size * 0.4, size * 0.4), CFrame.lookAt(center, center + dir), color)
-		local goal = { CFrame = CFrame.lookAt(center + dir * speed, center + dir * (speed + 1)), Transparency = 1, Size = Vector3.new(size * 0.3, 0.1, 0.1) }
+		local goal = {
+			CFrame = CFrame.lookAt(center + dir * speed, center + dir * (speed + 1)),
+			Transparency = 1,
+			Size = Vector3.new(size * 0.3, 0.1, 0.1),
+		}
 		TweenService:Create(p, TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), goal):Play()
 		task.delay(life + 0.05, function()
 			p:Destroy()
@@ -195,7 +200,8 @@ function Visuals.damageNumber(x, y, amount, color)
 	if not effectsFolder or not Settings.get("DamageNumbers") then
 		return
 	end
-	local anchor = effectPart(Vector3.one * 0.1, CFrame.new(worldPos(x + rng:NextNumber(-1, 1), y + 2, 2)), Color3.new(1, 1, 1))
+	local anchor =
+		effectPart(Vector3.one * 0.1, CFrame.new(worldPos(x + rng:NextNumber(-1, 1), y + 2, 2)), Color3.new(1, 1, 1))
 	anchor.Transparency = 1
 	local gui = Instance.new("BillboardGui")
 	gui.Size = UDim2.fromOffset(80, 36)
@@ -212,8 +218,16 @@ function Visuals.damageNumber(x, y, amount, color)
 	label.TextColor3 = color or Color3.new(1, 1, 1)
 	label.TextStrokeTransparency = 0.2
 	label.Parent = gui
-	TweenService:Create(gui, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { StudsOffset = Vector3.new(0, 3, 0) }):Play()
-	TweenService:Create(label, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	TweenService:Create(
+		gui,
+		TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ StudsOffset = Vector3.new(0, 3, 0) }
+	):Play()
+	TweenService:Create(
+		label,
+		TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{ TextTransparency = 1, TextStrokeTransparency = 1 }
+	):Play()
 	task.delay(0.75, function()
 		anchor:Destroy()
 	end)
@@ -261,17 +275,29 @@ function Visuals.koEffect(x, y, effectId, cameraBounds)
 		end
 	elseif style == "Petals" then
 		for _ = 1, 26 do
-			local p = effectPart(Vector3.new(1.2, 0.2, 0.8), CFrame.new(center) * CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0), color)
+			local p = effectPart(
+				Vector3.new(1.2, 0.2, 0.8),
+				CFrame.new(center) * CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0),
+				color
+			)
 			p.Material = Enum.Material.SmoothPlastic
 			local drift = Vector3.new(rng:NextNumber(-18, 18), rng:NextNumber(-14, 10), 0)
-			local goal = { CFrame = CFrame.new(center + drift) * CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0), Transparency = 1 }
+			local goal = {
+				CFrame = CFrame.new(center + drift) * CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0),
+				Transparency = 1,
+			}
 			TweenService:Create(p, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), goal):Play()
 			task.delay(1.25, function()
 				p:Destroy()
 			end)
 		end
 	elseif style == "Shockwave" then
-		local ring = effectPart(Vector3.new(0.4, 6, 6), CFrame.new(center) * CFrame.Angles(0, math.rad(90), 0), color, Enum.PartType.Cylinder)
+		local ring = effectPart(
+			Vector3.new(0.4, 6, 6),
+			CFrame.new(center) * CFrame.Angles(0, math.rad(90), 0),
+			color,
+			Enum.PartType.Cylinder
+		)
 		ring.Transparency = 0.2
 		fadeOut(ring, 0.6, Vector3.new(0.4, 60, 60))
 		shards(center, color, 10, 16, 0.5, 2)
@@ -281,7 +307,8 @@ function Visuals.koEffect(x, y, effectId, cameraBounds)
 		for i = 1, 7 do
 			local nextPoint = top:Lerp(center, i / 7) + Vector3.new(i < 7 and rng:NextNumber(-4, 4) or 0, 0, 0)
 			local length = (nextPoint - last).Magnitude
-			local bolt = effectPart(Vector3.new(0.7, 0.7, length), CFrame.lookAt((last + nextPoint) / 2, nextPoint), color)
+			local bolt =
+				effectPart(Vector3.new(0.7, 0.7, length), CFrame.lookAt((last + nextPoint) / 2, nextPoint), color)
 			fadeOut(bolt, 0.35)
 			last = nextPoint
 		end
@@ -304,7 +331,11 @@ function Visuals.spawnProjectile(data)
 			visual.model = model
 		end
 	else
-		local part = effectPart(Vector3.new(0.25, 0.25, 2.4), CFrame.new(worldPos(data.x, data.y)), Color3.fromRGB(255, 240, 190))
+		local part = effectPart(
+			Vector3.new(0.25, 0.25, 2.4),
+			CFrame.new(worldPos(data.x, data.y)),
+			Color3.fromRGB(255, 240, 190)
+		)
 		local trailA = Instance.new("Attachment")
 		trailA.Position = Vector3.new(0, 0, 1)
 		trailA.Parent = part
@@ -357,7 +388,11 @@ local function updateProjectiles(dt)
 			local vy = d.vy - d.gravity * t
 			local pos = worldPos(x, y)
 			if visual.model then
-				visual.model:PivotTo(CFrame.new(pos) * CFrame.Angles(0, 0, -t * 25 * (d.vx >= 0 and 1 or -1)) * CFrame.Angles(0, math.rad(90), 0))
+				visual.model:PivotTo(
+					CFrame.new(pos)
+						* CFrame.Angles(0, 0, -t * 25 * (d.vx >= 0 and 1 or -1))
+						* CFrame.Angles(0, math.rad(90), 0)
+				)
 			elseif visual.part then
 				local dir = Vector3.new(d.vx, vy, 0)
 				if dir.Magnitude > 0.01 then

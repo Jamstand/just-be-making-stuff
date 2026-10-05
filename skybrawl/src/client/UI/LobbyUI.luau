@@ -78,7 +78,11 @@ local function buildTopBar()
 	}, { UIKit.corner(27) })
 	task.spawn(function()
 		local ok, image = pcall(function()
-			return Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+			return Players:GetUserThumbnailAsync(
+				player.UserId,
+				Enum.ThumbnailType.HeadShot,
+				Enum.ThumbnailSize.Size100x100
+			)
 		end)
 		if ok then
 			avatar.Image = image
@@ -211,8 +215,15 @@ local function buildBanners()
 		queueBanner.Visible = status ~= nil and not ClientState.inMatch
 		if status then
 			dots = dots % 3 + 1
-			local extra = status.waitingForArena and "  ·  waiting for a free arena" or string.format("  ·  %d in queue", status.inQueue)
-			queueText.Text = string.format("Searching %s%s  %s%s", status.label, string.rep(".", dots), Util.formatTime(status.waited), extra)
+			local extra = status.waitingForArena and "  ·  waiting for a free arena"
+				or string.format("  ·  %d in queue", status.inQueue)
+			queueText.Text = string.format(
+				"Searching %s%s  %s%s",
+				status.label,
+				string.rep(".", dots),
+				Util.formatTime(status.waited),
+				extra
+			)
 		end
 	end
 	ClientState.QueueChanged:Connect(renderQueue)

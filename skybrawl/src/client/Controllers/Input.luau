@@ -259,7 +259,10 @@ function Input.update(dt)
 		or gamepadHeld("Jump")
 		or mobile.held.Jump == true
 		or (tapJump and (ky > 0 or gy > 0.5 or mobile.moveY > 0.6))
-	state.heavyHeld = (not typing and keyboardHeld("Heavy")) or gamepadHeld("Heavy") or mouseHeld("Heavy") or mobile.held.Heavy == true
+	state.heavyHeld = (not typing and keyboardHeld("Heavy"))
+		or gamepadHeld("Heavy")
+		or mouseHeld("Heavy")
+		or mobile.held.Heavy == true
 	return state
 end
 

@@ -170,10 +170,29 @@ local function buildControls(page)
 		Settings.set("MobileButtonScale", v)
 	end)), o())
 
-	local header = make("Frame", { BackgroundTransparency = 1, LayoutOrder = o(), Size = UDim2.new(1, -10, 0, 30), Parent = page })
-	UIKit.label("Action", 14, { Font = T.BoldFont, TextColor3 = T.Muted, Size = UDim2.new(0.34, 0, 1, 0), Parent = header })
-	UIKit.label("Keyboard", 14, { Font = T.BoldFont, TextColor3 = T.Muted, Position = UDim2.fromScale(0.34, 0), Size = UDim2.new(0.44, 0, 1, 0), TextXAlignment = Enum.TextXAlignment.Center, Parent = header })
-	UIKit.label("Gamepad", 14, { Font = T.BoldFont, TextColor3 = T.Muted, Position = UDim2.fromScale(0.78, 0), Size = UDim2.new(0.22, 0, 1, 0), TextXAlignment = Enum.TextXAlignment.Center, Parent = header })
+	local header =
+		make("Frame", { BackgroundTransparency = 1, LayoutOrder = o(), Size = UDim2.new(1, -10, 0, 30), Parent = page })
+	UIKit.label(
+		"Action",
+		14,
+		{ Font = T.BoldFont, TextColor3 = T.Muted, Size = UDim2.new(0.34, 0, 1, 0), Parent = header }
+	)
+	UIKit.label("Keyboard", 14, {
+		Font = T.BoldFont,
+		TextColor3 = T.Muted,
+		Position = UDim2.fromScale(0.34, 0),
+		Size = UDim2.new(0.44, 0, 1, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Parent = header,
+	})
+	UIKit.label("Gamepad", 14, {
+		Font = T.BoldFont,
+		TextColor3 = T.Muted,
+		Position = UDim2.fromScale(0.78, 0),
+		Size = UDim2.new(0.22, 0, 1, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Parent = header,
+	})
 
 	local bindButtons = {}
 	local function renderBinds()
@@ -193,7 +212,11 @@ local function buildControls(page)
 			Size = UDim2.new(1, -10, 0, 44),
 			Parent = page,
 		}, { UIKit.corner(10), UIKit.padding(10, 4) })
-		UIKit.label(ACTION_LABELS[action] or action, 15, { Font = T.BoldFont, Size = UDim2.new(0.34, 0, 1, 0), Parent = row })
+		UIKit.label(
+			ACTION_LABELS[action] or action,
+			15,
+			{ Font = T.BoldFont, Size = UDim2.new(0.34, 0, 1, 0), Parent = row }
+		)
 		local slots = {
 			{ device = "Keyboard", index = 1, x = 0.34, w = 0.21 },
 			{ device = "Keyboard", index = 2, x = 0.56, w = 0.21 },

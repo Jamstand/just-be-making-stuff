@@ -68,11 +68,21 @@ local R6_JOINTS = {
 	LeftHip = { "Torso", "Left Hip" },
 }
 local R15_PART = {
-	Root = "LowerTorso", Waist = "UpperTorso", Neck = "Head",
-	RightShoulder = "RightUpperArm", RightElbow = "RightLowerArm", RightWrist = "RightHand",
-	LeftShoulder = "LeftUpperArm", LeftElbow = "LeftLowerArm", LeftWrist = "LeftHand",
-	RightHip = "RightUpperLeg", RightKnee = "RightLowerLeg", RightAnkle = "RightFoot",
-	LeftHip = "LeftUpperLeg", LeftKnee = "LeftLowerLeg", LeftAnkle = "LeftFoot",
+	Root = "LowerTorso",
+	Waist = "UpperTorso",
+	Neck = "Head",
+	RightShoulder = "RightUpperArm",
+	RightElbow = "RightLowerArm",
+	RightWrist = "RightHand",
+	LeftShoulder = "LeftUpperArm",
+	LeftElbow = "LeftLowerArm",
+	LeftWrist = "LeftHand",
+	RightHip = "RightUpperLeg",
+	RightKnee = "RightLowerLeg",
+	RightAnkle = "RightFoot",
+	LeftHip = "LeftUpperLeg",
+	LeftKnee = "LeftLowerLeg",
+	LeftAnkle = "LeftFoot",
 }
 
 local LOCO_FADE = 0.12
@@ -487,7 +497,9 @@ function FighterAnimator.playAttack(model, weaponId, slot, seq, charging)
 	if not move then
 		return
 	end
-	local clip = compile(move.AnimKey) or compile(Weapons.get(weaponId).Id .. "." .. slot) or compile("Unarmed." .. slot)
+	local clip = compile(move.AnimKey)
+		or compile(Weapons.get(weaponId).Id .. "." .. slot)
+		or compile("Unarmed." .. slot)
 	if not clip then
 		return
 	end
@@ -565,7 +577,13 @@ function FighterAnimator.playClip(model, name, duration, opts)
 end
 
 function FighterAnimator.dodge(model, kind)
-	local clips = { Spot = "Loco.Dodge", AirSpot = "Loco.AirSpot", Air = "Loco.AirDodge", Chase = "Loco.Chase", Dash = "Loco.Dash" }
+	local clips = {
+		Spot = "Loco.Dodge",
+		AirSpot = "Loco.AirSpot",
+		Air = "Loco.AirDodge",
+		Chase = "Loco.Chase",
+		Dash = "Loco.Dash",
+	}
 	local durations = {
 		Spot = Config.Physics.SpotDodgeTime,
 		AirSpot = Config.Physics.SpotDodgeTime,

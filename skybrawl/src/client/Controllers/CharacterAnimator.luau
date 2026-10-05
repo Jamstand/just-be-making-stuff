@@ -43,14 +43,18 @@ local function lobbyUpdate()
 	elseif state == S.Freefall then
 		locomotion:Play("Fall")
 	elseif state == S.Climbing then
-		locomotion:Play("Climb", math.max(0.4, humanoid.RootPart and humanoid.RootPart.AssemblyLinearVelocity.Magnitude / 12 or 1))
+		locomotion:Play(
+			"Climb",
+			math.max(0.4, humanoid.RootPart and humanoid.RootPart.AssemblyLinearVelocity.Magnitude / 12 or 1)
+		)
 	elseif state == S.Seated then
 		locomotion:Play("Sit")
 	elseif state == S.Swimming then
 		locomotion:Play("Swim")
 	else
 		local root = humanoid.RootPart
-		local speed = root and Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z).Magnitude or 0
+		local speed = root and Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z).Magnitude
+			or 0
 		if speed > 0.75 and humanoid.MoveDirection.Magnitude > 0 then
 			locomotion:Play("Run", math.max(0.5, speed / 16))
 		else
