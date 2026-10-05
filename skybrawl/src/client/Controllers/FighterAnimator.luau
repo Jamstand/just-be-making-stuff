@@ -16,12 +16,21 @@
     the other hand, like Brawlhalla flipping its sprites, so the weapon is
     always on the camera's side.
 
+    In-between frames: attack clips are authored in move phases, so a fast
+    move would play their big swings in under a frame and the arm would
+    teleport. Each attack is re-timed for its real frame data (retime) so no
+    joint turns faster than MAX_TURN: the wind-up is shortened and the swing
+    spreads over the last startup frames and into the active frames, the way
+    a Brawlhalla slash reads. Keys stay inside the phase they were authored
+    in, so the strike still lands while the hitbox is out.
+
     Fades: when a layer switches clips the new clip starts playing at once,
     and the difference between the old pose and the new clip's first frame
     is laid on top and shrunk to nothing over the fade. That difference is a
     fixed rotation per joint, so there is nothing to flip mid-fade (blending
     a frozen old pose toward a moving new one snaps when the new clip swings
-    through the opposite rotation).
+    through the opposite rotation). Fades last longer when the pose has
+    further to go, so they never turn a joint faster than MAX_TURN either.
 
     Clip lookup: attacks try "<Legend>.<Weapon>.<Slot>", "<Weapon>.<Slot>",
     "Unarmed.<Slot>"; locomotion tries "<Weapon>.<State>", "Loco.<State>".
@@ -88,6 +97,9 @@ local R15_PART = {
 local LOCO_FADE = 0.12
 local ACTION_FADE_IN = 0.05
 local ACTION_FADE_OUT = 0.12
+local MAX_FADE = 0.2
+-- Fastest a joint may turn: 55 degrees a frame at 60 fps.
+local MAX_TURN = math.rad(55 * 60)
 local RIG_HEIGHT = 6
 
 local rigs = {} -- [model] = rig
@@ -137,8 +149,215 @@ local function compile(name)
 	return clip
 end
 
+-- How much faster than average an ease moves at its fastest.
+local PEAK =
+	{ Linear = 1, Sine = math.pi / 2, Quad = 2, Cubic = 3, Quart = 4, Quint = 5, Exponential = 7, Circular = 4 }
+
+local function easePeak(key)
+	if key.constant then
+		return 1
+	end
+	return key.style and PEAK[key.style.Name] or 1
+end
+
+-- How far a rotation turns, the short way round (radians).
+local function turnOf(cf)
+	local _, angle = cf:ToAxisAngle()
+	angle = math.abs(angle) % (2 * math.pi)
+	return angle > math.pi and 2 * math.pi - angle or angle
+end
+
+-- The biggest joint turn (radians) between two poses.
+local function maxTurn(a, b)
+	local worst = 0
+	for i = 1, NJ do
+		local angle = turnOf(a[i]:Inverse() * b[i])
+		if angle > worst then
+			worst = angle
+		end
+	end
+	return worst
+end
+
+local retimed = {}
+
+-- A clip's spans: { { clip time, seconds }, ... } back to back from 0. An
+-- attack has three (startup, active, recovery, one phase each); a timed
+-- clip has one.
+local function phaseSpans(timing)
+	return { { 1, timing.startup }, { 1, timing.active }, { 1, timing.recovery } }
+end
+
+-- Clip time -> seconds for a set of spans.
+local function toSeconds(spans, p)
+	local t = 0
+	for _, span in spans do
+		local len, secs = span[1], span[2]
+		if p <= len then
+			return t + p / len * secs
+		end
+		p -= len
+		t += secs
+	end
+	return t
+end
+
+--[[
+    A clip re-timed to play in `spans` so no joint turns faster than
+    MAX_TURN. The result's key times are in seconds. Each key may slide
+    within the span it was authored in (an attack's startup, active or
+    recovery), and keys move apart where a segment is too fast for its time,
+    taking the time from slower segments next to it. If a span is simply too
+    short for what's in it (a full spin inside 3 active frames), its keys may
+    spill into the next span rather than snap. A Constant key (hold, then
+    jump to the next pose) gets a short ramp before the jump instead.
+]]
+local function retime(clip, spans)
+	local parts = { clip.name }
+	for _, span in spans do
+		table.insert(parts, string.format("%.4f/%.4f", span[1], span[2]))
+	end
+	local cacheKey = table.concat(parts, "|")
+	local cached = retimed[cacheKey]
+	if cached then
+		return cached
+	end
+	-- where each span starts, in clip time and in seconds
+	local clipStart, secStart = { 0 }, { 0 }
+	for i, span in spans do
+		clipStart[i + 1] = clipStart[i] + span[1]
+		secStart[i + 1] = secStart[i] + span[2]
+	end
+	local function spanOf(p)
+		for i = #spans, 1, -1 do
+			if p >= clipStart[i] - 1e-9 then
+				return i
+			end
+		end
+		return 1
+	end
+
+	-- keys with times in seconds, and the stretch of time (the span it was
+	-- authored in) each may move within
+	local keys, times, lo, hi = {}, {}, {}, {}
+	local function add(key, t, p)
+		local i = spanOf(p)
+		table.insert(keys, key)
+		table.insert(times, t)
+		table.insert(lo, secStart[i])
+		table.insert(hi, secStart[i + 1])
+	end
+	for i, key in clip.keys do
+		local nextKey = clip.keys[i + 1]
+		if key.constant and nextKey then
+			-- hold, then ramp into the next pose instead of jumping
+			local ramp = maxTurn(key.cf, nextKey.cf) / MAX_TURN
+			local t0, t1 = toSeconds(spans, key.t), toSeconds(spans, nextKey.t)
+			local held = table.clone(key)
+			held.constant = nil
+			add(held, t0, key.t)
+			add(table.clone(held), math.max(t0, t1 - ramp), key.t)
+		else
+			add(key, toSeconds(spans, key.t), key.t)
+		end
+	end
+	local n = #keys
+	-- the time each segment needs at MAX_TURN
+	local need = {}
+	for i = 1, n - 1 do
+		need[i] = maxTurn(keys[i].cf, keys[i + 1].cf) * easePeak(keys[i]) / MAX_TURN
+	end
+	-- the first and last keys don't move
+	lo[1], hi[1] = times[1], times[1]
+	lo[n], hi[n] = times[n], times[n]
+
+	-- how far key i can move left/right, pushing its neighbours if needed
+	local function capLeft(i)
+		if i <= 1 then
+			return 0
+		end
+		local room = times[i] - lo[i]
+		local gap = times[i] - times[i - 1] - need[i - 1]
+		return math.max(0, math.min(room, math.max(0, gap) + capLeft(i - 1)))
+	end
+	local function capRight(i)
+		if i >= n then
+			return 0
+		end
+		local room = hi[i] - times[i]
+		local gap = times[i + 1] - times[i] - need[i]
+		return math.max(0, math.min(room, math.max(0, gap) + capRight(i + 1)))
+	end
+	local function pushLeft(i, by)
+		times[i] -= by
+		if i > 1 then
+			local short = need[i - 1] - (times[i] - times[i - 1])
+			if short > 0 then
+				pushLeft(i - 1, math.min(short, by))
+			end
+		end
+	end
+	local function pushRight(i, by)
+		times[i] += by
+		if i < n then
+			local short = need[i] - (times[i + 1] - times[i])
+			if short > 0 then
+				pushRight(i + 1, math.min(short, by))
+			end
+		end
+	end
+	local function spread()
+		local worst = 0
+		for _ = 1, 4 do
+			worst = 0
+			for i = 1, n - 1 do
+				local short = need[i] - (times[i + 1] - times[i])
+				if short > 1e-6 then
+					local left, right = capLeft(i), capRight(i + 1)
+					local takeLeft = math.min(left, math.max(short / 2, short - right))
+					local takeRight = math.min(right, short - takeLeft)
+					if takeLeft > 0 then
+						pushLeft(i, takeLeft)
+					end
+					if takeRight > 0 then
+						pushRight(i + 1, takeRight)
+					end
+					worst = math.max(worst, short - takeLeft - takeRight)
+				end
+			end
+		end
+		return worst
+	end
+	if spread() > 1e-4 then
+		-- some span can't hold its motion: let keys cross span edges
+		for i = 2, n - 1 do
+			lo[i], hi[i] = times[1], times[n]
+		end
+		spread()
+	end
+
+	local out = table.create(n)
+	for i, key in keys do
+		local k = table.clone(key)
+		k.t = times[i]
+		if i > 1 and k.t < out[i - 1].t then
+			k.t = out[i - 1].t
+		end
+		out[i] = k
+	end
+	local result = { name = clip.name, seconds = true, loop = false, length = secStart[#spans + 1], keys = out }
+	retimed[cacheKey] = result
+	return result
+end
+
 function FighterAnimator.hasClip(name)
 	return compile(name) ~= nil
+end
+
+-- For tests: a clip as it plays for a move's timing (keys in seconds).
+function FighterAnimator.timedClip(name, timing)
+	local clip = compile(name)
+	return clip and clip.phased and retime(clip, phaseSpans(timing)) or clip
 end
 
 local function newPose()
@@ -191,12 +410,20 @@ local function sample(clip, t, mirror, out)
 end
 
 -- The difference between the pose showing now (`old`) and the pose a new
--- clip starts from (`fresh`): offset * fresh = old.
-local function captureOffset(old, fresh, out)
+-- clip starts from (`fresh`): offset * fresh = old. Returns how long a fade
+-- of that difference should take: at least `base`, longer when a joint has
+-- far to go (the eased fade peaks at 1.5x its average speed).
+local function captureOffset(old, fresh, out, base)
+	local worst = 0
 	for i = 1, NJ do
-		out.cf[i] = old.cf[i] * fresh.cf[i]:Inverse()
+		local offset = old.cf[i] * fresh.cf[i]:Inverse()
+		out.cf[i] = offset
+		worst = math.max(worst, turnOf(offset))
 	end
 	out.off = old.off - fresh.off
+	-- the clip keeps moving under the fade, so the fade itself gets half
+	-- the speed budget
+	return math.clamp(worst * 1.5 * 2 / MAX_TURN, base or 0, MAX_FADE)
 end
 
 -- Lays `k` (1 = all, 0 = none) of an offset over the live pose. Eased so the
@@ -322,11 +549,14 @@ function FighterAnimator.track(model, opts)
 		snapshot = newPose(),
 		loco = nil,
 		locoFade = 0,
+		locoFadeLen = LOCO_FADE,
 		locoOffset = newPose(),
 		action = nil,
 		actionFade = 0,
+		actionFadeLen = ACTION_FADE_IN,
 		actionOffset = newPose(),
 		outFade = 0,
+		outFadeLen = ACTION_FADE_OUT,
 		outOffset = newPose(),
 		stopUntil = 0,
 		lastPos = nil,
@@ -413,12 +643,55 @@ function FighterAnimator.setLocomotion(model, state, speed)
 	end
 	if rig.loco then
 		sample(clip, 0, rig.facing < 0, rig.tmp)
-		captureOffset(rig.locoPose, rig.tmp, rig.locoOffset)
-		rig.locoFade = LOCO_FADE
+		rig.locoFadeLen = captureOffset(rig.locoPose, rig.tmp, rig.locoOffset, LOCO_FADE)
+		rig.locoFade = rig.locoFadeLen
 	else
 		rig.locoFade = 0
 	end
 	rig.loco = { state = state, weapon = weapon, clip = clip, t = 0, speed = speed or 1 }
+end
+
+-- Actions ------------------------------------------------------------------------
+
+-- Blends the current pose back into the locomotion layer.
+local function fadeOut(rig)
+	rig.outFadeLen = captureOffset(rig.pose, rig.locoPose, rig.outOffset, ACTION_FADE_OUT)
+	rig.outFade = rig.outFadeLen
+end
+
+-- Where an attack is in its clip: the move phase, in seconds when the clip
+-- was re-timed.
+local function attackClipTime(action)
+	local phase = phaseAt(action.t, action.timing, action.p0)
+	return action.clip.seconds and toSeconds(action.spans, phase) or phase
+end
+
+-- Fades from the pose showing now into the current action at its current
+-- time (a new action, or one that jumped ahead).
+local function fadeIn(rig)
+	local action = rig.action
+	if action.kind == "Attack" then
+		sample(action.clip, attackClipTime(action), rig.facing < 0, rig.tmp)
+	else
+		sample(action.clip, 0, rig.facing < 0, rig.tmp)
+	end
+	rig.actionFadeLen = captureOffset(rig.pose, rig.tmp, rig.actionOffset, ACTION_FADE_IN)
+	rig.actionFade = rig.actionFadeLen
+	rig.outFade = 0
+end
+
+local function startAction(rig, action)
+	rig.action = action
+	fadeIn(rig)
+end
+
+-- Jumps an attack ahead to `t` seconds (a ground pound landing), blending
+-- into the new pose rather than snapping to it.
+local function skipTo(rig, action, t)
+	if t > action.t then
+		action.t = t
+		fadeIn(rig)
+	end
 end
 
 -- Infers someone else's locomotion from how their character moves.
@@ -458,29 +731,11 @@ local function inferLocomotion(rig, dt)
 	if grounded and action and action.kind == "Attack" then
 		if action.endsOnLand and action.t > action.timing.startup + 0.05 then
 			local s, a = action.timing.startup, action.timing.active
-			if action.t < s + a then
-				action.t = s + a
-			end
+			skipTo(rig, action, s + a)
 		elseif landed and action.air then
 			FighterAnimator.endAttack(rig.model)
 		end
 	end
-end
-
--- Actions ------------------------------------------------------------------------
-
--- Blends the current pose back into the locomotion layer.
-local function fadeOut(rig)
-	captureOffset(rig.pose, rig.locoPose, rig.outOffset)
-	rig.outFade = ACTION_FADE_OUT
-end
-
-local function startAction(rig, action)
-	sample(action.clip, 0, rig.facing < 0, rig.tmp)
-	captureOffset(rig.pose, rig.tmp, rig.actionOffset)
-	rig.actionFade = ACTION_FADE_IN
-	rig.outFade = 0
-	rig.action = action
 end
 
 --[[
@@ -503,16 +758,22 @@ function FighterAnimator.playAttack(model, weaponId, slot, seq, charging)
 	if not clip then
 		return
 	end
+	local timing = {
+		startup = move.Startup,
+		active = move.EndsOnLand and math.max(move.Active, 0.35) or move.Active,
+		recovery = move.Recovery,
+	}
+	local spans = phaseSpans(timing)
+	if clip.phased then
+		clip = retime(clip, spans)
+	end
 	startAction(rig, {
 		kind = "Attack",
 		clip = clip,
 		t = 0,
 		seq = seq,
-		timing = {
-			startup = move.Startup,
-			active = move.EndsOnLand and math.max(move.Active, 0.35) or move.Active,
-			recovery = move.Recovery,
-		},
+		timing = timing,
+		spans = spans,
 		charging = charging == true,
 		chargeLeft = (move.Charge or 0) + 0.3,
 		chargeT = 0,
@@ -547,7 +808,7 @@ function FighterAnimator.landed(model)
 	local action = rig and rig.action
 	if action and action.endsOnLand then
 		local s, a = action.timing.startup, action.timing.active
-		action.t = math.max(action.t, s + a)
+		skipTo(rig, action, s + a)
 	end
 end
 
@@ -565,12 +826,18 @@ function FighterAnimator.playClip(model, name, duration, opts)
 	if opts.ifIdle and rig.action then
 		return
 	end
+	local rate = opts.stretch and duration and clip.length / math.max(duration, 1e-3) or 1
+	if not opts.loopFor and not clip.phased and clip.length > 0 then
+		-- one-shot clips play in real seconds, re-timed like attacks
+		clip = retime(clip, { { clip.length, clip.length / rate } })
+		rate = 1
+	end
 	startAction(rig, {
 		kind = "Clip",
 		clip = clip,
 		t = 0,
 		duration = duration or clip.length,
-		rate = opts.stretch and duration and clip.length / math.max(duration, 1e-3) or 1,
+		rate = rate,
 		hold = opts.hold == true,
 		loopFor = opts.loopFor,
 	})
@@ -728,7 +995,7 @@ local function updateRig(rig, dt)
 		sample(loco.clip, loco.t, mirror, rig.locoPose)
 		if rig.locoFade > 0 then
 			rig.locoFade = math.max(0, rig.locoFade - step)
-			applyOffset(rig.locoOffset, rig.locoFade / LOCO_FADE, rig.locoPose, rig.locoPose)
+			applyOffset(rig.locoOffset, rig.locoFade / rig.locoFadeLen, rig.locoPose, rig.locoPose)
 		end
 	end
 
@@ -751,8 +1018,7 @@ local function updateRig(rig, dt)
 			else
 				action.t += step
 			end
-			local phase = phaseAt(action.t, timing, action.p0)
-			sample(action.clip, phase, mirror, rig.tmp)
+			sample(action.clip, attackClipTime(action), mirror, rig.tmp)
 			if action.charging and action.p0 >= 0.9 then
 				-- tremble while holding a charge
 				rig.tmp.cf[1] = rig.tmp.cf[1] * CFrame.Angles(0, math.rad(math.sin(os.clock() * 55) * 2.5), 0)
@@ -775,7 +1041,7 @@ local function updateRig(rig, dt)
 		end
 		if rig.actionFade > 0 then
 			rig.actionFade = math.max(0, rig.actionFade - step)
-			applyOffset(rig.actionOffset, rig.actionFade / ACTION_FADE_IN, rig.tmp, out)
+			applyOffset(rig.actionOffset, rig.actionFade / rig.actionFadeLen, rig.tmp, out)
 		else
 			copyPose(rig.tmp, out)
 		end
@@ -785,7 +1051,7 @@ local function updateRig(rig, dt)
 		end
 	elseif rig.outFade > 0 then
 		rig.outFade = math.max(0, rig.outFade - step)
-		applyOffset(rig.outOffset, rig.outFade / ACTION_FADE_OUT, rig.locoPose, out)
+		applyOffset(rig.outOffset, rig.outFade / rig.outFadeLen, rig.locoPose, out)
 	else
 		copyPose(rig.locoPose, out)
 	end

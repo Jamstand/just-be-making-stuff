@@ -317,8 +317,21 @@ timing, weapon alternation) and the combo flow:
 - scripted duels that must be true combos at 0% and only strings at 140%
 
 `lune run tests/art` checks the generated art data: a clip for every attack,
-signature and movement state, every legend's rig and weapon skins, and every
-map kit's export.
+signature and movement state, every legend's rig and weapon skins, every map
+kit's export and every painted background layer.
+
+`lune run tests/anims` drives the real animation player (FighterAnimator) on a
+fake rig, frame by frame at 60 fps:
+
+- every movement loop (idle, run at each speed, jump, fall, wall slide) for
+  every weapon and both facings, with no pops, stalls or seam jumps
+- crossfades between movement states, dodges and dashes
+- every attack of every legend and weapon, plain, charged, landed and cut
+  short, with no joint turning faster than about 55 degrees a frame (blends
+  can add a little; the test allows 72)
+- hurt, tumble, air jump, landing and throw, hit-stop, mirroring when facing
+  left, the weapon changing hands, other players' movement, avatars and menu
+  previews
 
 `lune run tests/combo_search [Weapon] [damage]` lists every true combo the
 current frame data allows. Use it when you change hitstun, knockback or
@@ -326,7 +339,9 @@ timings.
 
 Re-run them after changing physics, knockback or bot numbers. Format with
 [StyLua](https://github.com/JohnnyMorganz/StyLua) (`stylua src tests`;
-config in `stylua.toml`).
+config in `stylua.toml`). It needs a build with Luau support: the release
+binaries have it, but `cargo install stylua` needs `--features luau`, or it
+skips `.luau` files.
 
 ## Known limitations
 

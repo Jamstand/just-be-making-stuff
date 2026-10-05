@@ -100,21 +100,21 @@ end
 
 -- Shared air heavies keep recoveries consistent between weapons.
 local function recovery(t)
-	t.Startup = t.Startup or 0.08
+	t.Startup = t.Startup or 0.11
 	t.Active = t.Active or 0.28
 	t.Recovery = t.Recovery or 0.32
 	t.Damage = t.Damage or 10
 	t.BaseKnockback = t.BaseKnockback or 24
 	t.KnockbackScaling = t.KnockbackScaling or 30
 	t.Angle = t.Angle or 85
-	t.Motion = t.Motion or motion(0.06, 0.26, 9, 62)
+	t.Motion = t.Motion or motion(0.09, 0.26, 9, 62)
 	t.Anim = t.Anim or "Flip"
 	t.AirDrift = t.AirDrift or 0.35
 	return t
 end
 
 local function groundPound(t)
-	t.Startup = t.Startup or 0.14
+	t.Startup = t.Startup or 0.17
 	t.Active = t.Active or 1.0
 	t.Recovery = t.Recovery or 0.26
 	t.Damage = t.Damage or 14
@@ -122,7 +122,7 @@ local function groundPound(t)
 	t.KnockbackScaling = t.KnockbackScaling or 46
 	t.Angle = t.Angle or 55
 	t.Radial = true
-	t.Motion = t.Motion or motion(0.12, 1.0, 0, -95)
+	t.Motion = t.Motion or motion(0.15, 1.0, 0, -95)
 	t.Anim = "Stomp"
 	t.AirDrift = t.AirDrift or 0.25
 	return t
@@ -137,10 +137,10 @@ Weapons.List = {
 		Color = Color3.fromRGB(200, 200, 200),
 		Hand = "Right",
 		Moves = moveset({
-			NLight = { Startup = 0.1, Active = 0.08, Recovery = 0.16, Damage = 5, BaseKnockback = 15, KnockbackScaling = 10, Angle = 25, Hitbox = hb(2.4, 3.3, 2.8, 2), Anim = "Punch" },
+			NLight = { Startup = 0.1, Active = 0.08, Recovery = 0.2, Damage = 5, BaseKnockback = 15, KnockbackScaling = 10, Angle = 25, Hitbox = hb(2.4, 3.3, 2.8, 2), Anim = "Punch" },
 			SLight = { Startup = 0.12, Active = 0.12, Recovery = 0.2, Damage = 6, Angle = 25, Motion = motion(0.08, 0.14, 28, 0), Hitbox = hb(2.6, 3, 3.2, 2.2), Anim = "Punch" },
 			DLight = { Startup = 0.12, Active = 0.1, Recovery = 0.2, Damage = 6, Angle = 60, Hitbox = hb(2.4, 0.8, 3.4, 1.6), Anim = "Kick" },
-			NAir = { Startup = 0.1, Active = 0.14, Recovery = 0.16, Damage = 6, Angle = 70, Hitbox = hb(1.4, 4.6, 4.2, 3), Anim = "Uppercut" },
+			NAir = { Startup = 0.1, Active = 0.14, Recovery = 0.2, Damage = 6, Angle = 70, Hitbox = hb(1.4, 4.6, 4.2, 3), Anim = "Uppercut" },
 			SAir = { Startup = 0.12, Active = 0.12, Recovery = 0.2, Damage = 7, Angle = 30, Hitbox = hb(2.6, 2.8, 3.4, 2.4), Anim = "Kick" },
 			DAir = { Startup = 0.14, Active = 0.14, Recovery = 0.22, Damage = 7, Angle = -40, Hitbox = hb(1, -0.4, 3.2, 2.4), Anim = "Stomp" },
 			NHeavy = { Startup = 0.3, Active = 0.12, Recovery = 0.35, Damage = 12, BaseKnockback = 24, KnockbackScaling = 42, Angle = 80, Charge = 0.5, Hitbox = hb(1.8, 4.4, 3.2, 4.2), Anim = "Uppercut" },
@@ -188,8 +188,8 @@ Weapons.List = {
 			NHeavy = { Startup = 0.4, Active = 0.16, Recovery = 0.44, Damage = 20, BaseKnockback = 32, KnockbackScaling = 60, Angle = 75, Charge = 0.7, Hitbox = hb(2.4, 4.5, 6, 6), Anim = "Uppercut" },
 			SHeavy = { Startup = 0.42, Active = 0.14, Recovery = 0.46, Damage = 21, BaseKnockback = 34, KnockbackScaling = 64, Angle = 35, Charge = 0.7, Hitbox = hb(4.2, 2.6, 6.4, 3.4), Anim = "Overhead" },
 			DHeavy = { Startup = 0.4, Active = 0.18, Recovery = 0.48, Damage = 19, BaseKnockback = 32, KnockbackScaling = 58, Angle = 45, Radial = true, Charge = 0.7, Hitbox = hb(0, 1, 12, 2.6), Anim = "Slam" },
-			Recovery = recovery({ Startup = 0.1, Active = 0.3, Recovery = 0.36, Damage = 12, BaseKnockback = 26, KnockbackScaling = 32, Angle = 88, Motion = motion(0.08, 0.26, 6, 58), Hitbox = hb(0.5, 4.5, 5.5, 5.5), Anim = "Spin" }),
-			GroundPound = groundPound({ Startup = 0.16, Recovery = 0.3, Damage = 17, BaseKnockback = 32, KnockbackScaling = 50, Angle = 60, Motion = motion(0.14, 1.0, 0, -100), Hitbox = hb(0, 0.5, 6, 3.5) }),
+			Recovery = recovery({ Startup = 0.12, Active = 0.3, Recovery = 0.36, Damage = 12, BaseKnockback = 26, KnockbackScaling = 32, Angle = 88, Motion = motion(0.1, 0.26, 6, 58), Hitbox = hb(0.5, 4.5, 5.5, 5.5), Anim = "Spin" }),
+			GroundPound = groundPound({ Startup = 0.2, Recovery = 0.3, Damage = 17, BaseKnockback = 32, KnockbackScaling = 50, Angle = 60, Motion = motion(0.18, 1.0, 0, -100), Hitbox = hb(0, 0.5, 6, 3.5) }),
 		}),
 	},
 
@@ -209,7 +209,7 @@ Weapons.List = {
 			NHeavy = { Startup = 0.34, Active = 0.14, Recovery = 0.4, Damage = 16, BaseKnockback = 28, KnockbackScaling = 50, Angle = 82, Charge = 0.6, Hitbox = hb(2, 6, 4, 6), Anim = "Uppercut" },
 			SHeavy = { Startup = 0.36, Active = 0.12, Recovery = 0.42, Damage = 17, BaseKnockback = 30, KnockbackScaling = 54, Angle = 25, Charge = 0.6, Hitbox = hb(6.5, 2.8, 9, 2), Anim = "Thrust" },
 			DHeavy = { Startup = 0.34, Active = 0.16, Recovery = 0.42, Damage = 15, BaseKnockback = 28, KnockbackScaling = 46, Angle = 50, Charge = 0.6, Motion = motion(0.28, 0.16, 30, 0), Hitbox = hb(4, 1, 8, 2), Anim = "Low" },
-			Recovery = recovery({ Motion = motion(0.06, 0.24, 14, 60), Hitbox = hb(2, 4, 4, 5), Anim = "Thrust" }),
+			Recovery = recovery({ Motion = motion(0.09, 0.24, 14, 60), Hitbox = hb(2, 4, 4, 5), Anim = "Thrust" }),
 			GroundPound = groundPound({ Hitbox = hb(0, -0.5, 4, 4) }),
 		}),
 	},
@@ -221,17 +221,17 @@ Weapons.List = {
 		Color = Color3.fromRGB(255, 120, 120),
 		Hand = "Both",
 		Moves = moveset({
-			NLight = { Startup = 0.08, Active = 0.08, Recovery = 0.14, Damage = 7, BaseKnockback = 16, KnockbackScaling = 12, Angle = 45, Hitbox = hb(2.4, 3.4, 3.2, 2.4), Anim = "Punch" },
-			SLight = { Startup = 0.09, Active = 0.1, Recovery = 0.16, Damage = 8, Angle = 20, Motion = motion(0.06, 0.12, 32, 0), Hitbox = hb(2.8, 3, 3.6, 2.4), Anim = "Punch" },
+			NLight = { Startup = 0.08, Active = 0.08, Recovery = 0.19, Damage = 7, BaseKnockback = 16, KnockbackScaling = 12, Angle = 45, Hitbox = hb(2.4, 3.4, 3.2, 2.4), Anim = "Punch" },
+			SLight = { Startup = 0.09, Active = 0.1, Recovery = 0.19, Damage = 8, Angle = 20, Motion = motion(0.06, 0.12, 32, 0), Hitbox = hb(2.8, 3, 3.6, 2.4), Anim = "Punch" },
 			DLight = { Startup = 0.1, Active = 0.1, Recovery = 0.18, Damage = 7, Angle = 75, Hitbox = hb(2.4, 0.8, 3.6, 1.6), Anim = "Low" },
-			NAir = { Startup = 0.08, Active = 0.12, Recovery = 0.16, Damage = 7, Angle = 80, Hitbox = hb(1, 5, 3.6, 3.2), Anim = "Uppercut" },
-			SAir = { Startup = 0.09, Active = 0.1, Recovery = 0.16, Damage = 8, Angle = 30, Hitbox = hb(2.8, 3, 3.6, 2.4), Anim = "Punch" },
+			NAir = { Startup = 0.08, Active = 0.12, Recovery = 0.19, Damage = 7, Angle = 80, Hitbox = hb(1, 5, 3.6, 3.2), Anim = "Uppercut" },
+			SAir = { Startup = 0.09, Active = 0.1, Recovery = 0.19, Damage = 8, Angle = 30, Hitbox = hb(2.8, 3, 3.6, 2.4), Anim = "Punch" },
 			DAir = { Startup = 0.12, Active = 0.14, Recovery = 0.2, Damage = 8, Angle = -50, Motion = motion(0.1, 0.14, 0, -50), Hitbox = hb(0.8, -0.4, 3, 2.6), Anim = "Stomp" },
 			NHeavy = { Startup = 0.28, Active = 0.12, Recovery = 0.34, Damage = 15, BaseKnockback = 26, KnockbackScaling = 50, Angle = 82, Charge = 0.5, Hitbox = hb(1.6, 4.6, 3.4, 4.6), Anim = "Uppercut" },
 			SHeavy = { Startup = 0.3, Active = 0.14, Recovery = 0.34, Damage = 16, BaseKnockback = 28, KnockbackScaling = 52, Angle = 28, Charge = 0.5, Motion = motion(0.24, 0.18, 48, 0), Hitbox = hb(3, 3, 4, 2.6), Anim = "Punch" },
 			DHeavy = { Startup = 0.28, Active = 0.14, Recovery = 0.36, Damage = 14, BaseKnockback = 26, KnockbackScaling = 46, Angle = 70, Radial = true, Charge = 0.5, Hitbox = hb(0, 0.8, 7.5, 2), Anim = "Slam" },
-			Recovery = recovery({ Startup = 0.06, Active = 0.3, Recovery = 0.3, Damage = 9, Angle = 88, Motion = motion(0.04, 0.26, 4, 64), Hitbox = hb(1, 4.5, 3.4, 4.4), Anim = "Uppercut" }),
-			GroundPound = groundPound({ Startup = 0.12, Recovery = 0.24, Damage = 13, Motion = motion(0.1, 1.0, 0, -100), Hitbox = hb(0, 0.4, 4, 3) }),
+			Recovery = recovery({ Startup = 0.1, Active = 0.3, Recovery = 0.3, Damage = 9, Angle = 88, Motion = motion(0.08, 0.26, 4, 64), Hitbox = hb(1, 4.5, 3.4, 4.4), Anim = "Uppercut" }),
+			GroundPound = groundPound({ Startup = 0.15, Recovery = 0.24, Damage = 13, Motion = motion(0.13, 1.0, 0, -100), Hitbox = hb(0, 0.4, 4, 3) }),
 		}),
 	},
 
@@ -251,7 +251,7 @@ Weapons.List = {
 			NHeavy = { Startup = 0.34, Active = 0.16, Recovery = 0.4, Damage = 16, BaseKnockback = 28, KnockbackScaling = 50, Angle = 78, Radial = true, Charge = 0.6, Hitbox = hb(0, 5, 9, 4.5), Anim = "Arc" },
 			SHeavy = { Startup = 0.36, Active = 0.14, Recovery = 0.42, Damage = 17, BaseKnockback = 30, KnockbackScaling = 54, Angle = 30, Charge = 0.6, Motion = motion(0.3, 0.14, 26, 0), Hitbox = hb(4.6, 2.8, 7, 3.2), Anim = "Reap" },
 			DHeavy = { Startup = 0.34, Active = 0.18, Recovery = 0.44, Damage = 15, BaseKnockback = 28, KnockbackScaling = 48, Angle = 50, Radial = true, Charge = 0.6, Hitbox = hb(0, 1, 11, 2.4), Anim = "Sweep" },
-			Recovery = recovery({ Angle = 85, Radial = true, Motion = motion(0.06, 0.26, 6, 60), Hitbox = hb(0, 3.5, 7, 6), Anim = "Spin" }),
+			Recovery = recovery({ Angle = 85, Radial = true, Motion = motion(0.09, 0.26, 6, 60), Hitbox = hb(0, 3.5, 7, 6), Anim = "Spin" }),
 			GroundPound = groundPound({ Damage = 15, Recovery = 0.28, Hitbox = hb(0, 0.5, 6, 3) }),
 		}),
 	},
