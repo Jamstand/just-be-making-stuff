@@ -114,6 +114,55 @@ def lerp_pose(a, b, t):
     return Pose(rot, off)
 
 
+def _unwrap(values):
+    """Shifts angles by whole turns so consecutive values never differ by
+    more than half a turn."""
+    out = [values[0]]
+    for v in values[1:]:
+        prev = out[-1]
+        while v - prev > 180:
+            v -= 360
+        while v - prev < -180:
+            v += 360
+        out.append(v)
+    return out
+
+
+def catmull_loop(values, steps):
+    """Periodic Catmull-Rom spline through `values` (one per key, evenly
+    spaced around the loop), sampled `steps` times over one loop."""
+    n = len(values)
+    out = []
+    for s in range(steps):
+        u = s * n / steps
+        k = int(u)
+        t = u - k
+        p0, p1, p2, p3 = (values[(k - 1) % n], values[k % n], values[(k + 1) % n], values[(k + 2) % n])
+        out.append(0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t
+                          + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t))
+    return out
+
+
+def smooth_loop_keys(poses, length, steps=16, ease="Linear"):
+    """Keys for a cycle that flows through `poses` (evenly spaced over
+    `length`) without slowing at any of them: a periodic spline through every
+    joint angle and the root offset, sampled `steps` times. Eased keys at the
+    poses themselves would stall there (an In/Out ease has zero speed at
+    both ends), which reads as a hitch in a run."""
+    joints = set()
+    for p in poses:
+        joints |= set(p.rot)
+    sampled = [Pose({}, (0.0, 0.0, 0.0)) for _ in range(steps)]
+    for joint in sorted(joints):
+        channels = [catmull_loop(_unwrap([p.get(joint)[axis] for p in poses]), steps) for axis in range(3)]
+        for s in range(steps):
+            sampled[s].rot[joint] = (channels[0][s], channels[1][s], channels[2][s])
+    channels = [catmull_loop([p.offset[axis] for p in poses], steps) for axis in range(3)]
+    for s in range(steps):
+        sampled[s].offset = (channels[0][s], channels[1][s], channels[2][s])
+    return [(length * s / steps, pose, ease) for s, pose in enumerate(sampled)]
+
+
 # Leg IK ------------------------------------------------------------------------
 
 

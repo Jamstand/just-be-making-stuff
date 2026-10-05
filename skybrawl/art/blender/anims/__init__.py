@@ -93,7 +93,9 @@ def apply_pose(arm, pose):
 
 
 def frame_of(clip, t):
-    return 1 + round(t * (PHASE_FRAMES if clip.phased else FPS))
+    # Fractional frames, so keys closer together than a Blender frame stay
+    # separate (rounding merged them, and the later pose won).
+    return 1 + t * (PHASE_FRAMES if clip.phased else FPS)
 
 
 def bake(arm, clips):
@@ -114,10 +116,10 @@ def bake(arm, clips):
                     pb.keyframe_insert("location", frame=frame, group=pb.name)
             keys.append([frame, t, ease])
         # interpolation of each key = the ease toward the next key
-        by_frame = {k[0]: k[2] for k in keys}
+        by_frame = {round(k[0], 4): k[2] for k in keys}
         for fc in action.fcurves:
             for kp in fc.keyframe_points:
-                ease = by_frame.get(round(kp.co.x), "Linear")
+                ease = by_frame.get(round(kp.co.x, 4), "Linear")
                 style, _, direction = ease.partition(".")
                 kp.interpolation = BLENDER_EASE[style]
                 if direction:
@@ -137,7 +139,8 @@ def read_action(arm, action):
     meta = json.loads(action["sky_meta"])
     out = []
     for frame, t, ease in keys:
-        scene.frame_set(frame)
+        whole = math.floor(frame)
+        scene.frame_set(whole, subframe=frame - whole)
         rot = {}
         for pb in arm.pose.bones:
             deg = rig_degrees(pb.rotation_quaternion.normalized())

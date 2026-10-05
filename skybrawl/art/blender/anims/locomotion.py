@@ -4,7 +4,7 @@ variants re-pose the arms to carry each weapon. The game looks for
 "<Weapon>.<State>" first, then "Loco.<State>".
 """
 
-from .core import P, arm, clip, dir2d, mirror, plant, spin_keys
+from .core import P, arm, clip, dir2d, mirror, plant, smooth_loop_keys, spin_keys
 from .stances import WEAPONS, body, guard_arms, hold, stance
 
 
@@ -44,7 +44,8 @@ def run_keys(weapon):
     poses = [a, b, mirror(a), mirror(b)]
     if weapon not in ("Unarmed", "Gauntlets"):
         poses = [hold(weapon, p, "run") for p in poses]
-    return [(t, p, "Sine.InOut") for t, p in zip((0, 0.11, 0.22, 0.33), poses)], 0.44
+    # a spline through the four poses, so the legs never pause at one
+    return smooth_loop_keys(poses, 0.44, steps=16), 0.44
 
 
 def tuck(weapon, lift=0.0):

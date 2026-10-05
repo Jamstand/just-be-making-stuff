@@ -16,6 +16,13 @@
     the other hand, like Brawlhalla flipping its sprites, so the weapon is
     always on the camera's side.
 
+    Fades: when a layer switches clips the new clip starts playing at once,
+    and the difference between the old pose and the new clip's first frame
+    is laid on top and shrunk to nothing over the fade. That difference is a
+    fixed rotation per joint, so there is nothing to flip mid-fade (blending
+    a frozen old pose toward a moving new one snaps when the new clip swings
+    through the opposite rotation).
+
     Clip lookup: attacks try "<Legend>.<Weapon>.<Slot>", "<Weapon>.<Slot>",
     "Unarmed.<Slot>"; locomotion tries "<Weapon>.<State>", "Loco.<State>".
 ]]
@@ -173,11 +180,24 @@ local function sample(clip, t, mirror, out)
 	out.off = o0:Lerp(o1, a)
 end
 
-local function blend(a, b, alpha, out)
+-- The difference between the pose showing now (`old`) and the pose a new
+-- clip starts from (`fresh`): offset * fresh = old.
+local function captureOffset(old, fresh, out)
 	for i = 1, NJ do
-		out.cf[i] = a.cf[i]:Lerp(b.cf[i], alpha)
+		out.cf[i] = old.cf[i] * fresh.cf[i]:Inverse()
 	end
-	out.off = a.off:Lerp(b.off, alpha)
+	out.off = old.off - fresh.off
+end
+
+-- Lays `k` (1 = all, 0 = none) of an offset over the live pose. Eased so the
+-- fade starts and ends without a kick.
+local function applyOffset(offset, k, live, out)
+	k = math.clamp(k, 0, 1)
+	k = k * k * (3 - 2 * k)
+	for i = 1, NJ do
+		out.cf[i] = CFrame.identity:Lerp(offset.cf[i], k) * live.cf[i]
+	end
+	out.off = live.off + offset.off * k
 end
 
 -- Move phase (0-1 startup, 1-2 active, 2-3 recovery) at `t` seconds.
@@ -292,12 +312,12 @@ function FighterAnimator.track(model, opts)
 		snapshot = newPose(),
 		loco = nil,
 		locoFade = 0,
-		locoFrom = newPose(),
+		locoOffset = newPose(),
 		action = nil,
 		actionFade = 0,
-		actionFrom = newPose(),
+		actionOffset = newPose(),
 		outFade = 0,
-		outFrom = newPose(),
+		outOffset = newPose(),
 		stopUntil = 0,
 		lastPos = nil,
 		vel = Vector3.zero,
@@ -381,8 +401,13 @@ function FighterAnimator.setLocomotion(model, state, speed)
 	if not clip then
 		return
 	end
-	copyPose(rig.locoPose, rig.locoFrom)
-	rig.locoFade = rig.loco and LOCO_FADE or 0
+	if rig.loco then
+		sample(clip, 0, rig.facing < 0, rig.tmp)
+		captureOffset(rig.locoPose, rig.tmp, rig.locoOffset)
+		rig.locoFade = LOCO_FADE
+	else
+		rig.locoFade = 0
+	end
 	rig.loco = { state = state, weapon = weapon, clip = clip, t = 0, speed = speed or 1 }
 end
 
@@ -434,8 +459,15 @@ end
 
 -- Actions ------------------------------------------------------------------------
 
+-- Blends the current pose back into the locomotion layer.
+local function fadeOut(rig)
+	captureOffset(rig.pose, rig.locoPose, rig.outOffset)
+	rig.outFade = ACTION_FADE_OUT
+end
+
 local function startAction(rig, action)
-	copyPose(rig.pose, rig.actionFrom)
+	sample(action.clip, 0, rig.facing < 0, rig.tmp)
+	captureOffset(rig.pose, rig.tmp, rig.actionOffset)
 	rig.actionFade = ACTION_FADE_IN
 	rig.outFade = 0
 	rig.action = action
@@ -493,8 +525,7 @@ function FighterAnimator.endAttack(model, seq)
 	local action = rig and rig.action
 	if action and action.kind == "Attack" and (seq == nil or action.seq == seq) then
 		rig.action = nil
-		copyPose(rig.pose, rig.outFrom)
-		rig.outFade = ACTION_FADE_OUT
+		fadeOut(rig)
 	end
 end
 
@@ -572,8 +603,9 @@ end
 
 function FighterAnimator.stopAction(model)
 	local rig = rigs[model]
-	if rig then
+	if rig and rig.action then
 		rig.action = nil
+		fadeOut(rig)
 	end
 end
 
@@ -678,7 +710,7 @@ local function updateRig(rig, dt)
 		sample(loco.clip, loco.t, mirror, rig.locoPose)
 		if rig.locoFade > 0 then
 			rig.locoFade = math.max(0, rig.locoFade - step)
-			blend(rig.locoFrom, rig.locoPose, 1 - rig.locoFade / LOCO_FADE, rig.locoPose)
+			applyOffset(rig.locoOffset, rig.locoFade / LOCO_FADE, rig.locoPose, rig.locoPose)
 		end
 	end
 
@@ -725,18 +757,17 @@ local function updateRig(rig, dt)
 		end
 		if rig.actionFade > 0 then
 			rig.actionFade = math.max(0, rig.actionFade - step)
-			blend(rig.actionFrom, rig.tmp, 1 - rig.actionFade / ACTION_FADE_IN, out)
+			applyOffset(rig.actionOffset, rig.actionFade / ACTION_FADE_IN, rig.tmp, out)
 		else
 			copyPose(rig.tmp, out)
 		end
 		if finished then
 			rig.action = nil
-			copyPose(out, rig.outFrom)
-			rig.outFade = ACTION_FADE_OUT
+			fadeOut(rig)
 		end
 	elseif rig.outFade > 0 then
 		rig.outFade = math.max(0, rig.outFade - step)
-		blend(rig.outFrom, rig.locoPose, 1 - rig.outFade / ACTION_FADE_OUT, out)
+		applyOffset(rig.outOffset, rig.outFade / ACTION_FADE_OUT, rig.locoPose, out)
 	else
 		copyPose(rig.locoPose, out)
 	end

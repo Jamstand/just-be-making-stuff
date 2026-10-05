@@ -53,15 +53,24 @@ local fakeGame = {
 	end,
 }
 
-local function loadFile(path, name, globals)
+local function loadFile(path, name, globals, folder)
 	local source = fs.readFile(path)
 	local parent = setmetatable({}, {
 		__index = function(_, child)
 			return { __module = child }
 		end,
 	})
+	-- A folder module's init.luau requires its children as script.<Child>.
+	local script = { Parent = parent, Name = name }
+	if folder then
+		setmetatable(script, {
+			__index = function(_, child)
+				return { __module = folder .. "/" .. child }
+			end,
+		})
+	end
 	local env = {
-		script = { Parent = parent, Name = name },
+		script = script,
 		game = fakeGame,
 		require = function(target)
 			return loadModule(target.__module)
@@ -71,6 +80,8 @@ local function loadFile(path, name, globals)
 		Vector2 = roblox.Vector2,
 		CFrame = roblox.CFrame,
 		UDim2 = roblox.UDim2,
+		Enum = roblox.Enum,
+		Instance = roblox.Instance,
 		Random = RandomShim,
 	}
 	for key, value in globals or {} do
@@ -82,7 +93,13 @@ end
 
 function loadModule(name)
 	if cache[name] == nil then
-		cache[name] = loadFile(root .. name .. ".luau", name)
+		local path = root .. name .. ".luau"
+		if fs.isFile(path) then
+			cache[name] = loadFile(path, name)
+		else
+			-- a folder module (src/shared/<name>/init.luau)
+			cache[name] = loadFile(root .. name .. "/init.luau", name, nil, name)
+		end
 	end
 	return cache[name]
 end
