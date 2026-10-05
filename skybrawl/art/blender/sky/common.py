@@ -134,7 +134,7 @@ class MeshBuilder:
     # Each primitive is built at the local origin, shaped, then moved.
     # `clip` is a list of (point, normal) planes in builder space; geometry on
     # the side the normal points away from is cut off.
-    def _finish(self, tmp, color, center, rotation, smooth, clip=None):
+    def _finish(self, tmp, color, center, rotation, smooth, clip=None, fill=False):
         rot = Matrix.Identity(4)
         if isinstance(rotation, Matrix):
             rot = rotation.to_4x4()
@@ -146,6 +146,10 @@ class MeshBuilder:
             geom = tmp.verts[:] + tmp.edges[:] + tmp.faces[:]
             bmesh.ops.bisect_plane(tmp, geom=geom, dist=1e-5, plane_co=Vector(point),
                                    plane_no=Vector(normal).normalized(), clear_inner=True)
+            if fill:  # close the cut so the piece stays solid
+                edges = [e for e in tmp.edges if e.is_boundary]
+                made = bmesh.ops.holes_fill(tmp, edges=edges, sides=0)["faces"]
+                bmesh.ops.triangulate(tmp, faces=made, quad_method="BEAUTY", ngon_method="EAR_CLIP")
         layer = tmp.faces.layers.int.get("color") or tmp.faces.layers.int.new("color")
         cindex = self.palette.index[color]
         for face in tmp.faces:
@@ -159,7 +163,8 @@ class MeshBuilder:
         bpy.data.meshes.remove(mesh)
         self.count += 1
 
-    def box(self, center, size, color, bevel=0.08, rotation=None, taper=None, segments=2, smooth=False, clip=None):
+    def box(self, center, size, color, bevel=0.08, rotation=None, taper=None, segments=2, smooth=False, clip=None,
+            fill=False):
         """Box of `size` (x, y, z). `taper` = (sx, sz) scales the top face."""
         tmp = bmesh.new()
         bmesh.ops.create_cube(tmp, size=1.0)
@@ -173,7 +178,7 @@ class MeshBuilder:
             limit = min(sx, sy, sz) * 0.45
             bmesh.ops.bevel(tmp, geom=list(tmp.edges), offset=min(bevel, limit), segments=segments,
                             affect="EDGES", profile=0.5)
-        self._finish(tmp, color, center, rotation, smooth or (bevel and segments > 1), clip)
+        self._finish(tmp, color, center, rotation, smooth or (bevel and segments > 1), clip, fill)
 
     def sphere(self, center, radius, color, rotation=None, segments=14, rings=9, clip=None):
         """Ellipsoid; `radius` is a number or (rx, ry, rz)."""
@@ -216,7 +221,7 @@ class MeshBuilder:
         self._finish(tmp, color, (a + b) / 2, rot, True)
 
     def loft(self, sections, color, center=(0, 0, 0), rotation=None, segments=14, power=2.0,
-             caps=(True, True), smooth=True, clip=None):
+             caps=(True, True), smooth=True, clip=None, fill=False):
         """Tube through cross-sections [(x, y, z, rx, rz), ...] given in local
         space. Each section is a ring in the XZ plane; a section with zero radii
         is a point (a pointed end). `power` above 2 squares the rings off."""
@@ -249,7 +254,7 @@ class MeshBuilder:
             tmp.faces.new(list(reversed(rings[0])))
         if caps[1] and len(rings[-1]) > 2:
             tmp.faces.new(rings[-1])
-        self._finish(tmp, color, center, rotation, smooth, clip)
+        self._finish(tmp, color, center, rotation, smooth, clip, fill)
 
     def torus(self, center, radius, tube, color, rotation=None, segments=16, sides=6, scale=(1, 1), clip=None):
         """Ring lying in the local XZ plane. `scale` stretches it to an oval."""
@@ -312,6 +317,19 @@ class MeshBuilder:
         if bevel:
             bmesh.ops.bevel(tmp, geom=list(tmp.edges), offset=bevel, segments=1, affect="EDGES", profile=0.5)
         self._finish(tmp, color, center, rotation, False)
+
+    def polys(self, verts, faces, color, smooth=False):
+        """Raw geometry: `verts` [(x, y, z), ...] in builder space, `faces`
+        [(i, j, k, ...), ...] counter-clockwise seen from outside."""
+        tmp = bmesh.new()
+        made = [tmp.verts.new(v) for v in verts]
+        for face in faces:
+            tmp.faces.new([made[i] for i in face])
+        self._finish(tmp, color, (0, 0, 0), None, smooth)
+
+    def scale(self, factor):
+        """Scales everything built so far about the builder's origin."""
+        bmesh.ops.scale(self.bm, vec=(factor, factor, factor), verts=self.bm.verts)
 
     def build(self, collection=None, smooth_angle=40, origin=None):
         """Creates the object: UVs every face onto its palette swatch. `origin`
@@ -459,6 +477,27 @@ def toon_preview_materials(objects, outline=0.045):
             mod.use_flip_normals = True
             mod.material_offset = len(obj.data.materials) - 1
             mod.use_rim = False
+
+
+def plastic_preview_materials(objects, roughness=0.42):
+    """Roblox SmoothPlastic look for previews: flat palette colors, soft
+    specular, no outlines."""
+    cache = {}
+    for obj in objects:
+        if obj.type != "MESH" or obj.name.startswith("Marker_") or not obj.data.materials:
+            continue
+        base = obj.data.materials[0]
+        if base.name not in cache:
+            mat = base.copy()
+            mat.name = base.name + "_plastic"
+            bsdf = mat.node_tree.nodes.get("Principled BSDF")
+            bsdf.inputs["Roughness"].default_value = roughness
+            for key in ("Specular IOR Level", "Specular"):
+                if key in bsdf.inputs:
+                    bsdf.inputs[key].default_value = 0.45
+                    break
+            cache[base.name] = mat
+        obj.data.materials[0] = cache[base.name]
 
 
 def setup_preview_render(path, width, height, background=(0.86, 0.87, 0.9)):

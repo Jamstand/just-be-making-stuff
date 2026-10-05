@@ -315,11 +315,8 @@ def weapon_proxy(weapon, arm, collection):
 
 def preview_fighter(arm):
     """Kestrel's meshes re-parented onto the armature's bones."""
-    fighter = importlib.import_module("fighters.kestrel")
-    fb = rig.FighterBuilder(fighter.NAME, fighter.COLORS)
-    fighter.model(fb)
-    fb.build()
-    common.toon_preview_materials(fb.objects.values(), outline=0.04)
+    fb = rig.model_fighter(importlib.import_module("fighters.kestrel"))
+    common.plastic_preview_materials(fb.objects.values())
     for part, obj in fb.objects.items():
         world = obj.matrix_world.copy()
         obj.parent = arm

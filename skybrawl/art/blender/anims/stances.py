@@ -6,7 +6,7 @@ side; the game mirrors poses (and swaps the weapon hand) when facing left.
 So the Right arm is the near, weapon arm, and +X ("out") is toward the camera.
 """
 
-from .core import ARM_JOINTS, P, Pose, arm, dir2d, mirror, plant, two_hand
+from .core import ARM_JOINTS, HAFT, SUPPORT, P, Pose, arm, dir2d, mirror, plant, two_hand
 
 WEAPONS = ["Unarmed", "Sword", "Hammer", "Spear", "Gauntlets", "Scythe", "Bow"]
 
@@ -39,17 +39,17 @@ def hold(weapon, pose, variant="idle"):
         return arm(pose, "Left", dir2d(-108, -0.3), 28)
     if weapon == "Hammer":
         pose = arm(pose, "Right", dir2d(-72, 0.08), 128, weapon=dir2d(128, -0.1))
-        return two_hand(pose, -0.95)
+        return two_hand(pose, SUPPORT["Hammer"], haft=HAFT["Hammer"])
     if weapon == "Spear":
         if variant == "run":
             return arm(pose, "Right", dir2d(-95, 0.28), 40, weapon=dir2d(-168))
         pose = arm(pose, "Right", dir2d(-100, 0.12), 78, weapon=dir2d(8))
-        return two_hand(pose, 1.25)
+        return two_hand(pose, SUPPORT["Spear"], haft=HAFT["Spear"])
     if weapon == "Scythe":
         if variant == "run":
             return arm(pose, "Right", dir2d(-118, 0.3), 30, weapon=dir2d(-150))
         pose = arm(pose, "Right", dir2d(-80, 0.1), 62, weapon=dir2d(112))
-        return two_hand(pose, 0.95)
+        return two_hand(pose, SUPPORT["Scythe"], haft=HAFT["Scythe"])
     if weapon == "Bow":
         if variant == "run":
             return arm(pose, "Left", dir2d(-75, -0.15), 30, weapon=dir2d(-40))

@@ -1187,18 +1187,27 @@ h.test("menu previews animate and ignore the character's facing", function()
 	expectNoWarnings("previews")
 end)
 
-h.test("tracked match fighters get an outline and untrack cleans it up", function()
-	local r = legendRig({ legend = "Yuki", weapon = "Bow" })
-	FighterAnimator.track(r.model, { isMe = true, legend = "Yuki" })
-	step(1)
-	local outline = r.model:FindFirstChild("SkyOutline")
-	h.expect(outline ~= nil and outline.Adornee == r.rig, "no outline on the visual rig")
-	FighterAnimator.untrack(r.model)
-	h.expect(r.model:FindFirstChild("SkyOutline") == nil, "untrack left the outline")
-	for name, motor in r.motors do
-		h.expect(angleBetween(motor.Transform, CFrame.identity) < 1e-6, "untrack left " .. name .. " posed")
+h.test("match fighters get an outline only when Config.Art.Outlines is on; untrack cleans up", function()
+	local saved = Config.Art.Outlines
+	for _, on in { false, true } do
+		Config.Art.Outlines = on
+		local r = legendRig({ legend = "Yuki", weapon = "Bow" })
+		FighterAnimator.track(r.model, { isMe = true, legend = "Yuki" })
+		step(1)
+		local outline = r.model:FindFirstChild("SkyOutline")
+		if on then
+			h.expect(outline ~= nil and outline.Adornee == r.rig, "no outline on the visual rig")
+		else
+			h.expect(outline == nil, "outline added with Config.Art.Outlines off")
+		end
+		FighterAnimator.untrack(r.model)
+		h.expect(r.model:FindFirstChild("SkyOutline") == nil, "untrack left the outline")
+		for name, motor in r.motors do
+			h.expect(angleBetween(motor.Transform, CFrame.identity) < 1e-6, "untrack left " .. name .. " posed")
+		end
+		r.model:Destroy()
 	end
-	r.model:Destroy()
+	Config.Art.Outlines = saved
 	expectNoWarnings("untrack")
 end)
 

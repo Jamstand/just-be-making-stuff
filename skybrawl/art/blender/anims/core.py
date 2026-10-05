@@ -18,6 +18,8 @@ EasingStyle names ("Quad.Out", "Sine.InOut", "Linear", "Constant", ...).
 
 import math
 
+from sky import skeleton
+
 SHORT = {
     "root": "Root", "waist": "Waist", "neck": "Neck",
     "rsh": "RightShoulder", "rel": "RightElbow", "rwr": "RightWrist",
@@ -29,11 +31,11 @@ JOINTS = list(SHORT.values())
 LEG_JOINTS = ["LeftHip", "LeftKnee", "LeftAnkle", "RightHip", "RightKnee", "RightAnkle"]
 ARM_JOINTS = ["LeftShoulder", "LeftElbow", "LeftWrist", "RightShoulder", "RightElbow", "RightWrist"]
 
-ROOT_PIVOT = (0.0, 2.7, 0.0)
-HIP = {"Left": (-0.5, 2.55, 0.0), "Right": (0.5, 2.55, 0.0)}
-THIGH = math.hypot(2.55 - 1.5, 0.02)
-SHIN = 1.0
-ANKLE_HEIGHT = 0.5
+ROOT_PIVOT = skeleton.PIVOT["Root"]
+HIP = {"Left": skeleton.PIVOT["LeftHip"], "Right": skeleton.PIVOT["RightHip"]}
+THIGH = skeleton.THIGH
+SHIN = skeleton.SHIN
+ANKLE_HEIGHT = skeleton.ANKLE_HEIGHT
 
 EASES = {"Linear", "Constant", "Quad", "Cubic", "Quart", "Quint", "Sine", "Exponential", "Circular"}
 
@@ -395,21 +397,9 @@ def check_clip(c, limit=170.0):
 
 # Forward kinematics and arm IK -------------------------------------------------
 
-PIVOTS = {
-    "Root": (0.0, 2.7, 0.0), "Waist": (0.0, 3.1, 0.0), "Neck": (0.0, 4.45, 0.0),
-}
-PARENT = {"Root": None, "Waist": "Root", "Neck": "Waist"}
-for _side, _s in (("Left", -1), ("Right", 1)):
-    PIVOTS.update({
-        f"{_side}Shoulder": (_s * 1.05, 4.2, 0.0), f"{_side}Elbow": (_s * 1.2, 3.35, 0.0),
-        f"{_side}Wrist": (_s * 1.3, 2.6, 0.0), f"{_side}Hip": (_s * 0.5, 2.55, 0.0),
-        f"{_side}Knee": (_s * 0.52, 1.5, 0.0), f"{_side}Ankle": (_s * 0.52, 0.5, 0.0),
-    })
-    PARENT.update({
-        f"{_side}Shoulder": "Waist", f"{_side}Elbow": f"{_side}Shoulder", f"{_side}Wrist": f"{_side}Elbow",
-        f"{_side}Hip": "Root", f"{_side}Knee": f"{_side}Hip", f"{_side}Ankle": f"{_side}Knee",
-    })
-GRIP = {"Right": (1.34, 2.3, -0.02), "Left": (-1.34, 2.3, -0.02)}  # same as sky.rig.GRIP
+PIVOTS = skeleton.PIVOT
+PARENT = skeleton.PARENT_JOINT
+GRIP = skeleton.GRIP
 _I3 = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
 
 
@@ -427,6 +417,10 @@ def _scale(a, k):
 
 def _dot(a, b):
     return sum(x * y for x, y in zip(a, b))
+
+
+def _dist(a, b):
+    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
 
 def _cross(a, b):
@@ -465,40 +459,86 @@ def _euler_xyz(m):
     return (math.degrees(a), math.degrees(b), math.degrees(c))
 
 
-UPPER_ARM = math.hypot(0.15, 0.85)
-FOREARM_TO_GRIP = math.hypot(math.hypot(1.34 - 1.2, 2.3 - 3.35), 0.02)
+def _rot_axis(axis, angle):
+    """Rotation matrix about a unit axis (radians)."""
+    x, y, z = axis
+    c, s = math.cos(angle), math.sin(angle)
+    k = 1 - c
+    return ((c + x * x * k, x * y * k - z * s, x * z * k + y * s),
+            (y * x * k + z * s, c + y * y * k, y * z * k - x * s),
+            (z * x * k - y * s, z * y * k + x * s, c + z * z * k))
+
+
+def _rot_between(a, b):
+    """Smallest rotation turning unit vector a onto unit vector b."""
+    v = _cross(a, b)
+    sin_ = math.sqrt(_dot(v, v))
+    cos_ = _dot(a, b)
+    if sin_ < 1e-9:
+        if cos_ > 0:
+            return _I3
+        return _rot_axis(_norm(_cross(a, (1, 0, 0) if abs(a[0]) < 0.9 else (0, 1, 0))), math.pi)
+    return _rot_axis(_scale(v, 1 / sin_), math.atan2(sin_, cos_))
+
+
+def _arm_bones(side):
+    """Rest vectors (shoulder frame): shoulder pivot -> elbow, elbow -> grip.
+    R6 shoulders pivot on the torso's edge, so the first one slants outward."""
+    elbow = PIVOTS[f"{side}Elbow"]
+    return _sub(elbow, PIVOTS[f"{side}Shoulder"]), _sub(GRIP[side], elbow)
+
+
+def _shoulder_to_grip(side, bend):
+    """Shoulder-frame vector from the shoulder pivot to the grip, elbow bent `bend` degrees."""
+    upper, fore = _arm_bones(side)
+    return _add(upper, _m_apply(_m_rot((bend, 0.0, 0.0)), fore))
+
+
+MAX_ELBOW = 160.0
+
+
+def _bend_for(side, dist):
+    """Elbow bend that puts the grip `dist` from the shoulder pivot (clamped)."""
+    lo, hi = 0.0, MAX_ELBOW  # the distance shrinks as the elbow bends
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        v = _shoulder_to_grip(side, mid)
+        if math.sqrt(_dot(v, v)) > dist:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
 
 
 def reach(pose, side, target, pole=None, weapon=None):
     """Two-bone IK: puts `side`'s grip (center of the fist) on `target`.
-    `pole` is the direction the elbow should point (default: down and out)."""
+    `pole` is the direction the elbow should point (default: down and out).
+    Out of reach, the arm points straight at the target."""
     out = pose.copy()
     s = 1 if side == "Right" else -1
-    sh_pos, parent_rot = fk(out, f"{side}Shoulder")
+    sh_pos, _ = fk(out, f"{side}Shoulder")
     _, chest = fk(out, "Waist")
-    to = _sub(target, sh_pos)
+    to = _m_apply(_m_t(chest), _sub(target, sh_pos))  # in the chest frame
     dist = math.sqrt(_dot(to, to))
-    l1, l2 = UPPER_ARM, FOREARM_TO_GRIP
-    dist = max(1e-3, min(dist, l1 + l2 - 1e-3))
+    if dist < 1e-6:
+        return out
+    bend = _bend_for(side, dist)
+    v = _shoulder_to_grip(side, bend)
     d = _norm(to)
-    pole = _norm(pole or _m_apply(chest, (s * 0.6, -1.0, 0.35)))
-    # elbow lies off the shoulder->target line toward the pole
-    side_dir = _norm(_sub(pole, _scale(d, _dot(pole, d))))
-    cos_a = max(-1.0, min(1.0, (l1 * l1 + dist * dist - l2 * l2) / (2 * l1 * dist)))
-    a = math.acos(cos_a)
-    elbow_pos = _add(sh_pos, _add(_scale(d, l1 * math.cos(a)), _scale(side_dir, l1 * math.sin(a))))
-    u = _norm(_sub(elbow_pos, sh_pos))
-    f = _norm(_sub(_add(sh_pos, _scale(d, dist)), elbow_pos))
-    bend = math.degrees(math.acos(max(-1.0, min(1.0, _dot(u, f)))))
-    b = _sub(f, _scale(u, _dot(f, u)))
-    b = _norm(b) if math.sqrt(_dot(b, b)) > 1e-6 else _m_apply(chest, (0, 0, -1))
-    x = _cross(u, b)
-    world = tuple(tuple((x[i], -u[i], -b[i])[j] for j in range(3)) for i in range(3))
-    # parent_rot is the shoulder's own frame; its parent (the chest) is `chest`
-    local = _m_mul(_m_t(chest), world)
-    out.rot[f"{side}Shoulder"] = _euler_xyz(local)
+    rot = _rot_between(_norm(v), d)
+    # swivel about the shoulder->target line so the elbow points at the pole
+    pole_c = _norm(_m_apply(_m_t(chest), pole) if pole else (s * 0.6, -1.0, 0.35))
+    upper, _ = _arm_bones(side)
+    elbow = _m_apply(rot, upper)
+    e = _sub(elbow, _scale(d, _dot(elbow, d)))
+    p = _sub(pole_c, _scale(d, _dot(pole_c, d)))
+    if math.sqrt(_dot(e, e)) > 1e-6 and math.sqrt(_dot(p, p)) > 1e-6:
+        phi = math.atan2(_dot(d, _cross(e, p)), _dot(e, p))
+        rot = _m_mul(_rot_axis(d, phi), rot)
+    out.rot[f"{side}Shoulder"] = _euler_xyz(rot)
     out.rot[f"{side}Elbow"] = (bend, 0.0, 0.0)
-    out = _refine_reach(out, side, target)
+    if dist < ARM_REACH:
+        out = _refine_reach(out, side, target)
     if weapon is not None:
         out = aim(out, side, weapon)
     return out
@@ -555,11 +595,95 @@ def _refine_reach(pose, side, target, iterations=40):
     return pose
 
 
-def two_hand(pose, separation, lead="Right", support=None):
-    """After `lead` holds the weapon, puts the other hand on the haft,
-    `separation` studs along the weapon (negative = toward the butt)."""
+ARM_REACH = _dist(_shoulder_to_grip("Right", 0.0), (0.0, 0.0, 0.0))  # elbow straight
+_SLIDE_PENALTY = 0.3  # per stud the support hand slides from where it would like to be
+_CENTER_PENALTY = 0.05  # for keeping the hands off the body's midline
+_NEAR_SIDE = 0.25  # the hands' meeting point sits this far toward the camera (+X)
+_DRAW_PENALTY = 0.5  # per stud the lead hand draws in toward the body
+
+
+def _line_reach(origin, w, center, radius):
+    """Range of t where origin + w * t (w unit) is within `radius` of `center`."""
+    rel = _sub(origin, center)
+    b = _dot(w, rel)
+    disc = b * b - (_dot(rel, rel) - radius * radius)
+    if disc < 0:
+        return None
+    root = math.sqrt(disc)
+    return -b - root, -b + root
+
+
+def _pick_t(origin, w, shoulder, ranges, prefer, radius):
+    """Spot on the line closest to `prefer` within `ranges` the shoulder can
+    reach; failing that, the spot in `ranges` nearest the shoulder. Returns
+    (t, how far out of reach)."""
+    span = _line_reach(origin, w, shoulder, radius)
+    best = None
+    for lo, hi in ranges:
+        if span and span[0] <= hi and span[1] >= lo:
+            t = min(max(prefer, max(lo, span[0])), min(hi, span[1]))
+            cand = (abs(t - prefer), 0.0, t)
+        else:
+            t = min(max(-_dot(w, _sub(origin, shoulder)), lo), hi)
+            excess = _dist(_add(origin, _scale(w, t)), shoulder) - radius
+            cand = (abs(t - prefer), excess, t)
+        if best is None or (cand[1], cand[0]) < (best[1], best[0]):
+            best = cand
+    return best[2], best[1]
+
+
+def hands_together(pose, lead, ranges, prefer, offset=(0.0, 0.0, 0.0), support=None, weapon=None):
+    """After `lead`'s hand is placed (by arm or reach), puts the other hand at
+    lead grip + offset + t * the lead's weapon direction, for the t in
+    `ranges` ([(lo, hi), ...]) nearest `prefer` that it can reach (hands
+    slide along a haft). R6 shoulders are wide and R6 arms short, so when
+    that isn't enough both hands also slide along rig X toward the body's
+    midline (X is depth to the side-on game camera, so the silhouette stays)
+    and, as a last resort, the lead hand draws in toward the body. `weapon`
+    aims the other wrist along the weapon."""
     other = support or ("Left" if lead == "Right" else "Right")
     grip = grip_position(pose, lead)
     w = weapon_direction(pose, lead)
-    target = _add(grip, _scale(w, separation))
-    return reach(pose, other, target, weapon=w)
+    lead_sh, _ = fk(pose, f"{lead}Shoulder")
+    other_sh, _ = fk(pose, f"{other}Shoulder")
+    radius = ARM_REACH * 0.98
+    shift = (lead_sh[0] + other_sh[0]) / 2 + _NEAR_SIDE - (2 * grip[0] + offset[0] + w[0] * prefer) / 2
+    inward = _sub(other_sh, grip)
+    inward = _norm((0.0, inward[1], inward[2]))
+    best = None
+    for draw in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0):
+        for f in (1.0, 0.75, 0.5, 0.25, 0.0):
+            move = _add((shift * f, 0.0, 0.0), _scale(inward, draw))
+            lead_at = _add(grip, move)
+            lead_excess = max(0.0, _dist(lead_at, lead_sh) - radius) if (f or draw) else 0.0
+            t, excess = _pick_t(_add(lead_at, offset), w, other_sh, ranges, prefer, radius)
+            cost = (lead_excess + excess + _SLIDE_PENALTY * abs(t - prefer) + _CENTER_PENALTY * (1.0 - f)
+                    + _DRAW_PENALTY * draw)
+            if best is None or cost < best[0] - 1e-3:
+                best = (cost, lead_at, t)
+    _, lead_at, t = best
+    out = pose
+    if _dist(lead_at, grip) > 1e-6:
+        elbow, _ = fk(pose, f"{lead}Elbow")
+        pole = _sub(elbow, _scale(_add(lead_sh, grip), 0.5))
+        out = reach(pose, lead, lead_at, pole=pole if _dist(pole, (0, 0, 0)) > 0.05 else None, weapon=w)
+    target = _add(_add(lead_at, offset), _scale(w, t))
+    return reach(out, other, target, weapon=w if weapon else None)
+
+
+# Two-handed weapons: where the support hand likes to be (studs along the
+# weapon from the lead grip, negative = toward the butt) and where it may slide
+# to, clear of the lead fist and the weapon's head and butt.
+SUPPORT = {"Hammer": -0.64, "Spear": 1.25, "Scythe": 0.95}
+HAFT = {
+    "Hammer": [(-0.66, -0.62), (0.62, 2.3)],
+    "Spear": [(-0.85, -0.62), (0.62, 3.2)],
+    "Scythe": [(-0.7, -0.62), (0.62, 2.3)],
+}
+
+
+def two_hand(pose, separation, lead="Right", support=None, haft=None):
+    """After `lead` holds the weapon, puts the other hand on the haft, ideally
+    `separation` studs along the weapon (negative = toward the butt)."""
+    ranges = haft or [(min(separation, 0.0) - 1.0, max(separation, 0.0) + 1.0)]
+    return hands_together(pose, lead, ranges, separation, support=support, weapon=True)

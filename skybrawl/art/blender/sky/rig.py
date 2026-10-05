@@ -1,6 +1,7 @@
 """
-The SkyRig: 15 rigid parts named like Roblox R15 parts, on one skeleton that
-every fighter shares (so every animation works on every fighter).
+The SkyRig: 15 rigid parts named like Roblox R15 parts, on one R6-proportioned
+skeleton (sky/skeleton.py) that every fighter shares, so every animation
+works on every fighter.
 
 In Blender each joint is an empty (J_<Joint>) at its pivot, parented down the
 chain, and each part is parented to the joint that moves it. Animations rotate
@@ -15,7 +16,7 @@ import os
 import bpy
 from mathutils import Matrix, Vector
 
-from . import common
+from . import common, skeleton
 from .common import RIG_TO_BLENDER, MeshBuilder, Palette, rig_to_blender
 
 PARTS = [
@@ -26,32 +27,17 @@ PARTS = [
     "RightUpperLeg", "RightLowerLeg", "RightFoot",
 ]
 
-# (joint, part0, part1, pivot in rig space). Parents come before children.
-# "RigRoot" is an invisible part the game welds to the HumanoidRootPart; its
-# origin is the point between the feet.
-JOINTS = [
-    ("Root", "RigRoot", "LowerTorso", (0.0, 2.7, 0.0)),
-    ("Waist", "LowerTorso", "UpperTorso", (0.0, 3.1, 0.0)),
-    ("Neck", "UpperTorso", "Head", (0.0, 4.45, 0.0)),
-]
-for _side, _s in (("Left", -1), ("Right", 1)):
-    JOINTS += [
-        (f"{_side}Shoulder", "UpperTorso", f"{_side}UpperArm", (_s * 1.05, 4.2, 0.0)),
-        (f"{_side}Elbow", f"{_side}UpperArm", f"{_side}LowerArm", (_s * 1.2, 3.35, 0.0)),
-        (f"{_side}Wrist", f"{_side}LowerArm", f"{_side}Hand", (_s * 1.3, 2.6, 0.0)),
-        (f"{_side}Hip", "LowerTorso", f"{_side}UpperLeg", (_s * 0.5, 2.55, 0.0)),
-        (f"{_side}Knee", f"{_side}UpperLeg", f"{_side}LowerLeg", (_s * 0.52, 1.5, 0.0)),
-        (f"{_side}Ankle", f"{_side}LowerLeg", f"{_side}Foot", (_s * 0.52, 0.5, 0.0)),
-    ]
-
+# (joint, part0, part1, pivot in rig space), parents first, and the grips:
+# see sky/skeleton.py.
+JOINTS = skeleton.JOINTS
 JOINT_BY_NAME = {j[0]: j for j in JOINTS}
 JOINT_OF_PART = {j[2]: j[0] for j in JOINTS}  # the joint that moves each part
-PIVOT = {j[0]: j[3] for j in JOINTS}
+PIVOT = skeleton.PIVOT
 
 # Where a held weapon's grip sits, in rig space at rest (center of the fist).
 # The weapon's +Y points forward (-Z) and its broad side (Z) points up, the
 # same grip WeaponModels uses.
-GRIP = {"Right": (1.34, 2.3, -0.02), "Left": (-1.34, 2.3, -0.02)}
+GRIP = skeleton.GRIP
 
 FIGHTER_EXPORT_DIR = os.path.join(common.EXPORT_DIR, "fighters")
 
@@ -69,8 +55,9 @@ def pivot(joint, dx=0.0, dy=0.0, dz=0.0):
 class FighterBuilder:
     """Collects geometry per part, then builds the rigged fighter in Blender."""
 
-    def __init__(self, name, colors):
+    def __init__(self, name, colors, unit=1.0):
         self.name = name
+        self.unit = unit  # the fighter script's units -> rig units (R6 studs: skeleton.R6_SCALE)
         self.palette = Palette(name, colors)
         self.parts = {p: MeshBuilder(p, self.palette) for p in PARTS}
         self.objects = {}
@@ -104,6 +91,8 @@ class FighterBuilder:
         for part in PARTS:
             joint = JOINT_OF_PART[part]
             builder = self.parts[part]
+            if self.unit != 1.0:
+                builder.scale(self.unit)
             if builder.count == 0:
                 raise ValueError(f"{self.name}: part {part} has no geometry")
             obj = builder.build(col, origin=PIVOT[joint])
@@ -184,10 +173,11 @@ def joint_angles(quaternion):
 TURNAROUND_ANGLES = (0, 45, 90, 180)  # front, three-quarter, side (game view), back
 
 
-def render_turnaround(fb, path, extra=None, spacing=3.4, size=(1600, 820)):
-    """Front / 3-4 / side / back views of the fighter side by side. `extra` is a
-    list of (collection, label) rendered to the right (weapons, poses)."""
-    common.toon_preview_materials(fb.objects.values())
+def render_turnaround(fb, path, extra=None, spacing=5.4, size=(2000, 700)):
+    """Front / 3-4 / side / back views of the fighter side by side, in Roblox
+    plastic. `extra` is a list of collections rendered to the right (weapons,
+    poses)."""
+    common.plastic_preview_materials(fb.objects.values())
     for m in fb.markers:
         m.hide_render = True
     layer_col = bpy.context.view_layer.layer_collection.children[fb.collection.name]
@@ -205,9 +195,9 @@ def render_turnaround(fb, path, extra=None, spacing=3.4, size=(1600, 820)):
     width = (len(slots) - 1) * spacing + spacing
     w, h = size
     common.setup_preview_render(path, w, h)
-    ortho = max(width, 7.0 * w / h)
-    common.ortho_camera("PreviewCam", ((len(slots) - 1) * spacing / 2, -40, 3.05),
-                        ((len(slots) - 1) * spacing / 2, 0, 3.05), ortho)
+    ortho = max(width, 7.2 * w / h)
+    common.ortho_camera("PreviewCam", ((len(slots) - 1) * spacing / 2, -40, 3.2),
+                        ((len(slots) - 1) * spacing / 2, 0, 3.2), ortho)
     return common.render(path)
 
 
@@ -272,13 +262,19 @@ def write_fighter_rigs_luau():
     return path
 
 
-def build_fighter(module):
-    """Runs a fighter script (art/blender/fighters/<name>.py): builds, exports
-    and renders its turnaround. Returns the export info."""
-    common.reset_scene()
-    fb = FighterBuilder(module.NAME, module.COLORS)
+def model_fighter(module):
+    """Builds a fighter script's (art/blender/fighters/<name>.py) rig in the
+    current scene. Scripts may author in R6 studs (UNIT = skeleton.R6_SCALE)."""
+    fb = FighterBuilder(module.NAME, module.COLORS, getattr(module, "UNIT", 1.0))
     module.model(fb)
-    fb.build()
+    return fb.build()
+
+
+def build_fighter(module):
+    """Runs a fighter script: builds, exports and renders its turnaround.
+    Returns the export info."""
+    common.reset_scene()
+    fb = model_fighter(module)
     _, _, info = fb.export()
     extra = []
     if hasattr(module, "preview_extras"):
@@ -288,7 +284,7 @@ def build_fighter(module):
 
 
 __all__ = [
-    "PARTS", "JOINTS", "PIVOT", "GRIP", "FighterBuilder", "sides", "pivot",
+    "PARTS", "JOINTS", "PIVOT", "GRIP", "FighterBuilder", "sides", "pivot", "model_fighter",
     "joint_quaternion", "joint_angles", "render_turnaround", "write_fighter_rigs_luau",
     "build_fighter", "Matrix", "Vector",
 ]

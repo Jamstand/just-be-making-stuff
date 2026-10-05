@@ -296,7 +296,7 @@ Config.Art = {
 	FighterHeight = 5.6, -- legend rigs are scaled to this (the hurtbox is 5.4)
 	OutlineColor = Color3.fromRGB(18, 16, 26),
 	OutlineThickness = 0, -- Highlight outlines have a fixed width; 0 = default
-	Outlines = true,
+	Outlines = false, -- legends are Roblox plastic; true adds a Highlight outline
 	-- Painted backgrounds, drawn by the client's SkyBackdrop as layers far
 	-- behind the stage, back to front. Depth is studs behind the fighters'
 	-- lane (all behind the maps' 3D scenery, which reaches about 230);

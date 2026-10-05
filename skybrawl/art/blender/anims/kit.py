@@ -8,10 +8,9 @@ straight ahead, 90 = up, 180 = behind, -90 = down. A tuple (angle, out)
 leans the direction toward the camera side.
 """
 
-from .core import P, aim, arm, attack, dir2d, lerp_pose, mirror, plant, spin_keys, two_hand
+from .core import HAFT, SUPPORT, P, aim, arm, attack, dir2d, lerp_pose, mirror, plant, spin_keys, two_hand
 from .stances import body, stance
 
-SUPPORT = {"Hammer": -0.95, "Spear": 1.25, "Scythe": 0.95}
 WEAPON_ARM = {"Bow": "Left"}
 
 
@@ -56,7 +55,7 @@ def wield(pose, weapon, upper, elbow, blade, support=True, free=None):
     other = "Left" if side == "Right" else "Right"
     pose = arm(pose, side, D(upper), elbow, weapon=D(blade))
     if support and weapon in SUPPORT:
-        pose = two_hand(pose, SUPPORT[weapon], lead=side, support=other)
+        pose = two_hand(pose, SUPPORT[weapon], lead=side, support=other, haft=HAFT[weapon])
     elif free is not None:
         pose = arm(pose, other, D(free[0]), free[1])
     elif weapon not in SUPPORT:

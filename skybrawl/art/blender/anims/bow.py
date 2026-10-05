@@ -1,6 +1,6 @@
 """Bow attacks: the bow is in the far (left) hand, the near hand draws."""
 
-from .core import _add, _scale, grip_position, reach, weapon_direction
+from .core import hands_together
 from .kit import (P, D, air, air_end, air_start, arc, arm, attack, fists, ground as G, hold_last, impact, recover,
                   spin, start, wield)
 from .stances import hold
@@ -10,10 +10,7 @@ W = "Bow"
 
 def draw(base, angle, pull=1.45):
     pose = arm(base, "Left", D((angle, -0.05)), 0, weapon=D(angle))
-    grip = grip_position(pose, "Left")
-    w = weapon_direction(pose, "Left")
-    target = _add(_add(grip, _scale(w, -pull)), (0.35, 0.05, 0.0))
-    return reach(pose, "Right", target)
+    return hands_together(pose, "Left", [(-3.2, -0.8)], -pull, offset=(0.35, 0.05, 0.0))
 
 
 def release(base, angle):

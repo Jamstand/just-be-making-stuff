@@ -81,15 +81,24 @@ The character faces -Z, feet at the origin. In Blender the character faces
 Z points at the camera. In Blender, the front view is the game camera's
 view: X right, Z up, and -Y toward the camera.
 
-**Fighters** are 15 rigid parts named like Roblox R15 parts (Head,
-UpperTorso, LowerTorso, Left/RightUpperArm, ...). The game builds the
+**Fighters** are Roblox R6 characters: classic R6 proportions (1x2x1
+legs, a 2x2x1 torso, 1x2x1 arms, a rounded-cylinder head) scaled so the
+head tops out at 6 studs, cut at the elbows and knees with round joint
+fillers so limbs bend without gaps. Outfits are color blocks with flat
+"printed" details, faces are classic Roblox decal faces (thin shapes on
+the head), and hair, hats, hoods, capes and pauldrons are accessories.
+Fighter scripts are written in R6 studs (`UNIT = R6_SCALE`) with the
+helpers in `fighters/_blocky.py`; the skeleton (every joint pivot, the
+grips) lives in `sky/skeleton.py` and is shared with the animation code.
+The model is 15 rigid parts named like Roblox R15 parts (Head,
+UpperTorso, LowerTorso, Left/RightUpperArm, ...), and the game builds the
 joints itself from `FighterRigs.luau`, so the FBX has no armature to go
 wrong in the importer.
 
 **Colors:** each model uses one small palette texture: a grid of flat
-color swatches, with each face mapped to one swatch. That keeps the flat
-cel look and means a single image upload per model. The game adds black
-outlines at runtime with a Highlight.
+color swatches, with each face mapped to one swatch, so a model needs a
+single image upload. Fighters render as Roblox SmoothPlastic with no
+outlines (set `Config.Art.Outlines` to add a Highlight outline).
 
 **Animations** are written in `anims/*.py` as key poses (with leg and arm
 IK), baked into Blender actions on a SkyRig armature whose bones are
