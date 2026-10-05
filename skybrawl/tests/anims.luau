@@ -1167,6 +1167,172 @@ h.test("the R15 avatar rig animates through rotated joints without errors", func
 	finish(r)
 end)
 
+-- Skinned legends --------------------------------------------------------------
+
+local JOINT_OF_PART = {}
+local PIVOT_OF = {}
+for _, joint in FighterRigs.Joints do
+	JOINT_OF_PART[joint.Part1] = joint.Name
+	PIVOT_OF[joint.Name] = vec(joint.Pivot)
+end
+
+-- A skinned legend as LegendRig builds it: scaled proxy joints, plus a
+-- "Skin" mesh whose bones sit on the joints with their own rest axes (an
+-- importer may turn them any way), and the legend's sway bones.
+local function skinnedRig(legendId, swaySpecs)
+	local r = legendRig({ legend = legendId })
+	local rig = r.rig
+	local s = rig:GetAttribute("RigScale")
+	local root = rig:FindFirstChild("RigRoot")
+	rig.PrimaryPart = root
+	rig:SetAttribute("Legend", legendId)
+	for _, joint in FighterRigs.Joints do
+		r.motors[joint.Name].C0 = CFrame.new(vec(joint.Pivot) * s)
+	end
+	local skin = Instance.new("Model")
+	skin.Name = "Skin"
+	local body = Instance.new("MeshPart")
+	body.Name = "Body"
+	body.CFrame = CFrame.Angles(math.rad(-90), 0, 0) -- e.g. a Z-up import
+	body.Parent = skin
+	local bones, rest = {}, {}
+	local function addBone(name, parentName, pos, k)
+		local bone = Instance.new("Bone")
+		bone.Name = name
+		local frame = CFrame.new(pos) * CFrame.Angles(0.4 + 0.1 * k, 0.7 - 0.05 * k, -0.4)
+		local parentFrame = if parentName then rest[parentName] else body.CFrame
+		bone.CFrame = parentFrame:ToObjectSpace(frame)
+		bone.Parent = if parentName then bones[parentName] else body
+		bones[name], rest[name] = bone, frame
+	end
+	for k, joint in FighterRigs.Joints do
+		addBone(joint.Name, JOINT_OF_PART[joint.Part0], vec(joint.Pivot) * s, k)
+	end
+	for _, spec in swaySpecs do
+		local parentName = spec.Parent
+		for k = 1, #spec.Points - 1 do
+			addBone(spec.Name .. k, parentName, vec(spec.Points[k]) * s, k)
+			parentName = spec.Name .. k
+		end
+	end
+	skin.Parent = rig
+	r.bones, r.rest, r.scale, r.root = bones, rest, s, root
+	return r
+end
+
+-- A bone's animated frame relative to the rig root: parent * CFrame * Transform.
+local function boneWorld(r, name)
+	local cf = CFrame.identity
+	local node = r.bones[name]
+	while node:IsA("Bone") do
+		cf = node.CFrame * node.Transform * cf
+		node = node.Parent
+	end
+	return r.root.CFrame:ToObjectSpace(node.CFrame * cf)
+end
+
+-- Where each joint's frame is, from the motors (relative to the rig root).
+local function jointFrames(r)
+	local out = {}
+	for _, joint in FighterRigs.Joints do
+		local parent = JOINT_OF_PART[joint.Part0]
+		local t = r.motors[joint.Name].Transform
+		if parent then
+			out[joint.Name] = out[parent] * CFrame.new((PIVOT_OF[joint.Name] - PIVOT_OF[parent]) * r.scale) * t
+		else
+			out[joint.Name] = CFrame.new(PIVOT_OF[joint.Name] * r.scale) * t
+		end
+	end
+	return out
+end
+
+local TEST_SWAYS = {
+	{
+		Name = "Cape",
+		Parent = "Waist",
+		Points = { { 0, 4.6, 0.5 }, { 0, 3.6, 0.6 }, { 0, 2.6, 0.7 } },
+		Stiffness = 0.3,
+		Damping = 0.2,
+		Limit = 60,
+		Behind = 1,
+	},
+}
+
+h.test("skinned legends: every bone follows its joint, whatever its rest axes", function()
+	local saved = FighterRigs.Fighters.Kestrel.Sways
+	FighterRigs.Fighters.Kestrel.Sways = TEST_SWAYS
+	local r = skinnedRig("Kestrel", TEST_SWAYS)
+	FighterAnimator.track(r.model, { isMe = true, legend = "Kestrel", weapon = "Sword" })
+	FighterAnimator.setWeapon(r.model, "Sword")
+	local worstTurn, worstMove = 0, 0
+	local function check()
+		local joints = jointFrames(r)
+		for name in PIVOT_OF do
+			local expected = joints[name] * r.rest[name].Rotation
+			local got = boneWorld(r, name)
+			worstTurn = math.max(worstTurn, angleBetween(expected, got))
+			worstMove = math.max(worstMove, (expected.Position - got.Position).Magnitude)
+		end
+	end
+	FighterAnimator.setLocomotion(r.model, "Run", 1)
+	for _ = 1, 20 do
+		step(1)
+		check()
+	end
+	for _, slot in { "NLight", "SHeavy", "DAir" } do
+		FighterAnimator.playAttack(r.model, "Sword", slot, 1)
+		for _ = 1, 30 do
+			step(1)
+			check()
+		end
+	end
+	h.expect(worstTurn < 0.5, string.format("a bone turned %.2f deg away from its joint", worstTurn))
+	h.expect(worstMove < 1e-3, string.format("a bone sat %.4f studs off its joint", worstMove))
+	finish(r)
+	FighterRigs.Fighters.Kestrel.Sways = saved
+	expectNoWarnings("skinned bones")
+end)
+
+h.test("skinned legends: sway bones trail fast moves, stay in their limits and settle", function()
+	local saved = FighterRigs.Fighters.Kestrel.Sways
+	FighterRigs.Fighters.Kestrel.Sways = TEST_SWAYS
+	local r = skinnedRig("Kestrel", TEST_SWAYS)
+	FighterAnimator.track(r.model, { isMe = true, legend = "Kestrel" })
+	local limit = TEST_SWAYS[1].Limit
+	local function swayAngles()
+		local worst = 0
+		for k = 1, 2 do
+			local t = r.bones["Cape" .. k].Transform
+			for _, v in { t.Position, t.LookVector, t.UpVector } do
+				h.expect(v.X == v.X and v.Y == v.Y and v.Z == v.Z, "a sway bone went NaN")
+			end
+			worst = math.max(worst, angleBetween(CFrame.identity, t))
+		end
+		return worst
+	end
+	step(frames(0.3))
+	-- dash sideways, then stop dead
+	local swung = 0
+	for i = 1, frames(0.4) do
+		r.root.CFrame = CFrame.new(i * 0.6, 0, 0)
+		step(1)
+		local a = swayAngles()
+		swung = math.max(swung, a)
+		h.expect(a <= limit + 1, string.format("the cape swung %.1f deg, past its %d deg limit", a, limit))
+	end
+	h.expect(swung > 5, "the cape didn't trail the dash")
+	step(frames(2.5))
+	local settled = swayAngles()
+	h.expect(settled < 8, string.format("the cape didn't settle (%.1f deg off rest)", settled))
+	FighterAnimator.untrack(r.model)
+	for name, bone in r.bones do
+		h.expect(angleBetween(bone.Transform, CFrame.identity) < 1e-6, "untrack left bone " .. name .. " posed")
+	end
+	r.model:Destroy()
+	FighterRigs.Fighters.Kestrel.Sways = saved
+	expectNoWarnings("sway")
+end)
+
 h.test("menu previews animate and ignore the character's facing", function()
 	for _, legendId in Legends.Order do
 		if legendId ~= "Avatar" then

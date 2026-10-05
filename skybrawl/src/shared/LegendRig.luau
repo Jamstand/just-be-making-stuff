@@ -13,6 +13,12 @@
     HumanoidRootPart, at the feet) and the 15 parts named like R15 parts, with
     Motor6Ds named like R15 joints (Root, Waist, Neck, RightShoulder, ...).
     Each hand has a "Grip" attachment where a held weapon goes.
+
+    Skinned legends (the import has Bones) keep those 15 parts as invisible
+    proxies, which carry the joints and the weapons, and add the imported
+    skinned mesh as "Skin", welded to RigRoot. Its bones carry the joint
+    names, and FighterAnimator copies each joint's motion onto its bone (plus
+    the sway bones for capes, hair and tails).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -96,7 +102,9 @@ function LegendRig.template(legendId)
 	local folder = modelsFolder()
 	local model = folder and folder:FindFirstChild(legendId)
 	local template, err = nil, nil
-	if model then
+	if model and model:FindFirstChildWhichIsA("Bone", true) then
+		template = { skinned = true, model = model }
+	elseif model then
 		template, err = LegendRig.readModel(model, legendId)
 		if not template then
 			warn("[LegendRig] can't use FighterModels." .. legendId .. ": " .. tostring(err))
@@ -123,6 +131,62 @@ local function setupPart(part)
 	pcall(function()
 		part.CollisionGroup = "Characters"
 	end)
+end
+
+-- Invisible proxy parts for a skinned legend: boxes around what each joint
+-- moves (from FighterRigs), so joints, weapons and effects have parts.
+local function proxyParts(legendId)
+	local info = FighterRigs.Fighters[legendId]
+	local parts = {}
+	for _, joint in FighterRigs.Joints do
+		local box = info and info.Parts and info.Parts[joint.Part1]
+		local center = box and vec(box.Center) or vec(joint.Pivot)
+		local size = box and vec(box.Size) or Vector3.one * 0.3
+		parts[joint.Part1] = {
+			cframe = CFrame.new(center),
+			size = Vector3.new(math.max(size.X, 0.1), math.max(size.Y, 0.1), math.max(size.Z, 0.1)),
+		}
+	end
+	return parts
+end
+
+-- The imported skinned model, scaled and moved so its art origin sits on
+-- the rig origin, its animation controllers removed (FighterAnimator drives
+-- the bones) and its parts welded to RigRoot.
+local function addSkin(rig, root, template, s)
+	local skin = Instance.new("Model")
+	skin.Name = "Skin"
+	for _, child in template.model:GetChildren() do
+		if not (child:IsA("Humanoid") or child:IsA("AnimationController") or child:IsA("LuaSourceContainer")) then
+			child:Clone().Parent = skin
+		end
+	end
+	for _, d in skin:GetDescendants() do
+		if d:IsA("Animator") or d:IsA("AnimationController") then
+			d:Destroy()
+		end
+	end
+	local _, k = Markers.basis(skin, FighterRigs.MarkerDistance, -1)
+	if math.abs(k - s) > 1e-4 then
+		skin:ScaleTo(skin:GetScale() * s / k)
+	end
+	local basis = Markers.basis(skin, FighterRigs.MarkerDistance, -1)
+	skin:PivotTo(root.CFrame * basis:ToObjectSpace(skin:GetPivot()))
+	for _, d in skin:GetDescendants() do
+		if d:IsA("BasePart") then
+			if Markers.isMarker(d) then
+				d:Destroy()
+			else
+				setupPart(d)
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = root
+				weld.Part1 = d
+				weld.Parent = d
+			end
+		end
+	end
+	skin.Parent = rig
+	return skin
 end
 
 --[[
@@ -152,8 +216,14 @@ function LegendRig.build(legendId, height)
 
 	local rigCF = { RigRoot = CFrame.new() }
 	local parts = { RigRoot = root }
-	for name, info in template.parts do
-		local part = Markers.cloneMesh(info.source)
+	for name, info in template.skinned and proxyParts(legendId) or template.parts do
+		local part
+		if template.skinned then
+			part = Instance.new("Part")
+			part.Transparency = 1
+		else
+			part = Markers.cloneMesh(info.source)
+		end
 		part.Name = name
 		part.Size = info.size * s
 		local cf = CFrame.new(info.cframe.Position * s) * info.cframe.Rotation
@@ -162,6 +232,10 @@ function LegendRig.build(legendId, height)
 		setupPart(part)
 		part.Parent = rig
 		parts[name] = part
+	end
+	if template.skinned then
+		rig:SetAttribute("Skinned", true)
+		addSkin(rig, root, template, s)
 	end
 
 	for _, joint in FighterRigs.Joints do

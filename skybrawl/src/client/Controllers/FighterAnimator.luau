@@ -34,6 +34,12 @@
 
     Clip lookup: attacks try "<Legend>.<Weapon>.<Slot>", "<Weapon>.<Slot>",
     "Unarmed.<Slot>"; locomotion tries "<Weapon>.<State>", "Loco.<State>".
+
+    Skinned legends: the joints still drive invisible proxy parts (which hold
+    the weapons), and each joint's transform is copied onto the skin's bone
+    of the same name, turned into the bone's own axes. Sway bones (capes,
+    hair, tails) hang from a joint and follow it on damped springs, within a
+    swing limit, and capes never swing through the body.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -43,6 +49,7 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AnimationData = require(Shared.AnimationData)
 local Config = require(Shared.Config)
+local FighterRigs = require(Shared.FighterRigs)
 local Legends = require(Shared.Legends)
 local Maps = require(Shared.Maps)
 local Weapons = require(Shared.Weapons)
@@ -101,6 +108,28 @@ local MAX_FADE = 0.2
 -- Fastest a joint may turn: 55 degrees a frame at 60 fps.
 local MAX_TURN = math.rad(55 * 60)
 local RIG_HEIGHT = 6
+-- Sway bones: gravity pulls their tips a little below the rest pose.
+local SWAY_GRAVITY = Vector3.new(0, -30, 0)
+
+-- The SkyRig skeleton, for following joints in world space (sway bones).
+local JOINT_PIVOT = {} -- [joint index] = rig-space pivot (unscaled)
+local JOINT_PARENT = {} -- [joint index] = parent joint index
+local JOINT_ORDER = {} -- parents first
+do
+	local jointOfPart = {}
+	for _, j in FighterRigs.Joints do
+		jointOfPart[j.Part1] = j.Name
+	end
+	for _, j in FighterRigs.Joints do
+		local i = JOINT_INDEX[j.Name]
+		if i then
+			JOINT_PIVOT[i] = Vector3.new(j.Pivot[1], j.Pivot[2], j.Pivot[3])
+			local parent = jointOfPart[j.Part0]
+			JOINT_PARENT[i] = parent and JOINT_INDEX[parent] or nil
+			table.insert(JOINT_ORDER, i)
+		end
+	end
+end
 
 local rigs = {} -- [model] = rig
 local world = nil
@@ -490,6 +519,85 @@ local function findJoints(model)
 	return joints, scale, nil
 end
 
+-- A bone's rest frame relative to the rig root, from its CFrame chain (bones
+-- are relative to their parent bone, the top one to its part).
+local function restFrame(bone, rootPart)
+	local cf = CFrame.identity
+	local node = bone
+	while node and node:IsA("Bone") do
+		cf = node.CFrame * cf
+		node = node.Parent
+	end
+	if node and node:IsA("BasePart") then
+		return rootPart.CFrame:ToObjectSpace(node.CFrame * cf)
+	end
+	return cf
+end
+
+local function vecOf(t)
+	return Vector3.new(t[1], t[2], t[3])
+end
+
+-- Finds a skinned legend's bones: one per joint, plus its sway chains.
+local function bindSkin(rig)
+	rig.bones = nil
+	rig.sways = nil
+	local visual = rig.visual
+	local skin = visual and visual:FindFirstChild("Skin")
+	local root = visual and visual.PrimaryPart
+	if not (skin and root) then
+		return
+	end
+	local byName = {}
+	for _, d in skin:GetDescendants() do
+		if d:IsA("Bone") then
+			byName[d.Name] = d
+		end
+	end
+	rig.bones = {}
+	for i, name in JOINTS do
+		local bone = byName[name]
+		if bone then
+			local rot = restFrame(bone, root).Rotation
+			rig.bones[i] = { bone = bone, rot = rot, inv = rot:Inverse() }
+		end
+	end
+	rig.sways = {}
+	rig.written = table.create(NJ, CFrame.identity)
+	rig.frames = table.create(NJ, CFrame.identity)
+	local info = FighterRigs.Fighters[visual:GetAttribute("Legend") or rig.legend or ""]
+	for _, spec in (info and info.Sways) or {} do
+		local parent = JOINT_INDEX[spec.Parent]
+		local chain = {
+			parent = parent,
+			segments = {},
+			stiffness = spec.Stiffness,
+			damping = spec.Damping,
+			limit = math.rad(spec.Limit),
+			behind = spec.Behind,
+		}
+		for k = 1, #spec.Points - 1 do
+			local bone = byName[spec.Name .. k]
+			if not bone then
+				break
+			end
+			local a, b = vecOf(spec.Points[k]), vecOf(spec.Points[k + 1])
+			local rot = restFrame(bone, root).Rotation
+			table.insert(chain.segments, {
+				bone = bone,
+				rot = rot,
+				inv = rot:Inverse(),
+				head = a,
+				dir = (b - a).Unit,
+				length = (b - a).Magnitude,
+			})
+		end
+		if parent and #chain.segments > 0 then
+			table.insert(rig.sways, chain)
+		end
+	end
+end
+
 local function bindJoints(rig)
 	local joints, scale, visual = findJoints(rig.model)
 	rig.motors = {}
@@ -504,6 +612,7 @@ local function bindJoints(rig)
 	rig.scale = scale
 	rig.visual = visual
 	rig.boundTo = visual or rig.model
+	bindSkin(rig)
 	local h = rig.model:FindFirstChild("SkyOutline")
 	if h then
 		h.Adornee = visual or rig.model
@@ -578,6 +687,14 @@ local function resetJoints(rig)
 	for _, j in rig.motors do
 		if j.motor.Parent then
 			j.motor.Transform = CFrame.identity
+		end
+	end
+	for _, b in rig.bones or {} do
+		b.bone.Transform = CFrame.identity
+	end
+	for _, chain in rig.sways or {} do
+		for _, seg in chain.segments do
+			seg.bone.Transform = CFrame.identity
 		end
 	end
 end
@@ -949,16 +1066,104 @@ end
 local function write(rig)
 	local scale = rig.scale
 	local pose = rig.pose
+	local bones = rig.bones
 	for i, j in rig.motors do
 		local motor = j.motor
 		local cf = pose.cf[i]
 		if i == 1 then
 			cf = CFrame.new(pose.off * scale) * cf
 		end
+		if bones then
+			rig.written[i] = cf
+			local b = bones[i]
+			if b then
+				b.bone.Transform = b.inv * cf * b.rot
+			end
+		end
 		if not j.plain then
 			cf = j.inv * cf * j.rot
 		end
 		motor.Transform = cf
+	end
+end
+
+-- Rotation taking unit vector a onto unit vector b.
+local function between(a, b)
+	local axis = a:Cross(b)
+	local m = axis.Magnitude
+	if m < 1e-6 then
+		return CFrame.identity
+	end
+	return CFrame.fromAxisAngle(axis / m, math.atan2(m, math.clamp(a:Dot(b), -1, 1)))
+end
+
+-- Sway bones: each segment's tip trails its rest position on a damped
+-- spring (in world space, so it lags behind fast moves), within a swing
+-- limit, and capes stay on their side of the body.
+local function stepSways(rig, dt)
+	local sways = rig.sways
+	if not sways or #sways == 0 then
+		return
+	end
+	local root = rig.visual and rig.visual.PrimaryPart
+	if not root then
+		return
+	end
+	local s = rig.scale
+	local frames = rig.frames
+	for _, i in JOINT_ORDER do
+		local parent = JOINT_PARENT[i]
+		local t = rig.written[i]
+		if parent then
+			frames[i] = frames[parent] * CFrame.new((JOINT_PIVOT[i] - JOINT_PIVOT[parent]) * s) * t
+		else
+			frames[i] = CFrame.new(JOINT_PIVOT[i] * s) * t
+		end
+	end
+	local rootCF = root.CFrame
+	for _, chain in sways do
+		local frame = rootCF * frames[chain.parent]
+		local head = frame:PointToWorldSpace((chain.segments[1].head - JOINT_PIVOT[chain.parent]) * s)
+		local pull = 1 - (1 - chain.stiffness) ^ (dt * 60)
+		local keep = (1 - chain.damping) ^ (dt * 60)
+		for _, seg in chain.segments do
+			local len = seg.length * s
+			local rest = frame:VectorToWorldSpace(seg.dir)
+			local target = head + rest * len
+			local p, prev = seg.tip, seg.prev
+			if not p or (p - target).Magnitude > len * 3 + 2 then
+				p, prev = target, target -- first frame, or a teleport
+			end
+			local moved = p
+			if dt > 0 then
+				moved = p + (p - prev) * keep + SWAY_GRAVITY * dt * dt + (target - p) * pull
+			end
+			local dir = moved - head
+			dir = if dir.Magnitude > 1e-6 then dir.Unit else rest
+			local angle = math.acos(math.clamp(dir:Dot(rest), -1, 1))
+			if angle > chain.limit then
+				local axis = rest:Cross(dir)
+				if axis.Magnitude > 1e-6 then
+					dir = CFrame.fromAxisAngle(axis.Unit, chain.limit):VectorToWorldSpace(rest)
+				else
+					dir = rest
+				end
+			end
+			if chain.behind then
+				local loc = frame:VectorToObjectSpace(dir)
+				if loc.Z * chain.behind < -0.05 then
+					dir = frame:VectorToWorldSpace(Vector3.new(loc.X, loc.Y, -0.05 * chain.behind).Unit)
+				end
+			end
+			local tip = head + dir * len
+			if dt > 0 or not seg.tip then
+				seg.prev, seg.tip = p, tip
+			end
+			local turn = between(seg.dir, frame:VectorToObjectSpace(dir))
+			seg.bone.Transform = seg.inv * turn * seg.rot
+			frame = CFrame.new(head) * frame.Rotation * turn
+			head = tip
+		end
 	end
 end
 
@@ -1057,6 +1262,7 @@ local function updateRig(rig, dt)
 	end
 
 	write(rig)
+	stepSways(rig, step)
 	updateWeaponHands(rig, mirror)
 
 	-- Swing trails while an attack's blade is moving.

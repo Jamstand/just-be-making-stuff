@@ -322,7 +322,9 @@ def arm(pose, side, upper, elbow=0.0, weapon=None, twist=0.0):
     # Rx(p) * Ry(twist) * Rz(r) applied to the hanging arm (0, -1, 0)
     r = math.degrees(math.asin(max(-1.0, min(1.0, d[0]))))
     p = math.degrees(math.atan2(-d[2], -d[1])) if abs(d[0]) < 0.9999 else 0.0
-    out.rot[f"{side}Shoulder"] = (p, twist, r)
+    # the upper arm already hangs out by its rest slant; Rz is applied first,
+    # so taking it off the roll makes the arm point along `upper`
+    out.rot[f"{side}Shoulder"] = (p, twist, r - skeleton.arm_slant(side))
     out.rot[f"{side}Elbow"] = (float(elbow), 0.0, 0.0)
     if weapon is not None:
         out = aim(out, side, weapon)
