@@ -132,6 +132,38 @@ function SettingsPanel.cameraRows(parent, startOrder)
 	shakeRow.LayoutOrder = nextOrder()
 	shakeRow.Size = UDim2.new(1, -10, 0, 46)
 	shakeRow.Parent = parent
+
+	local effectDescriptions = {
+		Full = "Impact frames, debris, craters, smoke, speed lines and auras",
+		Reduced = "Flashes, rings and auras only",
+		Off = "No battle effects",
+	}
+	local effectsHint
+	local effectsRow = UIKit.cycle(
+		"Battle effects",
+		{
+			{ value = "Full", label = "Full" },
+			{ value = "Reduced", label = "Reduced" },
+			{ value = "Off", label = "Off" },
+		},
+		Settings.get("Effects"),
+		function(v)
+			Settings.set("Effects", v)
+			effectsHint.Text = effectDescriptions[v] or ""
+		end
+	)
+	effectsRow.LayoutOrder = nextOrder()
+	effectsRow.Size = UDim2.new(1, -10, 0, 46)
+	effectsRow.Parent = parent
+	effectsHint = describeLabel(parent, nextOrder())
+	effectsHint.Text = effectDescriptions[Settings.get("Effects")] or ""
+
+	local cinemaRow = UIKit.toggle("Ultimate camera cut-ins", Settings.get("Cinematics"), function(v)
+		Settings.set("Cinematics", v)
+	end)
+	cinemaRow.LayoutOrder = nextOrder()
+	cinemaRow.Size = UDim2.new(1, -10, 0, 46)
+	cinemaRow.Parent = parent
 	return order
 end
 

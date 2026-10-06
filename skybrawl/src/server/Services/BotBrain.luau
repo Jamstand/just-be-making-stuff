@@ -3,8 +3,10 @@
     FighterSim, exactly like a player's controller would.
 
     It re-decides every `Reaction` seconds (faster while recovering), so
-    difficulty mostly comes from reaction time, how often it dodges, and
-    how well it gets back to the stage.
+    difficulty mostly comes from reaction time, how often it dodges or
+    blocks, how often it techs a knockdown, and how well it gets back to
+    the stage. It awakens when its meter fills and saves the ultimate for
+    when it's in range.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -39,8 +41,10 @@ function BotBrain.new(fighter, match, difficulty)
 		moveY = 0,
 		jumpHeld = true,
 		heavyHeld = false,
-		buffer = { Jump = 0, Light = 0, Heavy = 0, Dodge = 0, Throw = 0 },
+		blockHeld = false,
+		buffer = { Jump = 0, Light = 0, Heavy = 0, Dodge = 0, Throw = 0, Ultimate = 0 },
 	}
+	self.techTried = false
 	-- The main stage: the widest solid platform.
 	local best
 	for _, p in match.world.platforms do
@@ -160,8 +164,32 @@ function BotBrain:fight(s, target)
 	input.moveX = 0
 	input.moveY = 0
 
-	-- Dodge incoming attacks.
-	if self.match:IsAttacking(target) and dist < 9 and math.abs(dy) < 7 and rng:NextNumber() < skill.DodgeChance then
+	-- Awaken once the meter's full and a fight's on; then save the
+	-- ultimate move for when it'll land.
+	local ult = self.match:UltimateState(self.fighter)
+	if ult == "Awaken" and dist < 18 and rng:NextNumber() < skill.Aggression then
+		self:press("Ultimate")
+		return
+	elseif ult == "Attack" and dist < 9 and math.abs(dy) < 4 and rng:NextNumber() < skill.Aggression then
+		input.moveX = sign(dx)
+		self:press("Ultimate")
+		return
+	end
+
+	-- Block or dodge incoming attacks. Blocking needs to face them, and
+	-- isn't worth it on a nearly broken guard.
+	local incoming = self.match:IsAttacking(target) and dist < 9 and math.abs(dy) < 7
+	if
+		incoming
+		and s.grounded
+		and s.facing == sign(dx)
+		and (self.fighter.guard or 100) > 30
+		and rng:NextNumber() < skill.BlockChance
+	then
+		input.blockHeld = true
+		return
+	end
+	if incoming and rng:NextNumber() < skill.DodgeChance then
 		if s.grounded and rng:NextNumber() < 0.5 then
 			input.moveX = -sign(dx)
 		end
@@ -183,7 +211,12 @@ function BotBrain:fight(s, target)
 	end
 
 	if dist <= reach and math.abs(dy) < 5 and rng:NextNumber() < skill.Aggression then
-		local heavy = rng:NextNumber() < skill.HeavyChance * (target.damage > 90 and 1.6 or 0.6)
+		-- heavies late in a stock, and to crack a guard
+		local heavyChance = skill.HeavyChance * (target.damage > 90 and 1.6 or 0.6)
+		if self.match:IsBlocking(target) then
+			heavyChance = math.max(heavyChance, 0.6)
+		end
+		local heavy = rng:NextNumber() < heavyChance
 		if rng:NextNumber() > skill.Accuracy then
 			-- Sloppy: random direction.
 			input.moveX = rng:NextInteger(-1, 1)
@@ -227,6 +260,7 @@ function BotBrain:Decide()
 	local input = self.input
 	input.jumpHeld = true
 	input.heavyHeld = false
+	input.blockHeld = false
 
 	if self:isOffstage(s) then
 		self:recover(s)
@@ -272,11 +306,32 @@ function BotBrain:Update(dt)
 	for action, remaining in buffer do
 		buffer[action] = math.max(0, remaining - dt)
 	end
+	self:tech()
 	self.thinkTimer -= dt
 	if self.thinkTimer <= 0 then
 		self:Decide()
 	end
 	return self.input
+end
+
+-- Tumbling toward the ground: maybe tech the landing (once per tumble).
+function BotBrain:tech()
+	local s = self.fighter.state
+	if not s.tumble then
+		self.techTried = false
+		return
+	end
+	if self.techTried or s.vy > 0 then
+		return
+	end
+	local ground = Maps.groundBelow(self.match.world, s.x, s.y + 0.1)
+	if ground and s.y - ground < 2.5 then
+		self.techTried = true
+		if self.rng:NextNumber() < self.skill.TechChance then
+			self.input.moveX = self.rng:NextInteger(-1, 1)
+			self:press("Dodge")
+		end
+	end
 end
 
 return BotBrain

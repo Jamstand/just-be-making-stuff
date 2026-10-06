@@ -252,6 +252,17 @@ local afterActive = Duel.afterActive
 
 local jumpIn = { "Jump", toward = 0.6, when = afterActive }
 local chaseDiag = { "Dodge", toward = 0.7, y = 0.7, when = afterActive }
+-- the punch chain: three quick hits, then the neutral light finisher
+local chainHit = { "Light", when = afterActive }
+local chain = { { "Light" }, chainHit, chainHit, chainHit }
+
+local function after(steps, ...)
+	local out = table.clone(steps)
+	for _, step in { ... } do
+		table.insert(out, step)
+	end
+	return out
+end
 
 -- Each route is tried at a few spacings; it should be a true combo at 0%
 -- for at least one of them and at none of them at 140%.
@@ -263,10 +274,11 @@ local ROUTES = {
 		steps = { { "Light", y = -1 }, jumpIn, { "Light", toward = 1 } },
 	},
 	{
-		name = "Sword neutral light > jump > side air",
+		name = "Sword punch chain > jump > side air",
 		weapon = "Sword",
 		legend = "Kestrel",
-		steps = { { "Light" }, jumpIn, { "Light", toward = 1 } },
+		steps = after(chain, jumpIn, { "Light", toward = 1 }),
+		hits = 5,
 	},
 	{
 		name = "Hammer down light > jump > neutral air",
@@ -287,16 +299,18 @@ local ROUTES = {
 		steps = { { "Light", y = -1 }, chaseDiag, { "Light", toward = 1 } },
 	},
 	{
-		name = "Gauntlets neutral light > jump > side air",
+		name = "Gauntlets punch chain > jump > side air",
 		weapon = "Gauntlets",
 		legend = "Vex",
-		steps = { { "Light" }, jumpIn, { "Light", toward = 1 } },
+		steps = after(chain, jumpIn, { "Light", toward = 1 }),
+		hits = 5,
 	},
 	{
-		name = "Scythe neutral light > jump > neutral air",
+		name = "Scythe punch chain > jump > neutral air",
 		weapon = "Scythe",
 		legend = "Moss",
-		steps = { { "Light" }, jumpIn, { "Light" } },
+		steps = after(chain, jumpIn, { "Light" }),
+		hits = 5,
 	},
 }
 local GAPS = { 2.2, 3, 4 }
@@ -317,15 +331,16 @@ local comboReport = {}
 for _, route in ROUTES do
 	h.test(route.name .. " is a true combo at low damage only", function()
 		local lowBest, highWorst
+		local n = route.hits or 2
 		for _, gap in GAPS do
 			local low = Duel.run({ weapon = route.weapon, legend = route.legend, route = route.steps, gap = gap })
 			local high =
 				Duel.run({ weapon = route.weapon, legend = route.legend, route = route.steps, gap = gap, damage = 140 })
-			if Duel.isTrue(low, 2) or not lowBest then
-				lowBest = lowBest and Duel.isTrue(lowBest, 2) and lowBest or low
+			if Duel.isTrue(low, n) or not lowBest then
+				lowBest = lowBest and Duel.isTrue(lowBest, n) and lowBest or low
 			end
-			if Duel.isTrue(high, 2) or not highWorst then
-				highWorst = highWorst and Duel.isTrue(highWorst, 2) and highWorst or high
+			if Duel.isTrue(high, n) or not highWorst then
+				highWorst = highWorst and Duel.isTrue(highWorst, n) and highWorst or high
 			end
 		end
 		table.insert(
@@ -337,8 +352,27 @@ for _, route in ROUTES do
 				Duel.describe(highWorst)
 			)
 		)
-		h.expect(Duel.isTrue(lowBest, 2), "not a true combo at 0%: " .. Duel.describe(lowBest))
-		h.expect(not Duel.isTrue(highWorst, 2), "still true at 140% (should only string): " .. Duel.describe(highWorst))
+		h.expect(Duel.isTrue(lowBest, n), "not a true combo at 0%: " .. Duel.describe(lowBest))
+		h.expect(not Duel.isTrue(highWorst, n), "still true at 140% (should only string): " .. Duel.describe(highWorst))
+	end)
+end
+
+-- Battlegrounds-style: the punch chain itself always links, at any damage.
+for _, weapon in { "Unarmed", "Sword", "Hammer", "Spear", "Gauntlets", "Scythe", "Bow" } do
+	h.test(weapon .. " punch chain is a true combo at 0% and 140%", function()
+		for _, damage in { 0, 140 } do
+			-- (the bow's finisher is an arrow, which these melee duels don't fire)
+			local n = weapon == "Bow" and 3 or 4
+			local best
+			for _, gap in GAPS do
+				local hits = Duel.run({ weapon = weapon, route = chain, gap = gap, damage = damage })
+				if Duel.isTrue(hits, n) then
+					best = hits
+				end
+				best = best or hits
+			end
+			h.expect(Duel.isTrue(best, n), string.format("%d%%: %s", damage, Duel.describe(best)))
+		end
 	end)
 end
 for _, line in comboReport do

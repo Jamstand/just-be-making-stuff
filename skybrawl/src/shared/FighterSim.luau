@@ -8,9 +8,10 @@
 
     Input table:
       moveX, moveY   -1..1 (moveY +1 is up)
-      jumpHeld, heavyHeld
-      buffer         { Jump, Light, Heavy, Dodge, Throw } seconds left on a
-                     buffered press; the sim zeroes an entry when it uses it
+      jumpHeld, heavyHeld, blockHeld
+      buffer         { Jump, Light, Heavy, Dodge, Throw, Ultimate } seconds
+                     left on a buffered press; the sim zeroes an entry when
+                     it uses it
 
     Context table:
       world          from Maps.getWorld
@@ -18,12 +19,23 @@
       legend         legend id (signatures, Dexterity timing, Speed stat)
       armed          true when holding a weapon
       nearPickup     true when a weapon pickup is in reach
+      ultimate       "Awaken" when the ultimate meter is full, "Attack" while
+                     awakened with the ultimate move unused, else nil
+      awakened       true while awakened (faster)
 
     Combo flow: the caller reports landed hits with onHitConfirm(); that
     opens the chase window (next dodge is a chase dodge), lets a light
     attack be cancelled into a jump or chase dodge once its active frames
     end, and starts the attacker's hit-stop. An air spot dodge allows ground
     light attacks in the air while it lasts (gravity cancel).
+
+    Battlegrounds combat (Config.Battle): a neutral ground light starts a
+    4-hit punch chain; holding block on the ground blocks hits from the
+    front (the caller decides what's blocked and calls applyBlock or
+    applyGuardBreak); strong hits tumble the fighter (applyHit's ragdoll),
+    and landing while tumbling knocks them down unless they tech by pressing
+    dodge just before landing; the ultimate button awakens or uses the
+    ultimate move, depending on ctx.ultimate.
 
     step() appends events to the list it returns:
       { type = "Attack", slot, seq, facing }
@@ -35,6 +47,9 @@
       { type = "Pickup" }
       { type = "Land" }
       { type = "AttackEnd", seq }
+      { type = "Block", on, facing }          started or stopped blocking
+      { type = "Knockdown" } / { type = "GetUp" } / { type = "Tech", dir }
+      { type = "Awaken" }                     asked to awaken (the caller asks the server)
 ]]
 
 local Config = require(script.Parent.Config)
@@ -42,6 +57,7 @@ local Legends = require(script.Parent.Legends)
 
 local P = Config.Physics
 local C = Config.Combat
+local B = Config.Battle
 local MAX_STEP = 1 / 60
 local AXIS_DEADZONE = 0.35
 
@@ -112,7 +128,17 @@ function FighterSim.newState(x, y, facing)
 		fastFall = false,
 		jumpTime = -1,
 		prevMoveY = 0,
+		lastMoveX = 0,
 		frozen = false,
+
+		chain = 0, -- last punch-chain hit started (1..3), 0 when not chaining
+		chainTimer = 0, -- time left to continue the chain
+		blockstun = 0,
+		tumble = false, -- launched limp by a strong hit
+		tumbleAir = 0, -- time airborne since the tumbling hit
+		tumbleHold = 0, -- time spent limp after the hitstun ran out
+		techTimer = 0, -- tech pressed this recently
+		techDir = 0,
 	}
 end
 
@@ -123,6 +149,13 @@ end
 local function endAttack(s, events)
 	if s.action == "Attack" then
 		emit(events, { type = "AttackEnd", seq = s.seq })
+		local chain = s.move and s.move.Chain
+		if chain and chain < 4 then
+			s.chain = chain
+			s.chainTimer = B.ChainWindow
+		else
+			s.chain = 0
+		end
 	end
 	s.action = nil
 	s.move = nil
@@ -149,7 +182,11 @@ local function chooseSlot(s, moveX, moveY, heavy)
 		elseif side then
 			return "SLight"
 		end
-		return "NLight"
+		-- neutral: the punch chain, ending in the neutral light
+		if s.chain >= 1 and s.chainTimer > 0 then
+			return s.chain >= 3 and "NLight" or "Chain" .. (s.chain + 1)
+		end
+		return "Chain1"
 	end
 	if heavy then
 		if down then
@@ -184,6 +221,8 @@ local function startAttack(s, slot, ctx, moveX, events)
 	s.motionTime = -1
 	s.fired = false
 	s.fastFall = false
+	s.chain = 0
+	s.chainTimer = 0
 	s.seq += 1
 	if slot == "Recovery" then
 		s.recoveryUsed = true
@@ -204,18 +243,107 @@ local function cancelable(s)
 		and s.actionTime >= move.Startup + move.Active
 end
 
-local function stat(ctx, name)
-	local legend = ctx.legend
-	if name == "speed" then
-		return Legends.speedMult(legend)
+local function speedMult(ctx)
+	if not ctx then
+		return 1
 	end
-	return Legends.dodgeCooldownMult(legend)
+	return Legends.speedMult(ctx.legend) * (ctx.awakened and B.AwakenSpeedMult or 1)
+end
+
+local function stat(ctx, name)
+	if name == "speed" then
+		return speedMult(ctx)
+	end
+	return Legends.dodgeCooldownMult(ctx.legend)
+end
+
+local function getUp(s, events)
+	s.action = "GetUp"
+	s.actionTime = 0
+	s.actionDuration = B.GetUpTime
+	s.invuln = math.max(s.invuln, B.GetUpTime)
+	emit(events, { type = "GetUp" })
+end
+
+-- What a fighter that's blocking, stunned, down or awakening may do this
+-- frame; returns true when it can't do anything else.
+local function busy(s, input, moveX, events)
+	local buf = input.buffer
+	local action = s.action
+	if action == "Knockdown" then
+		local pressed = buf.Jump > 0 or buf.Dodge > 0 or buf.Light > 0 or buf.Heavy > 0
+		if s.actionTime >= B.KnockdownMinTime and (pressed or math.abs(moveX) > 0.5) then
+			buf.Jump, buf.Dodge, buf.Light, buf.Heavy = 0, 0, 0, 0
+			getUp(s, events)
+		end
+		return true
+	elseif action == "Stunned" or action == "GetUp" or action == "TechRoll" or action == "Awakening" then
+		return true
+	elseif action == "Block" then
+		if s.blockstun > 0 then
+			return true
+		end
+		if not input.blockHeld or buf.Dodge > 0 or not s.grounded then
+			-- let go (or dodged out of it)
+			s.action = nil
+			emit(events, { type = "Block", on = false, facing = s.facing })
+			return false
+		end
+		return true
+	end
+	return false
 end
 
 local function tryActions(s, input, moveX, moveY, ctx, events)
 	local buf = input.buffer
+	if busy(s, input, moveX, events) then
+		return
+	end
+
+	-- Punch chain: the next hit can cut the last one's recovery short.
+	local m = s.move
+	local neutral = math.abs(moveX) <= AXIS_DEADZONE and moveY >= -0.5
+	if
+		s.action == "Attack"
+		and m ~= nil
+		and m.Chain ~= nil
+		and m.Chain < 4
+		and not s.charging
+		and s.actionTime >= m.Startup + m.Active
+		and buf.Light > 0
+		and buf.Heavy <= 0
+		and neutral
+		and s.grounded
+	then
+		endAttack(s, events)
+	end
+
 	local canMove = (s.action == nil or s.action == "Dash") and s.landLag <= 0
 	local cancel = cancelable(s)
+
+	-- Ultimate: awaken (the caller asks the server), or the ultimate move.
+	if (buf.Ultimate or 0) > 0 and canMove and ctx.ultimate then
+		buf.Ultimate = 0
+		if ctx.ultimate == "Attack" then
+			s.action = nil
+			startAttack(s, "Ultimate", ctx, moveX, events)
+		else
+			emit(events, { type = "Awaken" })
+		end
+		return
+	end
+
+	-- Block: hold on the ground. Attacks and jumps wait; a dodge breaks out.
+	if input.blockHeld and s.grounded and canMove and buf.Dodge <= 0 then
+		s.action = "Block"
+		s.actionTime = 0
+		s.blockstun = 0
+		s.chain = 0
+		s.chainTimer = 0
+		buf.Jump, buf.Light, buf.Heavy = 0, 0, 0
+		emit(events, { type = "Block", on = true, facing = s.facing })
+		return
+	end
 
 	-- Jump (also cancels a dash, or a light attack that hit)
 	if buf.Jump > 0 and (s.action == nil or s.action == "Dash" or cancel) then
@@ -455,16 +583,31 @@ local function updateAction(s, input, dt, events)
 		if s.actionTime >= move.Startup + move.Active + move.Recovery then
 			endAttack(s, events)
 		end
-	elseif s.action == "Dodge" or s.action == "Dash" or s.action == "Throw" then
+	elseif
+		s.action == "Dodge"
+		or s.action == "Dash"
+		or s.action == "Throw"
+		or s.action == "Stunned"
+		or s.action == "Knockdown"
+		or s.action == "GetUp"
+		or s.action == "TechRoll"
+		or s.action == "Awakening"
+	then
 		s.actionTime += dt
 		if s.actionTime >= s.actionDuration then
 			if s.action == "Dodge" and (s.dodgeKind == "Air" or s.dodgeKind == "Chase") then
 				s.vx *= 0.35
 				s.vy *= 0.35
 			end
+			if s.action == "Knockdown" then
+				getUp(s, events)
+				return
+			end
 			s.action = nil
 			s.dodgeKind = nil
 		end
+	elseif s.action == "Block" then
+		s.actionTime += dt
 	end
 end
 
@@ -484,11 +627,13 @@ local function updateMovement(s, input, moveX, moveY, dt, ctx)
 
 	local airDodging = s.action == "Dodge" and (s.dodgeKind == "Air" or s.dodgeKind == "Chase")
 	local moving = motionActive(s)
-	local speed = ctx and Legends.speedMult(ctx.legend) or 1
+	local speed = speedMult(ctx)
 
 	-- Horizontal
 	if s.action == "Dash" then
 		s.vx = s.facing * P.DashSpeed * speed
+	elseif s.action == "TechRoll" then
+		s.vx = s.techDir * B.TechRollSpeed * (1 - 0.5 * s.actionTime / B.TechRollTime)
 	elseif airDodging then
 		s.vx = s.dodgeVX
 		s.vy = s.dodgeVY
@@ -498,8 +643,8 @@ local function updateMovement(s, input, moveX, moveY, dt, ctx)
 			control = s.grounded and 0 or s.move.AirDrift
 		elseif s.action == "Dodge" or s.action == "Throw" then
 			control = s.grounded and 0 or 0.5
-		elseif s.landLag > 0 then
-			control = 0
+		elseif s.action ~= nil or s.landLag > 0 then
+			control = 0 -- blocking, stunned, down, getting up, awakening
 		end
 
 		local wants = math.abs(moveX) > 0.1 and control > 0
@@ -564,8 +709,22 @@ local function updateMovement(s, input, moveX, moveY, dt, ctx)
 	end
 end
 
-local function updateHitstun(s, moveX, dt)
+-- Highest platform top under (x, y), if any.
+local function groundUnder(world, x, y)
+	local best
+	for _, p in world.platforms do
+		if x >= p.minX and x <= p.maxX and p.maxY <= y + 0.01 and (best == nil or p.maxY > best) then
+			best = p.maxY
+		end
+	end
+	return best
+end
+
+local function updateHitstun(s, input, moveX, dt, ctx)
 	s.hitstun -= dt
+	if not s.grounded then
+		s.tumbleAir += dt
+	end
 	s.vy -= P.Gravity * P.HitstunGravityScale * dt
 	s.vx += moveX * P.DIAccel * dt
 	local drag = math.exp(-P.KnockbackDrag * dt)
@@ -578,7 +737,46 @@ local function updateHitstun(s, moveX, dt)
 	end
 	if s.hitstun <= 0 then
 		s.hitstun = 0
+		-- Ragdolled over the stage: stay limp until landing (knockdown), or
+		-- jump out of it. Off the stage, control comes back to recover.
+		if
+			s.tumble
+			and not s.grounded
+			and s.tumbleHold < B.TumbleHold
+			and (input.buffer.Jump or 0) <= 0
+			and groundUnder(ctx.world, s.x, s.y)
+		then
+			s.tumbleHold += dt
+			return
+		end
 		s.action = nil
+		s.tumble = false
+	end
+end
+
+-- Landing while tumbling: tech if dodge was pressed just before, else go
+-- down (invulnerable while down and getting back up).
+local function landTumble(s, events)
+	s.tumble = false
+	s.hitstun = 0
+	if s.techTimer > 0 then
+		s.techTimer = 0
+		s.action = "TechRoll"
+		s.actionTime = 0
+		s.actionDuration = B.TechRollTime
+		s.techDir = math.abs(s.lastMoveX) > AXIS_DEADZONE and sign(s.lastMoveX) or 0
+		if s.techDir ~= 0 then
+			s.facing = s.techDir -- the roll animation always rolls forward
+		end
+		s.invuln = math.max(s.invuln, B.TechRollTime)
+		emit(events, { type = "Tech", dir = s.techDir })
+	else
+		s.action = "Knockdown"
+		s.actionTime = 0
+		s.actionDuration = B.KnockdownTime
+		s.vx *= 0.3
+		s.invuln = math.max(s.invuln, B.KnockdownTime + B.GetUpTime)
+		emit(events, { type = "Knockdown" })
 	end
 end
 
@@ -590,14 +788,16 @@ local function onLanded(s, events)
 	s.airDodgeUsed = false
 	s.fastFall = false
 	s.wallSide = 0
-	if s.action == "Attack" then
+	if s.action == "Hitstun" and s.tumble and s.tumbleAir > 0.05 then
+		landTumble(s, events)
+	elseif s.action == "Attack" then
 		local move = s.move
 		if move.EndsOnLand then
 			if s.actionTime < move.Startup + move.Active then
 				s.actionTime = move.Startup + move.Active
 			end
 			s.motionTime = math.huge
-		elseif s.attackAir and not s.gcAttack then
+		elseif s.attackAir and not s.gcAttack and not move.Ultimate then
 			endAttack(s, events)
 			s.landLag = P.LandingLag * 2
 		end
@@ -694,14 +894,23 @@ local function stepOnce(s, input, dt, ctx, events)
 	s.dashCooldown = math.max(0, s.dashCooldown - dt)
 	s.dropThrough = math.max(0, s.dropThrough - dt)
 	s.landLag = math.max(0, s.landLag - dt)
+	s.chainTimer = math.max(0, s.chainTimer - dt)
+	s.blockstun = math.max(0, s.blockstun - dt)
+	s.techTimer = math.max(0, s.techTimer - dt)
 
 	local moveX = math.clamp(input.moveX or 0, -1, 1)
 	local moveY = math.clamp(input.moveY or 0, -1, 1)
 	local downPressed = moveY <= -0.6 and s.prevMoveY > -0.6
 	s.prevMoveY = moveY
+	s.lastMoveX = moveX
 
 	if s.action == "Hitstun" then
-		updateHitstun(s, moveX, dt)
+		-- dodge just before landing from a tumble: tech
+		if s.tumble and input.buffer.Dodge > 0 then
+			input.buffer.Dodge = 0
+			s.techTimer = B.TechWindow
+		end
+		updateHitstun(s, input, moveX, dt, ctx)
 	else
 		-- Drop through a soft platform by tapping down.
 		if downPressed and s.grounded and s.onSoft and s.action == nil then
@@ -740,14 +949,22 @@ function FighterSim.onHitConfirm(s, hitstop)
 	s.hitstop = math.max(s.hitstop, hitstop or 0)
 end
 
--- Called when a hit lands on this fighter.
-function FighterSim.applyHit(s, kbx, kby, hitstun, hitstop)
+-- Called when a hit lands on this fighter. `ragdoll` (a strong hit) sends
+-- them tumbling limp: landing before the hitstun ends knocks them down.
+function FighterSim.applyHit(s, kbx, kby, hitstun, hitstop, ragdoll)
 	if s.action == "Attack" then
 		s.move = nil
 		s.slot = nil
 		s.charging = false
 	end
 	s.action = "Hitstun"
+	s.tumble = ragdoll == true
+	s.tumbleAir = 0
+	s.tumbleHold = 0
+	s.techTimer = 0
+	s.chain = 0
+	s.chainTimer = 0
+	s.blockstun = 0
 	s.dodgeKind = nil
 	s.hitstun = hitstun
 	s.hitstop = hitstop or 0
@@ -773,6 +990,63 @@ function FighterSim.applyHit(s, kbx, kby, hitstun, hitstop)
 	if s.airJumps < 1 then
 		s.airJumps = 1
 	end
+end
+
+-- A hit was blocked: stay in block, pushed back, for `blockstun`.
+function FighterSim.applyBlock(s, pushX, blockstun, hitstop)
+	if s.action ~= "Block" then
+		if s.action == "Attack" then
+			s.move = nil
+			s.slot = nil
+			s.charging = false
+		end
+		s.action = "Block"
+		s.actionTime = 0
+	end
+	s.blockstun = math.max(s.blockstun, blockstun)
+	s.hitstop = math.max(s.hitstop, hitstop or 0)
+	s.vx = pushX
+end
+
+-- The guard broke: stunned in place, open to anything.
+function FighterSim.applyGuardBreak(s, stun)
+	if s.action == "Attack" then
+		s.move = nil
+		s.slot = nil
+		s.charging = false
+	end
+	s.action = "Stunned"
+	s.actionTime = 0
+	s.actionDuration = stun
+	s.blockstun = 0
+	s.vx = 0
+	s.chain = 0
+end
+
+-- Awakening: a short invulnerable power-up pose while everyone else freezes.
+function FighterSim.awaken(s, duration)
+	if s.action == "Attack" then
+		s.move = nil
+		s.slot = nil
+		s.charging = false
+	end
+	s.action = "Awakening"
+	s.actionTime = 0
+	s.actionDuration = duration
+	s.invuln = math.max(s.invuln, duration)
+	s.vx = 0
+	if s.vy > 0 then
+		s.vy = 0
+	end
+end
+
+-- Freezes a fighter in place (someone else's awakening cut-in).
+function FighterSim.freeze(s, duration)
+	s.hitstop = math.max(s.hitstop, duration)
+end
+
+function FighterSim.isBlocking(s)
+	return s.action == "Block"
 end
 
 function FighterSim.respawn(s, x, y, facing, invuln)
@@ -833,7 +1107,9 @@ end
 -- Locomotion animation name for the current state.
 function FighterSim.animState(s)
 	if s.action == "Hitstun" then
-		return "Fall"
+		return (s.tumble and s.hitstun <= 0) and "Tumble" or "Fall"
+	elseif s.action == "Block" or s.action == "Stunned" or s.action == "Knockdown" then
+		return s.action
 	end
 	if s.grounded then
 		if s.action == nil and math.abs(s.vx) > 2 then

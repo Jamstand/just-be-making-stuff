@@ -88,6 +88,14 @@ h.test("every signature has its own clip", function()
 	end
 end)
 
+h.test("every legend has its own ultimate clip", function()
+	for _, id in Legends.Order do
+		local key = Legends.getAttack(id, "Unarmed", "Ultimate").AnimKey
+		h.expect(key == id .. ".Ultimate", "unexpected ultimate key " .. tostring(key))
+		h.expect(clips[key], "missing clip " .. key)
+	end
+end)
+
 h.test("movement clips exist for every state the animator plays", function()
 	for _, state in { "Idle", "Run", "Jump", "Fall" } do
 		h.expect(clips["Loco." .. state], "missing Loco." .. state)
@@ -96,7 +104,26 @@ h.test("movement clips exist for every state the animator plays", function()
 		end
 	end
 	for _, name in
-		{ "AirJump", "Land", "Dash", "Dodge", "AirSpot", "AirDodge", "Chase", "Hurt", "Tumble", "WallSlide", "Throw" }
+		{
+			"AirJump",
+			"Land",
+			"Dash",
+			"Dodge",
+			"AirSpot",
+			"AirDodge",
+			"Chase",
+			"Hurt",
+			"Tumble",
+			"WallSlide",
+			"Throw",
+			"Block",
+			"Stunned",
+			"Knockdown",
+			"GetUp",
+			"TechRoll",
+			"Tech",
+			"Awaken",
+		}
 	do
 		h.expect(clips["Loco." .. name], "missing Loco." .. name)
 	end

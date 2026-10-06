@@ -844,7 +844,9 @@ local function inferLocomotion(rig, dt)
 	rig.airborneFor = grounded and 0 or rig.airborneFor + dt
 	local vx, vy = rig.vel.X, rig.vel.Y
 	local state
-	if grounded or rig.airborneFor < 0.06 then
+	if rig.held then
+		state = rig.held
+	elseif grounded or rig.airborneFor < 0.06 then
 		state = math.abs(vx) > 3 and "Run" or "Idle"
 	elseif vy > 4 then
 		state = "Jump"
@@ -991,14 +993,55 @@ function FighterAnimator.dodge(model, kind)
 	end
 end
 
--- Hit: recoil (or tumble on big hits) for as long as the hitstun lasts.
-function FighterAnimator.hurt(model, hitstun, force)
-	local tumble = (force or 0) > 70
+-- Hit: recoil, or tumble when the hit ragdolls them, for as long as the
+-- hitstun lasts.
+function FighterAnimator.hurt(model, hitstun, force, ragdoll)
+	local tumble = ragdoll
+	if tumble == nil then
+		tumble = (force or 0) > Config.Battle.RagdollForce
+	end
 	if tumble then
-		FighterAnimator.playClip(model, "Loco.Tumble", hitstun, { loopFor = hitstun })
+		-- limp until they land (up to TumbleHold past the hitstun)
+		local limp = hitstun + (ragdoll and Config.Battle.TumbleHold or 0)
+		FighterAnimator.playClip(model, "Loco.Tumble", limp, { loopFor = limp })
 	else
 		FighterAnimator.playClip(model, "Loco.Hurt", math.max(hitstun, 0.2), { hold = true })
 	end
+end
+
+-- Holds someone else's fighter in a locomotion state ("Block") until
+-- cleared with nil. Your own fighter's state comes from FighterSim.
+function FighterAnimator.setHeld(model, state)
+	local rig = rigs[model]
+	if rig then
+		rig.held = state
+		if state then
+			FighterAnimator.setLocomotion(model, state)
+		end
+	end
+end
+
+-- Knocked down after a tumble, getting up, or teching the landing.
+function FighterAnimator.down(model, kind, dir)
+	local B = Config.Battle
+	if kind == "Knockdown" then
+		FighterAnimator.playClip(model, "Loco.Knockdown", B.KnockdownTime, { hold = true })
+	elseif kind == "GetUp" then
+		FighterAnimator.playClip(model, "Loco.GetUp", B.GetUpTime, { stretch = true })
+	elseif kind == "Tech" then
+		local roll = dir ~= nil and dir ~= 0
+		FighterAnimator.playClip(model, roll and "Loco.TechRoll" or "Loco.Tech", B.TechRollTime, { stretch = true })
+	end
+end
+
+-- Guard broken: dazed for `duration`.
+function FighterAnimator.stunned(model, duration)
+	FighterAnimator.playClip(model, "Loco.Stunned", duration, { loopFor = duration })
+end
+
+-- The awakening pose, held through the freeze.
+function FighterAnimator.awaken(model, duration)
+	FighterAnimator.playClip(model, "Loco.Awaken", duration, { stretch = true })
 end
 
 function FighterAnimator.airJump(model)

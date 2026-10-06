@@ -19,6 +19,7 @@ local Data = {
 }
 
 for _, group in {
+	require(script.Avatar),
 	require(script.Bow),
 	require(script.Brann),
 	require(script.Gauntlets),

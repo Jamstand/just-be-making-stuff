@@ -548,7 +548,7 @@ h.test("every locomotion loop plays smoothly for every weapon, speed and facing"
 			FighterAnimator.track(r.model, { isMe = true, legend = "Kestrel" })
 			FighterAnimator.setWeapon(r.model, weapon)
 			local w = watch(r)
-			for _, state in { "Idle", "Run", "Jump", "Fall", "WallSlide" } do
+			for _, state in { "Idle", "Run", "Jump", "Fall", "WallSlide", "Block", "Stunned", "Tumble" } do
 				for _, speed in state == "Run" and { 0.6, 1, 1.4 } or { 1 } do
 					FighterAnimator.setLocomotion(r.model, state, speed)
 					step(frames(0.2)) -- past the crossfade
@@ -588,7 +588,9 @@ h.test("every locomotion loop plays smoothly for every weapon, speed and facing"
 		end
 	end
 	print(string.format("       %d loops checked; worst joint turn per frame:", checks))
-	for _, key in { "Idle", "Run x0.6", "Run x1.0", "Run x1.4", "Jump", "Fall", "WallSlide" } do
+	for _, key in
+		{ "Idle", "Run x0.6", "Run x1.0", "Run x1.4", "Jump", "Fall", "WallSlide", "Block", "Stunned", "Tumble" }
+	do
 		print(string.format("         %-10s %5.1f deg", key, loopReport[key] or 0))
 	end
 end)
@@ -795,8 +797,10 @@ h.test("every attack of every legend plays with its timing and returns", functio
 		local weapons = Legends.List[legendId].Weapons or Weapons.Order
 		local list = table.clone(weapons)
 		table.insert(list, "Unarmed")
+		local slots = table.clone(Weapons.Slots)
+		table.insert(slots, "Ultimate")
 		for _, weapon in list do
-			for _, slot in Weapons.Slots do
+			for _, slot in slots do
 				local move = Legends.getAttack(legendId, weapon, slot)
 				local hows = { "plain" }
 				if GROUND_HEAVIES[slot] and (move.Charge or 0) > 0 then
@@ -878,7 +882,7 @@ end)
 
 print("Reactions")
 
-h.test("hurt, tumble, air jump, land and throw play and return", function()
+h.test("hurt, tumble, air jump, land, throw and the battle states play and return", function()
 	local cases = {
 		{
 			"hurt (recoil)",
@@ -914,6 +918,55 @@ h.test("hurt, tumble, air jump, land and throw play and return", function()
 				FighterAnimator.throw(m)
 			end,
 			AnimationData.Clips["Loco.Throw"].Length,
+		},
+		{
+			"ragdoll",
+			function(m)
+				FighterAnimator.hurt(m, 0.4, 40, true)
+			end,
+			0.4 + Config.Battle.TumbleHold,
+		},
+		{
+			"knockdown",
+			function(m)
+				FighterAnimator.down(m, "Knockdown")
+			end,
+			Config.Battle.KnockdownTime,
+		},
+		{
+			"get up",
+			function(m)
+				FighterAnimator.down(m, "GetUp")
+			end,
+			Config.Battle.GetUpTime,
+		},
+		{
+			"tech roll",
+			function(m)
+				FighterAnimator.down(m, "Tech", 1)
+			end,
+			Config.Battle.TechRollTime,
+		},
+		{
+			"tech in place",
+			function(m)
+				FighterAnimator.down(m, "Tech", 0)
+			end,
+			Config.Battle.TechRollTime,
+		},
+		{
+			"guard break daze",
+			function(m)
+				FighterAnimator.stunned(m, Config.Battle.GuardBreakStun)
+			end,
+			Config.Battle.GuardBreakStun,
+		},
+		{
+			"awaken",
+			function(m)
+				FighterAnimator.awaken(m, Config.Battle.AwakenFreeze)
+			end,
+			Config.Battle.AwakenFreeze,
 		},
 	}
 	for _, case in cases do

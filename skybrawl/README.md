@@ -36,10 +36,32 @@ the repo root.
   through soft platforms, and once-per-airtime recovery and ground pound
   attacks.
 - Weapon pickups. You start unarmed and weapons fall onto the stage:
-  **Sword, Hammer, Spear, Gauntlets, Scythe, Bow**. Each has 11 attacks:
-  neutral/side/down lights, neutral/side/down air lights, chargeable
+  **Sword, Hammer, Spear, Gauntlets, Scythe, Bow**. Each has 14 attacks:
+  a four-hit chain on neutral light (three quick hits, then a launcher),
+  side/down lights, neutral/side/down air lights, chargeable
   neutral/side/down heavies, recovery and ground pound. The Bow fires
   arrows, and you can throw any weapon at people.
+- **Battlegrounds combat** on top of that:
+  - *Punch chains:* mash light for a quick 3-hit chain into a launching
+    finisher (M1s, like in battlegrounds games).
+  - *Block:* hold block to catch hits from the front. Blocked hits drain
+    a guard meter (heavies drain more); when it runs out the guard breaks
+    and you're dazed and wide open. The guard refills when you stop
+    blocking.
+  - *Ragdoll knockdowns:* strong hits send you tumbling limp. Over the
+    stage you stay limp until you land and get knocked down (invulnerable
+    until you're back up; press anything to get up early), unless you
+    press dodge just before landing to tech-roll up. Jump to break out of
+    a ragdoll; off the stage you get control back to recover.
+  - *Ultimate:* fighting (and getting hit) fills an ultimate meter. Full,
+    press Ultimate to **awaken**: everyone freezes for a camera cut-in,
+    then for 20 seconds you have an aura, 15% more damage and 10% more
+    speed, and one cinematic, unblockable **ultimate move** (each legend
+    has their own: Final Draw, Overdrive Cannon, Absolute Zero, Rampage,
+    Thousand Shadows, Zenith Smash, Limit Break).
+  - *Effects:* impact flashes, black-and-white impact frames, debris,
+    craters, smoke, speed lines and awakening auras, with a Full /
+    Reduced / Off setting.
 - **Combo flow**: hit-stop on every hit, chase dodges (after you land a
   hit, your dodge is a quick, invulnerability-free burst that ignores the
   cooldown), jump and chase-dodge cancels out of light attacks that hit,
@@ -49,15 +71,16 @@ the repo root.
 - 8 arenas. Four have Blender-made kits and painted skies: Sky-Ship Deck,
   Volcanic Forge, Frozen Peaks and Jungle Temple. The four classic ones are
   Skyhold Keep, Twin Isles, Ancient Ruins and Duel Rock.
-- Bots at 3 difficulties that fight, dodge, grab weapons and recover back
-  to the stage.
+- Bots at 3 difficulties that fight, dodge, block, tech, awaken, use
+  their ultimates, grab weapons and recover back to the stage.
 
 **Camera** (each player picks their own in Settings, or in the in-match menu)
 - Modes: *Frame All* (Brawlhalla-style, zooms to fit everyone),
   *Follow Me*, *Lookahead*, *Duel Focus*, *Fixed Stage*
 - Looks: *Flat 2D* (narrow lens, almost no depth), *2.5D*, *Tilted
   2.5D*, *Wide 2.5D*
-- Zoom, smoothing and screen shake settings
+- Zoom, smoothing and screen shake settings, plus battle effects (Full /
+  Reduced / Off) and ultimate camera cut-ins
 
 **Matchmaking** (several arenas run side by side in one server)
 - Ranked 1v1 (rating-matched, with a widening search window)
@@ -214,6 +237,8 @@ experience too. Nothing else is required: there are no Robux products yet.
 | Heavy attack (hold to charge on the ground) | K or right click | B | HEAVY |
 | Dodge / dash          | L or Left Shift     | RT / LT   | DODGE           |
 | Throw / pick up weapon| H                   | Y         | THROW           |
+| Block (hold)          | F                   | LB        | BLOCK           |
+| Awaken / ultimate     | G                   | RB        | ULT             |
 | Match menu            | P                   |           | Menu button     |
 
 - Direction + attack picks the move: neutral, side or down (and up
@@ -226,6 +251,16 @@ experience too. Nothing else is required: there are no Robux products yet.
 - Tap down on a wooden platform to drop through it. Hold down in the air
   to fast-fall.
 - Light attack also picks up a weapon you're standing on.
+- **Chains:** neutral light on the ground starts the punch chain; keep
+  pressing light (within half a second) for hits 2 and 3, and the fourth
+  is the launcher. Each chain hit can be cancelled into the next once it
+  has hit.
+- **Block** only on the ground, and only covers your front. You can't
+  block ultimates.
+- **Tech:** press dodge just before you land from a ragdoll to roll back
+  up (hold a direction to roll that way).
+- **Ultimate:** when the ULT bar on your card is full, press it once to
+  awaken, and again while awakened for your ultimate move.
 - **Combos:** when a light attack hits, you can cancel the end of it with a
   jump, or with dodge for a chase dodge (point the stick where your target
   went). After an air spot dodge (dodge with no direction), a light attack
@@ -237,6 +272,7 @@ experience too. Nothing else is required: there are no Robux products yet.
 
 1. Everyone is placed on the arena; 3-2-1-GO.
 2. Hits add damage %. Knockback = `(base + scaling × damage/100) × KnockbackScale`.
+   Your card also shows your ultimate meter and your guard.
 3. Leaving the blast zone = KO. You lose a stock (or a point in timed
    matches, and whoever hit you last gets one), then respawn above the
    stage with 2 seconds of invulnerability.
@@ -258,13 +294,16 @@ Almost everything lives in `src/shared/Config.luau`:
 - `Combat`: knockback scale, hitstun, hit-stop, chase dodge, gravity
   cancel, charge bonus, respawn timers, and the server's hit-validation
   slack
+- `Battle`: chain window, guard meter and break, ragdoll force and
+  knockdown/tech timings, ultimate meter gains and the awakening
 - `Art`: fighter height, outlines, sky image ids
 - `WeaponDrops`: spawn rate, max on stage, throw speed/damage
 - `Queue`, `Rooms`, `Bots`, `Ranked`, `Rewards`, `Levels`
 - `Camera`: modes and looks (FOV and pitch per look)
 - `DefaultKeybinds`, `DefaultSettings`, `Sounds`
 
-**Adding a weapon:** add an entry to `Weapons.List` with all 11 slots,
+**Adding a weapon:** add an entry to `Weapons.List` with its 11 attack
+slots and a `Chain` spec for the punch chain,
 add its id to `Weapons.Order`, and add a shape builder to `SHAPES` in
 `WeaponModels.luau`.
 
@@ -308,15 +347,18 @@ The tests cover:
 - Elo, levels and map sanity checks
 - the KO percent of each weapon's side heavy against a defender that
   tries to recover (hammer about 115%, sword about 140%, fists about 175%)
+- punch chains, blocking and guard breaks, ragdoll knockdowns, techs and
+  jumping out of a ragdoll, awakening and the ultimate move
 
 `lune run tests/bots` runs headless bot-vs-bot fights on every map. It
-checks that bots land hits, score KOs, rarely fall off on their own, and
-that Hard beats Easy.
+checks that bots land hits, score KOs, rarely fall off on their own, that
+they block, tech, awaken and use ultimates, and that Hard beats Easy.
 
 `lune run tests/combos` checks the legends (stats, signatures, Dexterity
 timing, weapon alternation) and the combo flow:
 
 - cancels, chase dodges, gravity cancels and hit-stop
+- every weapon's punch chain is a true combo at 0% and 140%
 - scripted duels that must be true combos at 0% and only strings at 140%
 
 `lune run tests/art` checks the generated art data: a clip for every attack,
@@ -332,7 +374,9 @@ fake rig, frame by frame at 60 fps:
 - every attack of every legend and weapon, plain, charged, landed and cut
   short, with no joint turning faster than about 55 degrees a frame (blends
   can add a little; the test allows 72)
-- hurt, tumble, air jump, landing and throw, hit-stop, mirroring when facing
+- hurt, tumble, ragdoll, knockdown, get-up, techs, guard-break daze,
+  awakening, block and every legend's ultimate
+- air jump, landing and throw, hit-stop, mirroring when facing
   left, the weapon changing hands, other players' movement, avatars and menu
   previews
 

@@ -1,8 +1,10 @@
 --[[
     Weapon + attack data.
 
-    Every weapon (and Unarmed) has the same 11 attack slots:
+    Every weapon (and Unarmed) has the same 14 attack slots:
 
+      Punch chain:    Chain1  Chain2  Chain3  then NLight as the launcher
+                      (a neutral ground light; see Config.Battle)
       Ground lights:  NLight  SLight  DLight
       Air lights:     NAir    SAir    DAir
       Ground heavies: NHeavy  SHeavy  DHeavy      (hold to charge)
@@ -35,6 +37,7 @@ local Weapons = {}
 
 -- stylua: ignore start
 Weapons.Slots = {
+	"Chain1", "Chain2", "Chain3",
 	"NLight", "SLight", "DLight",
 	"NAir", "SAir", "DAir",
 	"NHeavy", "SHeavy", "DHeavy",
@@ -43,7 +46,10 @@ Weapons.Slots = {
 -- stylua: ignore end
 
 Weapons.SlotNames = {
-	NLight = "Neutral Light",
+	Chain1 = "Chain 1",
+	Chain2 = "Chain 2",
+	Chain3 = "Chain 3",
+	NLight = "Chain Finisher",
 	SLight = "Side Light",
 	DLight = "Down Light",
 	NAir = "Neutral Air",
@@ -87,11 +93,42 @@ local function attack(slot, t)
 	return t
 end
 
+-- The punch chain: three quick hits that keep the victim close (tiny
+-- knockback, a step forward) and true-combo into each other, then the
+-- weapon's neutral light as the finisher, tuned into a launcher. `spec`
+-- gives the chain's hitbox, startup and damage for this weapon.
+local function chainMoves(out, spec)
+	local damage = spec.Damage or { 3, 3, 4 }
+	for i = 1, 3 do
+		out["Chain" .. i] = attack("Chain" .. i, {
+			Startup = spec.Startup,
+			Active = 0.06,
+			Recovery = 0.2,
+			Damage = damage[i],
+			BaseKnockback = 7,
+			KnockbackScaling = 2,
+			Angle = 12,
+			Hitbox = spec.Hitbox,
+			Motion = motion(spec.Startup * 0.5, 0.08, 10, 0),
+			Anim = "Jab",
+			Chain = i,
+		})
+	end
+	local finisher = out.NLight
+	finisher.Chain = 4
+	finisher.Angle = math.max(finisher.Angle, 50)
+	finisher.BaseKnockback += 8
+	finisher.KnockbackScaling += 6
+end
+
 local function moveset(list)
+	local chain = list.Chain
+	list.Chain = nil
 	local out = {}
 	for slot, t in list do
 		out[slot] = attack(slot, t)
 	end
+	chainMoves(out, chain)
 	for _, slot in Weapons.Slots do
 		assert(out[slot], "moveset missing slot " .. slot)
 	end
@@ -137,6 +174,7 @@ Weapons.List = {
 		Color = Color3.fromRGB(200, 200, 200),
 		Hand = "Right",
 		Moves = moveset({
+			Chain = { Startup = 0.06, Hitbox = hb(2.3, 3.3, 2.8, 2.2) },
 			NLight = { Startup = 0.1, Active = 0.08, Recovery = 0.2, Damage = 5, BaseKnockback = 15, KnockbackScaling = 10, Angle = 25, Hitbox = hb(2.4, 3.3, 2.8, 2), Anim = "Punch" },
 			SLight = { Startup = 0.12, Active = 0.12, Recovery = 0.2, Damage = 6, Angle = 25, Motion = motion(0.08, 0.14, 28, 0), Hitbox = hb(2.6, 3, 3.2, 2.2), Anim = "Punch" },
 			DLight = { Startup = 0.12, Active = 0.1, Recovery = 0.2, Damage = 6, Angle = 60, Hitbox = hb(2.4, 0.8, 3.4, 1.6), Anim = "Kick" },
@@ -158,6 +196,7 @@ Weapons.List = {
 		Color = Color3.fromRGB(150, 200, 255),
 		Hand = "Right",
 		Moves = moveset({
+			Chain = { Startup = 0.07, Hitbox = hb(3, 3.2, 4.2, 2.6) },
 			NLight = { Startup = 0.1, Active = 0.1, Recovery = 0.18, Damage = 8, Angle = 50, Hitbox = hb(3, 3.6, 4.2, 3), Anim = "Arc" },
 			SLight = { Startup = 0.11, Active = 0.1, Recovery = 0.2, Damage = 9, BaseKnockback = 20, KnockbackScaling = 16, Angle = 25, Motion = motion(0.08, 0.12, 30, 0), Hitbox = hb(3.6, 2.8, 5, 2.4), Anim = "Thrust" },
 			DLight = { Startup = 0.12, Active = 0.12, Recovery = 0.22, Damage = 9, Angle = 70, Motion = motion(0.06, 0.16, 34, 0), Hitbox = hb(3, 0.9, 4.4, 1.8), Anim = "Low" },
@@ -179,6 +218,7 @@ Weapons.List = {
 		Color = Color3.fromRGB(255, 170, 90),
 		Hand = "Right",
 		Moves = moveset({
+			Chain = { Startup = 0.09, Hitbox = hb(3.2, 3.2, 4.6, 3), Damage = { 4, 4, 5 } },
 			NLight = { Startup = 0.14, Active = 0.12, Recovery = 0.24, Damage = 10, BaseKnockback = 22, KnockbackScaling = 16, Angle = 60, Hitbox = hb(3, 3.6, 5, 3.4), Anim = "Overhead" },
 			SLight = { Startup = 0.15, Active = 0.12, Recovery = 0.26, Damage = 11, BaseKnockback = 24, KnockbackScaling = 18, Angle = 28, Motion = motion(0.1, 0.12, 22, 0), Hitbox = hb(3.8, 2.6, 5.4, 3), Anim = "Slash" },
 			DLight = { Startup = 0.14, Active = 0.14, Recovery = 0.26, Damage = 10, BaseKnockback = 22, KnockbackScaling = 16, Angle = 75, Hitbox = hb(3.4, 0.8, 5, 1.8), Anim = "Low" },
@@ -200,6 +240,7 @@ Weapons.List = {
 		Color = Color3.fromRGB(120, 230, 160),
 		Hand = "Right",
 		Moves = moveset({
+			Chain = { Startup = 0.08, Hitbox = hb(4.4, 3, 6, 1.8) },
 			NLight = { Startup = 0.11, Active = 0.1, Recovery = 0.2, Damage = 8, Angle = 65, Hitbox = hb(2.5, 5, 3.5, 4), Anim = "Uppercut" },
 			SLight = { Startup = 0.12, Active = 0.1, Recovery = 0.22, Damage = 9, BaseKnockback = 20, KnockbackScaling = 15, Angle = 22, Hitbox = hb(5.2, 2.8, 7, 1.8), Anim = "Thrust" },
 			DLight = { Startup = 0.13, Active = 0.12, Recovery = 0.22, Damage = 8, BaseKnockback = 20, Angle = 70, Hitbox = hb(5, 0.7, 7, 1.4), Anim = "Low" },
@@ -221,6 +262,7 @@ Weapons.List = {
 		Color = Color3.fromRGB(255, 120, 120),
 		Hand = "Both",
 		Moves = moveset({
+			Chain = { Startup = 0.06, Hitbox = hb(2.5, 3.3, 3, 2.2) },
 			NLight = { Startup = 0.08, Active = 0.08, Recovery = 0.19, Damage = 7, BaseKnockback = 16, KnockbackScaling = 12, Angle = 45, Hitbox = hb(2.4, 3.4, 3.2, 2.4), Anim = "Punch" },
 			SLight = { Startup = 0.09, Active = 0.1, Recovery = 0.19, Damage = 8, Angle = 20, Motion = motion(0.06, 0.12, 32, 0), Hitbox = hb(2.8, 3, 3.6, 2.4), Anim = "Punch" },
 			DLight = { Startup = 0.1, Active = 0.1, Recovery = 0.18, Damage = 7, Angle = 75, Hitbox = hb(2.4, 0.8, 3.6, 1.6), Anim = "Low" },
@@ -242,6 +284,7 @@ Weapons.List = {
 		Color = Color3.fromRGB(190, 130, 255),
 		Hand = "Right",
 		Moves = moveset({
+			Chain = { Startup = 0.08, Hitbox = hb(3.2, 3.2, 4.6, 2.8) },
 			NLight = { Startup = 0.12, Active = 0.14, Recovery = 0.2, Damage = 8, Angle = 70, Hitbox = hb(2, 4, 6, 4), Anim = "Arc" },
 			SLight = { Startup = 0.13, Active = 0.12, Recovery = 0.22, Damage = 9, BaseKnockback = 18, KnockbackScaling = 10, Angle = 150, Hitbox = hb(4.6, 2.8, 5.4, 3), Anim = "Reap" },
 			DLight = { Startup = 0.13, Active = 0.12, Recovery = 0.22, Damage = 8, Angle = 70, Hitbox = hb(4, 0.8, 6.5, 1.8), Anim = "Low" },
@@ -263,6 +306,7 @@ Weapons.List = {
 		Color = Color3.fromRGB(240, 220, 120),
 		Hand = "Left",
 		Moves = moveset({
+			Chain = { Startup = 0.07, Hitbox = hb(2.6, 3.2, 3.4, 2.4) },
 			NLight = { Startup = 0.14, Active = 0.05, Recovery = 0.22, Damage = 6, BaseKnockback = 14, KnockbackScaling = 10, Angle = 60, Anim = "Shoot", Projectile = { Speed = 95, Angle = 60, Lifetime = 0.7 } },
 			SLight = { Startup = 0.15, Active = 0.05, Recovery = 0.22, Damage = 7, BaseKnockback = 16, KnockbackScaling = 12, Angle = 20, Anim = "Shoot", Projectile = { Speed = 110, Angle = 0, Lifetime = 0.8 } },
 			DLight = { Startup = 0.12, Active = 0.1, Recovery = 0.22, Damage = 7, Angle = 65, Hitbox = hb(2.6, 0.8, 3.6, 1.6), Anim = "Kick" },

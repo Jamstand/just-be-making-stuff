@@ -16,7 +16,7 @@ local Settings = require(script.Parent.Settings)
 
 local Input = {}
 
-local PRESS_ACTIONS = { Jump = true, Light = true, Heavy = true, Dodge = true, Throw = true }
+local PRESS_ACTIONS = { Jump = true, Light = true, Heavy = true, Dodge = true, Throw = true, Ultimate = true }
 local STICK_DEADZONE = 0.3
 
 Input.state = {
@@ -24,7 +24,8 @@ Input.state = {
 	moveY = 0,
 	jumpHeld = false,
 	heavyHeld = false,
-	buffer = { Jump = 0, Light = 0, Heavy = 0, Dodge = 0, Throw = 0 },
+	blockHeld = false,
+	buffer = { Jump = 0, Light = 0, Heavy = 0, Dodge = 0, Throw = 0, Ultimate = 0 },
 }
 
 -- Written by MobileControls.
@@ -214,7 +215,7 @@ function Input.update(dt)
 	end
 	if not enabled then
 		state.moveX, state.moveY = 0, 0
-		state.jumpHeld, state.heavyHeld = false, false
+		state.jumpHeld, state.heavyHeld, state.blockHeld = false, false, false
 		return state
 	end
 
@@ -263,6 +264,7 @@ function Input.update(dt)
 		or gamepadHeld("Heavy")
 		or mouseHeld("Heavy")
 		or mobile.held.Heavy == true
+	state.blockHeld = (not typing and keyboardHeld("Block")) or gamepadHeld("Block") or mobile.held.Block == true
 	return state
 end
 

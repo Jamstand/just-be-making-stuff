@@ -103,6 +103,52 @@ Config.Combat = {
 	MaxActionsPerSecond = 40,
 }
 
+-- Battlegrounds-style combat ------------------------------------------------
+
+Config.Battle = {
+	-- Punch chains: a neutral ground light starts a 4-hit chain (three quick
+	-- hits, then the weapon's neutral light as a launcher). Press again
+	-- within ChainWindow of a chain hit's active frames ending to continue.
+	ChainWindow = 0.5,
+
+	-- Block: hold to block hits from the front. Blocked hits do no damage but
+	-- drain the guard meter; an empty meter breaks the guard and stuns.
+	GuardMax = 100,
+	GuardDrainBase = 5,
+	GuardDrainPerDamage = 2.2,
+	GuardDrainHeavy = 1.6, -- heavies drain this much more
+	GuardRegen = 28, -- per second, once GuardRegenDelay has passed since the last blocked hit
+	GuardRegenDelay = 1.0,
+	BlockStun = 0.14, -- the blocker is held in block this long after a blocked hit
+	BlockPushback = 16,
+	GuardBreakStun = 1.1,
+
+	-- Ragdoll knockdowns: hits at least this strong send the victim tumbling
+	-- limp. Landing while still tumbling knocks them down (invulnerable while
+	-- down and getting up) unless they tech: press dodge just before landing
+	-- to roll back up.
+	RagdollForce = 60,
+	TumbleHold = 1.0, -- how long a ragdoll stays limp over the stage after hitstun
+	KnockdownTime = 0.75,
+	KnockdownMinTime = 0.25, -- earliest a downed fighter can get up by pressing a button
+	GetUpTime = 0.3,
+	TechWindow = 0.2,
+	TechRollTime = 0.36,
+	TechRollSpeed = 24,
+
+	-- Ultimate: a meter filled by fighting. Full, it awakens you (everyone
+	-- freezes for the cut-in, then you get an aura, more damage and speed)
+	-- and gives you one cinematic ultimate move while awake.
+	UltMax = 100,
+	UltPerDamageDealt = 1.1,
+	UltPerDamageTaken = 0.6,
+	UltPerBlocked = 0.5,
+	AwakenFreeze = 1.1,
+	AwakenTime = 20,
+	AwakenDamageMult = 1.15,
+	AwakenSpeedMult = 1.1,
+}
+
 -- Weapons on the stage ----------------------------------------------------
 
 Config.WeaponDrops = {
@@ -213,6 +259,8 @@ Config.Bots = {
 			HeavyChance = 0.2,
 			Recovery = 0.7,
 			Accuracy = 0.55,
+			BlockChance = 0.08,
+			TechChance = 0.2,
 		},
 		Normal = {
 			Reaction = 0.26,
@@ -221,6 +269,8 @@ Config.Bots = {
 			HeavyChance = 0.35,
 			Recovery = 0.9,
 			Accuracy = 0.8,
+			BlockChance = 0.25,
+			TechChance = 0.55,
 		},
 		Hard = {
 			Reaction = 0.13,
@@ -229,6 +279,8 @@ Config.Bots = {
 			HeavyChance = 0.5,
 			Recovery = 1.0,
 			Accuracy = 0.95,
+			BlockChance = 0.4,
+			TechChance = 0.85,
 		},
 	},
 	DifficultyOrder = { "Easy", "Normal", "Hard" },
@@ -370,6 +422,8 @@ Config.DefaultKeybinds = {
 		Heavy = { "K" },
 		Dodge = { "L", "LeftShift" },
 		Throw = { "H" },
+		Block = { "F" },
+		Ultimate = { "G" },
 	},
 	Gamepad = {
 		Jump = { "ButtonA" },
@@ -377,10 +431,12 @@ Config.DefaultKeybinds = {
 		Heavy = { "ButtonB" },
 		Dodge = { "ButtonR2", "ButtonL2" },
 		Throw = { "ButtonY" },
+		Block = { "ButtonL1" },
+		Ultimate = { "ButtonR1" },
 	},
 }
 
-Config.InputActions = { "Left", "Right", "Up", "Down", "Jump", "Light", "Heavy", "Dodge", "Throw" }
+Config.InputActions = { "Left", "Right", "Up", "Down", "Jump", "Light", "Heavy", "Dodge", "Throw", "Block", "Ultimate" }
 Config.InputBufferTime = 0.12
 
 Config.DefaultSettings = {
@@ -389,6 +445,8 @@ Config.DefaultSettings = {
 	CameraZoom = 1.0,
 	CameraSmoothing = 0.5,
 	ScreenShake = true,
+	Effects = "Full", -- Full / Reduced / Off: impact frames, debris, auras...
+	Cinematics = true, -- camera cut-ins for awakenings and ultimates
 	DamageNumbers = true,
 	TapJump = true,
 	MouseAttacks = true,

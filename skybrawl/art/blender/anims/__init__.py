@@ -25,7 +25,7 @@ from sky import common, rig
 
 from . import core
 
-MODULES = ["locomotion", "unarmed", "sword", "hammer", "spear", "gauntlets", "scythe", "bow", "signatures"]
+MODULES = ["locomotion", "unarmed", "sword", "hammer", "spear", "gauntlets", "scythe", "bow", "signatures", "battle"]
 PHASE_FRAMES = 10  # Blender frames per move phase in phased clips
 FPS = 30
 

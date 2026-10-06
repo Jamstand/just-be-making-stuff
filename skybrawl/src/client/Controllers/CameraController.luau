@@ -14,7 +14,8 @@
       Tilted      slightly above the stage looking down (2.5D)
       Wide        wide lens with strong perspective
 
-    Plus zoom, smoothing and screen shake.
+    Plus zoom, smoothing and screen shake, and focus() for cinematic
+    moments (an awakening, an ultimate) that cut in close on one fighter.
 
     MatchClient supplies positions through setProvider(); while you're
     KO'd or eliminated the camera falls back to framing everyone.
@@ -42,6 +43,8 @@ local provider = nil
 local current = nil -- { x, y, h }
 local shakeAmount = 0
 local shakeSeed = 0
+local focusShot = nil -- { get, h, yaw, ends }
+local yaw = 0
 
 local function lookFor(id)
 	for _, look in Config.Camera.Looks do
@@ -159,12 +162,26 @@ local function update(dt)
 	th = th / math.clamp(Settings.get("CameraZoom") or 1, 0.5, 2)
 	tx, ty, th = clampToBounds(tx, ty, th, aspect)
 
+	local smoothing = math.clamp(Settings.get("CameraSmoothing") or 0.5, 0, 1)
+	local rate = 16 - smoothing * 13
+	local targetYaw = 0
+	if focusShot and os.clock() >= focusShot.ends then
+		focusShot = nil
+	end
+	if focusShot then
+		local fx, fy = focusShot.get()
+		if fx then
+			tx, ty, th = fx, fy, focusShot.h
+			targetYaw = focusShot.yaw
+			rate = 14
+		end
+	end
+
 	if not current then
 		current = { x = tx, y = ty, h = th }
 	end
-	local smoothing = math.clamp(Settings.get("CameraSmoothing") or 0.5, 0, 1)
-	local rate = 16 - smoothing * 13
 	local alpha = 1 - math.exp(-rate * dt)
+	yaw += (targetYaw - yaw) * (1 - math.exp(-10 * dt))
 	current.x += (tx - current.x) * alpha
 	current.y += (ty - current.y) * alpha
 	current.h += (th - current.h) * alpha
@@ -175,7 +192,8 @@ local function update(dt)
 	local pitch = math.rad(look.Pitch or 0)
 
 	local target = origin + Vector3.new(current.x, current.y, 0)
-	local position = target + Vector3.new(0, math.sin(pitch) * distance, math.cos(pitch) * distance)
+	local flat = math.cos(pitch) * distance
+	local position = target + Vector3.new(math.sin(yaw) * flat, math.sin(pitch) * distance, math.cos(yaw) * flat)
 
 	-- Screen shake, in screen-space studs relative to view height.
 	if shakeAmount > 0.01 and Settings.get("ScreenShake") then
@@ -196,6 +214,24 @@ function CameraController.shake(amount)
 	shakeAmount = math.min(Config.Camera.ShakeMax, shakeAmount + amount)
 end
 
+--[[
+    Cuts in close on a point for `duration` seconds, then eases back.
+    get() returns the point (local x, y) to frame, or nil to let go early;
+    viewHeight is how much of the stage shows; yawDegrees swings the camera
+    around for a three-quarter view.
+]]
+function CameraController.focus(get, viewHeight, duration, yawDegrees)
+	if Settings.get("Cinematics") == false then
+		return
+	end
+	focusShot = { get = get, h = viewHeight, yaw = math.rad(yawDegrees or 0), ends = os.clock() + duration }
+	local x, y = get()
+	if x and current then
+		-- a hard cut, like an anime cut-in
+		current.x, current.y, current.h = x, y, viewHeight
+	end
+end
+
 function CameraController.setProvider(fn)
 	provider = fn
 end
@@ -205,6 +241,8 @@ function CameraController.start(arenaOrigin, world)
 	bounds = world.camera
 	current = nil
 	shakeAmount = 0
+	focusShot = nil
+	yaw = 0
 	active = true
 	camera = workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Scriptable
@@ -215,6 +253,7 @@ end
 function CameraController.stop()
 	active = false
 	provider = nil
+	focusShot = nil
 	RunService:UnbindFromRenderStep(BIND_NAME)
 	camera = workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Custom

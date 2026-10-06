@@ -12,6 +12,12 @@
         Dexterity timing come from Legends.getAttack, and Strength/Defense
         scale damage here. Legends with imported art get their visual rig
         (LegendRig) on top of the Roblox character.
+      - Battlegrounds combat (Config.Battle) is decided here too: whether a
+        hit is blocked (players report when they block), the guard meter and
+        guard breaks, which hits ragdoll, the ultimate meter, awakening
+        (everyone freezes for the cut-in) and the one ultimate move per
+        awakening. Players report knockdowns and techs; their invulnerability
+        is only granted shortly after a hit that tumbled them.
 
     Lifecycle: Loading -> Countdown -> Playing -> Ended
 ]]
@@ -38,6 +44,8 @@ local BotBrain = require(script.Parent.BotBrain)
 
 local Match = {}
 Match.__index = Match
+
+local B = Config.Battle
 
 local GRAVEYARD_Y = 600
 local SKIN_TONES = {
@@ -139,6 +147,15 @@ function Match:newFighter(id, team)
 		actionBudget = Config.Combat.MaxActionsPerSecond,
 		budgetClock = os.clock(),
 		level = 1,
+		-- battlegrounds combat
+		guard = B.GuardMax,
+		lastGuardHit = 0,
+		blocking = false,
+		blockFacing = 1,
+		ult = 0,
+		awakenUntil = 0,
+		ultUsed = false,
+		lastTumbleHit = -100,
 	}
 	self.fighters[id] = f
 	table.insert(self.order, id)
@@ -213,6 +230,39 @@ function Match:IsInvulnerable(f)
 	return f.isBot and f.state ~= nil and FighterSim.isInvulnerable(f.state)
 end
 
+function Match:IsBlocking(f)
+	if f.isBot then
+		return f.state ~= nil and FighterSim.isBlocking(f.state)
+	end
+	return f.blocking
+end
+
+function Match:BlockFacing(f)
+	if f.isBot then
+		return f.state and f.state.facing or 1
+	end
+	return f.blockFacing
+end
+
+function Match:IsAwakened(f)
+	return os.clock() < f.awakenUntil
+end
+
+-- What the ultimate button does for this fighter right now.
+function Match:UltimateState(f)
+	if self:IsAwakened(f) then
+		return not f.ultUsed and "Attack" or nil
+	end
+	return f.ult >= B.UltMax and "Awaken" or nil
+end
+
+function Match:addUlt(f, amount)
+	if not f or self:IsAwakened(f) then
+		return
+	end
+	f.ult = math.clamp(f.ult + amount, 0, B.UltMax)
+end
+
 function Match:IsAttacking(f)
 	if f.isBot then
 		return f.state ~= nil and f.state.action == "Attack"
@@ -242,6 +292,8 @@ function Match:fighterInfo(f)
 		weapon = f.weapon,
 		rating = f.rating,
 		legend = f.legend,
+		ult = f.ult,
+		guard = f.guard,
 	}
 end
 
@@ -546,6 +598,8 @@ function Match:stepBot(f, dt)
 		legend = f.legend,
 		armed = Weapons.isWeapon(f.weapon),
 		nearPickup = self:nearPickup(s.x, s.y, Config.WeaponDrops.PickupRange) ~= nil,
+		ultimate = self:UltimateState(f),
+		awakened = self:IsAwakened(f),
 	}
 	local events = FighterSim.step(s, input, dt, ctx)
 	for _, ev in events do
@@ -563,8 +617,10 @@ function Match:stepBot(f, dt)
 					local hx1, hy1, hx2, hy2 = FighterSim.hurtbox(tx, ty)
 					if FighterSim.overlaps(x1, y1, x2, y2, hx1, hy1, hx2, hy2) then
 						rec.hits[target.id] = true
-						local hit, hitstop = self:ApplyHit(f, target, rec.move, rec.charge, s.facing)
-						if hit then
+						local hit, hitstop, blocked = self:ApplyHit(f, target, rec.move, rec.charge, s.facing)
+						if blocked then
+							FighterSim.freeze(s, hitstop)
+						elseif hit then
 							rec.confirmed = true
 							FighterSim.onHitConfirm(s, hitstop)
 						end
@@ -603,6 +659,9 @@ end
 function Match:handleBotEvent(f, ev)
 	if ev.type == "Attack" then
 		local move = Legends.getAttack(f.legend, f.weapon, ev.slot)
+		if ev.slot == "Ultimate" then
+			f.ultUsed = true
+		end
 		self:recordAttack(f, ev.seq, ev.slot, move, ev.facing)
 		self:Broadcast(
 			"Action",
@@ -629,6 +688,14 @@ function Match:handleBotEvent(f, ev)
 		self:ThrowWeapon(f, ev.dirY, ev.facing)
 	elseif ev.type == "Pickup" then
 		self:TryPickup(f)
+	elseif ev.type == "Awaken" then
+		if self:UltimateState(f) == "Awaken" then
+			self:Awaken(f)
+		end
+	elseif ev.type == "Block" then
+		self:Broadcast("Action", { fighterId = f.id, kind = "Block", on = ev.on })
+	elseif ev.type == "Knockdown" or ev.type == "Tech" or ev.type == "GetUp" then
+		self:Broadcast("Action", { fighterId = f.id, kind = "Down", downKind = ev.type, dir = ev.dir })
 	end
 end
 
@@ -644,6 +711,16 @@ function Match:Step(dt)
 		end
 		if self.phase ~= "Playing" then
 			return
+		end
+	end
+
+	for _, f in self.fighters do
+		-- the guard refills while not blocking
+		if f.guard < B.GuardMax and not self:IsBlocking(f) and now - f.lastGuardHit > B.GuardRegenDelay then
+			f.guard = math.min(B.GuardMax, f.guard + B.GuardRegen * dt)
+		end
+		if f.awakenUntil > 0 and now >= f.awakenUntil then
+			self:EndAwakening(f)
 		end
 	end
 
@@ -674,6 +751,47 @@ end
 
 -- Hits --------------------------------------------------------------------
 
+-- A hit that a blocking fighter caught on their guard: no damage, but it
+-- drains the guard meter; an empty one breaks and stuns them. Returns like
+-- ApplyHit (the third value is true for a plain block, false for a break).
+function Match:BlockHit(attacker, target, move, charge, mult, ax, tx, ty)
+	local now = os.clock()
+	local dmg = Combat.damage(move, charge, mult)
+	local drain = B.GuardDrainBase + dmg * B.GuardDrainPerDamage * (move.Kind == "Heavy" and B.GuardDrainHeavy or 1)
+	target.guard = math.max(0, target.guard - drain)
+	target.lastGuardHit = now
+	self:addUlt(target, dmg * B.UltPerBlocked)
+	local hitstop = Combat.hitstop(dmg * 3)
+	local event = {
+		attackerId = attacker and attacker.id,
+		victimId = target.id,
+		guard = target.guard,
+		hitstop = hitstop,
+		ult = target.ult,
+		x = tx,
+		y = ty + Config.Physics.FighterHeight * 0.55,
+	}
+	if target.guard <= 0 then
+		target.blocking = false
+		target.hitstunUntil = now + B.GuardBreakStun
+		if target.isBot and target.state then
+			FighterSim.applyGuardBreak(target.state, B.GuardBreakStun)
+		end
+		event.stun = B.GuardBreakStun
+		self:Broadcast("GuardBreak", event)
+		return true, hitstop, false
+	end
+	local pushX = (tx >= ax and 1 or -1) * B.BlockPushback
+	target.hitstunUntil = math.max(target.hitstunUntil, now + B.BlockStun)
+	if target.isBot and target.state then
+		FighterSim.applyBlock(target.state, pushX, B.BlockStun, hitstop)
+	end
+	event.pushX = pushX
+	event.stun = B.BlockStun
+	self:Broadcast("Blocked", event)
+	return true, hitstop, true
+end
+
 function Match:ApplyHit(attacker, target, move, charge, facing, sourceX, ranged)
 	if self:IsInvulnerable(target) or not target.alive then
 		return false
@@ -682,7 +800,21 @@ function Match:ApplyHit(attacker, target, move, charge, facing, sourceX, ranged)
 	local mult = (self.config.damageMultiplier or 1) * Legends.damageTakenMult(target.legend)
 	if attacker then
 		mult *= Legends.damageDealtMult(attacker.legend)
+		if self:IsAwakened(attacker) then
+			mult *= B.AwakenDamageMult
+		end
 	end
+
+	-- Blocked from the front?
+	if self:IsBlocking(target) and not move.Unblockable then
+		local bx, by = self:GetPosition(target)
+		local ax = sourceX or (attacker and self:GetPosition(attacker)) or bx
+		if (ax - bx) * self:BlockFacing(target) >= -0.5 then
+			return self:BlockHit(attacker, target, move, charge, mult, ax, bx, by)
+		end
+	end
+	target.blocking = false
+
 	local dmg = Combat.damage(move, charge, mult)
 	target.damage = math.min(Config.Combat.MaxDamage, target.damage + dmg)
 	target.damageTaken += dmg
@@ -698,6 +830,12 @@ function Match:ApplyHit(attacker, target, move, charge, facing, sourceX, ranged)
 	local kbx, kby, force = Combat.knockback(move, target.damage, charge, facing, tx - (ax or tx))
 	local hitstun = Combat.hitstun(force)
 	local hitstop = Combat.hitstop(force)
+	local ragdoll = force >= B.RagdollForce
+	if ragdoll then
+		target.lastTumbleHit = now
+	end
+	self:addUlt(attacker, dmg * B.UltPerDamageDealt)
+	self:addUlt(target, dmg * B.UltPerDamageTaken)
 
 	-- Combo counter: consecutive hits by the same attacker. A hit while the
 	-- victim is still in hitstun is a true link; one shortly after is a string.
@@ -718,7 +856,7 @@ function Match:ApplyHit(attacker, target, move, charge, facing, sourceX, ranged)
 		attacker.lastHitDealt = now
 	end
 	if target.isBot and target.state then
-		FighterSim.applyHit(target.state, kbx, kby, hitstun, hitstop)
+		FighterSim.applyHit(target.state, kbx, kby, hitstun, hitstop, ragdoll)
 	end
 
 	self:Broadcast("Hit", {
@@ -736,10 +874,42 @@ function Match:ApplyHit(attacker, target, move, charge, facing, sourceX, ranged)
 		combo = target.comboCount,
 		trueCombo = target.comboTrue,
 		signature = move.Signature,
+		ultimate = move.Ultimate == true,
+		ragdoll = ragdoll,
+		attackerUlt = attacker and attacker.ult,
+		victimUlt = target.ult,
 		x = tx,
 		y = ty + Config.Physics.FighterHeight * 0.55,
 	})
-	return true, hitstop
+	return true, hitstop, false
+end
+
+-- Awakening: the meter's spent, everyone freezes for the cut-in, then the
+-- fighter fights stronger and faster for a while, with one ultimate move.
+function Match:Awaken(f)
+	local now = os.clock()
+	f.ult = 0
+	f.ultUsed = false
+	f.awakenUntil = now + B.AwakenFreeze + B.AwakenTime
+	f.invulnUntil = math.max(f.invulnUntil, now + B.AwakenFreeze)
+	f.blocking = false
+	for _, other in self.fighters do
+		if other.isBot and other.state then
+			if other == f then
+				FighterSim.awaken(other.state, B.AwakenFreeze)
+			else
+				FighterSim.freeze(other.state, B.AwakenFreeze)
+			end
+		end
+	end
+	self:Broadcast("Awaken", { fighterId = f.id, freeze = B.AwakenFreeze, duration = B.AwakenTime })
+end
+
+function Match:EndAwakening(f)
+	if f.awakenUntil > 0 then
+		f.awakenUntil = 0
+		self:Broadcast("AwakenEnd", { fighterId = f.id })
+	end
 end
 
 function Match:onHitReport(f, data)
@@ -807,6 +977,9 @@ function Match:KO(f, x, y)
 		end
 	end
 	self:SetWeapon(f, "Unarmed")
+	self:EndAwakening(f)
+	f.blocking = false
+	f.guard = B.GuardMax
 	if f.isBot and f.state then
 		f.state.frozen = true
 		f.root.Anchored = true
@@ -1182,10 +1355,19 @@ local function finite(value)
 	return type(value) == "number" and value == value and math.abs(value) < 1e9
 end
 
-local VALID_SLOTS = {}
+local VALID_SLOTS = { Ultimate = true }
 for _, slot in Weapons.Slots do
 	VALID_SLOTS[slot] = true
 end
+
+-- Invulnerability a downed fighter gets, and how long after a tumbling hit
+-- a knockdown or tech can still be claimed.
+local DOWN_INVULN = {
+	Knockdown = B.KnockdownTime + B.GetUpTime,
+	GetUp = B.GetUpTime,
+	Tech = B.TechRollTime,
+}
+local DOWN_WINDOW = Config.Combat.MaxHitstun + 4
 
 local function validSeq(value)
 	return finite(value) and value % 1 == 0
@@ -1202,6 +1384,10 @@ function Match:canStartAttack(f, now)
 	end
 	if prev.move.Air or f.lastHitTime > prev.start then
 		return now - prev.start >= 0.05
+	end
+	-- Punch chain hits cut each other's recovery short, hit or not.
+	if prev.move.Chain and prev.move.Chain < 4 then
+		return now - prev.start >= (prev.move.Startup + prev.move.Active) * COOLDOWN_LENIENCY
 	end
 	-- A light that hit can be cancelled (jump or chase dodge) once its
 	-- active frames are over, and then the next attack can start.
@@ -1246,7 +1432,7 @@ function Match:OnAction(player, kind, data)
 	-- FighterSim can't attack, dodge or throw during hitstun, and the server
 	-- knows how long the hitstun it dealt lasts.
 	local inHitstun = now < f.hitstunUntil - HITSTUN_SLACK
-	if inHitstun and (kind == "Attack" or kind == "Dodge" or kind == "Throw") then
+	if inHitstun and (kind == "Attack" or kind == "Dodge" or kind == "Throw" or kind == "Awaken") then
 		return
 	end
 
@@ -1258,6 +1444,13 @@ function Match:OnAction(player, kind, data)
 		if not move or not self:canStartAttack(f, now) then
 			return
 		end
+		if data.slot == "Ultimate" then
+			if self:UltimateState(f) ~= "Attack" then
+				return
+			end
+			f.ultUsed = true
+		end
+		f.blocking = false
 		-- FighterSim can only attack out of an invulnerable dodge by gravity
 		-- cancelling an air spot dodge, which ends the invulnerability.
 		f.dodgeInvulnUntil = 0
@@ -1326,6 +1519,27 @@ function Match:OnAction(player, kind, data)
 		self:ThrowWeapon(f, dirY, data.facing)
 	elseif kind == "Pickup" then
 		self:TryPickup(f)
+	elseif kind == "Block" then
+		local on = data.on == true and not inHitstun
+		if on == f.blocking then
+			return
+		end
+		f.blocking = on
+		f.blockFacing = data.facing == -1 and -1 or 1
+		self:Broadcast("Action", { fighterId = f.id, kind = "Block", on = on }, player)
+	elseif kind == "Down" then
+		local invuln = DOWN_INVULN[data.kind]
+		if not invuln or now - f.lastTumbleHit > DOWN_WINDOW then
+			return
+		end
+		f.blocking = false
+		f.dodgeInvulnUntil = math.max(f.dodgeInvulnUntil, now + invuln + Config.Combat.DodgeInvulnSlack)
+		local dir = data.dir == -1 and -1 or (data.dir == 1 and 1 or 0)
+		self:Broadcast("Action", { fighterId = f.id, kind = "Down", downKind = data.kind, dir = dir }, player)
+	elseif kind == "Awaken" then
+		if self:UltimateState(f) == "Awaken" then
+			self:Awaken(f)
+		end
 	end
 end
 

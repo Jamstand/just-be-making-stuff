@@ -233,8 +233,8 @@ function Visuals.damageNumber(x, y, amount, color)
 	end)
 end
 
-function Visuals.hurt(model, hitstun, force)
-	FighterAnimator.hurt(model, hitstun, force)
+function Visuals.hurt(model, hitstun, force, ragdoll)
+	FighterAnimator.hurt(model, hitstun, force, ragdoll)
 	local highlight = Instance.new("Highlight")
 	highlight.FillColor = Color3.fromRGB(255, 80, 80)
 	highlight.FillTransparency = 0.35

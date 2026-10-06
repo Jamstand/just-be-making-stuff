@@ -9,6 +9,9 @@
       Defense     -4% damage taken per point above 5
       Speed       +4% run/air/dash speed and -3% dodge cooldowns per point above 5
 
+    Each legend also has an Ultimate: an unblockable cinematic move they can
+    use once while awakened (Config.Battle), the same whatever they hold.
+
     Legends.getAttack(legend, weapon, slot) is the one lookup everything uses
     (FighterSim, the server, visuals): it applies the signature and the
     Dexterity timing, so client and server always agree on frame data.
@@ -50,6 +53,7 @@ Legends.List = {
 		Weapons = { "Sword", "Bow" },
 		Stats = { Strength = 5, Dexterity = 6, Defense = 4, Speed = 7 },
 		Color = Color3.fromRGB(31, 128, 136),
+		Ultimate = { Name = "Final Draw", Startup = 0.26, Active = 0.18, Recovery = 0.45, Damage = 23, BaseKnockback = 54, KnockbackScaling = 66, Angle = 35, Motion = motion(0.24, 0.16, 110, 0), Hitbox = hb(-2, 3, 10, 3.5) },
 		Signatures = {
 			Sword = {
 				NHeavy = { Name = "Updraft", Startup = 0.26, Active = 0.2, Recovery = 0.4, Damage = 15, BaseKnockback = 28, KnockbackScaling = 48, Angle = 85, Charge = 0.5, Motion = motion(0.24, 0.2, 4, 38), Hitbox = hb(1, 5, 4.5, 6) },
@@ -69,6 +73,7 @@ Legends.List = {
 		Weapons = { "Hammer", "Gauntlets" },
 		Stats = { Strength = 8, Dexterity = 4, Defense = 7, Speed = 3 },
 		Color = Color3.fromRGB(196, 92, 40),
+		Ultimate = { Name = "Overdrive Cannon", Startup = 0.3, Active = 0.24, Recovery = 0.45, Damage = 24, BaseKnockback = 55, KnockbackScaling = 66, Angle = 25, Motion = motion(0.28, 0.24, 75, 0), Hitbox = hb(3, 3, 5, 4) },
 		Signatures = {
 			Hammer = {
 				NHeavy = { Name = "Anvil Rise", Startup = 0.42, Active = 0.18, Recovery = 0.46, Damage = 21, BaseKnockback = 33, KnockbackScaling = 62, Angle = 78, Charge = 0.7, Hitbox = hb(1.5, 5, 6.5, 7) },
@@ -88,6 +93,7 @@ Legends.List = {
 		Weapons = { "Spear", "Bow" },
 		Stats = { Strength = 5, Dexterity = 7, Defense = 4, Speed = 6 },
 		Color = Color3.fromRGB(150, 200, 240),
+		Ultimate = { Name = "Absolute Zero", Startup = 0.36, Active = 0.2, Recovery = 0.5, Damage = 22, BaseKnockback = 54, KnockbackScaling = 62, Angle = 70, Radial = true, Hitbox = hb(0, 3, 14, 8) },
 		Signatures = {
 			Spear = {
 				NHeavy = { Name = "Icicle Pillar", Startup = 0.32, Active = 0.16, Recovery = 0.4, Damage = 16, BaseKnockback = 28, KnockbackScaling = 52, Angle = 88, Charge = 0.6, Motion = motion(0.3, 0.14, 0, 30), Hitbox = hb(1.5, 6.5, 3, 7) },
@@ -107,6 +113,7 @@ Legends.List = {
 		Weapons = { "Scythe", "Spear" },
 		Stats = { Strength = 6, Dexterity = 5, Defense = 6, Speed = 5 },
 		Color = Color3.fromRGB(96, 170, 70),
+		Ultimate = { Name = "Rampage", Startup = 0.28, Active = 0.26, Recovery = 0.5, Damage = 25, BaseKnockback = 56, KnockbackScaling = 68, Angle = 50, Motion = motion(0.24, 0.26, 50, 30), Hitbox = hb(3, 2.5, 6, 5) },
 		Signatures = {
 			Scythe = {
 				NHeavy = { Name = "Thornwhirl", Startup = 0.34, Active = 0.2, Recovery = 0.42, Damage = 16, BaseKnockback = 28, KnockbackScaling = 50, Angle = 82, Charge = 0.6, Radial = true, Motion = motion(0.3, 0.18, 0, 24), Hitbox = hb(0, 4.5, 8, 7) },
@@ -126,6 +133,7 @@ Legends.List = {
 		Weapons = { "Scythe", "Gauntlets" },
 		Stats = { Strength = 6, Dexterity = 7, Defense = 3, Speed = 6 },
 		Color = Color3.fromRGB(120, 70, 170),
+		Ultimate = { Name = "Thousand Shadows", Startup = 0.24, Active = 0.3, Recovery = 0.4, Damage = 22, BaseKnockback = 52, KnockbackScaling = 64, Angle = 40, Motion = motion(0.22, 0.28, 90, 0), Hitbox = hb(0, 3, 6, 5) },
 		Signatures = {
 			Scythe = {
 				NHeavy = { Name = "Eclipse", Startup = 0.3, Active = 0.2, Recovery = 0.4, Damage = 17, BaseKnockback = 30, KnockbackScaling = 54, Angle = 80, Charge = 0.5, Radial = true, Hitbox = hb(0, 5, 9, 5) },
@@ -145,6 +153,7 @@ Legends.List = {
 		Weapons = { "Sword", "Hammer" },
 		Stats = { Strength = 7, Dexterity = 4, Defense = 7, Speed = 4 },
 		Color = Color3.fromRGB(230, 180, 60),
+		Ultimate = { Name = "Zenith Smash", Startup = 0.32, Active = 0.14, Recovery = 0.5, Damage = 26, BaseKnockback = 58, KnockbackScaling = 70, Angle = 30, Motion = motion(0.28, 0.12, 30, 0), Hitbox = hb(5, 3.2, 9, 5.5) },
 		Signatures = {
 			Sword = {
 				NHeavy = { Name = "Sunrise", Startup = 0.32, Active = 0.16, Recovery = 0.4, Damage = 17, BaseKnockback = 30, KnockbackScaling = 52, Angle = 82, Charge = 0.6, Hitbox = hb(1.5, 5.5, 5, 6) },
@@ -164,6 +173,7 @@ Legends.List = {
 		Weapons = nil,
 		Stats = { Strength = 5, Dexterity = 6, Defense = 5, Speed = 6 },
 		Color = Color3.fromRGB(200, 200, 210),
+		Ultimate = { Name = "Limit Break", Startup = 0.3, Active = 0.16, Recovery = 0.5, Damage = 24, BaseKnockback = 55, KnockbackScaling = 66, Angle = 75, Motion = motion(0.26, 0.14, 10, 30), Hitbox = hb(2.5, 4.5, 6, 7) },
 		Signatures = {},
 	},
 }
@@ -302,21 +312,51 @@ end
 
 local cache = {}
 
+-- A legend's ultimate move, with the defaults every attack has.
+local function ultimate(legend)
+	local u = legend.Ultimate
+	local move = {
+		Slot = "Ultimate",
+		Kind = "Heavy",
+		Air = false,
+		Ultimate = true,
+		Unblockable = true,
+		AirDrift = 0,
+		Anim = "Ultimate",
+		Signature = u.Name,
+		AnimKey = legend.Id .. ".Ultimate",
+	}
+	for key, value in u do
+		if key ~= "Name" then
+			move[key] = value
+		end
+	end
+	return move
+end
+
 function Legends.getAttack(legendId, weaponId, slot)
 	local legend = Legends.get(legendId)
 	weaponId = Weapons.get(weaponId).Id
-	local key = legend.Id .. "/" .. weaponId .. "/" .. tostring(slot)
+	local key = legend.Id .. "/" .. (slot == "Ultimate" and "" or weaponId) .. "/" .. tostring(slot)
 	local cached = cache[key]
 	if cached then
 		return cached
 	end
-	local base = Weapons.getAttack(weaponId, slot)
-	if not base then
-		return nil
+	local move
+	if slot == "Ultimate" then
+		if not legend.Ultimate then
+			return nil
+		end
+		move = ultimate(legend)
+	else
+		local base = Weapons.getAttack(weaponId, slot)
+		if not base then
+			return nil
+		end
+		local sigs = legend.Signatures[weaponId]
+		local sig = sigs and sigs[slot]
+		move = sig and signature(base, sig, legend.Id, weaponId, slot) or table.clone(base)
 	end
-	local sigs = legend.Signatures[weaponId]
-	local sig = sigs and sigs[slot]
-	local move = sig and signature(base, sig, legend.Id, weaponId, slot) or table.clone(base)
 	move.AnimKey = move.AnimKey or (weaponId .. "." .. slot)
 	local mult = Legends.timingMult(legend.Id)
 	move.Startup *= mult
@@ -331,6 +371,10 @@ function Legends.getAttack(legendId, weaponId, slot)
 end
 
 function Legends.signatureName(legendId, weaponId, slot)
+	if slot == "Ultimate" then
+		local u = Legends.get(legendId).Ultimate
+		return u and u.Name or nil
+	end
 	local sigs = Legends.get(legendId).Signatures[weaponId]
 	local sig = sigs and sigs[slot]
 	return sig and sig.Name or nil

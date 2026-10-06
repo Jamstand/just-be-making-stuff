@@ -1,6 +1,7 @@
 --[[
     In-match HUD:
-      - fighter cards along the bottom (damage %, stocks or score, weapon)
+      - fighter cards along the bottom (damage %, stocks or score, weapon,
+        the ultimate meter and the guard meter)
       - timer, countdown / GO!, KO feed
       - "You're out" / respawn notice
       - combo counter (your combos on the left, combos on you on the right)
@@ -29,6 +30,13 @@ local T = UIKit.Theme
 local make = UIKit.make
 
 local MatchHUD = {}
+
+local B = Config.Battle
+local ULT_COLOR = Color3.fromRGB(255, 196, 64)
+local ULT_READY = Color3.fromRGB(255, 240, 150)
+local AWAKE_COLOR = Color3.fromRGB(255, 84, 60)
+local GUARD_COLOR = Color3.fromRGB(90, 170, 255)
+local GUARD_LOW = Color3.fromRGB(255, 90, 90)
 
 local player = Players.LocalPlayer
 local gui = nil
@@ -66,7 +74,7 @@ end
 local function buildCard(f, order)
 	local frame = UIKit.panel({
 		LayoutOrder = order,
-		Size = UDim2.fromOffset(176, 82),
+		Size = UDim2.fromOffset(176, 100),
 		BackgroundColor3 = T.PanelDark,
 		BackgroundTransparency = 0.12,
 		Parent = cardsFrame,
@@ -107,7 +115,76 @@ local function buildCard(f, order)
 		TextColor3 = T.Muted,
 		Parent = frame,
 	})
-	cards[f.id] = { frame = frame, damage = damage, stocks = stocks, weapon = weapon, name = name }
+	local function bar(y, height, color)
+		local back = make("Frame", {
+			Position = UDim2.new(0, 10, 0, y),
+			Size = UDim2.new(1, -20, 0, height),
+			BackgroundColor3 = Color3.fromRGB(10, 10, 16),
+			BackgroundTransparency = 0.2,
+			BorderSizePixel = 0,
+			Parent = frame,
+		}, { UIKit.corner(height // 2) })
+		return make("Frame", {
+			Size = UDim2.fromScale(0, 1),
+			BackgroundColor3 = color,
+			BorderSizePixel = 0,
+			Parent = back,
+		}, { UIKit.corner(height // 2) })
+	end
+	local ult = bar(78, 9, ULT_COLOR)
+	local ultLabel = UIKit.label("", 10, {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -10, 0, 60),
+		Size = UDim2.new(0.6, 0, 0, 16),
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Font = T.BoldFont,
+		TextColor3 = ULT_READY,
+		Parent = frame,
+	})
+	local guard = bar(90, 4, GUARD_COLOR)
+	cards[f.id] = {
+		frame = frame,
+		damage = damage,
+		stocks = stocks,
+		weapon = weapon,
+		name = name,
+		ult = ult,
+		ultLabel = ultLabel,
+		guard = guard,
+	}
+	MatchHUD.updateMeters(f)
+end
+
+-- The ultimate and guard meters on a fighter's card.
+function MatchHUD.updateMeters(f)
+	local card = f and cards[f.id]
+	if not card then
+		return
+	end
+	local ult = math.clamp((f.ult or 0) / B.UltMax, 0, 1)
+	local awake = f.awakened == true
+	card.ult.Size = UDim2.fromScale(awake and (f.awakenFrac or 1) or ult, 1)
+	card.ult.BackgroundColor3 = awake and AWAKE_COLOR or (ult >= 1 and ULT_READY or ULT_COLOR)
+	local mine = current and f == current.me
+	if awake then
+		card.ultLabel.Text = "AWAKENED"
+		card.ultLabel.TextColor3 = AWAKE_COLOR
+	elseif ult >= 1 then
+		card.ultLabel.Text = mine and "ULT READY" or "ULT"
+		card.ultLabel.TextColor3 = ULT_READY
+	else
+		card.ultLabel.Text = ""
+	end
+	local guard = math.clamp((f.guard or B.GuardMax) / B.GuardMax, 0, 1)
+	card.guard.Size = UDim2.fromScale(guard, 1)
+	card.guard.BackgroundColor3 = guard < 0.3 and GUARD_LOW or GUARD_COLOR
+end
+
+-- A big centered callout ("GUARD BREAK!", "AWAKENED!", an ultimate's name).
+function MatchHUD.announce(text, color, duration)
+	if bigText then
+		popBig(text, color, duration)
+	end
 end
 
 function MatchHUD.updateFighter(f)

@@ -1,7 +1,8 @@
 --[[
     On-screen controls for phones and tablets during a match:
     a floating joystick on the left half of the screen and five action
-    buttons on the right (Light, Heavy, Jump, Dodge, Throw).
+    buttons on the right (Light, Heavy, Jump, Dodge, Throw, Block (hold),
+    Ultimate).
 ]]
 
 local Players = game:GetService("Players")
@@ -28,6 +29,8 @@ local BUTTONS = {
 	{ "Jump", "JUMP", Vector2.new(-60, -50), 76, T.Teal },
 	{ "Dodge", "DODGE", Vector2.new(-240, -50), 66, T.PanelLight },
 	{ "Throw", "THROW", Vector2.new(-150, -190), 62, T.PanelLight },
+	{ "Block", "BLOCK", Vector2.new(-240, -140), 66, T.Teal },
+	{ "Ultimate", "ULT", Vector2.new(-60, -240), 66, T.Gold },
 }
 
 local function buildJoystick(parent)

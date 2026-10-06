@@ -57,7 +57,7 @@ end
 
 print("Weapons")
 
-h.test("every weapon has all 11 attacks with sane numbers", function()
+h.test("every weapon has all 14 attacks with sane numbers", function()
 	for id, weapon in Weapons.List do
 		for _, slot in Weapons.Slots do
 			local move = weapon.Moves[slot]
@@ -250,8 +250,9 @@ h.test("attack hitbox is only active during the active window", function()
 	local s = FighterSim.newState(0, 0, 1)
 	local input = newInput()
 	run(s, input, 0.05, ctx())
+	input.moveY = -1
 	press(input, "Light")
-	local move = Weapons.getAttack("Sword", "NLight")
+	local move = Weapons.getAttack("Sword", "DLight")
 	local activeFrames = 0
 	local firstActive = nil
 	run(s, input, 0.6, ctx("SkyholdKeep", "Sword"), function(state, i)
@@ -325,6 +326,223 @@ h.test("bow light attacks fire projectiles", function()
 		end
 	end
 	h.expect(fired, "should fire")
+end)
+
+print("Battlegrounds combat")
+
+local B = Config.Battle
+
+local function slotsOf(events)
+	local out = {}
+	for _, ev in events do
+		if ev.type == "Attack" then
+			table.insert(out, ev.slot)
+		end
+	end
+	return table.concat(out, " ")
+end
+
+-- Presses light every time the current attack's active frames end.
+h.test("neutral light runs the punch chain: three quick hits, then the launcher", function()
+	for _, weapon in { "Unarmed", "Sword", "Hammer", "Spear" } do
+		local s = FighterSim.newState(0, 0, 1)
+		local input = newInput()
+		local c = ctx("SkyholdKeep", weapon)
+		run(s, input, 0.05, c)
+		local events = {}
+		for _ = 1, 60 do
+			local m = s.move
+			if s.action == nil or (s.action == "Attack" and m and s.actionTime >= m.Startup + m.Active) then
+				press(input, "Light")
+			end
+			for _, ev in run(s, input, DT, c) do
+				table.insert(events, ev)
+			end
+		end
+		h.expect(
+			string.find(slotsOf(events), "Chain1 Chain2 Chain3 NLight", 1, true) == 1,
+			weapon .. ": " .. slotsOf(events)
+		)
+		local launcher = Weapons.getAttack(weapon, "NLight")
+		h.expect(launcher.Chain == 4 and launcher.Angle >= 50, weapon .. " finisher should launch")
+	end
+end)
+
+h.test("the chain starts over after a pause, and direction picks the other lights", function()
+	local s = FighterSim.newState(0, 0, 1)
+	local input = newInput()
+	local c = ctx("SkyholdKeep", "Sword")
+	run(s, input, 0.05, c)
+	press(input, "Light")
+	local events = run(s, input, 0.3, c)
+	run(s, input, B.ChainWindow + 0.2, c)
+	press(input, "Light")
+	for _, ev in run(s, input, 0.3, c) do
+		table.insert(events, ev)
+	end
+	input.moveY = -1
+	press(input, "Light")
+	for _, ev in run(s, input, 0.5, c) do
+		table.insert(events, ev)
+	end
+	h.expect(slotsOf(events) == "Chain1 Chain1 DLight", slotsOf(events))
+end)
+
+h.test("holding block blocks on the ground, stops attacks, and a dodge breaks out", function()
+	local s = FighterSim.newState(0, 0, 1)
+	local input = newInput()
+	local c = ctx()
+	run(s, input, 0.05, c)
+	input.blockHeld = true
+	local events = run(s, input, 0.1, c)
+	h.expect(s.action == "Block", "should block, got " .. tostring(s.action))
+	h.expect(events[1] and events[1].type == "Block" and events[1].on, "should report blocking")
+	press(input, "Light")
+	run(s, input, 0.2, c)
+	h.expect(s.action == "Block", "attacks wait while blocking")
+	FighterSim.applyBlock(s, -B.BlockPushback, B.BlockStun, 0.05)
+	run(s, input, 0.1, c)
+	h.expect(s.action == "Block" and s.x < -0.3, "a blocked hit pushes back but keeps the block")
+	press(input, "Dodge")
+	run(s, input, 0.05, c)
+	h.expect(s.action == "Block", "no dodging out during block stun")
+	run(s, input, B.BlockStun, c)
+	press(input, "Dodge")
+	run(s, input, 0.05, c)
+	h.expect(s.action == "Dodge", "a dodge breaks out of block, got " .. tostring(s.action))
+	input.blockHeld = false
+	run(s, input, 0.6, c)
+	h.expect(s.action == nil, "free again")
+end)
+
+h.test("a guard break stuns, then lets go", function()
+	local s = FighterSim.newState(0, 0, 1)
+	local input = newInput()
+	local c = ctx()
+	run(s, input, 0.05, c)
+	input.blockHeld = true
+	run(s, input, 0.1, c)
+	FighterSim.applyGuardBreak(s, B.GuardBreakStun)
+	input.blockHeld = false
+	press(input, "Light")
+	run(s, input, B.GuardBreakStun - 0.1, c)
+	h.expect(s.action == "Stunned", "stunned, got " .. tostring(s.action))
+	run(s, input, 0.2, c)
+	h.expect(s.action == nil, "the stun wears off")
+end)
+
+h.test("a tumbling launch knocks you down on landing; dodge just before landing techs", function()
+	for _, tech in { false, true } do
+		local s = FighterSim.newState(0, 0, 1)
+		local input = newInput()
+		local c = ctx()
+		run(s, input, 0.05, c)
+		FighterSim.applyHit(s, 6, 40, 0.9, 0, true)
+		local events = {}
+		for _ = 1, 120 do
+			if tech and s.vy < 0 and s.y < 3 and not s.grounded then
+				press(input, "Dodge")
+			end
+			for _, ev in run(s, input, DT, c) do
+				table.insert(events, ev)
+			end
+			if s.action == "Knockdown" or s.action == "TechRoll" then
+				break
+			end
+		end
+		if tech then
+			h.expect(s.action == "TechRoll", "should tech, got " .. tostring(s.action))
+			h.expect(FighterSim.isInvulnerable(s), "invulnerable while teching")
+		else
+			h.expect(s.action == "Knockdown", "should be knocked down, got " .. tostring(s.action))
+			h.expect(FighterSim.isInvulnerable(s), "invulnerable while down")
+			run(s, input, B.KnockdownTime + B.GetUpTime + 0.1, c)
+			h.expect(s.action == nil, "gets back up, got " .. tostring(s.action))
+		end
+	end
+end)
+
+h.test("a weak hit doesn't knock down; a ragdoll stays limp over the stage until it lands or jumps out", function()
+	local s = FighterSim.newState(0, 0, 1)
+	local input = newInput()
+	local c = ctx()
+	run(s, input, 0.05, c)
+	FighterSim.applyHit(s, 4, 30, 0.3, 0, false)
+	run(s, input, 1.5, c)
+	h.expect(s.action == nil and s.grounded, "lands on its feet")
+
+	-- over the stage: limp past the hitstun, then down on landing
+	FighterSim.applyHit(s, 4, 60, 0.2, 0, true)
+	run(s, input, 0.3, c)
+	h.expect(s.action == "Hitstun" and s.tumble and not s.grounded, "still limp after the hitstun")
+	h.expect(FighterSim.animState(s) == "Tumble", "shows the tumble")
+	for _ = 1, 120 do
+		run(s, input, DT, c)
+		if s.action ~= "Hitstun" then
+			break
+		end
+	end
+	h.expect(s.action == "Knockdown", "knocked down on landing, got " .. tostring(s.action))
+	run(s, input, B.KnockdownTime + B.GetUpTime + 0.1, c)
+
+	-- jumping breaks out of it
+	FighterSim.applyHit(s, 4, 60, 0.2, 0, true)
+	run(s, input, 0.3, c)
+	input.buffer.Jump = Config.InputBufferTime
+	run(s, input, 2 * DT, c)
+	h.expect(s.action ~= "Hitstun" and not s.tumble, "jumped out of the ragdoll")
+	run(s, input, 1.5, c)
+	h.expect(s.action == nil and s.grounded, "lands on its feet after jumping out")
+
+	-- off the stage: control comes back to recover
+	local off = FighterSim.newState(5000, 40, 1)
+	FighterSim.applyHit(off, 4, 30, 0.2, 0, true)
+	run(off, input, 0.3, c)
+	h.expect(off.action == nil and not off.tumble, "recovers off the stage, got " .. tostring(off.action))
+end)
+
+h.test("the ultimate button awakens, then uses the legend's ultimate once awake", function()
+	local s = FighterSim.newState(0, 0, 1)
+	local input = newInput()
+	local c = ctx("SkyholdKeep", "Sword", "Sol")
+	run(s, input, 0.05, c)
+	press(input, "Ultimate")
+	h.expect(slotsOf(run(s, input, 0.1, c)) == "", "nothing without a full meter")
+	c.ultimate = "Awaken"
+	press(input, "Ultimate")
+	local asked = false
+	for _, ev in run(s, input, 0.1, c) do
+		asked = asked or ev.type == "Awaken"
+	end
+	h.expect(asked, "a full meter asks to awaken")
+	FighterSim.awaken(s, B.AwakenFreeze)
+	h.expect(s.action == "Awakening" and FighterSim.isInvulnerable(s), "awakening pose")
+	run(s, input, B.AwakenFreeze + 0.05, c)
+	c.ultimate = "Attack"
+	c.awakened = true
+	press(input, "Ultimate")
+	local events = run(s, input, 0.05, c)
+	h.expect(slotsOf(events) == "Ultimate", "ultimate move: " .. slotsOf(events))
+	local move = Legends.getAttack("Sol", "Sword", "Ultimate")
+	h.expect(move.Unblockable and move.Ultimate and move.Signature == "Zenith Smash", "Sol's ultimate")
+	for _, id in Legends.Order do
+		local u = Legends.getAttack(id, "Unarmed", "Ultimate")
+		h.expect(u and u.Hitbox and u.Damage >= 20, id .. " needs an ultimate")
+	end
+end)
+
+h.test("awakened fighters run faster", function()
+	local speeds = {}
+	for _, awake in { false, true } do
+		local s = FighterSim.newState(0, 0, 1)
+		local input = newInput()
+		local c = ctx()
+		c.awakened = awake
+		input.moveX = 1
+		run(s, input, 0.6, c)
+		table.insert(speeds, s.vx)
+	end
+	h.near(speeds[2] / speeds[1], B.AwakenSpeedMult, 0.01, "awakened speed")
 end)
 
 print("Knockback / KOs")

@@ -2,10 +2,11 @@
     Runs your fighter during a match.
 
     Each frame: read input -> FighterSim.step -> move your character ->
-    report attacks/dodges/throws to the server -> check your active
+    report attacks/dodges/throws/blocks to the server -> check your active
     hitbox against other fighters and report hits. The server answers with
-    "Hit" events (including knockback when you're the one hit), KOs,
-    respawns, weapon changes, projectiles and the final results.
+    "Hit" events (including knockback when you're the one hit), blocked
+    hits and guard breaks, awakenings, KOs, respawns, weapon changes,
+    projectiles and the final results.
 ]]
 
 local Players = game:GetService("Players")
@@ -19,6 +20,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Maps = require(Shared.Maps)
 local Weapons = require(Shared.Weapons)
+local Legends = require(Shared.Legends)
 local FighterSim = require(Shared.FighterSim)
 local Combat = require(Shared.Combat)
 local Util = require(Shared.Util)
@@ -33,6 +35,7 @@ local FighterAnimator = require(script.Parent.FighterAnimator)
 local SkyBackdrop = require(script.Parent.SkyBackdrop)
 local CharacterAnimator = require(script.Parent.CharacterAnimator)
 local Sound = require(script.Parent.Sound)
+local BattleFX = require(script.Parent.BattleFX)
 
 local UI = script.Parent.Parent:WaitForChild("UI")
 local MatchHUD = require(UI.MatchHUD)
@@ -49,6 +52,16 @@ local rng = Random.new()
 
 local match = nil
 local hitboxPart = nil
+
+local B = Config.Battle
+local GOLD = Color3.fromRGB(255, 205, 70)
+local RED = Color3.fromRGB(255, 80, 70)
+-- invulnerability a downed fighter gets (matches the server)
+local DOWN_INVULN = {
+	Knockdown = B.KnockdownTime + B.GetUpTime,
+	GetUp = B.GetUpTime,
+	Tech = B.TechRollTime,
+}
 
 local DISABLED_STATES = {
 	Enum.HumanoidStateType.FallingDown,
@@ -126,6 +139,77 @@ local function fighterPosition(m, f)
 	end
 	local p = root.Position - m.origin
 	return p.X, p.Y - f.feetOffset
+end
+
+local function facingOf(m, f)
+	if f == m.me then
+		return m.sim.facing
+	end
+	local root = f.root
+	if root and root.Parent then
+		return root.CFrame.LookVector.X >= 0 and 1 or -1
+	end
+	return 1
+end
+
+-- What the ultimate button does for you right now (the server decides;
+-- this just keeps you from asking when it would say no).
+local function ultimateState(m)
+	local me = m.me
+	if me.awakened then
+		return not me.ultUsed and "Attack" or nil
+	end
+	if (me.ult or 0) >= B.UltMax and os.clock() > (me.awakenAsked or 0) + 0.5 then
+		return "Awaken"
+	end
+	return nil
+end
+
+-- The camera cuts in on a fighter's ultimate move.
+local function ultimateCutIn(m, f, move)
+	local facing = facingOf(m, f)
+	CameraController.focus(function()
+		local x, y = fighterPosition(m, f)
+		if not x then
+			return nil
+		end
+		return x + facing * 3, y + 3.5
+	end, 20, 0.75, 26 * facing)
+	MatchHUD.announce(string.upper(move and move.Signature or "Ultimate"), GOLD, 1.2)
+	BattleFX.speedLines(0.6)
+	Sound.play("HeavySwing", 0.8, 0.7)
+end
+
+local function setBlocking(f, on)
+	f.blocking = on
+	if f.model and f ~= (match and match.me) then
+		FighterAnimator.setHeld(f.model, on and "Block" or nil)
+	end
+end
+
+-- Guard refill and the awakening countdown, for the HUD meters.
+local function stepMeters(m, dt)
+	local now = os.clock()
+	for _, f in m.order do
+		local dirty = false
+		if f.awakened then
+			local left = (f.awakenEnds or now) - now
+			f.awakenFrac = math.clamp(left / B.AwakenTime, 0, 1)
+			if left < -1 then
+				-- the server's AwakenEnd went missing
+				f.awakened = false
+				BattleFX.endAwaken(f.model)
+			end
+			dirty = true
+		end
+		if f.guard < B.GuardMax and not f.blocking and now - (f.lastGuardHit or 0) > B.GuardRegenDelay then
+			f.guard = math.min(B.GuardMax, f.guard + B.GuardRegen * dt)
+			dirty = true
+		end
+		if dirty then
+			MatchHUD.updateMeters(f)
+		end
+	end
 end
 
 local function applyTransform(m)
@@ -247,6 +331,17 @@ local function detectHits(m)
 					-- window start right away.
 					local charge = FighterSim.chargeFraction(sim)
 					local dmg = Combat.damage(move, charge, m.info.damageMultiplier)
+					local cx = (math.max(x1, hx1) + math.min(x2, hx2)) / 2
+					local cy = (math.max(y1, hy1) + math.min(y2, hy2)) / 2
+					local blocking = f.blocking and not (move and move.Unblockable)
+					if blocking and (sim.x - fx) * facingOf(m, f) >= -0.5 then
+						local stop = Combat.hitstop(dmg * 3)
+						FighterSim.onHitConfirm(sim, stop)
+						FighterAnimator.hitstop(m.character, stop)
+						BattleFX.block(fx, cy, facingOf(m, f))
+						Sound.play("Hit", 0.4, 1.7)
+						continue
+					end
 					local _, _, force = Combat.knockback(move, (f.damage or 0) + dmg, charge, sim.facing, fx - sim.x)
 					local stop = Combat.hitstop(force)
 					FighterSim.onHitConfirm(sim, stop)
@@ -254,12 +349,12 @@ local function detectHits(m)
 					if f.model then
 						FighterAnimator.hitstop(f.model, stop)
 					end
-					Visuals.hitSpark(
-						(math.max(x1, hx1) + math.min(x2, hx2)) / 2,
-						(math.max(y1, hy1) + math.min(y2, hy2)) / 2,
-						heavy,
-						0
-					)
+					Visuals.hitSpark(cx, cy, heavy, 0)
+					local ultimate = move ~= nil and move.Ultimate == true
+					BattleFX.impact(cx, cy, force, { big = ultimate })
+					if ultimate or force >= B.RagdollForce * 1.6 then
+						BattleFX.impactFrame({ m.character, f.model }, ultimate and 0.2 or 0.12)
+					end
 					Sound.play("Hit", heavy and 0.8 or 0.55, heavy and 0.8 or 1.15)
 				end
 			end
@@ -274,9 +369,14 @@ local function handleSimEvent(m, ev)
 		m.hitLog[ev.seq] = {}
 		m.hitLog[ev.seq - 12] = nil
 		Visuals.onAttack(m.character, m.weapon, ev.slot, ev.seq)
-		local move = Weapons.getAttack(m.weapon, ev.slot)
+		local move = Legends.getAttack(m.legend, m.weapon, ev.slot)
 		local heavy = move and move.Kind == "Heavy"
 		Sound.play(heavy and "HeavySwing" or "Swing", heavy and 0.45 or 0.35, rng:NextNumber(0.9, 1.15))
+		m.me.blocking = false
+		if ev.slot == "Ultimate" then
+			m.me.ultUsed = true
+			ultimateCutIn(m, m.me, move)
+		end
 	elseif kind == "Release" then
 		fighterAction:FireServer("Release", { seq = ev.seq, charge = ev.charge })
 		Visuals.releaseCharge(m.character, ev.seq)
@@ -315,6 +415,23 @@ local function handleSimEvent(m, ev)
 		FighterAnimator.land(m.character)
 	elseif kind == "AttackEnd" then
 		FighterAnimator.endAttack(m.character, ev.seq)
+	elseif kind == "Block" then
+		m.me.blocking = ev.on
+		fighterAction:FireServer("Block", { on = ev.on, facing = ev.facing })
+	elseif kind == "Awaken" then
+		m.me.awakenAsked = os.clock()
+		fighterAction:FireServer("Awaken", {})
+	elseif kind == "Knockdown" or kind == "Tech" or kind == "GetUp" then
+		fighterAction:FireServer("Down", { kind = kind, dir = ev.dir })
+		FighterAnimator.down(m.character, kind, ev.dir)
+		if kind == "Knockdown" then
+			BattleFX.slam(m.sim.x, m.sim.y, 1)
+			CameraController.shake(0.6)
+			Sound.play("Land", 0.6, 0.7)
+		elseif kind == "Tech" then
+			BattleFX.dust(m.sim.x, m.sim.y, 3)
+			Sound.play("Land", 0.4, 1.3)
+		end
 	end
 end
 
@@ -338,6 +455,8 @@ local function step(dt)
 			legend = m.legend,
 			armed = Weapons.isWeapon(m.weapon),
 			nearPickup = findPickup(m, sim.x, sim.y) ~= nil,
+			ultimate = ultimateState(m),
+			awakened = m.me.awakened == true,
 		}
 		local events = FighterSim.step(sim, input, dt, ctx)
 		for _, ev in events do
@@ -355,6 +474,13 @@ local function step(dt)
 	end
 
 	applyTransform(m)
+	stepMeters(m, dt)
+	-- a ragdoll that ended in the air (jumped out, or off the stage): stop
+	-- flailing as soon as you have control again
+	if m.tumbling and not sim.tumble and sim.action == nil then
+		FighterAnimator.stopAction(m.character)
+	end
+	m.tumbling = sim.tumble
 	local anim = (sim.frozen and m.me.alive) and "Idle" or FighterSim.animState(sim)
 	if sim.wallSide ~= 0 and not sim.grounded then
 		anim = "WallSlide"
@@ -378,6 +504,7 @@ local function cleanup()
 	Input.setEnabled(false)
 	CameraController.stop()
 	Visuals.stopMatch()
+	BattleFX.stopMatch()
 	FighterAnimator.stopMatch()
 	SkyBackdrop.stop()
 	CharacterAnimator.setMatchMode(false)
@@ -430,6 +557,10 @@ local function onStart(info)
 			score = fi.score,
 			legend = fi.legend,
 			damage = 0,
+			ult = fi.ult or 0,
+			guard = fi.guard or B.GuardMax,
+			blocking = false,
+			awakened = false,
 			weapon = "Unarmed",
 			alive = true,
 			eliminated = false,
@@ -459,6 +590,7 @@ local function onStart(info)
 	CameraController.start(info.origin, m.world)
 	CameraController.setProvider(cameraData)
 	Visuals.startMatch(info.origin)
+	BattleFX.startMatch(info.origin)
 	CharacterAnimator.setMatchMode(true)
 	FighterAnimator.startMatch(info.mapId, info.origin)
 	SkyBackdrop.start(info.mapId, info.origin)
@@ -506,10 +638,32 @@ function handlers.Action(d)
 	if d.kind == "Attack" then
 		-- attacking out of an air spot dodge (gravity cancel) ends its invulnerability
 		f.invulnUntil = math.min(f.invulnUntil or 0, f.respawnInvulnUntil or 0)
+		setBlocking(f, false)
 		Visuals.onAttack(f.model, d.weapon, d.slot, d.seq)
+		if d.slot == "Ultimate" then
+			f.ultUsed = true
+			ultimateCutIn(match, f, Legends.getAttack(f.legend or "Avatar", d.weapon, d.slot))
+		end
+	elseif d.kind == "Block" then
+		setBlocking(f, d.on == true)
+	elseif d.kind == "Down" then
+		local invuln = DOWN_INVULN[d.downKind]
+		if invuln then
+			f.invulnUntil = math.max(f.invulnUntil or 0, os.clock() + invuln)
+		end
+		setBlocking(f, false)
+		FighterAnimator.down(f.model, d.downKind, d.dir)
+		local x, y = fighterPosition(match, f)
+		if x and d.downKind == "Knockdown" then
+			BattleFX.slam(x, y, 1)
+			Sound.play("Land", 0.5, 0.7)
+		elseif x and d.downKind == "Tech" then
+			BattleFX.dust(x, y, 3)
+		end
 	elseif d.kind == "Release" then
 		Visuals.releaseCharge(f.model, d.seq)
 	elseif d.kind == "Dodge" then
+		setBlocking(f, false)
 		local P = Config.Physics
 		local invuln = ({ Spot = P.SpotDodgeTime, AirSpot = P.SpotDodgeTime, Air = P.AirDodgeInvuln })[d.dodgeKind]
 		if invuln then
@@ -529,20 +683,29 @@ function handlers.Hit(d)
 	local attacker = d.attackerId and match.fighters[d.attackerId]
 	if victim then
 		victim.damage = d.total
+		victim.ult = d.victimUlt or victim.ult
+		setBlocking(victim, false)
+	end
+	if attacker then
+		attacker.ult = d.attackerUlt or attacker.ult
 	end
 	-- Your own melee hits already sparked locally; ranged hits are server-side.
 	if attacker ~= match.me or d.ranged then
 		Visuals.hitSpark(d.x, d.y, d.heavy, d.force)
+		BattleFX.impact(d.x, d.y, d.force, { big = d.ultimate })
+		if d.ultimate or d.force >= B.RagdollForce * 1.6 then
+			BattleFX.impactFrame({ attacker and attacker.model, victim and victim.model }, d.ultimate and 0.2 or 0.12)
+		end
 		Sound.play("Hit", d.heavy and 0.8 or 0.5, d.heavy and 0.8 or 1.1)
 	end
 	Visuals.damageNumber(d.x, d.y, d.damage, Combat.damageColor(d.total))
 	if victim == match.me then
-		FighterSim.applyHit(match.sim, d.kbx, d.kby, d.hitstun, d.hitstop)
+		FighterSim.applyHit(match.sim, d.kbx, d.kby, d.hitstun, d.hitstop, d.ragdoll)
 		CameraController.shake(0.4 + d.force * 0.012)
-		Visuals.hurt(match.character, d.hitstun + (d.hitstop or 0), d.force)
+		Visuals.hurt(match.character, d.hitstun + (d.hitstop or 0), d.force, d.ragdoll)
 		FighterAnimator.hitstop(match.character, d.hitstop)
 	elseif victim and victim.model then
-		Visuals.hurt(victim.model, d.hitstun + (d.hitstop or 0), d.force)
+		Visuals.hurt(victim.model, d.hitstun + (d.hitstop or 0), d.force, d.ragdoll)
 		FighterAnimator.hitstop(victim.model, d.hitstop)
 		if d.heavy then
 			CameraController.shake(0.2 + d.force * 0.005)
@@ -558,7 +721,123 @@ function handlers.Hit(d)
 	end
 	if victim then
 		MatchHUD.updateFighter(victim)
+		MatchHUD.updateMeters(victim)
 	end
+	if attacker then
+		MatchHUD.updateMeters(attacker)
+	end
+end
+
+-- A hit landed on someone's guard.
+function handlers.Blocked(d)
+	local victim = match.fighters[d.victimId]
+	local attacker = d.attackerId and match.fighters[d.attackerId]
+	if victim then
+		victim.guard = d.guard
+		victim.ult = d.ult or victim.ult
+		victim.lastGuardHit = os.clock()
+		MatchHUD.updateMeters(victim)
+	end
+	-- your own blocked hits already flashed locally
+	if attacker ~= match.me and victim then
+		BattleFX.block(d.x, d.y, facingOf(match, victim))
+		Sound.play("Hit", 0.4, 1.7)
+	end
+	if victim == match.me then
+		FighterSim.applyBlock(match.sim, d.pushX, d.stun, d.hitstop)
+		FighterAnimator.hitstop(match.character, d.hitstop)
+		CameraController.shake(0.25)
+	elseif victim and victim.model then
+		FighterAnimator.hitstop(victim.model, d.hitstop)
+	end
+	if attacker and attacker ~= match.me and attacker.model then
+		FighterAnimator.hitstop(attacker.model, d.hitstop)
+	end
+end
+
+-- Someone's guard ran out: they're dazed and wide open.
+function handlers.GuardBreak(d)
+	local victim = match.fighters[d.victimId]
+	local attacker = d.attackerId and match.fighters[d.attackerId]
+	if not victim then
+		return
+	end
+	victim.guard = 0
+	victim.ult = d.ult or victim.ult
+	victim.lastGuardHit = os.clock()
+	setBlocking(victim, false)
+	BattleFX.guardBreak(d.x, d.y)
+	BattleFX.impactFrame({ attacker and attacker.model, victim.model }, 0.12)
+	Sound.play("KO", 0.6, 1.4)
+	if victim == match.me then
+		FighterSim.applyGuardBreak(match.sim, d.stun)
+		CameraController.shake(1.2)
+		MatchHUD.announce("GUARD BROKEN", RED, 0.9)
+	else
+		CameraController.shake(0.6)
+		if attacker == match.me then
+			MatchHUD.announce("GUARD BREAK!", GOLD, 0.9)
+		end
+	end
+	if victim.model then
+		FighterAnimator.hitstop(victim.model, d.hitstop)
+		FighterAnimator.stunned(victim.model, d.stun)
+	end
+	MatchHUD.updateMeters(victim)
+end
+
+-- Someone spent a full meter: everyone freezes for the cut-in, then they
+-- fight awakened for a while.
+function handlers.Awaken(d)
+	local f = match.fighters[d.fighterId]
+	if not f then
+		return
+	end
+	local now = os.clock()
+	f.awakened = true
+	f.ult = 0
+	f.ultUsed = false
+	f.awakenEnds = now + d.freeze + d.duration
+	f.invulnUntil = math.max(f.invulnUntil or 0, now + d.freeze)
+	setBlocking(f, false)
+	if f == match.me then
+		FighterSim.awaken(match.sim, d.freeze)
+	else
+		FighterSim.freeze(match.sim, d.freeze)
+	end
+	for _, other in match.order do
+		if other ~= f and other.model then
+			FighterAnimator.hitstop(other.model, d.freeze)
+		end
+	end
+	if f.model then
+		FighterAnimator.awaken(f.model, d.freeze)
+		BattleFX.awaken(f.model, d.freeze + d.duration)
+	end
+	local facing = facingOf(match, f)
+	CameraController.focus(function()
+		local x, y = fighterPosition(match, f)
+		if not x then
+			return nil
+		end
+		return x, y + 3.2
+	end, 15, d.freeze, 22 * facing)
+	CameraController.shake(1.0)
+	BattleFX.impactFrame({ f.model }, 0.16)
+	MatchHUD.announce(f == match.me and "AWAKENED!" or string.upper(f.name .. " awakened"), GOLD, 1.3)
+	Sound.play("HeavySwing", 0.9, 0.55)
+	MatchHUD.updateMeters(f)
+end
+
+function handlers.AwakenEnd(d)
+	local f = match.fighters[d.fighterId]
+	if not f then
+		return
+	end
+	f.awakened = false
+	f.awakenFrac = nil
+	BattleFX.endAwaken(f.model)
+	MatchHUD.updateMeters(f)
 end
 
 function handlers.Weapon(d)
@@ -590,6 +869,10 @@ function handlers.KO(d)
 	f.score = d.score
 	f.eliminated = d.eliminated
 	f.weapon = "Unarmed"
+	f.awakened = false
+	f.guard = B.GuardMax
+	setBlocking(f, false)
+	BattleFX.endAwaken(f.model)
 	if attacker and d.attackerScore then
 		attacker.score = d.attackerScore
 	end
@@ -607,6 +890,7 @@ function handlers.KO(d)
 	end
 	MatchHUD.ko(f, attacker)
 	MatchHUD.updateFighter(f)
+	MatchHUD.updateMeters(f)
 	if attacker then
 		MatchHUD.updateFighter(attacker)
 	end
