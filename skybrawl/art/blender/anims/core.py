@@ -225,12 +225,34 @@ class Clip:
                 raise ValueError(f"{name}: unknown ease {ease!r}")
             norm.append((float(t), pose, ease))
         norm.sort(key=lambda k: k[0])
+        # keep the arms out of the body (hands stay on their weapons), unless
+        # that would make a joint whip round between keys
+        cleaned = []
+        for i, (t, pose, ease) in enumerate(norm):
+            cand = clear_body(clear_hands(pose))
+            near = [n for n in ((cleaned[-1][1] if cleaned else None), (norm[i + 1][1] if i + 1 < len(norm) else None))
+                    if n is not None]
+            ok = all(_max_turn(cand, n) < 145.0 or _max_turn(cand, n) <= _max_turn(pose, n) + 1.0 for n in near)
+            cleaned.append((t, cand if ok else pose, ease))
+        norm = cleaned
         self.keys = norm
         self.length = float(length if length is not None else (3.0 if phased else norm[-1][0]))
         if loop and norm[-1][0] < self.length - 1e-6:
             # close the loop on the first pose
             self.keys.append((self.length, norm[0][1], norm[0][2]))
+        authored = {t for t, _, _ in self.keys}
         self.keys = split_big_turns(self.keys)
+        # in-betweens added for big turns get cleared too, unless that would
+        # make a joint flip round between them and their neighbors
+        keys = list(self.keys)
+        for i, (t, pose, ease) in enumerate(keys):
+            if t in authored:
+                continue
+            cleared = clear_body(clear_hands(pose))
+            near = [keys[j][1] for j in (i - 1, i + 1) if 0 <= j < len(keys)]
+            if all(_max_turn(cleared, n) < 150.0 for n in near):
+                keys[i] = (t, cleared, ease)
+        self.keys = keys
 
 
 CLIPS = {}
@@ -380,9 +402,20 @@ def split_big_turns(keys, limit=150.0, depth=3):
     return out
 
 
-def check_clip(c, limit=170.0):
+def _max_turn(p0, p1):
+    """The largest angle any joint turns between two poses (degrees)."""
+    worst = 0.0
+    for joint in set(p0.rot) | set(p1.rot):
+        rel = _m_mul(_m_t(_m_rot(p0.get(joint))), _m_rot(p1.get(joint)))
+        trace = rel[0][0] + rel[1][1] + rel[2][2]
+        worst = max(worst, math.degrees(math.acos(max(-1.0, min(1.0, (trace - 1) / 2)))))
+    return worst
+
+
+def check_clip(c, limit=170.0, overlap=0.08):
     """Warns about keys a joint would have to turn the short way round
-    (anything near 180 degrees between two keys interpolates unpredictably)."""
+    (anything near 180 degrees between two keys interpolates unpredictably)
+    and keys that sink an arm into the torso."""
     problems = []
     for (t0, p0, ease), (t1, p1, _) in zip(c.keys, c.keys[1:]):
         if ease == "Constant":
@@ -394,7 +427,174 @@ def check_clip(c, limit=170.0):
             angle = math.degrees(math.acos(max(-1.0, min(1.0, (trace - 1) / 2))))
             if angle > limit:
                 problems.append(f"{c.name}: {joint} turns {angle:.0f} deg between t={t0} and t={t1}")
+    for t, pose, _ in c.keys:
+        depth, what = body_overlap(pose)
+        if depth > overlap:
+            problems.append(f"{c.name}: {what} at t={t} ({depth:.2f} deep)")
     return problems
+
+
+# The torso the arms must stay out of: ellipsoids (center, radii) in the
+# frame of the joint that carries them, roomy enough for coats and armor.
+TORSO = [("Waist", (0.0, 4.2, 0.02), (0.66, 0.66, 0.5)), ("Root", (0.0, 3.36, 0.03), (0.58, 0.42, 0.44))]
+ARM_RADIUS = 0.13  # elbow, forearm and fist, roughly
+
+
+def arm_points(pose, side):
+    """Rig-space points along `side`'s arm that must clear the body: the
+    elbow, mid forearm, wrist and fist."""
+    el, _ = fk(pose, f"{side}Elbow")
+    wr, _ = fk(pose, f"{side}Wrist")
+    return [("elbow", el), ("forearm", _scale(_add(el, wr), 0.5)), ("wrist", wr), ("fist", grip_position(pose, side))]
+
+
+def body_overlap(pose):
+    """The deepest an arm point sinks into the torso (0 = clear, 1 = at the
+    center), with what and where."""
+    worst = (0.0, None)
+    for joint, center, radii in TORSO:
+        pos, rot = fk(pose, joint)
+        origin = _add(pos, _m_apply(rot, _sub(center, PIVOTS[joint])))
+        inv = _m_t(rot)
+        for side in ("Left", "Right"):
+            for what, p in arm_points(pose, side):
+                q = _m_apply(inv, _sub(p, origin))
+                d = math.sqrt(sum((q[i] / (radii[i] + ARM_RADIUS)) ** 2 for i in range(3)))
+                if 1.0 - d > worst[0]:
+                    worst = (1.0 - d, f"{side} {what} in the {'chest' if joint == 'Waist' else 'hips'}")
+    return worst
+
+
+def _side_overlap(pose, side, skip_fist=True):
+    worst = 0.0
+    for joint, center, radii in TORSO:
+        pos, rot = fk(pose, joint)
+        origin = _add(pos, _m_apply(rot, _sub(center, PIVOTS[joint])))
+        inv = _m_t(rot)
+        for what, p in arm_points(pose, side):
+            if skip_fist and what == "fist":
+                continue
+            q = _m_apply(inv, _sub(p, origin))
+            d = math.sqrt(sum((q[i] / (radii[i] + ARM_RADIUS)) ** 2 for i in range(3)))
+            worst = max(worst, 1.0 - d)
+    return worst
+
+
+def swing_elbow(pose, side, angle):
+    """Swings `side`'s elbow `angle` degrees around the shoulder-to-wrist
+    line: the hand (and anything it holds) stays exactly where it was."""
+    sh_pos, sh_rot = fk(pose, f"{side}Shoulder")
+    el_pos, el_rot = fk(pose, f"{side}Elbow")
+    wr_pos, wr_rot = fk(pose, f"{side}Wrist")
+    axis = _sub(wr_pos, sh_pos)
+    if _dot(axis, axis) < 1e-6:
+        return pose
+    turn = _rot_axis(_norm(axis), math.radians(angle))
+    parent = _m_mul(_chain(pose, ["Root", "Waist"]), _I3)
+    out = pose.copy()
+    new_sh = _m_mul(turn, sh_rot)
+    out.rot[f"{side}Shoulder"] = _euler_xyz(_m_mul(_m_t(parent), new_sh))
+    new_el = _m_mul(turn, el_rot)
+    out.rot[f"{side}Wrist"] = _euler_xyz(_m_mul(_m_t(new_el), wr_rot))
+    return out
+
+
+def _push_out(pose, p):
+    """The smallest move (along the torso's surface normal) that takes the
+    point p out of the torso."""
+    worst = None
+    frames = []
+    for joint, center, radii in TORSO:
+        pos, rot = fk(pose, joint)
+        origin = _add(pos, _m_apply(rot, _sub(center, PIVOTS[joint])))
+        frames.append((origin, rot, tuple(r + ARM_RADIUS for r in radii)))
+
+    def depth(q_world):
+        best = (0.0, None)
+        for origin, rot, radii in frames:
+            q = _m_apply(_m_t(rot), _sub(q_world, origin))
+            d = 1.0 - math.sqrt(sum((q[i] / radii[i]) ** 2 for i in range(3)))
+            if d > best[0]:
+                best = (d, (origin, rot, radii, q))
+        return best
+
+    d0, info = depth(p)
+    if d0 <= 0.0:
+        return (0.0, 0.0, 0.0)
+    origin, rot, radii, q = info
+    n = tuple(q[i] / (radii[i] ** 2) for i in range(3))
+    n = _norm(n) if _dot(n, n) > 1e-9 else (0.0, 0.0, -1.0)
+    n = _m_apply(rot, n)
+    lo, hi = 0.0, 1.6
+    for _ in range(20):
+        mid = (lo + hi) / 2
+        if depth(_add(p, _scale(n, mid)))[0] > 0.0:
+            lo = mid
+        else:
+            hi = mid
+    return _scale(n, hi + 0.02)
+
+
+def move_hand(pose, side, delta):
+    """Slides `side`'s fist by `delta` (rig space) without turning it: the
+    arm re-solves and the wrist keeps the hand's world orientation."""
+    _, hand = fk(pose, f"{side}Wrist")
+    target = _add(grip_position(pose, side), delta)
+    out = pose
+    aim_at = target
+    for _ in range(6):
+        out = reach(out, side, aim_at)
+        _, el_rot = fk(out, f"{side}Elbow")
+        out.rot[f"{side}Wrist"] = _euler_xyz(_m_mul(_m_t(el_rot), hand))
+        err = _sub(grip_position(out, side), target)
+        if _dot(err, err) < 1e-6:
+            break
+        aim_at = _sub(aim_at, err)
+    return out
+
+
+def clear_hands(pose, tolerance=0.03):
+    """Moves fists out of the torso (re-solving the arm); a hand gripping
+    the same weapon nearby moves with it, so two-handed holds stay put."""
+    out = pose
+    for _ in range(2):
+        moved = False
+        for side in ("Left", "Right"):
+            other = "Left" if side == "Right" else "Right"
+            g = grip_position(out, side)
+            wr, _ = fk(out, f"{side}Wrist")
+            push = max((_push_out(out, g), _push_out(out, wr)), key=lambda v: _dot(v, v))
+            if math.sqrt(_dot(push, push)) < tolerance:
+                continue
+            og = grip_position(out, other)
+            together = _dist(g, og) < 1.8
+            out = move_hand(out, side, push)
+            if together:
+                out = move_hand(out, other, push)
+            moved = True
+        if not moved:
+            break
+    return out
+
+
+def clear_body(pose, tolerance=0.02):
+    """Keeps elbows and forearms out of the torso by swinging the elbows
+    out (hands stay put, so two-handed grips hold)."""
+    out = pose
+    for side in ("Left", "Right"):
+        base = _side_overlap(out, side)
+        if base <= tolerance:
+            continue
+        best = (base, 0.0, out)
+        for angle in range(-120, 121, 8):
+            if angle == 0:
+                continue
+            cand = swing_elbow(out, side, angle)
+            score = _side_overlap(cand, side) + abs(angle) * 0.0004
+            if score < best[0]:
+                best = (score, angle, cand)
+        out = best[2]
+    return out
 
 
 # Forward kinematics and arm IK -------------------------------------------------
@@ -485,7 +685,8 @@ def _rot_between(a, b):
 
 def _arm_bones(side):
     """Rest vectors (shoulder frame): shoulder pivot -> elbow, elbow -> grip.
-    R6 shoulders pivot on the torso's edge, so the first one slants outward."""
+    The arms hang slightly out from the body at rest, so the first one
+    slants outward."""
     elbow = PIVOTS[f"{side}Elbow"]
     return _sub(elbow, PIVOTS[f"{side}Shoulder"]), _sub(GRIP[side], elbow)
 
@@ -638,7 +839,7 @@ def hands_together(pose, lead, ranges, prefer, offset=(0.0, 0.0, 0.0), support=N
     """After `lead`'s hand is placed (by arm or reach), puts the other hand at
     lead grip + offset + t * the lead's weapon direction, for the t in
     `ranges` ([(lo, hi), ...]) nearest `prefer` that it can reach (hands
-    slide along a haft). R6 shoulders are wide and R6 arms short, so when
+    slide along a haft). Shoulders are wide for the arms' length, so when
     that isn't enough both hands also slide along rig X toward the body's
     midline (X is depth to the side-on game camera, so the silhouette stays)
     and, as a last resort, the lead hand draws in toward the body. `weapon`

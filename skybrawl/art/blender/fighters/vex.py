@@ -1,116 +1,137 @@
-"""Vex, shadow rogue. Scythe + Gauntlets. Fast glass cannon.
+"""Vex, shadow rogue. Scythe + Gauntlets. Tricky, fast.
 
-R6 style: a deep-purple pointed hood and capelet, a dark scarf mask over the
-lower face, narrow glowing violet eyes under a black fringe with a violet
-streak, a black vest with crossed straps and silver buckles, a short
-tattered cloak, wrapped forearms, charcoal trousers with knee guards and
-black boots with silver toe caps.
+From the approved concept (art/concepts/Vex_v1.jpg): a pale young man with
+glowing violet eyes and messy black hair with one purple streak, under a
+deep-purple hood with a drooping point, a black mask over his nose and
+mouth, and a tattered purple mantle over his shoulders. A black leather vest
+with crossed straps and silver buckles over a black shirt, bandage-wrapped
+forearms and fingerless gloves, a ragged purple tabard hanging front and
+back from his belt, charcoal trousers with thigh straps, angular black knee
+guards and black strapped boots with silver toe caps.
 """
 
-from fighters._blocky import (UNIT, band, body, ellipse, front_profile, line, panel, profile, shape, shell, side_panel,
-                              strap, wrapped)
+import math
+
+from sky.hero import Sway, Where, smoothstep
 
 NAME = "Vex"
-UNIT = UNIT
+HERO = True
 
 COLORS = {
-    "skin": "#f2dfd6",
-    "eye": "#c27aff",
-    "eye_core": "#7b2fd6",
-    "eye_shine": "#ffffff",
-    "brow": "#17121e",
-    "hair": "#1c1924",
-    "streak": "#a85eff",
-    "hood": "#5a328f",
-    "hood_dark": "#3b1f5e",
-    "cloak": "#4a2672",
-    "lining": "#1b1027",
-    "scarf": "#2c2836",
-    "scarf_dark": "#1e1b26",
-    "shirt": "#353140",
-    "vest": "#26232d",
-    "strap": "#4b4358",
-    "silver": "#d0d4de",
-    "wrap": "#433d50",
-    "wrap_dark": "#2a2632",
-    "pants": "#474a55",
-    "guard": "#2e2b36",
-    "glove": "#1f1c25",
-    "boot": "#25222b",
-    "sole": "#121116",
+    "skin": ("#e6c7b6", "skin"),
+    "hair": ("#1d1a22", "hair"),
+    "streak": ("#8a3ad6", "hair"),
+    "purple": ("#4c2672", "cloth"),
+    "purple_dark": ("#321850", "cloth"),
+    "mask": ("#1f1e24", "cloth"),
+    "shirt": ("#26252b", "cloth"),
+    "vest": ("#2b2524", "leather"),
+    "strap": ("#3b2a24", "leather"),
+    "silver": ("#b9c0c8", "metal"),
+    "wraps": ("#55545c", "cloth"),
+    "wraps_dark": ("#3a3940", "cloth"),
+    "glove": ("#1e1c20", "leather"),
+    "pants": ("#34333a", "cloth"),
+    "plate": ("#25242a", "plate"),
+    "boot": ("#222026", "leather"),
+    "sole": ("#141316", "leather"),
 }
 
+BODY = {"shoulders": 0.95, "chest": 0.95, "waist": 0.84, "hips": 0.94, "arms": 0.88, "legs": 0.95, "neck": 0.95,
+        "jaw": 0.95}
 
-def face(fb):
+SWAYS = [
+    Sway("HoodTip", "Neck", [(0, 6.06, 0.3), (0, 6.02, 0.56), (0, 5.8, 0.74)], stiffness=0.3, damping=0.2, limit=50,
+         behind=1),
+    Sway("TabardFront", "Root", [(0, 3.44, -0.4), (0, 2.86, -0.44), (0, 2.0, -0.44)], stiffness=0.35, damping=0.22,
+         limit=60, behind=-1),
+    Sway("TabardBack", "Root", [(0, 3.44, 0.4), (0, 2.86, 0.46), (0, 2.0, 0.46)], stiffness=0.35, damping=0.22,
+         limit=60, behind=1),
+]
+
+
+def face(h):
+    def extras(c, cx, ey):
+        for s in (-1, 1):  # the eyes glow
+            c.ellipse(cx - s * 0.16, ey, 0.12, 0.075, "#b04cff", alpha=0.22)
+    h.face(eyes="#b04cff", brows="#1d1a22", lips="#8a5a5a", mouth="neutral", brow_tilt=(-0.03, -0.03),
+           extras=extras)
+
+
+def model(h):
+    h.body(garment_tris=3000)
+    face(h)
+    torso = lambda p: Where(p).kind == "torso"
+    arm = lambda p, lo, hi: Where(p).kind == "arm" and lo <= Where(p).s < hi
+    # black shirt with sleeves to the elbow, bandage wraps on the forearms
+    h.tint(lambda p: torso(p) or arm(p, 0, 0.98), "shirt")
+    h.tint(lambda p: arm(p, 0.98, 1.66), "wraps")
+    h.tint(lambda p: arm(p, 0.98, 1.66) and (Where(p).s * 6 + p[2] * 2) % 1.0 < 0.3, "wraps_dark")
+    # leather vest with a high collar
+    h.garment(lambda p: torso(p) and 3.5 < p[1] < 5.0 and not (p[2] < -0.1 and p[1] > 4.9), "vest", gap=0.03,
+              thickness=0.035, hem="strap", hem_radius=0.018, name="Vest")
+    # crossed straps with silver buckles, and the belt
     for s in (-1, 1):
-        # narrow eyes, angled down toward the nose: focused
-        slit = [(s * 0.09, 4.6), (s * 0.31, 4.66), (s * 0.31, 4.59), (s * 0.12, 4.53)]
-        shape(fb, slit, "eye", max_edge=0.03)
-        shape(fb, ellipse(s * 0.2, 4.6, 0.032, 0.032), "eye_core", layer=2, max_edge=0.02)
-        line(fb, [(s * 0.07, 4.69), (s * 0.33, 4.78)], 0.045, "brow")
-    # scarf mask over nose and mouth, wrapping round to the back
-    wrapped(fb, [(-1.88, 4.0), (1.88, 4.0), (1.88, 4.5), (0.0, 4.52), (-1.88, 4.5)], "scarf", out=0.05, inner=-0.03,
-            max_edge=0.12)
-    wrapped(fb, [(-1.88, 4.45), (1.88, 4.45), (1.88, 4.53), (0.0, 4.55), (-1.88, 4.53)], "scarf_dark", out=0.06,
-            inner=0.0, max_edge=0.12)
-
-
-def hood(fb):
-    # black fringe with a violet streak, under the hood
-    wrapped(fb, [(-0.5, 5.1), (0.5, 5.1), (0.46, 4.82), (0.3, 4.9), (0.16, 4.78), (0.0, 4.88), (-0.16, 4.76),
-                 (-0.32, 4.88), (-0.5, 4.8)], "hair", out=0.07, inner=0.0)
-    wrapped(fb, [(0.12, 5.05), (0.24, 5.05), (0.2, 4.84), (0.13, 4.92)], "streak", out=0.075, inner=0.02,
-            max_edge=0.03)
-    # the hood: a cap over the top and back, sides down to the jaw, a point at the back
-    shell(fb, "hood", grow=0.12, bottom=5.06, back_bottom=3.95, top_grow=0.14)
+        h.strap([(s * 0.5, 4.86, -0.1), (s * 0.18, 4.4, -0.46), (-s * 0.2, 3.95, -0.44), (-s * 0.5, 3.62, -0.2)],
+                0.1, "strap", thickness=0.025, offset=0.012, name="ChestStrap")
+    h.band((0, 3.5, 0.02), (0, 1, 0), 0.12, "strap", thickness=0.05, name="Belt")
+    mb = h.builder()
+    for x, y in ((0.0, 3.5), (-0.24, 4.26), (0.24, 4.26)):
+        (bx, by, bz), n = h.on_surface((x, y, -0.9))
+        mb.box((x, y, bz - 0.02), (0.14, 0.12, 0.03), "silver", bevel=0.01, segments=1)
+        mb.box((x, y, bz - 0.035), (0.08, 0.06, 0.02), "strap", bevel=0)
+    h.piece(mb, name="Buckles")
+    # ragged tabard front and back
+    xs = (-0.42, -0.21, 0.0, 0.21, 0.42)
+    for sway, side in ((SWAYS[1], -1), (SWAYS[2], 1)):
+        top = [h.on_surface((x, 3.42, side * 0.9))[0] for x in xs]
+        rows = [[(x, 3.42, z + side * 0.005) for x, (_, _, z) in zip(xs, top)],
+                [(x * 1.06, 2.86, side * (0.44 - 0.15 * x * x)) for x in xs],
+                [(x * 1.12, 2.0, side * (0.44 - 0.15 * x * x)) for x in xs]]
+        h.panel(rows, "purple", thickness=0.035, binding=("sway", sway), name="Tabard", cols=14, jag=0.22)
+    # fingerless gloves
+    h.hands(palm="glove", fingers="skin", cuff="glove")
+    # trousers with thigh straps, angular knee guards, strapped boots with silver toe caps
+    h.garment(lambda p: (torso(p) and p[1] < 3.56) or (Where(p).kind == "leg" and p[1] > 0.95), "pants", gap=0.03,
+              thickness=0.03, name="Trousers", inflate=lambda p: 0.03 * math.exp(-((p[1] - 1.5) / 0.5) ** 2))
     for s in (-1, 1):
-        wrapped(fb, [(s * 0.44, 5.12), (s * 1.3, 5.12), (s * 1.3, 3.95), (s * 0.5, 3.95), (s * 0.4, 4.4)], "hood",
-                out=0.1, inner=0.02)
-        wrapped(fb, [(s * 0.42, 5.0), (s * 0.48, 5.0), (s * 0.44, 4.4), (s * 0.52, 3.97), (s * 0.46, 3.97),
-                     (s * 0.36, 4.4)], "lining", out=0.11, inner=0.02, max_edge=0.04)
-    profile(fb, "Head", [(0.3, 5.3), (0.85, 5.1), (1.15, 4.7), (0.7, 4.75)], -0.2, 0.2, "hood", bevel=0.04)
-    # capelet over the shoulders, jagged edge
-    up = "UpperTorso"
-    fb[up].box((0, 3.97, 0), (2.12, 0.22, 1.12), "hood", bevel=0.04)
-    hem = [(-1.06, 3.9), (1.06, 3.9), (1.06, 3.6), (0.8, 3.44), (0.6, 3.62), (0.3, 3.4), (0.0, 3.6), (-0.3, 3.4),
-           (-0.6, 3.62), (-0.8, 3.44), (-1.06, 3.6)]
-    front_profile(fb, up, hem, -0.56, 0.56, "hood", bevel=0.01)
+        h.band((s * 0.36, 2.55, 0.0), (0, 1, 0), 0.07, "strap", thickness=0.03, name="ThighStrap")
+    mb = h.builder()
+    for s in (-1, 1):
+        (kx, ky, kz), n = h.on_surface((s * 0.35, 1.84, -0.3))
+        mb.box((kx, ky, kz + 0.0), (0.24, 0.24, 0.06), "silver", rotation=(0, 0, 45), bevel=0.01, segments=1)
+        mb.box((kx, ky, kz - 0.02), (0.2, 0.2, 0.06), "plate", rotation=(0, 0, 45), bevel=0.015, segments=1)
+    h.piece(mb, name="KneeGuards")
+    h.boots("boot", "sole", top=1.3, toe="silver", gap=0.06)
+    for s in (-1, 1):
+        x = s * 0.37
+        for y in (1.1, 0.78):
+            h.band((x, y, 0.0), (0, 1, 0), 0.08, "strap", thickness=0.03, name="BootStrap")
+            mb = h.builder()
+            mb.box((x + s * 0.24, y, -0.06), (0.04, 0.09, 0.1), "silver", bevel=0.01, segments=1)
+            h.piece(mb, name="Buckle")
+    head(h)
 
 
-def outfit(fb):
-    up, low = "UpperTorso", "LowerTorso"
-    # crossed straps with a silver buckle where they meet
-    strap(fb, up, (-0.9, 3.45), (0.9, 2.55), 0.16, "strap", layer=2)
-    strap(fb, up, (0.9, 3.45), (-0.9, 2.55), 0.16, "strap", layer=3)
-    fb[up].cylinder((0, 3.0, -0.58), 0.12, 0.06, "silver", rotation=(90, 0, 0), segments=16)
-    # tattered short cloak on the back
-    tatters = [(-1.0, 3.9), (1.0, 3.9), (1.04, 2.4), (0.8, 2.12), (0.6, 2.36), (0.34, 2.02), (0.12, 2.3),
-               (-0.1, 1.98), (-0.34, 2.28), (-0.58, 2.04), (-0.8, 2.34), (-1.04, 2.2)]
-    fb[up].prism(tatters, 0.06, "cloak", center=(0, 0, 0.6), bevel=0.01)
-    # belt, silver buckle, knife at the hip
-    band(fb, low, 2.24, 2.38, "strap", layer=2)
-    panel(fb, low, -0.1, 2.22, 0.1, 2.4, "silver", layer=4)
-    fb[low].box((-0.72, 2.0, -0.42), (0.14, 0.5, 0.14), "vest", bevel=0.03, rotation=(0, 0, -12))
-    fb[low].box((-0.68, 2.3, -0.42), (0.18, 0.08, 0.18), "silver", bevel=0.02)
-    for side, s in (("Left", -1), ("Right", 1)):
-        lo = f"{side}LowerArm"
-        for y in (2.55, 2.75):
-            band(fb, lo, y - 0.04, y + 0.04, "wrap_dark")
-        band(fb, f"{side}UpperArm", 2.9, 2.98, "strap")
-        # knee guards, boots, silver toe caps
-        panel(fb, f"{side}LowerLeg", s * 0.5 - 0.3, 0.98, s * 0.5 + 0.3, 1.24, "guard", layer=2)
-        panel(fb, f"{side}LowerLeg", s * 0.5 - 0.06, 1.08, s * 0.5 + 0.06, 1.16, "silver", layer=3)
-        side_panel(fb, f"{side}UpperLeg", -0.2, 1.45, 0.2, 1.8, "guard")
-        band(fb, f"{side}LowerLeg", 0.5, 0.86, "boot", grow=0.02)
-        band(fb, f"{side}LowerLeg", 0.82, 0.88, "strap", grow=0.03)
-        ft = f"{side}Foot"
-        band(fb, ft, 0.0, 0.1, "sole")
-        panel(fb, ft, s * 0.5 - 0.42, 0.1, s * 0.5 + 0.42, 0.3, "silver")
-
-
-def model(fb):
-    body(fb, skin="skin", shirt="vest", pants="pants", shoes="boot", sleeves="shirt", forearms="wrap", hands="glove",
-         belt="vest", shins="pants")
-    face(fb)
-    hood(fb)
-    outfit(fb)
+def head(h):
+    def ear(p):
+        return ((abs(p[0]) - 0.34) / 0.09) ** 2 + ((p[1] - 5.48) / 0.15) ** 2 + ((p[2] - 0.06) / 0.11) ** 2 < 1
+    # the mask over his nose and mouth, up to the bridge of the nose
+    h.garment(lambda p: (Where(p).kind == "head" and p[1] < 5.47 - 0.15 * smoothstep(-0.1, 0.2, p[2])
+                         and not ear(p)) or (Where(p).kind == "torso" and p[1] > 4.86),
+              "mask", gap=0.03, thickness=0.03, smooth=3, name="Mask")
+    # messy black hair under the hood
+    h.garment(lambda p: Where(p).kind == "head" and p[1] > 5.72 - 0.3 * smoothstep(-0.2, 0.25, p[2]),
+              "hair", gap=0.03, thickness=0.03, smooth=3, name="HairCap", cover=True)
+    for x, color in ((-0.22, "hair"), (-0.1, "hair"), (0.04, "streak"), (0.17, "hair"), (0.27, "hair")):
+        h.lock([(x * 0.9, 5.98, -0.26), (x, 5.88, -0.38), (x * 1.15, 5.68, -0.38)], 0.13, 0.06, color,
+               name="Fringe", sides=5, taper=0.3)
+    # the hood: loose around the head, open for the face, a drooping point at the back
+    face_hole = lambda p: p[2] < 0.02 and (p[0] / 0.34) ** 2 + ((p[1] - 5.5) / 0.46) ** 2 < 1
+    h.garment(lambda p: Where(p).kind == "head" and p[1] > 5.1 and not face_hole(p), "purple", gap=0.12,
+              thickness=0.04, smooth=4, hem="purple_dark", hem_radius=0.022, name="Hood", cover=False)
+    h.lock([(0, 6.04, 0.16), (0, 6.12, 0.36), (0, 6.02, 0.58), (0, 5.8, 0.76)], 0.34, 0.2, "purple",
+           binding=("sway", SWAYS[0]), name="HoodTip", sides=6, taper=0.05)
+    # the ragged mantle over his shoulders, open in a V at the front
+    h.skirt(5.06, 4.24, "purple", gap=0.04, thickness=0.035, flare=0.14, arc=(28, 332), name="Mantle",
+            binding=("bone", "Waist"), reach=1.02, rows=6, count=34, jag=0.2)

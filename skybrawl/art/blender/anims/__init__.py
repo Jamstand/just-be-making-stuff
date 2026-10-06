@@ -66,7 +66,7 @@ def build_armature(name="SkyRig"):
         head = common.rig_to_blender(pv)
         bone.head = head
         bone.tail = head + Vector((0, 0, 0.3))
-        bone.roll = math.pi  # bone axes == rig axes (see rig.RIG_TO_BLENDER)
+        bone.roll = math.pi  # bone axes == rig axes (see common.RIG_TO_BLENDER)
         parent = rig.JOINT_OF_PART.get(part0)
         if parent:
             bone.parent = data.edit_bones[parent]
@@ -314,21 +314,17 @@ def weapon_proxy(weapon, arm, collection):
 
 
 def preview_fighter(arm):
-    """Kestrel's meshes re-parented onto the armature's bones."""
-    fb = rig.model_fighter(importlib.import_module("fighters.kestrel"))
-    common.plastic_preview_materials(fb.objects.values())
-    for part, obj in fb.objects.items():
-        world = obj.matrix_world.copy()
-        obj.parent = arm
-        obj.parent_type = "BONE"
-        obj.parent_bone = rig.JOINT_OF_PART[part]
-        bpy.context.view_layer.update()
-        obj.matrix_world = world
-    for m in fb.markers:
-        bpy.data.objects.remove(m)
-    for e in fb.empties.values():
-        bpy.data.objects.remove(e)
-    return fb
+    """Kestrel's skinned body on the armature (sway pieces ride their parent
+    bones; no painting)."""
+    from types import SimpleNamespace
+
+    from sky import hero
+
+    body = hero.preview_body(importlib.import_module("fighters.kestrel"))
+    body.parent = arm
+    mod = body.modifiers.new("Armature", "ARMATURE")
+    mod.object = arm
+    return SimpleNamespace(objects={"Body": body})
 
 
 def _pose_at(clip, t):
@@ -374,6 +370,9 @@ def render_contact_sheet(clips, names, path, columns=None, cell=(180, 240)):
                 dup = obj.copy()
                 bpy.context.scene.collection.objects.link(dup)
                 dup.parent = arm
+                for mod in dup.modifiers:
+                    if mod.type == "ARMATURE":
+                        mod.object = arm
             if weapon:
                 weapon_proxy(weapon, arm, bpy.context.scene.collection)
             apply_pose(arm, _pose_at(clip, t))

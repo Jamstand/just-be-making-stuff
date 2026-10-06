@@ -310,9 +310,13 @@ local function finiteCFrame(cf)
 end
 
 local function angleBetween(a, b)
+	-- atan2 of the rotation's sine and cosine: accurate for tiny angles too,
+	-- where acos of the trace loses everything to float32 rounding
 	local rel = a:Inverse() * b
-	local trace = rel.XVector.X + rel.YVector.Y + rel.ZVector.Z
-	return math.deg(math.acos(math.clamp((trace - 1) / 2, -1, 1)))
+	local x, y, z = rel.XVector, rel.YVector, rel.ZVector
+	local cos = (x.X + y.Y + z.Z - 1) / 2
+	local sin = Vector3.new(y.Z - z.Y, z.X - x.Z, x.Y - y.X).Magnitude / 2
+	return math.deg(math.atan2(sin, cos))
 end
 
 -- Watches a rig's joints frame by frame: how far each joint turns between
@@ -1264,13 +1268,16 @@ h.test("skinned legends: every bone follows its joint, whatever its rest axes", 
 	local r = skinnedRig("Kestrel", TEST_SWAYS)
 	FighterAnimator.track(r.model, { isMe = true, legend = "Kestrel", weapon = "Sword" })
 	FighterAnimator.setWeapon(r.model, "Sword")
-	local worstTurn, worstMove = 0, 0
+	local worstTurn, worstMove, worstBone = 0, 0, ""
 	local function check()
 		local joints = jointFrames(r)
 		for name in PIVOT_OF do
 			local expected = joints[name] * r.rest[name].Rotation
 			local got = boneWorld(r, name)
-			worstTurn = math.max(worstTurn, angleBetween(expected, got))
+			local turn = angleBetween(expected, got)
+			if turn > worstTurn then
+				worstTurn, worstBone = turn, name
+			end
 			worstMove = math.max(worstMove, (expected.Position - got.Position).Magnitude)
 		end
 	end
@@ -1286,7 +1293,7 @@ h.test("skinned legends: every bone follows its joint, whatever its rest axes", 
 			check()
 		end
 	end
-	h.expect(worstTurn < 0.5, string.format("a bone turned %.2f deg away from its joint", worstTurn))
+	h.expect(worstTurn < 0.5, string.format("%s's bone turned %.2f deg away from its joint", worstBone, worstTurn))
 	h.expect(worstMove < 1e-3, string.format("a bone sat %.4f studs off its joint", worstMove))
 	finish(r)
 	FighterRigs.Fighters.Kestrel.Sways = saved
@@ -1331,6 +1338,60 @@ h.test("skinned legends: sway bones trail fast moves, stay in their limits and s
 	r.model:Destroy()
 	FighterRigs.Fighters.Kestrel.Sways = saved
 	expectNoWarnings("sway")
+end)
+
+local APRON_SWAYS = {
+	{
+		Name = "Apron",
+		Parent = "Root",
+		Points = { { 0, 3.46, -0.46 }, { 0, 2.7, -0.5 }, { 0, 1.98, -0.52 } },
+		Stiffness = 0.4,
+		Damping = 0.25,
+		Limit = 50,
+		Behind = -1,
+	},
+}
+
+h.test("skinned legends: cloth hanging from the hips is pushed aside by the thighs", function()
+	local saved = FighterRigs.Fighters.Kestrel.Sways
+	FighterRigs.Fighters.Kestrel.Sways = APRON_SWAYS
+	local r = skinnedRig("Kestrel", APRON_SWAYS)
+	FighterAnimator.track(r.model, { isMe = true, legend = "Kestrel" })
+	local radius = 0.38 * r.scale
+	local closest = math.huge
+	local function clearance()
+		local joints = jointFrames(r)
+		local a, b = boneWorld(r, "Apron1").Position, boneWorld(r, "Apron2").Position
+		for _, side in { "Left", "Right" } do
+			local hip, knee = joints[side .. "Hip"].Position, joints[side .. "Knee"].Position
+			for _, q in { (a + b) / 2, b } do
+				local ab = knee - hip
+				local t = math.clamp((q - hip):Dot(ab) / ab:Dot(ab), 0, 1)
+				local d = (q - (hip + ab * t)).Magnitude
+				closest = math.min(closest, d)
+			end
+		end
+	end
+	FighterAnimator.setLocomotion(r.model, "Run", 1.4)
+	for _ = 1, frames(1) do
+		step(1)
+		clearance()
+	end
+	for _, slot in { "NLight", "SLight", "DLight", "NAir", "SAir", "DAir", "NHeavy", "SHeavy" } do
+		FighterAnimator.playAttack(r.model, "Unarmed", slot, 1)
+		for _ = 1, frames(0.8) do
+			step(1)
+			clearance()
+		end
+	end
+	h.expect(
+		closest >= radius * 0.9,
+		string.format("the apron sank into a thigh (%.2f studs from it, keeps %.2f)", closest, radius)
+	)
+	h.expect(closest < radius * 1.2, "no knee came near the apron, so this didn't test anything")
+	finish(r)
+	FighterRigs.Fighters.Kestrel.Sways = saved
+	expectNoWarnings("apron")
 end)
 
 h.test("menu previews animate and ignore the character's facing", function()

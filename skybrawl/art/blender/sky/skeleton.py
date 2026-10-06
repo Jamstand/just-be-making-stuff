@@ -4,8 +4,9 @@ fighter's right, Y = up, Z = behind, origin between the feet, 1 unit = 1
 stud). Pure Python, so the body builder (sky/hero.py), the armature and the
 animation solver (anims/core.py) share one set of numbers.
 
-Heroic stylized proportions, about 6.5 heads tall: broad shoulders, long
-legs, slightly oversized hands and feet. Every legend shares this build, so
+Heroic stylized proportions, about 6.5 heads tall: broad shoulders, legs
+half the height (the crotch sits at the middle), slightly oversized hands
+and feet. Every legend shares this build, so
 every animation fits every legend. The arms hang a little out from the
 body at rest (broad lats), so arm poses subtract that rest slant.
 
@@ -20,17 +21,17 @@ HEAD = HEIGHT / 6.5  # one "head" of height
 
 # Right side; the left side mirrors x.
 _PIVOTS = {
-    "Root": (0.0, 3.2, 0.0),
-    "Waist": (0.0, 3.62, 0.02),
-    "Neck": (0.0, 4.88, 0.04),
-    "Shoulder": (0.86, 4.56, 0.04),
-    "Elbow": (1.08, 3.6, 0.04),
-    "Wrist": (1.17, 2.8, 0.04),
-    "Hip": (0.34, 3.0, 0.0),
-    "Knee": (0.355, 1.64, 0.0),
+    "Root": (0.0, 3.42, 0.0),
+    "Waist": (0.0, 3.82, 0.02),
+    "Neck": (0.0, 4.92, 0.04),
+    "Shoulder": (0.84, 4.64, 0.04),
+    "Elbow": (1.04, 3.74, 0.04),
+    "Wrist": (1.13, 2.98, 0.04),
+    "Hip": (0.33, 3.3, 0.0),
+    "Knee": (0.35, 1.8, 0.0),
     "Ankle": (0.37, 0.32, 0.0),
 }
-_GRIP = (1.19, 2.6, -0.02)  # the center of the fist
+_GRIP = (1.15, 2.77, -0.02)  # the center of the fist
 
 SIDES = (("Left", -1), ("Right", 1))
 

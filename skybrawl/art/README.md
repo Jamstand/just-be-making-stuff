@@ -8,7 +8,9 @@ a script change you can re-run.
 art/
   blender/
     sky/              shared helpers: common.py (scene, palette, primitives,
-                      export, preview), rig.py (the SkyRig skeleton), mapkit.py
+                      export, preview), skeleton.py (the SkyRig joints),
+                      hero.py (skinned fighters), rig.py (fighter builds and
+                      FighterRigs.luau), mapkit.py
     fighters/         one script per fighter (kestrel.py, brann.py, ...)
     weapons.py        the 18 weapon meshes (6 base + 2 skins per legend)
     maps/             one script per map kit (sky_ship.py, ...)
@@ -81,27 +83,48 @@ The character faces -Z, feet at the origin. In Blender the character faces
 Z points at the camera. In Blender, the front view is the game camera's
 view: X right, Z up, and -Y toward the camera.
 
-**Fighters** are Roblox R6 characters: classic R6 proportions (1x2x1
-legs, a 2x2x1 torso, 1x2x1 arms, a rounded-cylinder head) scaled so the
-head tops out at 6 studs, cut at the elbows and knees with round joint
-fillers so limbs bend without gaps. Outfits are color blocks with flat
-"printed" details, faces are classic Roblox decal faces (thin shapes on
-the head), and hair, hats, hoods, capes and pauldrons are accessories.
-Fighter scripts are written in R6 studs (`UNIT = R6_SCALE`) with the
-helpers in `fighters/_blocky.py`; the skeleton (every joint pivot, the
-grips) lives in `sky/skeleton.py` and is shared with the animation code.
-The model is 15 rigid parts named like Roblox R15 parts (Head,
-UpperTorso, LowerTorso, Left/RightUpperArm, ...), and the game builds the
-joints itself from `FighterRigs.luau`, so the FBX has no armature to go
-wrong in the importer.
+**Fighters** are stylized heroes, about 6.5 heads tall with legs half
+their height, designed from the concept sheets in `art/concepts/`. Each is
+one smooth skinned mesh on the shared skeleton (`sky/skeleton.py`: every
+joint pivot and the grips, shared with the animation code), built by
+`sky/hero.py` from a fighter script (`fighters/<name>.py`, `HERO = True`):
 
-**Colors:** each model uses one small palette texture: a grid of flat
-color swatches, with each face mapped to one swatch, so a model needs a
-single image upload. Fighters render as Roblox SmoothPlastic with no
-outlines (set `Config.Art.Outlines` to add a Highlight outline).
+- `body()`: a sculpted body (blended metaballs) with tweaks per legend
+  (shoulders, chest, waist, arms, jaw, ...);
+- `tint()`: paints part of the body with a clean edge (tight shirts,
+  leggings, stubble, wraps), so thin clothes can never poke through;
+- `garment()`: loose clothes grown off the body at a gap, cut cleanly along
+  their edges, with optional rolled hems; skin under them is removed;
+- `skirt()`: cloth draped over everything below it like a hull (coat
+  skirts, capelets, cloaks, ponchos), so it bridges the legs; `jag`
+  tatters the hem;
+- `panel()`: free-hanging sheets (aprons, tabards, capes);
+- `band()`, `strap()`, `ribbon()`, `lock()`, `blob()`, `fur()`, `boots()`,
+  `hands()`, `face()` and plain primitives for belts, hair, beards, fur
+  trim, armor and buckles.
+
+Every vertex gets skin weights by body region, blended across each joint,
+so clothes bend with the body. Capes, tails, braids, ponytails and aprons
+hang from **sway bones** (`SWAYS` in the fighter script) that the game
+swings with springs and keeps out of the thighs. The faces are painted
+decals. The build bakes one painted 1024 texture set (color with light,
+wear and edges; metalness; roughness) and exports the FBX (armature
+`SkyRig` + skinned `Body` + markers) under Roblox's 20,000-triangle limit,
+plus rig data for `src/shared/FighterRigs.luau`. The game adds a thin dark
+outline (`Config.Art.Outlines`).
+
+Moss is provisional: built from the concept brief while its concept sheet
+waits on the image generator.
+
+**Colors:** fighters carry their painted texture set (a SurfaceAppearance
+in Roblox). Weapons and maps use one small palette texture each: a grid
+of flat color swatches, with each face mapped to one swatch, so a model
+needs a single image upload.
 
 **Animations** are written in `anims/*.py` as key poses (with leg and arm
-IK), baked into Blender actions on a SkyRig armature whose bones are
+IK; every key keeps the elbows, forearms and fists out of the torso by
+swinging the elbows out and sliding the hands, both hands together on
+two-handed weapons), baked into Blender actions on a SkyRig armature whose bones are
 aligned to rig space, and read back out of those actions into
 `src/shared/AnimationData/`. The game's own player (`FighterAnimator`)
 plays them on every client, so there's nothing to upload. Attack keys are

@@ -149,6 +149,29 @@ h.test("every legend has an exported rig with all 15 parts", function()
 	end
 end)
 
+h.test("every legend is a skinned hero under Roblox's triangle limit, with its painted maps", function()
+	local serde = require("@lune/serde")
+	for _, id in Legends.Order do
+		if id ~= "Avatar" then
+			local fighter = FighterRigs.Fighters[id]
+			h.expect(fighter and fighter.Skinned, id .. " isn't skinned")
+			local dir = root .. "/art/export/fighters/"
+			local info = serde.decode("json", fs.readFile(dir .. id .. ".json"))
+			h.expect(
+				info.triangles <= 20000,
+				string.format("%s has %d triangles (Roblox allows 20000)", id, info.triangles)
+			)
+			for _, map in { "color", "metal", "rough" } do
+				h.expect(fs.isFile(dir .. id .. "_" .. map .. ".png"), id .. "_" .. map .. ".png not exported")
+			end
+			for _, sway in fighter.Sways or {} do
+				h.expect(#sway.Points >= 2, id .. "'s sway " .. sway.Name .. " needs two points")
+				h.expect(FighterRigs.Fighters[id] and sway.Limit > 0, id .. "'s sway " .. sway.Name .. " has no limit")
+			end
+		end
+	end
+end)
+
 h.test("weapon meshes cover the base weapons and every legend skin", function()
 	for _, id in Weapons.Order do
 		h.expect(WeaponMeshes.Weapons[id], "no mesh for " .. id)

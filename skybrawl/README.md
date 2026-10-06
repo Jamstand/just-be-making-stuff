@@ -19,8 +19,10 @@ the repo root.
 - Each legend has Strength / Dexterity / Defense / Speed stats and a
   signature for each of their ground heavies: 36 signatures in all. Weapon
   pickups give legends their own two weapons, alternating like Brawlhalla.
-- Blocky Roblox R6-style legends (bending elbows and knees, classic decal
-  faces, accessories, plastic look), each with its own weapon skins.
+- Stylized hero legends (a mix of platform-fighter appeal and gritty
+  fighting-game costume design): smooth skinned bodies with painted
+  textures, metal that shines, swinging capes, braids and aprons, and a
+  thin dark outline, each with its own weapon skins.
   Every move is animated, and the animations are mirrored when you face
   left so your weapon stays on the camera's side.
 

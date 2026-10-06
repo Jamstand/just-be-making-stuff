@@ -110,6 +110,10 @@ local MAX_TURN = math.rad(55 * 60)
 local RIG_HEIGHT = 6
 -- Sway bones: gravity pulls their tips a little below the rest pose.
 local SWAY_GRAVITY = Vector3.new(0, -30, 0)
+-- Cloth hanging from the hips or waist (aprons, tabards, capes) stays this
+-- far from the line through each hip and knee, so raised knees push it
+-- aside instead of poking through.
+local THIGH_RADIUS = 0.38
 
 -- The SkyRig skeleton, for following joints in world space (sway bones).
 local JOINT_PIVOT = {} -- [joint index] = rig-space pivot (unscaled)
@@ -130,6 +134,11 @@ do
 		end
 	end
 end
+
+local LEGS = {
+	{ JOINT_INDEX.LeftHip, JOINT_INDEX.LeftKnee },
+	{ JOINT_INDEX.RightHip, JOINT_INDEX.RightKnee },
+}
 
 local rigs = {} -- [model] = rig
 local world = nil
@@ -575,6 +584,7 @@ local function bindSkin(rig)
 			damping = spec.Damping,
 			limit = math.rad(spec.Limit),
 			behind = spec.Behind,
+			legs = spec.Parent == "Root" or spec.Parent == "Waist",
 		}
 		for k = 1, #spec.Points - 1 do
 			local bone = byName[spec.Name .. k]
@@ -1100,6 +1110,45 @@ end
 -- Sway bones: each segment's tip trails its rest position on a damped
 -- spring (in world space, so it lags behind fast moves), within a swing
 -- limit, and capes stay on their side of the body.
+local function closestOnSegment(p, a, b)
+	local ab = b - a
+	local t = math.clamp((p - a):Dot(ab) / math.max(ab:Dot(ab), 1e-9), 0, 1)
+	return a + ab * t
+end
+
+-- Re-aims a hanging segment (from head along dir) so its middle and tip
+-- stay out of the thighs: a raised knee lifts the cloth forward and up over
+-- it (backward for cloth behind), never sideways into the other leg.
+local function clearLegs(rootCF, frames, chain, head, dir, len, s)
+	local r = THIGH_RADIUS * s
+	local out = (if chain.behind == 1 then -rootCF.LookVector else rootCF.LookVector) + rootCF.UpVector * 0.5
+	local legs = {}
+	for k, leg in LEGS do
+		local a = (rootCF * frames[leg[1]]).Position
+		local b = (rootCF * frames[leg[2]]).Position
+		local axis = (b - a).Unit
+		local push = out - axis * out:Dot(axis)
+		legs[k] = { a = a, b = b, push = if push.Magnitude > 1e-3 then push.Unit else nil }
+	end
+	for _ = 1, 12 do
+		local nudge = nil
+		for _, leg in legs do
+			for _, f in { 0.5, 1 } do
+				local q = head + dir * len * f
+				local away = q - closestOnSegment(q, leg.a, leg.b)
+				if away.Magnitude < r then
+					nudge = leg.push or away.Unit
+				end
+			end
+		end
+		if not nudge then
+			break
+		end
+		dir = (dir + nudge * 0.25).Unit -- swing a little further out and look again
+	end
+	return dir
+end
+
 local function stepSways(rig, dt)
 	local sways = rig.sways
 	if not sways or #sways == 0 then
@@ -1154,6 +1203,9 @@ local function stepSways(rig, dt)
 				if loc.Z * chain.behind < -0.05 then
 					dir = frame:VectorToWorldSpace(Vector3.new(loc.X, loc.Y, -0.05 * chain.behind).Unit)
 				end
+			end
+			if chain.legs then
+				dir = clearLegs(rootCF, frames, chain, head, dir, len, s)
 			end
 			local tip = head + dir * len
 			if dt > 0 or not seg.tip then

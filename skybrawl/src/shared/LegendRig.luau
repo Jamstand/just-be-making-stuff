@@ -102,8 +102,22 @@ function LegendRig.template(legendId)
 	local folder = modelsFolder()
 	local model = folder and folder:FindFirstChild(legendId)
 	local template, err = nil, nil
+	local info = FighterRigs.Fighters[legendId]
 	if model and model:FindFirstChildWhichIsA("Bone", true) then
 		template = { skinned = true, model = model }
+		for _, joint in FighterRigs.Joints do
+			if not model:FindFirstChild(joint.Name, true) then
+				warn("[LegendRig] can't use FighterModels." .. legendId .. ": missing bone " .. joint.Name)
+				template = nil
+				break
+			end
+		end
+	elseif model and info and info.Skinned then
+		warn(
+			"[LegendRig] FighterModels."
+				.. legendId
+				.. " has no bones: re-import it with Rig type Custom (see art/IMPORTING.md)"
+		)
 	elseif model then
 		template, err = LegendRig.readModel(model, legendId)
 		if not template then
