@@ -351,8 +351,9 @@ The tests cover:
   jumping out of a ragdoll, awakening and the ultimate move
 
 `lune run tests/bots` runs headless bot-vs-bot fights on every map. It
-checks that bots land hits, score KOs, rarely fall off on their own, that
-they block, tech, awaken and use ultimates, and that Hard beats Easy.
+checks that bots reach each other and land hits on every map, score KOs,
+rarely fall off on their own, block, tech, awaken and use ultimates, and
+that Hard beats Easy.
 
 `lune run tests/combos` checks the legends (stats, signatures, Dexterity
 timing, weapon alternation) and the combo flow:

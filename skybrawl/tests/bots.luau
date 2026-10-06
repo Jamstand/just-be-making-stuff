@@ -207,11 +207,14 @@ local totals = {
 	ultimates = 0,
 }
 local hardVsEasyKOs, easyVsHardKOs = 0, 0
+local hitsPerMap = {}
 for _, mapId in Maps.Order do
+	hitsPerMap[mapId] = 0
 	for _, pairing in { { "Normal", "Normal" }, { "Hard", "Easy" } } do
 		local fighters = simulate(mapId, pairing[1], pairing[2], 180, "Sword", "Sword")
 		report(mapId .. " " .. pairing[1] .. " vs " .. pairing[2], fighters)
 		for _, f in fighters do
+			hitsPerMap[mapId] += f.hits
 			totals.hits += f.hits
 			totals.kos += f.kos
 			totals.selfDestructs += f.selfDestructs
@@ -242,6 +245,13 @@ print(
 h.test("bots land hits and score KOs", function()
 	h.expect(totals.hits > 100, "too few hits: " .. totals.hits)
 	h.expect(totals.kos >= 8, "too few KOs: " .. totals.kos)
+end)
+
+h.test("bots reach each other and fight on every map", function()
+	for _, mapId in Maps.Order do
+		-- the other maps see 120-200 hits over the two fights
+		h.expect(hitsPerMap[mapId] >= 40, string.format("only %d hits on %s", hitsPerMap[mapId], mapId))
+	end
 end)
 
 h.test("bots rarely fall off on their own", function()

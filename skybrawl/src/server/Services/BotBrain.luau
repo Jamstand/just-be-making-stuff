@@ -64,6 +64,35 @@ function BotBrain:groundAhead(x, y, dir, distance)
 	return Maps.groundBelow(self.match.world, x + dir * distance, y + 0.5) ~= nil
 end
 
+-- The side of a solid platform (a step or a wall) within `distance` studs
+-- in direction `dir`, that the bot would walk into instead of over.
+function BotBrain:wallAhead(s, dir, distance)
+	local P = Config.Physics
+	local halfW = P.FighterWidth / 2
+	for _, p in self.match.world.platforms do
+		if not p.soft and p.maxY > s.y + 0.3 and p.minY < s.y + P.FighterHeight then
+			local face = dir > 0 and p.minX or p.maxX
+			local gap = (face - s.x) * dir - halfW
+			if gap >= -0.1 and gap <= distance then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Jumps over a wall in the way of moving `dir`: from the ground, or with an
+-- air jump once the first one stops rising.
+function BotBrain:hopWall(s, dir)
+	if dir == 0 or not self:wallAhead(s, dir, 2.5) then
+		return false
+	end
+	if s.grounded or (s.vy < 2 and s.airJumps > 0) then
+		self:press("Jump")
+	end
+	return true
+end
+
 -- Nearest solid platform edge to aim for when off stage.
 function BotBrain:recoveryTarget(s)
 	local bestX, bestY, bestDist
@@ -245,6 +274,9 @@ function BotBrain:fight(s, target)
 			input.moveX = dir
 		end
 	end
+	if self:hopWall(s, input.moveX) then
+		return
+	end
 	local groundJump = dy > 5 and s.grounded and rng:NextNumber() < 0.7
 	local airJump = dy > 7 and not s.grounded and s.vy < 0 and s.airJumps > 0
 	if groundJump or airJump then
@@ -282,7 +314,7 @@ function BotBrain:Decide()
 				self:press("Throw")
 			else
 				input.moveX = sign(dx)
-				if pickup.y > s.y + 4 and s.grounded then
+				if not self:hopWall(s, input.moveX) and pickup.y > s.y + 4 and s.grounded then
 					self:press("Jump")
 				end
 			end
