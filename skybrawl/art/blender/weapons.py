@@ -9,6 +9,12 @@ camera when held, and the camera looks along X. Every coordinate below is in
 this frame. MeshBuilder converts it with RIG_TO_BLENDER and export_fbx undoes
 that, so the FBX axes equal the weapon frame.
 
+Weapons are held in a classic blocky fist (sky/avatar.py): a block one R6
+stud square around the grip (X across, Y front to back) and 0.45 tall, its
+knuckle face (the end of the arm, which leads a punch) toward -Z and the
+forearm above it (+Z). Grips run through it front to back, guards stand
+clear of its front face, and gauntlets wrap it (see FIST_HALF and below).
+
 Each weapon exports art/export/weapons/<Id>.fbx holding a "Body" mesh, an
 optional "Glow" mesh (the parts the game turns Neon) and the three import
 markers. All weapons share one palette texture, Weapons_palette.png.
@@ -22,15 +28,27 @@ from collections import namedtuple
 
 import bpy  # noqa: I001 (bpy must load before bmesh)
 import bmesh
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
-from sky import common
+from sky import avatar, common, skeleton
 from sky.common import RIG_TO_BLENDER, MeshBuilder, Palette
 
 EXPORT_DIR = os.path.join(common.EXPORT_DIR, "weapons")
 PREVIEW_PATH = os.path.join(common.PREVIEW_DIR, "weapons", "Weapons.png")
 LUAU_PATH = os.path.join(common.SHARED_SRC, "WeaponMeshes.luau")
 MAX_TRIANGLES = 3000
+
+# The blocky fist in the weapon frame (rig studs): half its width and depth,
+# its knuckle face and its top (the wrist, where the forearm block starts),
+# and the radius of its rounded edges. Gauntlets keep GAP clear of every
+# face, so they never share one with the body.
+_ARM = avatar.LIMBS["RightArm"]
+_WRIST = skeleton.R6_PIVOT["RightWrist"][1]
+FIST_HALF = skeleton.r6(_ARM[1] / 2)
+FIST_BOTTOM = skeleton.r6(_ARM[2] - _WRIST)
+FIST_TOP = skeleton.r6(avatar.SPLITS["RightArm"][0][0] - _WRIST)
+FIST_ROUND = skeleton.r6(avatar.BEVEL)
+GAP = 0.065
 
 # One palette for every weapon, so the game uploads a single texture.
 COLORS = {
@@ -49,16 +67,16 @@ COLORS = {
     "brass": "#dcaa42",
     "brass_dark": "#9a6f22",
     "grip_black": "#2c2628",
-    "pale_wood": "#ecdcae",
-    "pale_wood_dark": "#c7a970",
+    "wine": "#8f1f3d",
+    "wine_dark": "#5e1429",
     "teal": "#1f9098",
     "teal_dark": "#13646b",
-    # Brann
-    "forge_iron": "#4b4e57",
-    "forge_iron_dark": "#2d2f36",
-    "forge_iron_light": "#737885",
+    # Brann (black is in Sol's row)
+    "gunmetal": "#5d6673",
+    "gunmetal_dark": "#373c45",
+    "gunmetal_light": "#9aa3ae",
     "ember": "#ff7a1a",
-    "ember_plate": "#e8691f",
+    "hazard": "#f2b418",
     "ember_dark": "#a3400f",
     # Yuki
     "silver": "#e1e8f0",
@@ -327,9 +345,9 @@ def wraps(mb, y0, y1, r, color, step=0.15, tilt=16, thickness=0.022, z=0.0, segm
         mb.torus((0, y, z), r, thickness, color, rotation=(tilt, 0, 0), segments=segments, sides=4)
 
 
-def wrapped_grip(mb, y0, y1, r, base, band, step=0.15, tilt=16, thickness=0.022):
+def wrapped_grip(mb, y0, y1, r, base, band, step=0.15, tilt=16, thickness=0.022, segments=10):
     mb.cylinder((0, (y0 + y1) / 2, 0), r, y1 - y0, base, segments=10)
-    wraps(mb, y0, y1, r, band, step, tilt, thickness)
+    wraps(mb, y0, y1, r, band, step, tilt, thickness, segments=segments)
 
 
 def stroke(mb, a, b, width, depth, color, x=0.0):
@@ -339,25 +357,6 @@ def stroke(mb, a, b, width, depth, color, x=0.0):
     angle = math.degrees(math.atan2(dz, dy))
     mb.box((x, (a[1] + b[1]) / 2, (a[0] + b[0]) / 2), (depth, length + width * 0.9, width), color,
            bevel=min(width, depth) * 0.3, segments=1, rotation=(angle, 0, 0))
-
-
-# Rune glyphs: strokes in a unit square, u across (z), v up (y).
-RUNES = {
-    "fehu": [((-0.22, -0.5), (-0.22, 0.5)), ((-0.22, 0.18), (0.3, 0.5)), ((-0.22, -0.12), (0.3, 0.2))],
-    "algiz": [((0, -0.5), (0, 0.5)), ((0, 0.02), (-0.36, 0.42)), ((0, 0.02), (0.36, 0.42))],
-    "dagaz": [((-0.32, -0.45), (-0.32, 0.45)), ((0.32, -0.45), (0.32, 0.45)),
-              ((-0.32, 0.45), (0.32, -0.45)), ((-0.32, -0.45), (0.32, 0.45))],
-    "tiwaz": [((0, -0.5), (0, 0.5)), ((0, 0.5), (-0.34, 0.12)), ((0, 0.5), (0.34, 0.12))],
-    "ingwaz": [((-0.3, 0.5), (0.3, -0.04)), ((0.3, 0.5), (-0.3, -0.04)), ((-0.3, 0.04), (0.3, -0.5)),
-               ((0.3, 0.04), (-0.3, -0.5))],
-    "sowilo": [((-0.26, 0.5), (0.24, 0.16)), ((0.24, 0.16), (-0.24, -0.16)), ((-0.24, -0.16), (0.26, -0.5))],
-}
-
-
-def rune(mb, name, z, y, size, x, color, width=0.06, depth=0.05):
-    """A glyph on the X face at x (use both signs for both faces)."""
-    for (u0, v0), (u1, v1) in RUNES[name]:
-        stroke(mb, (z - u0 * size, y + v0 * size), (z - u1 * size, y + v1 * size), width, depth, color, x)
 
 
 def sun_rays(mb, y, z, r_in, r_out, angles, half_width, depth, color, x=0.0):
@@ -393,63 +392,142 @@ def leaf(mb, base, tip, width, colors=("leaf", "vine"), bend=0.0):
 # Shared parts ---------------------------------------------------------------
 
 
-def bow(b, half_path, limb_r, riser_color, limb_color, string_color="string", bridge=None, samples=4):
+def bow(b, half_path, limb_r, riser_color, limb_color, string_color="string", bridge=None, samples=4, lower=1.0):
     """Bow in the YZ plane: `half_path` = (z, y) points from the grip (z=0)
-    out to the +Z tip; the -Z half mirrors it. Limbs bend back toward -Y and the
-    string runs on the -Y side. `bridge` = index of the half_path point where a
-    recurve's string leaves the limb (None: the string runs tip to tip).
-    Returns the sampled +Z half path."""
+    out to the +Z tip; the -Z half mirrors it, `lower` times as long (below 1
+    for a travel bow whose lower limb is shorter). Limbs bend back toward -Y
+    and the string runs on the -Y side. `bridge` = index of the half_path
+    point where a recurve's string leaves the limb (None: the string runs tip
+    to tip). Returns the sampled +Z half path."""
     half = spline(half_path, samples)
-    full = [Vector((-p.x, p.y)) for p in reversed(half)][:-1] + half
-    pts = [(0.0, p.y, p.x) for p in full]
-    tube(b, pts, lambda t: limb_r(abs(2 * t - 1)), limb_color, segments=8)
+    down = [Vector((p.x * lower, p.y)) for p in half]
+    full = [Vector((-p.x, p.y)) for p in reversed(down)][:-1] + half
+    ts = arc_params(half)
+    radii = [limb_r(t) for t in reversed(ts)][:-1] + [limb_r(t) for t in ts]
+    tube(b, [(0.0, p.y, p.x) for p in full], radii, limb_color, segments=8)
     # string: straight between the bridges (or tips), hugging the recurve to the tips
     if bridge is None:
         tip = half[-1]
         rn = limb_r(1.0)[0]
-        b.cylinder((0, tip.y - rn * 0.3, 0), 0.022, 2 * tip.x, string_color, rotation=(90, 0, 0), segments=6)
+        b.cylinder((0, tip.y - rn * 0.3, tip.x * (1 - lower) / 2), 0.022, tip.x * (1 + lower), string_color,
+                   rotation=(90, 0, 0), segments=6)
     else:
         i0 = bridge * samples
-        seg = half[i0:]
-        outer = []
-        for i, p in enumerate(seg):
-            tan = (seg[min(i + 1, len(seg) - 1)] - seg[max(i - 1, 0)]).normalized()
-            nrm = Vector((tan.y, -tan.x))  # right-hand side: outside of the recurve
-            t = (i0 + i) / (len(half) - 1)
-            rn = limb_r(t)[0]
-            outer.append(p + nrm * (rn + 0.012))
-        right = [(0.0, p.y, p.x) for p in outer]
-        left = [(0.0, p.y, -p.x) for p in reversed(outer)]
+
+        def hugging(path):
+            seg = path[i0:]
+            outer = []
+            for i, p in enumerate(seg):
+                tan = (seg[min(i + 1, len(seg) - 1)] - seg[max(i - 1, 0)]).normalized()
+                nrm = Vector((tan.y, -tan.x))  # right-hand side: outside of the recurve
+                outer.append(p + nrm * (limb_r((i0 + i) / (len(path) - 1))[0] + 0.012))
+            return outer
+
+        right = [(0.0, p.y, p.x) for p in hugging(half)]
+        left = [(0.0, p.y, -p.x) for p in reversed(hugging(down))]
         tube(b, left + right, 0.022, string_color, segments=5)
     return half
 
 
-def fist(b, color, scale=1.0, top=0.66):
-    """Rounded-square armored fist block, knuckles toward +Y."""
-    s = scale
-    b.loft([(0, -0.52, 0, 0.47 * s, 0.5 * s), (0, -0.12, 0, 0.52 * s, 0.55 * s), (0, 0.4, 0, 0.52 * s, 0.56 * s),
-            (0, top - 0.06, 0, 0.45 * s, 0.5 * s), (0, top, 0, 0.32 * s, 0.4 * s)], color, power=3.2, segments=16)
+def _square(half, r, z, seg):
+    """Rounded square outline (half width `half`) at height z: each corner is
+    `seg` facets tangent to a circle of radius r, so the outline never cuts
+    inside that circle (and a sleeve never closes in on the arm's corners)."""
+    step = 90.0 / seg
+    pts = []
+    for cx, cy, a0 in ((1, -1, -90), (1, 1, 0), (-1, 1, 90), (-1, -1, 180)):
+        corner = [(a0 + step / 4, step / 4)] + [(a0 + step * k, step / 2) for k in range(1, seg)]
+        for a, half_step in corner + [(a0 + 90 - step / 4, step / 4)]:
+            reach = r / math.cos(math.radians(half_step))
+            a = math.radians(a)
+            pts.append(Vector((cx * (half - r) + reach * math.cos(a), cy * (half - r) + reach * math.sin(a), z)))
+    return pts
 
 
-def cuff(b, color, rim, scale=1.0, y0=-0.52, y1=-1.06, flare=1.18):
-    s = scale
-    b.loft([(0, y0, 0, 0.47 * s, 0.5 * s), (0, y1 + 0.06, 0, 0.47 * s * flare, 0.5 * s * flare)], color,
-           power=3.0, segments=16)
-    b.loft([(0, y1 + 0.1, 0, 0.49 * s * flare, 0.52 * s * flare), (0, y1, 0, 0.5 * s * flare, 0.53 * s * flare)],
-           rim, power=3.0, segments=16)
+def sleeve(b, z0, z1, inner, outer, color, floor=0.0, seg=3):
+    """A square sleeve around the blocky arm from z0 up to z1, its walls
+    from `inner` to `outer` (half widths). The inside's corners follow the
+    arm's rounded edges, so it keeps the same gap all round. `floor` (a
+    thickness) closes the bottom: a cup over the fist. seg=1 chamfers the
+    corners with a single facet."""
+    tmp, layer = _new_bm()
+    r_in = FIST_ROUND + inner - FIST_HALF
+    r_out = r_in + outer - inner
+    o0, o1 = ([tmp.verts.new(p) for p in _square(outer, r_out, z, seg)] for z in (z0, z1))
+    i0, i1 = ([tmp.verts.new(p) for p in _square(inner, r_in, z, seg)] for z in (z0 + floor, z1))
+    n = len(o0)
+    for k in range(n):
+        j = (k + 1) % n
+        _face(b, tmp, layer, (o0[k], o0[j], o1[j], o1[k]), color)
+        _face(b, tmp, layer, (i1[k], i1[j], i0[j], i0[k]), color)
+        _face(b, tmp, layer, (o1[k], o1[j], i1[j], i1[k]), color)
+        if not floor:
+            _face(b, tmp, layer, (i0[k], i0[j], o0[j], o0[k]), color)
+    if floor:
+        _face(b, tmp, layer, i0, color)
+        _face(b, tmp, layer, o0[::-1], color)
+    _emit(b, tmp, smooth=True)
+
+
+def glove(b, color, top=FIST_TOP + 0.045, wall=0.07, floor=0.08, seg=3):
+    """The cup every gauntlet is built on: a shell over the blocky fist, GAP
+    clear of its sides and knuckle face, up to just over the wrist. Returns
+    (its outside half width, the z of its knuckle face)."""
+    inner = FIST_HALF + GAP
+    bottom = FIST_BOTTOM - GAP - floor
+    sleeve(b, bottom, top, inner, inner + wall, color, floor=floor, seg=seg)
+    return inner + wall, bottom
+
+
+def cuff(b, z0, z1, outer, color, seg=3):
+    """A band around the forearm (or the wrist), GAP clear of it, `outer`
+    its outside half width."""
+    sleeve(b, z0, z1, FIST_HALF + GAP, outer, color, seg=seg)
+
+
+def hazard(b, center, normal, up, width, height, period=0.24, lean=40.0, depth=0.03):
+    """Yellow-on-black warning stripes (Brann's harness pattern): a black
+    plate `width` x `height` facing `normal`, its height along `up`, with
+    yellow stripes leaning `lean` degrees, cut off at its edges."""
+    c, n, u = Vector(center), Vector(normal).normalized(), Vector(up).normalized()
+    a = n.cross(u)
+    b.box(tuple(c), (depth, height, width), "black", bevel=0.008, segments=1, rotation=Matrix((n, u, a)).transposed())
+    lean = math.radians(lean)
+    d = u * math.cos(lean) + a * math.sin(lean)
+    face = c + n * (depth / 2 + 0.004)
+    clip = [(tuple(face - u * height / 2), tuple(u)), (tuple(face + u * height / 2), tuple(-u)),
+            (tuple(face - a * width / 2), tuple(a)), (tuple(face + a * width / 2), tuple(-a))]
+    rot = Matrix((n, d, n.cross(d))).transposed()
+    reach = height / 2 * math.tan(lean)
+    t = -width / 2 - reach
+    while t < width / 2 + reach:
+        b.box(tuple(face + a * t), (0.012, height / math.cos(lean) + 0.1, period * 0.5 * math.cos(lean)), "hazard",
+              bevel=0, rotation=rot, clip=clip, fill=True)
+        t += period
+
+
+def exhaust(b, g, base, direction, length, r=0.085):
+    """An exhaust stack (like Brann's shoulders): pipe, steel lip, hot core."""
+    p, d = Vector(base), Vector(direction).normalized()
+    tip = p + d * length
+    tube(b, [p, tip], r, "gunmetal_dark", segments=10, smooth=False)
+    tube(b, [tip - d * 0.07, tip + d * 0.01], r + 0.025, "gunmetal_light", segments=10, smooth=False)
+    tube(g, [tip - d * 0.02, tip + d * 0.02], r * 0.7, "ember", segments=10, smooth=False)
 
 
 # Base set ---------------------------------------------------------------------
 
 
 def sword(b, g):
-    b.sphere((0, -0.69, 0), (0.17, 0.14, 0.17), "steel_mid", segments=12, rings=8)
-    b.cylinder((0, -0.56, 0), 0.1, 0.12, "steel_dark", segments=10)
+    # the pommel sits just behind the fist (its back face is at -FIST_HALF)
+    b.sphere((0, -0.74, 0), (0.17, 0.14, 0.17), "steel_mid", segments=12, rings=8)
+    b.cylinder((0, -0.58, 0), 0.1, 0.12, "steel_dark", segments=10)
     wrapped_grip(b, -0.52, 0.62, 0.115, "leather", "leather_dark")
-    b.box((0, 0.72, 0), (0.24, 0.2, 1.3), "steel_mid", bevel=0.06)
+    # the guard stands just clear of the fist's front face
+    b.box((0, 0.76, 0), (0.24, 0.2, 1.3), "steel_mid", bevel=0.06)
     for s in (-1, 1):
-        b.sphere((0, 0.72, s * 0.68), 0.12, "steel_mid", segments=10, rings=7)
-    b.box((0, 0.74, 0), (0.3, 0.3, 0.44), "steel_dark", bevel=0.06)
+        b.sphere((0, 0.76, s * 0.68), 0.12, "steel_mid", segments=10, rings=7)
+    b.box((0, 0.78, 0), (0.3, 0.3, 0.44), "steel_dark", bevel=0.06)
     straight_blade(b, [(0.82, 0.25, 1.0), (1.6, 0.245, 1.0), (2.6, 0.235, 0.95), (3.6, 0.225, 0.9),
                        (4.3, 0.21, 0.85), (4.65, 0.15, 0.7), (4.88, 0.07, 0.5), (5.0, 0.0, 0.3)],
                    SYM, ["steel_hi", "steel", "steel", "steel_hi"])
@@ -457,10 +535,11 @@ def sword(b, g):
 
 
 def hammer(b, g):
-    b.cylinder((0, 1.4, 0), 0.15, 4.4, "wood", segments=10)
-    wrapped_grip(b, -0.6, 0.6, 0.165, "leather", "leather_dark")
-    b.cylinder((0, -0.86, 0), 0.2, 0.16, "steel_mid", segments=10)
-    b.sphere((0, -0.95, 0), (0.16, 0.08, 0.16), "steel_mid", segments=10, rings=6)
+    # the grip runs out of both sides of the fist, so it shows
+    b.cylinder((0, 1.3, 0), 0.15, 4.6, "wood", segments=10)
+    wrapped_grip(b, -0.95, 0.78, 0.165, "leather", "leather_dark")
+    b.cylinder((0, -1.04, 0), 0.2, 0.16, "steel_mid", segments=10)
+    b.sphere((0, -1.13, 0), (0.16, 0.08, 0.16), "steel_mid", segments=10, rings=6)
     for s in (-1, 1):
         b.box((s * 0.15, 2.55, 0), (0.06, 0.8, 0.16), "steel_mid", bevel=0.02, segments=1)
     b.cylinder((0, 2.95, 0), 0.22, 0.14, "steel_dark", segments=10)
@@ -472,40 +551,46 @@ def hammer(b, g):
 
 
 def spear(b, g):
-    b.cylinder((0, 2.35, 0), 0.11, 6.8, "wood", segments=10)
-    wrapped_grip(b, -0.45, 0.45, 0.125, "leather", "leather_dark")
-    wrapped_grip(b, 2.7, 3.3, 0.125, "leather", "leather_dark")
-    b.cylinder((0, -1.1, 0), 0.13, 0.2, "steel_mid", segments=10, radius_top=0.12)
-    b.cylinder((0, -1.26, 0), 0.06, 0.12, "steel_mid", segments=10, radius_top=0.13)
-    b.cylinder((0, 5.82, 0), 0.115, 0.5, "steel_mid", segments=10, radius_top=0.15)
-    b.torus((0, 5.64, 0), 0.125, 0.03, "steel_dark", segments=12, sides=4)
-    straight_blade(b, [(6.02, 0.12, 1.0), (6.25, 0.3, 1.0), (6.45, 0.35, 1.0), (6.75, 0.3, 0.9),
+    b.cylinder((0, 2.35, 0), 0.125, 6.8, "wood", segments=10)
+    wrapped_grip(b, -0.78, 0.78, 0.14, "leather", "leather_dark")
+    wrapped_grip(b, 2.7, 3.3, 0.14, "leather", "leather_dark")
+    b.cylinder((0, -1.1, 0), 0.145, 0.2, "steel_mid", segments=10, radius_top=0.135)
+    b.cylinder((0, -1.26, 0), 0.06, 0.12, "steel_mid", segments=10, radius_top=0.145)
+    b.cylinder((0, 5.82, 0), 0.13, 0.5, "steel_mid", segments=10, radius_top=0.16)
+    b.torus((0, 5.64, 0), 0.14, 0.03, "steel_dark", segments=12, sides=4)
+    straight_blade(b, [(6.02, 0.13, 1.0), (6.25, 0.3, 1.0), (6.45, 0.35, 1.0), (6.75, 0.3, 0.9),
                        (7.05, 0.17, 0.7), (7.35, 0.0, 0.3)],
                    SYM, ["steel_hi", "steel", "steel", "steel_hi"])
 
 
 def gauntlets(b, g):
-    fist(b, "steel")
-    # overlapping plates on the back of the hand, each with a dark lower lip
-    for y, w in ((0.3, 1.0), (0.06, 0.96), (-0.18, 0.92)):
-        b.box((0, y, 0), (1.07, 0.2, w), "steel", bevel=0.05, taper=(1.0, 0.96))
-        b.box((0, y - 0.11, 0), (1.08, 0.035, w - 0.04), "steel_dark", bevel=0.012, segments=1)
-    b.box((0, 0.5, 0), (1.06, 0.05, 1.0), "steel_dark", bevel=0.015, segments=1)
-    for z in (-0.39, -0.13, 0.13, 0.39):
-        b.box((0, 0.64, z), (0.98, 0.24, 0.23), "steel_mid", bevel=0.09)
-    b.capsule((0, -0.1, 0.56), (0, 0.32, 0.5), 0.14, "steel_mid", segments=10)
-    b.loft([(0, -0.48, 0, 0.5, 0.53), (0, -0.6, 0, 0.5, 0.53)], "steel_dark", power=3.0, segments=16)
-    cuff(b, "leather", "steel_mid", y0=-0.6)
+    """Steel-plated gloves over the blocky fist, with a leather cuff."""
+    half, bottom = glove(b, "steel")
+    # four knuckle plates leading the punch, index (+Y, the thumb side) to
+    # little finger, and a thumb plate down the front
+    for y in (-0.42, -0.14, 0.14, 0.42):
+        b.box((0, y, bottom - 0.03), (2 * half - 0.1, 0.24, 0.16), "steel_mid", bevel=0.06)
+    b.capsule((0, half + 0.05, -0.22), (0, half + 0.05, 0.14), 0.12, "steel_mid", segments=10)
+    # overlapping plates down the sides (the faces the camera sees), each with a dark lip
+    for s in (-1, 1):
+        for z in (0.17, -0.05):
+            b.box((s * (half + 0.025), 0, z), (0.07, 2 * half - 0.14, 0.2), "steel", bevel=0.025, segments=1)
+            b.box((s * (half + 0.035), 0, z - 0.105), (0.06, 2 * half - 0.2, 0.035), "steel_dark", bevel=0.01,
+                  segments=1)
+    # a dark seam over the wrist, the leather cuff up the forearm and its steel rim
+    cuff(b, FIST_TOP + 0.02, FIST_TOP + 0.09, half + 0.02, "steel_dark")
+    cuff(b, FIST_TOP + 0.085, 0.6, half - 0.005, "leather")
+    cuff(b, 0.595, 0.67, half + 0.03, "steel_mid")
 
 
 def scythe(b, g):
-    b.cylinder((0, 2.175, 0), 0.11, 6.35, "wood", segments=10)
-    b.cylinder((0, -1.0, 0), 0.13, 0.16, "steel_mid", segments=10)
-    wrapped_grip(b, -0.4, 0.45, 0.125, "leather", "leather_dark")
+    b.cylinder((0, 2.175, 0), 0.125, 6.35, "wood", segments=10)
+    b.cylinder((0, -1.0, 0), 0.145, 0.16, "steel_mid", segments=10)
+    wrapped_grip(b, -0.78, 0.78, 0.14, "leather", "leather_dark")
     # side handle (the nib)
-    b.cylinder((0, 2.6, 0), 0.14, 0.18, "steel_dark", segments=10)
+    b.cylinder((0, 2.6, 0), 0.155, 0.18, "steel_dark", segments=10)
     tube(b, [(0, 2.6, 0.1), (0, 2.68, 0.35), (0, 2.8, 0.55)], [0.07, 0.07, 0.065], "wood_dark", segments=8)
-    b.cylinder((0, 5.2, 0), 0.15, 0.32, "steel_dark", segments=10)
+    b.cylinder((0, 5.2, 0), 0.16, 0.32, "steel_dark", segments=10)
     b.box((0, 5.32, -0.05), (0.22, 0.36, 0.42), "steel_dark", bevel=0.05)
     lines = blade_lines([(0.0, 5.32), (-1.0, 5.5), (-2.2, 5.33), (-3.2, 4.9), (-3.72, 4.38)],
                         [(0, 0.17, 0.22), (0.06, 0.165, 0.29), (0.16, 0.16, 0.34), (0.5, 0.12, 0.3),
@@ -541,105 +626,157 @@ def wrapped_grip_z(b, z0, z1, r, base, band, y=0.0, step=0.13, tilt=16):
 
 
 def kestrel_sword(b, g):
-    """Curved cutlass with a brass knuckle-bow guard."""
-    wrapped_grip(b, -0.6, 0.66, 0.11, "grip_black", "brass", step=0.11, thickness=0.016)
-    b.sphere((0, -0.72, 0), (0.15, 0.13, 0.15), "brass", segments=12, rings=8)
-    b.sphere((0, -0.84, 0), (0.06, 0.06, 0.06), "brass_dark", segments=8, rings=6)
-    # guard plate, short curled quillon (+Z) and the knuckle bow (-Z, the edge side)
-    b.box((0, 0.75, -0.05), (0.24, 0.17, 0.6), "brass", bevel=0.05)
-    curve_tube(b, [(0, 0.76, 0.2), (0, 0.8, 0.42), (0, 0.72, 0.56), (0, 0.6, 0.56)], (0.05, 0.06), "brass",
-               segments=8)
-    b.sphere((0, 0.6, 0.56), 0.07, "brass", segments=8, rings=6)
-    bow_pts = curve_tube(b, [(0, 0.76, -0.3), (0, 0.66, -0.55), (0, 0.38, -0.68), (0, 0.0, -0.7),
-                             (0, -0.36, -0.6), (0, -0.6, -0.32), (0, -0.7, -0.06)],
-                         (0.055, 0.085), "brass", segments=8)
-    for z, y in ((-0.8, 0.12), (-0.79, -0.14), (-0.7, -0.38)):
-        b.torus((0, y, z), 0.07, 0.024, "brass", rotation=FACING, segments=10, sides=4)
-    # blade: widens toward a clipped tip that curves back to the spine side (+Z)
-    lines = blade_lines([(0.0, 0.84), (0.0, 1.8), (0.07, 2.8), (0.22, 3.7), (0.45, 4.45), (0.7, 4.98)],
-                        [(0, 0.17, 0.2), (0.45, 0.17, 0.24), (0.78, 0.17, 0.3), (0.9, 0.12, 0.24), (1, 0, 0)],
+    """The wanderer's duelling blade: a slender single-edged curve with a gold
+    feather inlay, a slim gold guard set with a teal stone, and a long grip
+    bound in wine-red cord with a tassel at the pommel."""
+    wrapped_grip(b, -1.0, 0.68, 0.11, "wine_dark", "wine", step=0.105, tilt=22, thickness=0.02, segments=8)
+    b.cylinder((0, -1.04, 0), 0.13, 0.08, "brass", segments=12)
+    b.sphere((0, -1.09, 0), (0.1, 0.07, 0.1), "brass", segments=10, rings=6)
+    curve_tube(b, [(0, -1.13, 0), (0, -1.21, -0.05), (0, -1.25, -0.17)], 0.02, "wine", samples=3, segments=6)
+    b.sphere((0, -1.26, -0.21), 0.045, "brass", segments=8, rings=6)
+    tube(b, [(0, -1.27, -0.24), (0, -1.29, -0.36), (0, -1.31, -0.55)], [0.035, 0.06, 0.06], "wine", segments=8,
+         smooth=False)
+    # slim guard: a bar along Z whose ends curl toward the blade, clear of the
+    # fist's front face, with a teal stone in the middle
+    curve_tube(b, [(0, 0.86, -0.46), (0, 0.76, -0.34), (0, 0.72, -0.12), (0, 0.72, 0.12), (0, 0.76, 0.34),
+                   (0, 0.86, 0.46)], (0.045, 0.07), "brass", segments=8)
+    for s in (-1, 1):
+        b.sphere((0, 0.89, s * 0.47), (0.07, 0.065, 0.06), "brass", segments=10, rings=6)
+    b.box((0, 0.76, 0), (0.2, 0.17, 0.3), "brass", bevel=0.05)
+    gem(g, 0.76, 0.0, 0.1, 0.065, "teal", sides=6, height=0.05)
+    b.box((0, 0.89, -0.01), (0.13, 0.12, 0.31), "brass_dark", bevel=0.03, segments=1)
+    # blade: a gentle, even curve back toward the spine (+Z) into a fine point
+    lines = blade_lines([(0.0, 0.86), (0.02, 1.9), (0.12, 2.9), (0.3, 3.85), (0.56, 4.68), (0.76, 5.1)],
+                        [(0, 0.13, 0.15), (0.5, 0.12, 0.15), (0.8, 0.11, 0.135), (0.93, 0.075, 0.08), (1, 0, 0)],
                         samples=5, thick=[(0, 1.0), (0.85, 0.8), (1, 0.4)])
     blade(b, lines, SINGLE, ["steel_mid", "steel", "steel_hi"])
+    # a kestrel feather inlaid in gold on both faces, near the guard
+    feather = [(0.03, 1.04), (0.09, 1.22), (0.1, 1.5), (0.075, 1.76), (0.035, 1.88), (0.0, 1.72), (-0.02, 1.44),
+               (-0.005, 1.2)]
+    for s in (-1, 1):
+        b.prism(feather, 0.016, "brass", center=(s * 0.05, 0, 0), rotation=FLAT, bevel=0.004)
+        stroke(b, (0.035, 1.02), (0.04, 1.86), 0.018, 0.016, "brass_dark", x=s * 0.056)
 
 
 def kestrel_bow(b, g):
-    """Pale-wood recurve with teal grip wraps."""
-    half = [(0.0, 0.07), (0.5, 0.04), (1.0, -0.1), (1.5, -0.36), (1.88, -0.64), (2.08, -0.76), (2.24, -0.68),
-            (2.3, -0.52)]
+    """Slim travel recurve, its lower limb a little shorter: dark lacquered
+    wood with gold bands and nocks, teal tips and a wine-red grip."""
+    half = [(0.0, 0.07), (0.5, 0.04), (1.0, -0.1), (1.52, -0.36), (1.92, -0.64), (2.14, -0.77), (2.32, -0.7),
+            (2.4, -0.54)]
+    lower = 0.84
 
     def r(t):
-        if t < 0.2:
-            return (0.15, 0.14)
-        f = (t - 0.2) / 0.8
-        return (0.1 - 0.05 * f, 0.13 - 0.06 * f)
+        if t < 0.18:
+            return (0.14, 0.13)
+        f = (t - 0.18) / 0.82
+        return (0.09 - 0.045 * f, 0.115 - 0.05 * f)
 
-    half_pts = bow(b, half, r, "pale_wood", "pale_wood", string_color="string", bridge=5)
-    wrapped_grip_z(b, -0.36, 0.36, 0.165, "teal", "teal_dark", y=0.06)
-    for s in (-1, 1):
-        b.cylinder((0, 0.03, s * 0.44), 0.16, 0.06, "pale_wood_dark", rotation=(90, 0, 0), segments=10)
-    # teal bands near the tips and dark nocks
-    n = len(half_pts) - 1
-    for idx in (int(n * 0.66),):
-        p, q = half_pts[idx], half_pts[idx + 1]
-        tan = (q - p).normalized()
-        ang = math.degrees(math.atan2(tan.x, tan.y))
-        rn, rx = r(idx / n)
-        for s in (-1, 1):
-            b.cylinder((0, p.y, s * p.x), max(rn, rx) + 0.02, 0.26, "teal", rotation=(s * ang, 0, 0), segments=8)
-            b.torus((0, p.y, s * p.x), max(rn, rx) + 0.02, 0.018, "teal_dark", rotation=(s * ang, 0, 0),
-                    segments=8, sides=4)
-    tip = half_pts[-1]
-    for s in (-1, 1):
-        b.sphere((0, tip.y + 0.02, s * tip.x), 0.055, "leather_dark", segments=8, rings=6)
+    up = bow(b, half, r, "wood_dark", "wood_dark", string_color="string", bridge=5, lower=lower)
+    # the grip runs through the fist; gold caps sit just clear of it
+    wrapped_grip_z(b, FIST_BOTTOM - 0.07, FIST_TOP + 0.07, 0.15, "wine", "wine_dark", y=0.06, step=0.11)
+    for z in (FIST_BOTTOM - GAP - 0.05, FIST_TOP + GAP + 0.05):
+        b.cylinder((0, 0.05, z), 0.155, 0.07, "brass", rotation=(90, 0, 0), segments=10)
+    # each limb: a gold band, teal lacquered tips with a gold band where they
+    # start, and a gold nock
+    ts = arc_params(up)
+    n = len(up) - 1
+    i_band, i_tip = int(n * 0.42), int(n * 0.78)
+    for k in (1.0, -lower):
+        pts = [Vector((p.x * k, p.y)) for p in up]
+        tube(b, [(0, p.y, p.x) for p in pts[i_tip:]],
+             [(r(t)[0] + 0.012, r(t)[1] + 0.012) for t in ts[i_tip:]], "teal", segments=8)
+        for i in (i_band, i_tip):
+            p, q = pts[i], pts[i + 1]
+            tan = (q - p).normalized()
+            rn, rx = r(ts[i])
+            b.cylinder((0, p.y, p.x), max(rn, rx) + 0.022, 0.07, "brass",
+                       rotation=(math.degrees(math.atan2(tan.x, tan.y)), 0, 0), segments=8)
+        b.sphere((0, pts[-1].y + 0.02, pts[-1].x), 0.05, "brass", segments=8, rings=6)
 
 
 # Brann --------------------------------------------------------------------------
 
 
 def brann_hammer(b, g):
-    """Massive two-handed forge hammer: anvil-shaped iron head with glowing runes."""
-    b.cylinder((0, 0.9, 0), 0.19, 4.2, "wood_dark", segments=10)
-    wrapped_grip(b, -0.9, 0.6, 0.205, "leather", "leather_dark", step=0.16)
-    for y in (1.25, 2.25):
-        b.cylinder((0, y, 0), 0.23, 0.16, "forge_iron", segments=10)
-    b.box((0, -1.13, 0), (0.52, 0.3, 0.52), "forge_iron", bevel=0.07)
-    b.box((0, 2.82, 0), (0.6, 0.24, 0.6), "forge_iron_dark", bevel=0.05)
-    # the anvil (side profile faces the camera); horn toward -Z
-    body = [(-1.05, 4.58), (1.5, 4.58), (1.5, 3.98), (1.22, 3.86), (0.72, 3.8), (0.55, 3.56), (0.62, 3.3),
-            (1.0, 3.13), (1.06, 2.92), (-1.06, 2.92), (-1.0, 3.13), (-0.62, 3.3), (-0.55, 3.56), (-0.72, 3.8),
-            (-0.95, 3.95), (-1.05, 4.1)]
-    b.prism(body, 1.25, "forge_iron", rotation=FLAT, bevel=0.06)
-    tube(b, [(0, 4.3, -0.95), (0, 4.34, -1.4), (0, 4.44, -1.95)], [(0.27, 0.55), (0.17, 0.34), (0, 0)],
-         "forge_iron", segments=8, smooth=False)
-    b.box((0, 4.62, 0.22), (1.34, 0.1, 2.56), "forge_iron_light", bevel=0.03, segments=1)
-    # rivets
+    """Hydraulic mech hammer: a gunmetal head that drives a piston ram (the
+    striking face, -Z), hazard stripes and glowing vents on its broad sides,
+    exhaust stacks on top; a steel haft with a rubber grip for both hands."""
+    b.cylinder((0, 1.05, 0), 0.165, 3.9, "gunmetal_light", segments=10)
+    b.cylinder((0, -0.36, 0), 0.19, 1.98, "grip_black", segments=10)
+    # ridges (the top one caps the rubber, just clear of the fist's front face)
+    for y in (-1.2, -0.84, -0.48, -0.12, 0.24, 0.66):
+        b.torus((0, y, 0), 0.19, 0.028, "gunmetal_dark", segments=8, sides=4)
+    # counterweight with a hot core
+    b.cylinder((0, -1.38, 0), 0.22, 0.08, "gunmetal_light", segments=12)
+    b.box((0, -1.56, 0), (0.46, 0.3, 0.46), "gunmetal_dark", bevel=0.07)
+    g.cylinder((0, -1.71, 0), 0.12, 0.04, "ember", segments=12)
+    # a hose up one side of the haft and a piston up the other, into the head
+    curve_tube(b, [(0, 0.72, 0.17), (0, 0.88, 0.27), (0, 2.6, 0.27), (0, 2.88, 0.18)], 0.045, "grip_black",
+               samples=3, segments=6)
+    b.box((0, 2.0, -0.17), (0.12, 0.1, 0.2), "gunmetal_dark", bevel=0.02, segments=1)
+    b.cylinder((0, 2.3, -0.26), 0.07, 0.6, "gunmetal_dark", segments=8)
+    b.cylinder((0, 2.76, -0.26), 0.04, 0.42, "gunmetal_light", segments=8)
+    b.cylinder((0, 2.98, 0), 0.24, 0.14, "gunmetal_dark", segments=10)
+    # the head: a gunmetal block with a light top plate and a dark lip
+    yc = 3.85
+    b.box((0, yc, 0), (1.16, 1.5, 1.6), "gunmetal", bevel=0.1)
+    b.box((0, yc + 0.78, 0), (1.0, 0.07, 1.44), "gunmetal_light", bevel=0.025, segments=1)
+    b.box((0, yc - 0.76, 0), (1.22, 0.12, 1.66), "gunmetal_dark", bevel=0.04, segments=1)
+    # the piston ram: housing with a glowing seal, the ram and its striking plate
+    along_z = (90, 0, 0)
+    b.cylinder((0, yc, -0.92), 0.6, 0.3, "gunmetal_dark", rotation=along_z, segments=16)
+    g.torus((0, yc, -1.08), 0.47, 0.035, "ember", rotation=along_z, segments=16, sides=4)
+    b.cylinder((0, yc, -1.24), 0.42, 0.36, "gunmetal_light", rotation=along_z, segments=14)
+    b.cylinder((0, yc, -1.48), 0.74, 0.18, "gunmetal", rotation=along_z, segments=16)
+    b.cylinder((0, yc, -1.58), 0.56, 0.04, "gunmetal_dark", rotation=along_z, segments=16)
+    # the flat back face (+Z) on a heavy plate, and two exhaust stacks leaning back
+    b.box((0, yc, 0.95), (1.1, 1.36, 0.3), "gunmetal_dark", bevel=0.06)
+    b.box((0, yc, 1.14), (1.22, 1.5, 0.12), "gunmetal", bevel=0.04)
+    for z, length in ((0.25, 0.3), (0.6, 0.45)):
+        exhaust(b, g, (0, yc + 0.7, z), (0, 1, 0.45), length)
+    # broad sides: hazard stripes along the bottom, a vent with three glowing
+    # slits above, bolts at the corners
     for s in (-1, 1):
-        for z, y in ((1.3, 4.38), (1.3, 4.1), (0.82, 3.04), (-0.82, 3.04)):
-            b.sphere((s * 0.63, y, z), (0.05, 0.06, 0.06), "forge_iron_light", segments=8, rings=5)
-    # glowing runes on both faces
-    for s in (-1, 1):
-        for name, z in (("fehu", 0.78), ("dagaz", 0.1), ("algiz", -0.58)):
-            rune(g, name, z, 4.2, 0.42, s * 0.635, "ember")
-        g.box((s * 0.635, 3.04, 0), (0.05, 0.06, 1.2), "ember", bevel=0.015, segments=1)
+        hazard(b, (s * 0.595, yc - 0.48, 0), (s, 0, 0), (0, 1, 0), 1.44, 0.34)
+        b.box((s * 0.585, yc + 0.2, 0), (0.04, 0.6, 1.16), "gunmetal_dark", bevel=0.015, segments=1)
+        for dy in (0.02, 0.2, 0.38):
+            g.box((s * 0.608, yc + dy, 0), (0.02, 0.065, 0.92), "ember", bevel=0)
+        for z in (-0.68, 0.68):
+            for dy in (-0.56, 0.6):
+                b.sphere((s * 0.59, yc + dy, z), 0.045, "gunmetal_light", segments=8, rings=5)
 
 
 def brann_gauntlets(b, g):
-    """Riveted iron gauntlets with ember-orange knuckle plates."""
-    fist(b, "forge_iron", scale=1.04)
+    """Gunmetal mech gauntlets: heavy knuckle plates with glowing caps,
+    orange vent lines down the sides, a piston up the thumb side and a
+    hazard-striped cuff."""
+    half, bottom = glove(b, "gunmetal", wall=0.08, seg=2)
+    # knuckle plates, a light glowing at both ends of each (they lead a punch
+    # in the side view)
+    for y in (-0.42, -0.14, 0.14, 0.42):
+        b.box((0, y, bottom - 0.04), (2 * half - 0.06, 0.25, 0.18), "gunmetal_dark", bevel=0.05)
+        for s in (-1, 1):
+            g.cylinder((s * (half - 0.028), y, bottom - 0.05), 0.06, 0.03, "ember", rotation=FACING, segments=10)
+    # vent panels down the sides: three glowing slits between bolts
     for s in (-1, 1):
-        b.box((s * 0.5, 0.05, 0), (0.12, 0.72, 0.84), "forge_iron_dark", bevel=0.04)
-        for z in (-0.33, 0.33):
-            for y in (-0.22, 0.32):
-                b.sphere((s * 0.57, y, z), (0.04, 0.055, 0.055), "forge_iron_light", segments=8, rings=5)
-        rune(g, "ingwaz", 0.0, 0.05, 0.4, s * 0.565, "ember", width=0.055, depth=0.04)
-    for z in (-0.41, -0.14, 0.14, 0.41):
-        b.box((0, 0.66, z), (1.04, 0.3, 0.25), "ember_plate", bevel=0.07)
-        b.box((0, 0.53, z), (1.06, 0.06, 0.22), "ember_dark", bevel=0.02, segments=1)
-    b.capsule((0, -0.12, 0.6), (0, 0.32, 0.54), 0.15, "forge_iron_dark", segments=10)
-    cuff(b, "forge_iron_dark", "forge_iron", scale=1.04, y0=-0.52, flare=1.22)
-    for s in (-1, 1):
-        for z in (-0.38, 0.0, 0.38):
-            b.sphere((s * 0.6, -0.97, z), (0.045, 0.05, 0.05), "forge_iron_light", segments=8, rings=5)
+        b.box((s * (half + 0.012), 0, -0.02), (0.04, 2 * half - 0.3, 0.46), "gunmetal_dark", bevel=0.015,
+              segments=1)
+        for z in (-0.16, -0.02, 0.12):
+            g.box((s * (half + 0.034), 0, z), (0.02, 2 * half - 0.6, 0.045), "ember", bevel=0)
+        for y in (-1, 1):
+            for z in (-0.19, 0.15):
+                b.sphere((s * (half + 0.035), y * (half - 0.23), z), 0.04, "gunmetal_light", segments=8, rings=5)
+    # a piston up the thumb side, from the knuckles to the cuff
+    along_z = (90, 0, 0)
+    b.cylinder((0, half + 0.07, -0.09), 0.075, 0.42, "gunmetal_dark", rotation=along_z, segments=10)
+    b.cylinder((0, half + 0.07, 0.3), 0.04, 0.4, "gunmetal_light", rotation=along_z, segments=8)
+    b.box((0, half + 0.04, 0.52), (0.2, 0.14, 0.1), "gunmetal_dark", bevel=0.03, segments=1)
+    # the cuff: a glowing seam at the wrist, hazard stripes all round, a rim
+    cuff(g, FIST_TOP + 0.04, FIST_TOP + 0.075, half + 0.008, "ember", seg=2)
+    cuff(b, FIST_TOP + 0.07, 0.62, half - 0.01, "gunmetal_dark", seg=2)
+    for n in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0)):
+        hazard(b, Vector(n) * (half + 0.002) + Vector((0, 0, 0.47)), n, (0, 0, 1), 0.98, 0.17, period=0.2)
+    cuff(b, 0.6, 0.67, half + 0.025, "gunmetal", seg=2)
 
 
 # Yuki ---------------------------------------------------------------------------
@@ -647,14 +784,14 @@ def brann_gauntlets(b, g):
 
 def yuki_spear(b, g):
     """Slender spear: pale ice-crystal blade, white-wrapped shaft."""
-    b.cylinder((0, 2.3, 0), 0.085, 6.7, "wrap_white", segments=10)
-    wraps(b, -0.95, 5.6, 0.085, "wrap_shade", step=0.36, tilt=24, thickness=0.016, segments=8)
-    b.cylinder((0, -1.06, 0), 0.11, 0.16, "silver", segments=10)
-    crystal(g, (0, -1.1, 0), (0, -1.42, 0), 0.08, "ice", sides=6, shoulder=0.35)
-    for y in (0.55, -0.55):
-        b.cylinder((0, y, 0), 0.105, 0.08, "silver", segments=10)
-    b.cylinder((0, 5.72, 0), 0.1, 0.3, "silver", segments=10, radius_top=0.13)
-    b.torus((0, 5.88, 0), 0.13, 0.035, "silver_dark", segments=12, sides=4)
+    b.cylinder((0, 2.3, 0), 0.1, 6.7, "wrap_white", segments=10)
+    wraps(b, -0.95, 5.6, 0.1, "wrap_shade", step=0.36, tilt=24, thickness=0.016, segments=8)
+    b.cylinder((0, -1.06, 0), 0.125, 0.16, "silver", segments=10)
+    crystal(g, (0, -1.1, 0), (0, -1.42, 0), 0.09, "ice", sides=6, shoulder=0.35)
+    for y in (0.66, -0.66):  # just outside the fist's front and back faces
+        b.cylinder((0, y, 0), 0.12, 0.08, "silver", segments=10)
+    b.cylinder((0, 5.72, 0), 0.115, 0.3, "silver", segments=10, radius_top=0.14)
+    b.torus((0, 5.88, 0), 0.14, 0.035, "silver_dark", segments=12, sides=4)
     for s in (-1, 1):
         b.prism([(s * 0.1, 5.62), (s * 0.34, 5.9), (s * 0.3, 6.06), (s * 0.1, 5.92)], 0.06, "silver",
                 rotation=FLAT, bevel=0.01)
@@ -720,7 +857,7 @@ def moss_scythe(b, g):
         for dx, dy, dz, rr in ((0.06, 0.02, 0.06, 0.11), (0.0, -0.1, 0.1, 0.08)):
             b.sphere((dx, y + dy, z + dz), rr, "moss", segments=7, rings=5)
     # vine grip wrap
-    wraps(b, -0.42, 0.45, 0.12, "vine", step=0.14, tilt=24, thickness=0.03, segments=8)
+    wraps(b, -0.78, 0.76, 0.12, "vine", step=0.2, tilt=24, thickness=0.03, segments=8)
     # the blade: a thick vine sweeping toward -Z with a crystal edge grown beneath it
     ctrl = [(-0.22, 5.4), (-1.1, 5.62), (-2.25, 5.42), (-3.25, 4.92), (-3.8, 4.3)]
     lines = blade_lines(ctrl, [(0, 0.0, 0.28), (0.15, 0.0, 0.44), (0.55, 0.0, 0.38), (0.85, 0.0, 0.21), (1, 0, 0)],
@@ -764,12 +901,12 @@ def moss_spear(b, g):
     """Bamboo spear with a carved stone tip and hanging feathers."""
     nodes = [-1.15, -0.25, 0.75, 1.75, 2.75, 3.75, 4.75, 5.75]
     for y0, y1 in zip(nodes, nodes[1:]):
-        b.cylinder((0, (y0 + y1) / 2, 0), 0.105, y1 - y0, "bamboo", segments=10, radius_top=0.112)
-        b.cylinder((0, y1, 0), 0.125, 0.07, "bamboo_dark", segments=10)
-    b.cylinder((0, nodes[0], 0), 0.12, 0.08, "bamboo_dark", segments=10)
-    wraps(b, -0.42, 0.45, 0.115, "twine", step=0.1, tilt=18, thickness=0.025)
-    wraps(b, -1.1, -0.85, 0.11, "twine", step=0.08, tilt=0, thickness=0.025)
-    b.cylinder((0, 5.88, 0), 0.115, 0.3, "bamboo", segments=10)
+        b.cylinder((0, (y0 + y1) / 2, 0), 0.115, y1 - y0, "bamboo", segments=10, radius_top=0.122)
+        b.cylinder((0, y1, 0), 0.135, 0.07, "bamboo_dark", segments=10)
+    b.cylinder((0, nodes[0], 0), 0.13, 0.08, "bamboo_dark", segments=10)
+    wraps(b, -0.78, 0.7, 0.125, "twine", step=0.13, tilt=18, thickness=0.025)
+    wraps(b, -1.1, -0.85, 0.12, "twine", step=0.08, tilt=0, thickness=0.025)
+    b.cylinder((0, 5.88, 0), 0.125, 0.3, "bamboo", segments=10)
     # stone tip: chunky facets in two greys
     spine = [(0.13, 5.9), (0.3, 6.15), (0.37, 6.4), (0.3, 6.78), (0.17, 7.08), (0.0, 7.36)]
     edge = [(-0.13, 5.9), (-0.32, 6.12), (-0.35, 6.42), (-0.28, 6.8), (-0.15, 7.1), (0.0, 7.36)]
@@ -779,7 +916,7 @@ def moss_spear(b, g):
         stroke(b, (0.0, 6.2), (0.0, 6.95), 0.05, 0.03, "stone_dark", x=s * 0.1)
         stroke(b, (0.0, 6.55), (0.16, 6.75), 0.04, 0.03, "stone_dark", x=s * 0.095)
         stroke(b, (0.0, 6.55), (-0.16, 6.75), 0.04, 0.03, "stone_dark", x=s * 0.095)
-    wraps(b, 5.75, 6.08, 0.125, "twine", step=0.08, tilt=20, thickness=0.028)
+    wraps(b, 5.75, 6.08, 0.135, "twine", step=0.08, tilt=20, thickness=0.028)
     # feathers hanging from cords
     for z0, z1, y1, lean in ((0.08, 0.36, 5.35, 0.14), (-0.08, -0.38, 5.25, -0.16), (0.1, 0.2, 5.0, 0.05)):
         tube(b, [(0, 5.8, z0), (0, (5.8 + y1) / 2, (z0 + z1) / 2 + 0.03 * (1 if z1 > 0 else -1)), (0, y1 + 0.02, z1)],
@@ -804,13 +941,13 @@ def moss_spear(b, g):
 
 def vex_scythe(b, g):
     """Black-steel scythe with a glowing violet edge."""
-    b.cylinder((0, 2.2, 0), 0.115, 6.4, "shadow", segments=6, smooth=False)
-    wraps(b, -0.45, 0.5, 0.12, "shadow_mid", step=0.13, tilt=20, thickness=0.028, segments=6)
+    b.cylinder((0, 2.2, 0), 0.125, 6.4, "shadow", segments=6, smooth=False)
+    wraps(b, -0.78, 0.78, 0.13, "shadow_mid", step=0.13, tilt=20, thickness=0.028, segments=6)
     for y in (1.6, 3.4):
-        b.cylinder((0, y, 0), 0.15, 0.2, "shadow_light", segments=6, smooth=False, radius_top=0.12)
-        gem(g, y, 0.0, 0.13, 0.05, "violet", sides=4, height=0.06)
-    spike(b, (0, -0.95, 0), (0, -1.55, 0), 0.13, "shadow_light")
-    b.cylinder((0, -0.95, 0), 0.15, 0.12, "shadow_mid", segments=6, smooth=False)
+        b.cylinder((0, y, 0), 0.16, 0.2, "shadow_light", segments=6, smooth=False, radius_top=0.13)
+        gem(g, y, 0.0, 0.14, 0.05, "violet", sides=4, height=0.06)
+    spike(b, (0, -0.95, 0), (0, -1.55, 0), 0.14, "shadow_light")
+    b.cylinder((0, -0.95, 0), 0.16, 0.12, "shadow_mid", segments=6, smooth=False)
     # head: angular mount with a back spike
     b.box((0, 5.32, 0.0), (0.26, 0.5, 0.42), "shadow_mid", bevel=0.04, segments=1)
     b.prism([(0.1, 5.15), (0.62, 5.62), (0.66, 5.86), (0.12, 5.5)], 0.12, "shadow_light", rotation=FLAT,
@@ -830,24 +967,32 @@ def vex_scythe(b, g):
 
 
 def vex_gauntlets(b, g):
-    """Clawed shadow gauntlets with violet gems."""
-    fist(b, "shadow")
+    """Angular shadow gauntlets: claws from the knuckles with lit edges,
+    violet gems on the sides and a spiked cuff."""
+    half, bottom = glove(b, "shadow", seg=1)
+    for y in (-0.42, -0.14, 0.14, 0.42):
+        b.box((0, y, bottom - 0.02), (2 * half - 0.12, 0.22, 0.12), "shadow_mid", bevel=0.04, segments=1)
+    # three claws out of the knuckles, hooking toward the little finger (-Y),
+    # their inner edges lit
+    for y in (-0.34, 0.0, 0.34):
+        lines = blade_lines([(bottom - 0.03, y + 0.03), (bottom - 0.4, y), (bottom - 0.8, y - 0.14)],
+                            [(0, 0.07, 0.07), (0.6, 0.05, 0.05), (1, 0, 0)], samples=4)
+        blade(b, lines, [(0.0, 0.02), (0.45, 0.055), (0.75, 0.03)], ["shadow_light", "steel_mid"])
+        blade(g, lines, [(0.72, 0.026), (1.0, 0.01)], ["violet"])
+    # an arrowhead plate down each side, pointing at the knuckles, set with a gem
     for s in (-1, 1):
-        b.prism([(0.42, -0.35), (0.0, 0.48), (-0.42, -0.35), (0.0, -0.1)], 0.1, "shadow_mid", center=(s * 0.5, 0, 0),
-                rotation=FLAT, bevel=0.015)
-    gem(g, 0.05, 0.0, 0.52, 0.13, "violet", sides=6, height=0.1)
-    for z in (-0.38, -0.13, 0.13, 0.38):
-        b.box((0, 0.62, z), (0.96, 0.24, 0.22), "shadow_mid", bevel=0.06)
-        lines = blade_lines([(z, 0.66), (z - 0.03, 1.0), (z - 0.14, 1.38)],
-                            [(0, 0.065, 0.065), (0.6, 0.045, 0.045), (1, 0, 0)], samples=4)
-        blade(b, lines, [(0.0, 0.015), (0.5, 0.06), (1.0, 0.015)], ["shadow_light", "steel_mid"])
-    b.capsule((0, -0.12, 0.56), (0, 0.3, 0.5), 0.14, "shadow_mid", segments=10)
-    cuff(b, "shadow_mid", "shadow_light", y0=-0.52, flare=1.12)
+        b.prism([(-0.45, 0.0), (0.26, 0.46), (0.06, 0.0), (0.26, -0.46)], 0.06, "shadow_mid",
+                center=(s * (half + 0.02), 0, 0), rotation=FLAT, bevel=0.012)
+        tube(g, [(s * (half + 0.03), 0, -0.12), (s * (half + 0.07), 0, -0.12), (s * (half + 0.16), 0, -0.12)],
+             [0.11, 0.11, 0.0], "violet", segments=6, smooth=False)
+    # the cuff: a band with a pale rim, violet studs on the sides, spikes
+    # front and back sweeping toward the elbow
+    cuff(b, FIST_TOP + 0.03, 0.58, half - 0.01, "shadow_mid", seg=1)
+    cuff(b, 0.56, 0.64, half + 0.03, "shadow_light", seg=1)
     for s in (-1, 1):
-        spike(b, (0, -0.8, s * 0.5), (0, -1.05, s * 0.82), 0.09, "shadow_light")
-        spike(b, (0, -0.55, s * 0.5), (0, -0.62, s * 0.78), 0.08, "shadow_light")
-    for s in (-1, 1):
-        gem(g, -0.82, 0.0, 0.56, 0.07, "violet_deep", sides=4, height=0.06)
+        spike(b, (0, s * half, 0.4), (0, s * (half + 0.3), 0.68), 0.09, "shadow_light")
+        tube(g, [(s * (half - 0.02), 0, 0.44), (s * (half + 0.01), 0, 0.44), (s * (half + 0.07), 0, 0.44)],
+             [0.065, 0.065, 0.0], "violet_deep", segments=4, smooth=False)
 
 
 # Sol ----------------------------------------------------------------------------
@@ -865,27 +1010,28 @@ def sun_disc(b, g, y, z, radius, depth, rays, ray_len, ray_width, ray_depth, glo
 
 def sol_sword(b, g):
     """Broad golden longsword with a sun-disc crossguard."""
-    wrapped_grip(b, -0.55, 0.5, 0.12, "wrap_white", "gold", step=0.13, thickness=0.018)
-    sun_disc(b, g, -0.72, 0.0, 0.17, 0.16, range(0, 360, 45), 0.3, 0.06, 0.08, 0.07)
-    # crossguard: sun disc with long rays along Z standing in for quillons
-    sun_disc(b, g, 0.78, 0.0, 0.36, 0.24, [], 0, 0, 0, 0.14)
-    sun_rays(b, 0.78, 0.0, 0.32, lambda a: 0.88 if a % 180 == 0 else 0.62, (0, 180), 0.13, 0.16, "gold")
-    sun_rays(b, 0.78, 0.0, 0.32, 0.6, (-30, -60, -120, -150, 30, 150), 0.08, 0.12, "gold")
-    sun_rays(b, 0.78, 0.0, 0.32, 0.5, (-90,), 0.06, 0.1, "gold_dark")
-    straight_blade(b, [(1.06, 0.33, 1.0), (1.4, 0.36, 1.05), (2.5, 0.34, 1.0), (3.6, 0.32, 0.95), (4.4, 0.28, 0.9),
-                       (4.8, 0.18, 0.75), (5.02, 0.08, 0.55), (5.15, 0.0, 0.3)],
+    wrapped_grip(b, -0.9, 0.8, 0.12, "wrap_white", "gold", step=0.13, thickness=0.018)
+    sun_disc(b, g, -1.08, 0.0, 0.17, 0.16, range(0, 360, 45), 0.3, 0.06, 0.08, 0.07)
+    # crossguard: sun disc with long rays along Z standing in for quillons; it
+    # and the rays reaching back toward the hand stay clear of the fist
+    sun_disc(b, g, 1.0, 0.0, 0.36, 0.24, [], 0, 0, 0, 0.14)
+    sun_rays(b, 1.0, 0.0, 0.32, lambda a: 0.88 if a % 180 == 0 else 0.62, (0, 180), 0.13, 0.16, "gold")
+    sun_rays(b, 1.0, 0.0, 0.32, 0.6, (-30, -150, 30, 150), 0.08, 0.12, "gold")
+    sun_rays(b, 1.0, 0.0, 0.32, 0.42, (-60, -120), 0.07, 0.1, "gold_dark")
+    straight_blade(b, [(1.28, 0.33, 1.0), (1.6, 0.36, 1.05), (2.6, 0.34, 1.0), (3.6, 0.32, 0.95), (4.4, 0.28, 0.9),
+                       (4.85, 0.18, 0.75), (5.08, 0.08, 0.55), (5.22, 0.0, 0.3)],
                    [(0.0, 0.014), (0.16, 0.04), (0.5, 0.085), (0.84, 0.04), (1.0, 0.014)],
                    ["sun_core", "gold_light", "gold", "sun_core"])
-    b.box((0, 2.75, 0), (0.18, 2.3, 0.08), "gold_dark", bevel=0.02, segments=1)
-    b.cylinder((0, 1.42, 0), 0.13, 0.19, "gold_dark", rotation=FACING, segments=12)
-    b.cylinder((0, 1.42, 0), 0.075, 0.21, "gold_light", rotation=FACING, segments=10)
+    b.box((0, 2.95, 0), (0.18, 2.3, 0.08), "gold_dark", bevel=0.02, segments=1)
+    b.cylinder((0, 1.64, 0), 0.13, 0.19, "gold_dark", rotation=FACING, segments=12)
+    b.cylinder((0, 1.64, 0), 0.075, 0.21, "gold_light", rotation=FACING, segments=10)
 
 
 def sol_hammer(b, g):
     """War hammer with a radiant gold sun head on a long white-wrapped haft."""
     b.cylinder((0, 0.95, 0), 0.13, 4.2, "wrap_white", segments=10)
     wraps(b, -1.0, 2.95, 0.13, "wrap_shade", step=0.24, tilt=22, thickness=0.02, segments=8)
-    for y in (-1.08, 0.65, 1.9):
+    for y in (-1.08, 0.72, 1.9):  # the middle ring sits just clear of the fist
         b.cylinder((0, y, 0), 0.165, 0.12, "gold", segments=10)
     b.sphere((0, -1.2, 0), (0.17, 0.12, 0.17), "gold", segments=10, rings=7)
     b.cylinder((0, 2.95, 0), 0.19, 0.3, "gold_dark", segments=10, radius_top=0.24)
@@ -912,20 +1058,20 @@ WEAPONS = [
     Weapon("Sword", "Sword", ((0, 1, 0), (0, 4.8, 0)), sword),
     Weapon("Hammer", "Hammer", ((0, 2.5, 0), (0, 4.4, 0)), hammer),
     Weapon("Spear", "Spear", ((0, 4, 0), (0, 7.3, 0)), spear),
-    Weapon("Gauntlets", "Gauntlets", ((0, 0, 0), (0, 0.9, 0)), gauntlets),
+    Weapon("Gauntlets", "Gauntlets", ((0, -0.45, -0.42), (0, 0.45, -0.42)), gauntlets),
     Weapon("Scythe", "Scythe", ((0, 5, -0.5), (0, 4.6, -3.5)), scythe),
     Weapon("Bow", "Bow", ((0, 0, -1), (0, 0, 1)), base_bow),
-    Weapon("KestrelSword", "Sword", ((0, 1, 0), (0, 4.75, 0.55)), kestrel_sword),
+    Weapon("KestrelSword", "Sword", ((0, 1, 0), (0, 4.85, 0.62)), kestrel_sword),
     Weapon("KestrelBow", "Bow", ((0, 0, -1), (0, 0, 1)), kestrel_bow),
-    Weapon("BrannHammer", "Hammer", ((0, 2.6, 0), (0, 4.6, 0)), brann_hammer),
-    Weapon("BrannGauntlets", "Gauntlets", ((0, 0, 0), (0, 0.95, 0)), brann_gauntlets),
+    Weapon("BrannHammer", "Hammer", ((0, 2.8, 0), (0, 4.6, 0)), brann_hammer),
+    Weapon("BrannGauntlets", "Gauntlets", ((0, -0.45, -0.44), (0, 0.45, -0.44)), brann_gauntlets),
     Weapon("YukiSpear", "Spear", ((0, 4, 0), (0, 7.4, 0)), yuki_spear),
     Weapon("YukiBow", "Bow", ((0, 0, -1), (0, 0, 1)), yuki_bow),
     Weapon("MossScythe", "Scythe", ((0, 5.1, -0.6), (0, 4.6, -3.6)), moss_scythe),
     Weapon("MossSpear", "Spear", ((0, 4, 0), (0, 7.35, 0)), moss_spear),
     Weapon("VexScythe", "Scythe", ((0, 5.2, -0.6), (0, 4.6, -3.8)), vex_scythe),
-    Weapon("VexGauntlets", "Gauntlets", ((0, 0, 0), (0, 1.35, 0)), vex_gauntlets),
-    Weapon("SolSword", "Sword", ((0, 1.1, 0), (0, 4.95, 0)), sol_sword),
+    Weapon("VexGauntlets", "Gauntlets", ((0, -0.5, -1.0), (0, 0.4, -1.0)), vex_gauntlets),
+    Weapon("SolSword", "Sword", ((0, 1.3, 0), (0, 5.0, 0)), sol_sword),
     Weapon("SolHammer", "Hammer", ((0, 2.7, 0), (0, 4.9, 0)), sol_hammer),
 ]
 WEAPON_BY_ID = {w.id: w for w in WEAPONS}

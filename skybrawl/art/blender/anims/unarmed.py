@@ -89,7 +89,7 @@ def fist_moves(w, speed=1.0):
                                (1.05, fists(ground(lean=-15, crouch=0.7), ((40, 0.15), 10), ((40, -0.15), 10)), "Linear"),
                                (1.15, slam, "Quad.Out"), (2.0, slam, "Sine.InOut"), recover(w)])
     else:
-        sweep = fists(P(off=(0, -1.15, 0), root=(-20, 0, 0), neck=(20, 0, 0),
+        sweep = fists(P(off=(0, -0.65, 0), root=(-20, 0, 0), neck=(20, 0, 0),
                         rhip=(80, 0, 40), rknee=(-5, 0, 0), lhip=(95, 0, -10), lknee=(-140, 0, 0), lank=(30, 0, 0)),
                       ((-95, 0.5), 15), ((-95, -0.5), 15))
         attack(f"{w}.DHeavy", [start(w), (0.9, sweep, "Quad.In")] + spin(1.0, 1.9, sweep, 360) +

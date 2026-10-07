@@ -683,4 +683,29 @@ h.test("weapon spawns drop onto a platform", function()
 	end
 end)
 
+print("Settings")
+
+h.test("saved settings keep FightAsAvatar only as a boolean", function()
+	local DataService = h.requireServer("DataService")
+	h.expect(Config.DefaultSettings.FightAsAvatar == false, "FightAsAvatar should default to off")
+	h.expect(DataService.sanitizeSettings({ FightAsAvatar = true }).FightAsAvatar == true, "kept true")
+	h.expect(DataService.sanitizeSettings({ FightAsAvatar = false }).FightAsAvatar == false, "kept false")
+	for _, junk in { "yes", 1, {} } do
+		h.expect(DataService.sanitizeSettings({ FightAsAvatar = junk }).FightAsAvatar == nil, "kept a " .. type(junk))
+	end
+	h.expect(DataService.sanitizeSettings({}).FightAsAvatar == nil, "invented a value")
+end)
+
+h.test("a rate-limited settings save still updates FightAsAvatar", function()
+	local DataService = h.requireServer("DataService")
+	local settings = { FightAsAvatar = false, Zoom = 1 }
+	DataService.applyMatchSettings(settings, { FightAsAvatar = true, Zoom = 3 })
+	h.expect(settings.FightAsAvatar == true, "the dropped save's FightAsAvatar was lost")
+	h.expect(settings.Zoom == 1, "a dropped save changed a setting a match doesn't read")
+	DataService.applyMatchSettings(settings, { FightAsAvatar = "no" })
+	h.expect(settings.FightAsAvatar == true, "took a non-boolean FightAsAvatar")
+	DataService.applyMatchSettings(settings, "junk")
+	h.expect(settings.FightAsAvatar == true, "a junk payload changed the settings")
+end)
+
 h.finish()

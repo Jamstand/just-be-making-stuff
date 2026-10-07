@@ -3,6 +3,10 @@
     with a live 3D preview (its imported rig, animated by FighterAnimator),
     stats, weapons and signature moves. "My Avatar" previews your own avatar.
     The choice is saved to your profile and used from your next match.
+
+    "Use my avatar's look" (the FightAsAvatar setting) fights with the
+    legend's moves, stats and weapons in your own avatar's look. The preview
+    still shows the legend.
 ]]
 
 local Players = game:GetService("Players")
@@ -18,6 +22,7 @@ local Net = require(Shared.Net)
 local UIKit = require(script.Parent.UIKit)
 local ClientState = require(script.Parent.Parent.ClientState)
 local FighterAnimator = require(script.Parent.Parent.Controllers.FighterAnimator)
+local Settings = require(script.Parent.Parent.Controllers.Settings)
 
 local T = UIKit.Theme
 local make = UIKit.make
@@ -88,7 +93,12 @@ local function holdWeapon(rig, legendId)
 	local sides = weapon.Hand == "Both" and { "Right", "Left" } or { side }
 	for _, s in sides do
 		local h = rig:FindFirstChild(s .. "Hand")
-		local model = WeaponModels.build(weaponId, nil, Legends.weaponSkin(legendId, weaponId))
+		local model = WeaponModels.build(
+			weaponId,
+			nil,
+			Legends.weaponSkin(legendId, weaponId),
+			WeaponModels.bareFor(rig, weaponId)
+		)
 		model.Name = s
 		local c0 = WeaponModels.gripC0(h)
 		model:PivotTo(h.CFrame * c0)
@@ -107,7 +117,8 @@ end
 local function showModel(viewport, world, camera, model, height)
 	model.Parent = world
 	model:PivotTo(CFrame.Angles(0, math.rad(-35), 0))
-	camera.CFrame = CFrame.lookAt(Vector3.new(0, height * 0.55, -height * 1.6), Vector3.new(0, height * 0.5, 0))
+	-- framed with room above the head for tall hair and accessories
+	camera.CFrame = CFrame.lookAt(Vector3.new(0, height * 0.56, -height * 1.75), Vector3.new(0, height * 0.53, 0))
 	camera.FieldOfView = 40
 	viewport.CurrentCamera = camera
 end
@@ -273,6 +284,15 @@ function FightersPanel.create(gui, close)
 		end, { LayoutOrder = 12, Size = UDim2.new(1, 0, 0, 40), TextSize = 18, Parent = info })
 		if current then
 			UIKit.setEnabled(button, false)
+		end
+		if not Legends.usesAvatar(legend.Id) then
+			local lookRow = UIKit.toggle("Use my avatar's look", Settings.get("FightAsAvatar"), function(v)
+				Settings.set("FightAsAvatar", v)
+			end)
+			lookRow.LayoutOrder = 13
+			lookRow.Size = UDim2.new(1, 0, 0, 40)
+			lookRow.Title.Size = UDim2.new(1, -72, 1, 0)
+			lookRow.Parent = info
 		end
 		placeholder.Text = legend.Id == "Avatar" and "Your avatar"
 			or (legend.Name .. "\n\n(3D model not imported yet: see art/IMPORTING.md)")

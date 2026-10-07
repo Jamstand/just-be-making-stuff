@@ -5,6 +5,10 @@ Skybrawl's animation set, keyed in Blender on the SkyRig armature.
     python art/blender/build.py anims preview Sword   also render contact sheets
                                                       for clip groups (Sword, Loco,
                                                       Kestrel, ... or "all")
+    python art/blender/build.py anims preview Loco body=brann
+                                                      ... on that fighter's body
+                                                      (a legend's own group on
+                                                      its own body, else Sol's)
 
 Each clip in the anims.* modules becomes a Blender action on an armature
 whose bones sit on the SkyRig joints, with every bone's rest frame aligned
@@ -254,7 +258,7 @@ WEAPON_PROXY = {
     "Sword": ("Right", [((0, 2.9, 0), (0.12, 4.2, 0.55), (0.8, 0.85, 0.95)), ((0, 0.75, 0), (0.3, 0.2, 1.3), (0.8, 0.6, 0.2))]),
     "Hammer": ("Right", [((0, 1.4, 0), (0.25, 4.4, 0.25), (0.5, 0.33, 0.2)), ((0, 3.7, 0), (1.3, 1.5, 2.9), (0.45, 0.45, 0.5))]),
     "Spear": ("Right", [((0, 2.4, 0), (0.2, 7.2, 0.2), (0.5, 0.33, 0.2)), ((0, 6.8, 0), (0.12, 1.5, 0.6), (0.8, 0.85, 0.95))]),
-    "Gauntlets": ("Both", [((0, 0.1, 0), (1.0, 1.1, 1.0), (0.75, 0.3, 0.3))]),
+    "Gauntlets": ("Both", [((0, 0.1, 0), (1.4, 1.1, 1.4), (0.75, 0.3, 0.3))]),
     "Scythe": ("Right", [((0, 2.2, 0), (0.2, 6.4, 0.2), (0.4, 0.3, 0.25)), ((0, 5.1, -1.6), (0.12, 0.6, 3.3), (0.6, 0.5, 0.8))]),
     "Bow": ("Left", [((0, -0.3, 1.2), (0.2, 0.25, 2.3), (0.85, 0.75, 0.55)), ((0, -0.3, -1.2), (0.2, 0.25, 2.3), (0.85, 0.75, 0.55))]),
 }
@@ -313,14 +317,14 @@ def weapon_proxy(weapon, arm, collection):
     return objs
 
 
-def preview_fighter(arm):
-    """Kestrel's skinned body on the armature (sway pieces ride their parent
-    bones; no painting)."""
+def preview_fighter(arm, fighter="sol"):
+    """A fighter's classic avatar body (fighters/<fighter>.py, Sol's by
+    default) on the armature; sway pieces ride their parent bones."""
     from types import SimpleNamespace
 
-    from sky import hero
+    from sky import avatar
 
-    body = hero.preview_body(importlib.import_module("fighters.kestrel"))
+    body = avatar.preview_body(importlib.import_module(f"fighters.{fighter}"))
     body.parent = arm
     mod = body.modifiers.new("Armature", "ARMATURE")
     mod.object = arm
@@ -344,13 +348,14 @@ def weapon_of(name):
     return None
 
 
-def render_contact_sheet(clips, names, path, columns=None, cell=(180, 240)):
-    """Rows = clips, columns = the clip's keys, seen from the game's side view."""
+def render_contact_sheet(clips, names, path, columns=None, cell=(180, 240), fighter="sol"):
+    """Rows = clips, columns = the clip's keys, seen from the game's side view,
+    on `fighter`'s body."""
     common.reset_scene()
     src_arm = build_armature("Src")
     src_col = bpy.data.collections.new("Src")
     bpy.context.scene.collection.children.link(src_col)
-    fb = preview_fighter(src_arm)
+    fb = preview_fighter(src_arm, fighter)
     for obj in fb.objects.values():
         for c in obj.users_collection:
             c.objects.unlink(obj)
@@ -399,11 +404,20 @@ def group_of(name):
     return name.split(".")[0]
 
 
+def sheet_body(group):
+    """Whose body a group's contact sheet is rendered on: a legend's own
+    clips on that legend (fighters/<name>.py), the shared ones on Sol."""
+    name = group.lower()
+    return name if os.path.exists(os.path.join(os.path.dirname(__file__), "..", "fighters", name + ".py")) else "sol"
+
+
 def build_all(names=None):
     names = list(names or [])
     preview = []
+    fighter = None
     if names and names[0] == "preview":
-        preview = names[1:] or ["all"]
+        fighter = next((n.split("=", 1)[1] for n in names if n.startswith("body=")), None)
+        preview = [n for n in names[1:] if not n.startswith("body=")] or ["all"]
     clips = load_clips()
     common.reset_scene()
     arm = build_armature()
@@ -417,5 +431,5 @@ def build_all(names=None):
                 print(f"no clips in group {group}")
                 continue
             out = os.path.join(common.PREVIEW_DIR, "anims", f"{group}.png")
-            render_contact_sheet(clips, members, out)
+            render_contact_sheet(clips, members, out, fighter=fighter or sheet_body(group))
     return clips

@@ -168,28 +168,42 @@ def smooth_loop_keys(poses, length, steps=16, ease="Linear"):
 # Leg IK ------------------------------------------------------------------------
 
 
-def _rot_x(deg, y, z):
-    a = math.radians(deg)
-    return y * math.cos(a) - z * math.sin(a), y * math.sin(a) + z * math.cos(a)
+def _hip(pose, side):
+    """Where `side`'s hip pivot is, carried by the root's offset and its full
+    rotation (blocky hips are wide, so the root's twist moves them a lot)."""
+    return _add(_add(ROOT_PIVOT, pose.offset), _m_apply(_m_rot(pose.get("Root")), _sub(HIP[side], ROOT_PIVOT)))
+
+
+def sink_to_reach(pose, lfoot=0.0, rfoot=0.0, most=0.3):
+    """How far the root should drop (up to `most`) for both grounded feet to
+    reach their spots: blocky legs are short, so a wide stance sinks the
+    hips a little, and plant shortens the stride for the rest."""
+    reach = THIGH + SHIN - 1e-3
+    drop = 0.0
+    for side, fz in (("Left", lfoot), ("Right", rfoot)):
+        _, hip_y, hip_z = _hip(pose, side)
+        dz = min(abs(fz - hip_z), reach)
+        drop = max(drop, hip_y - ANKLE_HEIGHT - math.sqrt(reach * reach - dz * dz))
+    return min(drop, most)
 
 
 def plant(pose, lfoot=0.0, rfoot=0.0, lheight=0.0, rheight=0.0, toe=0.0):
     """Solves both legs so the ankles reach the given spots, in the side
     plane: `lfoot`/`rfoot` are the feet's z (negative = in front), `*height`
-    lifts a foot off the ground. Feet stay flat unless `toe` tilts them. Uses
-    the pose's root offset and root pitch."""
+    lifts a foot off the ground. A spot further out than the leg reaches
+    pulls in to where it does. Feet stay flat unless `toe` tilts them. Uses
+    the pose's root offset and root rotation."""
     out = pose.copy()
     root_pitch = pose.get("Root")[0]
-    ox, oy, oz = pose.offset
+    reach = THIGH + SHIN - 1e-4
     for side, fz, fh in (("Left", lfoot, lheight), ("Right", rfoot, rheight)):
-        hx, hy, hz = HIP[side]
-        ry, rz = _rot_x(root_pitch, hy - ROOT_PIVOT[1], hz - ROOT_PIVOT[2])
-        hip_y = ROOT_PIVOT[1] + oy + ry
-        hip_z = ROOT_PIVOT[2] + oz + rz
+        _, hip_y, hip_z = _hip(pose, side)
         dy = (ANKLE_HEIGHT + fh) - hip_y
         dz = fz - hip_z
+        if abs(dy) < reach:
+            span = math.sqrt(reach * reach - dy * dy)  # how far out the foot can land
+            dz = max(-span, min(span, dz))
         dist = math.hypot(dy, dz)
-        reach = THIGH + SHIN - 1e-4
         phi = math.atan2(-dz, -dy)  # angle of hip->ankle from straight down
         if dist >= reach:
             thigh = phi
@@ -211,6 +225,33 @@ def plant(pose, lfoot=0.0, rfoot=0.0, lheight=0.0, rheight=0.0, toe=0.0):
 # Clips --------------------------------------------------------------------------
 
 
+# A blocky head on a blocky torso looks broken off when the neck bends far
+# (and swings hair into the shoulders), so the head follows the body more
+# than the poses ask: neck pitch and yaw past these angles are cut to 40%.
+NECK_UP = 15.0
+NECK_DOWN = -12.0
+NECK_TURN = 25.0
+NECK_FOLLOW = 0.4
+
+
+def _soften(a, low, high):
+    if a > high:
+        return high + (a - high) * NECK_FOLLOW
+    if a < low:
+        return low + (a - low) * NECK_FOLLOW
+    return a
+
+
+def soften_neck(pose):
+    p, y, r = pose.get("Neck")
+    soft = (_soften(p, NECK_DOWN, NECK_UP), _soften(y, -NECK_TURN, NECK_TURN), r)
+    if soft == (p, y, r):
+        return pose
+    out = pose.copy()
+    out.rot["Neck"] = soft
+    return out
+
+
 class Clip:
     def __init__(self, name, keys, phased=False, loop=False, length=None):
         self.name = name
@@ -223,7 +264,7 @@ class Clip:
             style = ease.split(".")[0]
             if style not in EASES:
                 raise ValueError(f"{name}: unknown ease {ease!r}")
-            norm.append((float(t), pose, ease))
+            norm.append((float(t), soften_neck(pose), ease))
         norm.sort(key=lambda k: k[0])
         # keep the arms out of the body (hands stay on their weapons), unless
         # that would make a joint whip round between keys
@@ -435,9 +476,16 @@ def check_clip(c, limit=170.0, overlap=0.08):
 
 
 # The torso the arms must stay out of: ellipsoids (center, radii) in the
-# frame of the joint that carries them, roomy enough for coats and armor.
-TORSO = [("Waist", (0.0, 4.2, 0.02), (0.66, 0.66, 0.5)), ("Root", (0.0, 3.36, 0.03), (0.58, 0.42, 0.44))]
-ARM_RADIUS = 0.13  # elbow, forearm and fist, roughly
+# frame of the joint that carries them. The blocky torso is a 2x1.5x1 box
+# (R6 studs, y 2.5..4) on a 2x0.5x1 slab (y 2..2.5); each ellipsoid's core
+# plus ARM_RADIUS reaches a tenth past its box's faces (the box's edges
+# and corners stay outside). Arms are a stud thick, but only a little of
+# that counts: a hanging arm touches the torso's side and arms crossing in
+# front graze it, so only an arm whose middle sinks into the torso gets
+# pushed out.
+TORSO = [("Waist", skeleton.r6(0.0, 3.25, 0.0), (skeleton.r6(0.95), skeleton.r6(0.675), skeleton.r6(0.4))),
+         ("Root", skeleton.r6(0.0, 2.25, 0.0), (skeleton.r6(0.95), skeleton.r6(0.125), skeleton.r6(0.4)))]
+ARM_RADIUS = skeleton.r6(0.15)  # elbow, forearm and fist
 
 
 def arm_points(pose, side):
@@ -555,7 +603,9 @@ def move_hand(pose, side, delta):
 
 def clear_hands(pose, tolerance=0.03):
     """Moves fists out of the torso (re-solving the arm); a hand gripping
-    the same weapon nearby moves with it, so two-handed holds stay put."""
+    the same weapon nearby moves with it, so two-handed holds stay put.
+    "Nearby" is as the side-on camera sees it: hands on one haft can sit
+    at different depths (see hands_together)."""
     out = pose
     for _ in range(2):
         moved = False
@@ -567,7 +617,7 @@ def clear_hands(pose, tolerance=0.03):
             if math.sqrt(_dot(push, push)) < tolerance:
                 continue
             og = grip_position(out, other)
-            together = _dist(g, og) < 1.8
+            together = math.hypot(g[1] - og[1], g[2] - og[2]) < 1.8
             out = move_hand(out, side, push)
             if together:
                 out = move_hand(out, other, push)
@@ -684,9 +734,8 @@ def _rot_between(a, b):
 
 
 def _arm_bones(side):
-    """Rest vectors (shoulder frame): shoulder pivot -> elbow, elbow -> grip.
-    The arms hang slightly out from the body at rest, so the first one
-    slants outward."""
+    """Rest vectors (shoulder frame): shoulder pivot -> elbow, elbow -> grip
+    (blocky arms hang straight down)."""
     elbow = PIVOTS[f"{side}Elbow"]
     return _sub(elbow, PIVOTS[f"{side}Shoulder"]), _sub(GRIP[side], elbow)
 
@@ -800,8 +849,6 @@ def _refine_reach(pose, side, target, iterations=40):
 
 ARM_REACH = _dist(_shoulder_to_grip("Right", 0.0), (0.0, 0.0, 0.0))  # elbow straight
 _SLIDE_PENALTY = 0.3  # per stud the support hand slides from where it would like to be
-_CENTER_PENALTY = 0.05  # for keeping the hands off the body's midline
-_NEAR_SIDE = 0.25  # the hands' meeting point sits this far toward the camera (+X)
 _DRAW_PENALTY = 0.5  # per stud the lead hand draws in toward the body
 
 
@@ -835,43 +882,75 @@ def _pick_t(origin, w, shoulder, ranges, prefer, radius):
     return best[2], best[1]
 
 
+def _depth_slide(pose, target, shoulder, radius):
+    """`target` slid along rig X (depth to the side-on game camera, so it
+    looks the same) only as far as it takes to come within `radius` of
+    `shoulder`, and back out of the torso if that put it inside (where the
+    torso hides it from the camera anyway)."""
+    room = math.sqrt(max(0.0, radius * radius - (target[1] - shoulder[1]) ** 2 - (target[2] - shoulder[2]) ** 2))
+    dx = target[0] - shoulder[0]
+    x = target[0] if abs(dx) <= room else shoulder[0] + math.copysign(room, dx)
+
+    def inside(at):
+        push = _push_out(pose, (at, target[1], target[2]))
+        return _dot(push, push) > 0.0
+
+    while abs(x - shoulder[0]) > 0.05 and inside(x):
+        x += math.copysign(0.05, shoulder[0] - x)
+    return (x, target[1], target[2])
+
+
+def _plain_pole(pose, side, target):
+    """Which way arm() would point the elbow for `side`'s hand at `target`
+    (no twist about the upper arm), as a pole for reach: a hand moving
+    between grips on a haft then swings the arm rather than winding it."""
+    sh, _ = fk(pose, f"{side}Shoulder")
+    plain = arm(pose, side, _norm(_sub(target, sh)), _bend_for(side, _dist(target, sh)))
+    el, _ = fk(plain, f"{side}Elbow")
+    d = _norm(_sub(grip_position(plain, side), sh))
+    off = _sub(el, sh)
+    pole = _sub(off, _scale(d, _dot(off, d)))
+    return pole if _dot(pole, pole) > 1e-4 else None
+
+
 def hands_together(pose, lead, ranges, prefer, offset=(0.0, 0.0, 0.0), support=None, weapon=None):
     """After `lead`'s hand is placed (by arm or reach), puts the other hand at
     lead grip + offset + t * the lead's weapon direction, for the t in
     `ranges` ([(lo, hi), ...]) nearest `prefer` that it can reach (hands
-    slide along a haft). Shoulders are wide for the arms' length, so when
-    that isn't enough both hands also slide along rig X toward the body's
-    midline (X is depth to the side-on game camera, so the silhouette stays)
-    and, as a last resort, the lead hand draws in toward the body. `weapon`
-    aims the other wrist along the weapon."""
+    slide along a haft). Blocky shoulders are wider than the arms are long,
+    so the hands can't meet in front of the body: the other hand slides
+    along rig X instead (depth to the side-on game camera, so it still sits
+    on the haft in the silhouette) and, as a last resort, the lead hand
+    draws in toward the body. `weapon` means the other hand grips the
+    weapon too: its wrist aims along it and its arm turns as arm() would."""
     other = support or ("Left" if lead == "Right" else "Right")
     grip = grip_position(pose, lead)
     w = weapon_direction(pose, lead)
     lead_sh, _ = fk(pose, f"{lead}Shoulder")
     other_sh, _ = fk(pose, f"{other}Shoulder")
     radius = ARM_REACH * 0.98
-    shift = (lead_sh[0] + other_sh[0]) / 2 + _NEAR_SIDE - (2 * grip[0] + offset[0] + w[0] * prefer) / 2
     inward = _sub(other_sh, grip)
     inward = _norm((0.0, inward[1], inward[2]))
     best = None
     for draw in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0):
-        for f in (1.0, 0.75, 0.5, 0.25, 0.0):
-            move = _add((shift * f, 0.0, 0.0), _scale(inward, draw))
-            lead_at = _add(grip, move)
-            lead_excess = max(0.0, _dist(lead_at, lead_sh) - radius) if (f or draw) else 0.0
-            t, excess = _pick_t(_add(lead_at, offset), w, other_sh, ranges, prefer, radius)
-            cost = (lead_excess + excess + _SLIDE_PENALTY * abs(t - prefer) + _CENTER_PENALTY * (1.0 - f)
-                    + _DRAW_PENALTY * draw)
-            if best is None or cost < best[0] - 1e-3:
-                best = (cost, lead_at, t)
+        lead_at = _add(grip, _scale(inward, draw))
+        lead_excess = max(0.0, _dist(lead_at, lead_sh) - radius) if draw else 0.0
+        # reach is judged at the other shoulder's depth, where the hand can slide to
+        origin = _add(lead_at, offset)
+        t, excess = _pick_t((other_sh[0], origin[1], origin[2]), w, other_sh, ranges, prefer, radius)
+        cost = lead_excess + excess + _SLIDE_PENALTY * abs(t - prefer) + _DRAW_PENALTY * draw
+        if best is None or cost < best[0] - 1e-3:
+            best = (cost, lead_at, t)
     _, lead_at, t = best
     out = pose
     if _dist(lead_at, grip) > 1e-6:
         elbow, _ = fk(pose, f"{lead}Elbow")
         pole = _sub(elbow, _scale(_add(lead_sh, grip), 0.5))
         out = reach(pose, lead, lead_at, pole=pole if _dist(pole, (0, 0, 0)) > 0.05 else None, weapon=w)
-    target = _add(_add(lead_at, offset), _scale(w, t))
-    return reach(out, other, target, weapon=w if weapon else None)
+    target = _depth_slide(out, _add(_add(lead_at, offset), _scale(w, t)), other_sh, radius)
+    if not weapon:
+        return reach(out, other, target)
+    return reach(out, other, target, pole=_plain_pole(out, other, target), weapon=w)
 
 
 # Two-handed weapons: where the support hand likes to be (studs along the
@@ -885,8 +964,9 @@ HAFT = {
 }
 
 
-def two_hand(pose, separation, lead="Right", support=None, haft=None):
+def two_hand(pose, separation, lead="Right", support=None, haft=None, offset=(0.0, 0.0, 0.0)):
     """After `lead` holds the weapon, puts the other hand on the haft, ideally
-    `separation` studs along the weapon (negative = toward the butt)."""
+    `separation` studs along the weapon (negative = toward the butt), moved
+    by `offset` (see hands_together)."""
     ranges = haft or [(min(separation, 0.0) - 1.0, max(separation, 0.0) + 1.0)]
-    return hands_together(pose, lead, ranges, separation, support=support, weapon=True)
+    return hands_together(pose, lead, ranges, separation, offset=offset, support=support, weapon=True)

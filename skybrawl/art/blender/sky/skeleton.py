@@ -1,37 +1,52 @@
 """
 The SkyRig skeleton: where every joint pivots, in rig space (X = the
 fighter's right, Y = up, Z = behind, origin between the feet, 1 unit = 1
-stud). Pure Python, so the body builder (sky/hero.py), the armature and the
-animation solver (anims/core.py) share one set of numbers.
+stud). Pure Python, so the avatar builder (sky/avatar.py), the armature and
+the animation solver (anims/core.py) share one set of numbers.
 
-Heroic stylized proportions, about 6.5 heads tall: broad shoulders, legs
-half the height (the crotch sits at the middle), slightly oversized hands
-and feet. Every legend shares this build, so
-every animation fits every legend. The arms hang a little out from the
-body at rest (broad lats), so arm poses subtract that rest slant.
+Proportions are a classic blocky Roblox avatar (the R6 silhouette): 1x2x1
+legs, a 2x2x1 torso, 1x2x1 arms and a 1.2-stud head, scaled by R6_SCALE so the
+top of the head is 6 studs up. Like an R15 "blocky" body, the limbs are split
+so elbows and knees bend:
+  * shoulders pivot at the top-middle of each arm, half a stud below its top
+    (so a hanging arm sits beside the torso and swings straight forward and
+    back in the side view);
+  * the wrist pivot is the center of the fist, which is also the weapon grip,
+    so a turning wrist spins the fist in place;
+  * hips sit at the top of the legs, knees halfway to the ankles, and the
+    ankle is half a stud above the sole.
 
 Each joint is also a bone of the same name in the skinned mesh: the bone
 starts at the joint's pivot and moves the body below it (the joint "Neck"
-turns the head, "RightElbow" the forearm). The weapon grip is the center of
-the fist, just below the wrist.
+turns the head, "RightElbow" the forearm).
 """
 
-HEIGHT = 6.0
-HEAD = HEIGHT / 6.5  # one "head" of height
+R6_SCALE = 6.0 / 5.2
 
-# Right side; the left side mirrors x.
-_PIVOTS = {
-    "Root": (0.0, 3.42, 0.0),
-    "Waist": (0.0, 3.82, 0.02),
-    "Neck": (0.0, 4.92, 0.04),
-    "Shoulder": (0.84, 4.64, 0.04),
-    "Elbow": (1.04, 3.74, 0.04),
-    "Wrist": (1.13, 2.98, 0.04),
-    "Hip": (0.33, 3.3, 0.0),
-    "Knee": (0.35, 1.8, 0.0),
-    "Ankle": (0.37, 0.32, 0.0),
+HEIGHT = 6.0
+HEAD = 1.2 * R6_SCALE  # the classic head is 1.2 R6 studs tall
+
+# Classic layout, in R6 studs before scaling. Right side; the left side
+# mirrors x.
+_R6 = {
+    "Root": (0.0, 2.2, 0.0),
+    "Waist": (0.0, 2.5, 0.0),
+    "Neck": (0.0, 4.0, 0.0),
+    "Shoulder": (1.5, 3.5, 0.0),
+    "Elbow": (1.5, 2.9, 0.0),
+    "Wrist": (1.5, 2.2, 0.0),
+    "Hip": (0.5, 2.0, 0.0),
+    "Knee": (0.5, 1.25, 0.0),
+    "Ankle": (0.5, 0.5, 0.0),
 }
-_GRIP = (1.15, 2.77, -0.02)  # the center of the fist
+
+
+def r6(x, y=None, z=None):
+    """R6 studs -> rig units: r6(1.5) for a length, r6(x, y, z) for a point."""
+    if y is None:
+        return round(x * R6_SCALE, 4)
+    return (round(x * R6_SCALE, 4), round(y * R6_SCALE, 4), round((z or 0.0) * R6_SCALE, 4))
+
 
 SIDES = (("Left", -1), ("Right", 1))
 
@@ -50,15 +65,16 @@ for _side, _ in SIDES:
     ]
 
 
-def _pivot(joint):
+def _r6_pivot(joint):
     for side, s in SIDES:
         if joint.startswith(side):
-            x, y, z = _PIVOTS[joint[len(side):]]
-            return (round(s * x, 4), y, z)
-    return _PIVOTS[joint]
+            x, y, z = _R6[joint[len(side):]]
+            return (s * x, y, z)
+    return _R6[joint]
 
 
-PIVOT = {joint: _pivot(joint) for joint, _, _ in _CHAIN}
+R6_PIVOT = {joint: _r6_pivot(joint) for joint, _, _ in _CHAIN}  # in R6 studs
+PIVOT = {joint: r6(*R6_PIVOT[joint]) for joint, _, _ in _CHAIN}
 JOINTS = [(joint, part0, part1, PIVOT[joint]) for joint, part0, part1 in _CHAIN]
 PARENT_JOINT = {}
 for _joint, _part0, _ in _CHAIN:
@@ -66,7 +82,7 @@ for _joint, _part0, _ in _CHAIN:
 CHILDREN = {j: [c for c, p in PARENT_JOINT.items() if p == j] for j in PIVOT}
 
 # Where a held weapon's grip sits at rest: the center of the fist.
-GRIP = {side: (round(s * _GRIP[0], 4), _GRIP[1], _GRIP[2]) for side, s in SIDES}
+GRIP = {side: PIVOT[f"{side}Wrist"] for side, _ in SIDES}
 
 # Leg lengths for the foot-planting solver, in the side (YZ) plane.
 THIGH = ((PIVOT["RightHip"][1] - PIVOT["RightKnee"][1]) ** 2 + (PIVOT["RightHip"][2] - PIVOT["RightKnee"][2]) ** 2) ** 0.5
@@ -76,7 +92,7 @@ ANKLE_HEIGHT = PIVOT["RightAnkle"][1]
 
 # Where each bone points at rest (its tail), for the armature: toward its
 # child joint, or a fixed reach for the ends of chains.
-_TAIL_REACH = {"Neck": (0.0, 1.0, 0.0), "Wrist": (0.0, -0.35, -0.08), "Ankle": (0.0, -0.1, -0.6)}
+_TAIL_REACH = {"Neck": (0.0, 1.0, 0.0), "Wrist": (0.0, -0.3, 0.0), "Ankle": (0.0, 0.0, -0.5)}
 
 
 def tail(joint):
@@ -96,7 +112,8 @@ def tail(joint):
 
 def arm_slant(side):
     """Rest roll (degrees about Z) of the upper arm away from straight down:
-    arm poses subtract it so "straight down" means straight down."""
+    arm poses subtract it so "straight down" means straight down. Blocky
+    arms hang straight, so this is 0."""
     import math
     sh, el = PIVOT[f"{side}Shoulder"], PIVOT[f"{side}Elbow"]
     return math.degrees(math.atan2(el[0] - sh[0], sh[1] - el[1]))

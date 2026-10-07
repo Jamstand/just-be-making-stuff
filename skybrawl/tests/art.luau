@@ -7,6 +7,8 @@
         every key is well formed
       - FighterRigs has the shared skeleton and every legend's parts
       - WeaponMeshes covers the base weapons and every legend's skins
+      - only a legend's own rig with built-in fists holds bare gauntlet
+        models (a grip, a knuckle glow and a trail, nothing drawn)
       - every map with a Kit has its Blender script and export
       - the painted sky layers fill the camera's view in every camera look,
         sit behind the maps' 3D scenery, and the nearer ones slide more
@@ -176,7 +178,7 @@ h.test("every legend has an exported rig with all 15 parts", function()
 	end
 end)
 
-h.test("every legend is a skinned hero under Roblox's triangle limit, with its painted maps", function()
+h.test("every legend is a classic avatar under Roblox's triangle limit, with its maps and faces", function()
 	local serde = require("@lune/serde")
 	for _, id in Legends.Order do
 		if id ~= "Avatar" then
@@ -184,13 +186,20 @@ h.test("every legend is a skinned hero under Roblox's triangle limit, with its p
 			h.expect(fighter and fighter.Skinned, id .. " isn't skinned")
 			local dir = root .. "/art/export/fighters/"
 			local info = serde.decode("json", fs.readFile(dir .. id .. ".json"))
+			h.expect(info.style == "classic", id .. " wasn't built by sky/avatar.py")
 			h.expect(
 				info.triangles <= 20000,
 				string.format("%s has %d triangles (Roblox allows 20000)", id, info.triangles)
 			)
+			-- accessories never sink into the body (sky/avatar.py checks every vertex)
+			h.expect(
+				info.clipping ~= nil and #info.clipping == 0,
+				id .. " has clipping accessories: " .. table.concat(info.clipping or { "no check" }, "; ")
+			)
 			for _, map in { "color", "metal", "rough" } do
 				h.expect(fs.isFile(dir .. id .. "_" .. map .. ".png"), id .. "_" .. map .. ".png not exported")
 			end
+			h.expect(fs.isFile(dir .. "decals/" .. id .. "_face.png"), id .. "_face.png not exported")
 			for _, sway in fighter.Sways or {} do
 				h.expect(#sway.Points >= 2, id .. "'s sway " .. sway.Name .. " needs two points")
 				h.expect(FighterRigs.Fighters[id] and sway.Limit > 0, id .. "'s sway " .. sway.Name .. " has no limit")
@@ -211,6 +220,69 @@ h.test("weapon meshes cover the base weapons and every legend skin", function()
 			h.expect(fs.isFile(root .. "/art/export/weapons/" .. skin .. ".fbx"), skin .. ".fbx not exported")
 		end
 	end
+end)
+
+h.test("built-in fists hold bare gauntlet models, only on the legend's own rig", function()
+	local WeaponModels = h.require("WeaponModels")
+	local Instance = roblox.Instance
+	-- a fighter, wearing `legend`'s rig or (nil) in their own avatar's look
+	local function fighter(legend)
+		local model = Instance.new("Model")
+		if legend then
+			local rig = Instance.new("Model")
+			rig.Name = "VisualRig"
+			rig:SetAttribute("Legend", legend)
+			rig.Parent = model
+		end
+		return model
+	end
+	for _, id in Legends.Order do
+		local legend = Legends.List[id]
+		if legend.BuiltInFists then
+			h.expect(table.find(legend.Weapons or {}, "Gauntlets"), id .. " has built-in fists but no Gauntlets")
+		end
+		for _, weapon in Weapons.Order do
+			local want = legend.BuiltInFists == true and weapon == "Gauntlets"
+			h.expect(WeaponModels.bareFor(fighter(id), weapon) == want, id .. "'s rig with " .. weapon)
+			-- the fighter-select preview asks with the rig itself
+			h.expect(WeaponModels.bareFor(fighter(id).VisualRig, weapon) == want, id .. "'s preview with " .. weapon)
+		end
+	end
+	for _, weapon in Weapons.Order do
+		h.expect(not WeaponModels.bareFor(fighter(nil), weapon), "own look with " .. weapon .. " is bare")
+	end
+
+	-- the plain-parts models (nothing imported under Lune), in a glowing colour
+	local function contents(model)
+		local found = { parts = {}, lights = {}, trails = 0 }
+		for _, d in model:GetDescendants() do
+			if d:IsA("BasePart") then
+				table.insert(found.parts, d)
+			elseif d:IsA("PointLight") then
+				table.insert(found.lights, d)
+			elseif d:IsA("Trail") then
+				found.trails += 1
+			end
+		end
+		return found
+	end
+	local full = contents(WeaponModels.build("Gauntlets", "wc_frost", "BrannGauntlets", false))
+	h.expect(#full.parts > 1 and #full.lights == 1 and full.trails == 1, "a full model doesn't draw the gauntlet")
+	local bareModel = WeaponModels.build("Gauntlets", "wc_frost", "BrannGauntlets", true)
+	local bare = contents(bareModel)
+	h.expect(#bare.parts == 1 and bare.parts[1] == bareModel.PrimaryPart, "a bare model draws more than its grip")
+	h.expect(bareModel.PrimaryPart.Transparency == 1, "a bare model's grip is drawn")
+	h.expect(bare.trails == 1, "a bare model lost its swing trail")
+	h.expect(
+		#bare.lights == 1 and bare.lights[1].Parent.Name == "Knuckles",
+		"a bare model doesn't light the rig's knuckles"
+	)
+	-- its trail runs across the rig's knuckles, past the gauntlet's
+	local fullModel = WeaponModels.build("Gauntlets", "wc_frost", "BrannGauntlets", false)
+	local function trailZ(model)
+		return model.PrimaryPart.TrailBase.Position.Z
+	end
+	h.expect(trailZ(bareModel) < trailZ(fullModel), "a bare model's trail isn't at the rig's knuckles")
 end)
 
 h.test("every map kit has its Blender script, export and sky", function()

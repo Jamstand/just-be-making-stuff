@@ -132,6 +132,21 @@ local function sanitizeKeybinds(binds)
 	return out
 end
 
+-- Settings a match reads as it starts. A save that the once-a-second limit
+-- drops still updates these, so a match started right after a toggle uses it.
+local MATCH_SETTINGS = { "FightAsAvatar" }
+
+function DataService.applyMatchSettings(settings, raw)
+	if type(raw) ~= "table" then
+		return
+	end
+	for _, key in MATCH_SETTINGS do
+		if type(raw[key]) == "boolean" then
+			settings[key] = raw[key]
+		end
+	end
+end
+
 -- Keeps only known settings with the right types.
 function DataService.sanitizeSettings(raw)
 	local out = {}
@@ -387,6 +402,9 @@ function DataService.start()
 	Net.get("SaveSettings").OnServerEvent:Connect(function(player, raw)
 		local now = os.clock()
 		if lastSettingsSave[player] and now - lastSettingsSave[player] < 1 then
+			if profiles[player] then
+				DataService.applyMatchSettings(profiles[player].Settings, raw)
+			end
 			return
 		end
 		lastSettingsSave[player] = now

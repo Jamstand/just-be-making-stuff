@@ -75,6 +75,20 @@ h.test("every legend's stats add up to 22 and stay in 2..9", function()
 	end
 end)
 
+h.test("legend titles are short and descriptions fit the fighter card in one sentence", function()
+	for id, legend in Legends.List do
+		local words = select(2, string.gsub(legend.Title, "%S+", ""))
+		h.expect(words >= 1 and words <= 3 and #legend.Title <= 18, id .. " title: " .. legend.Title)
+		local d = legend.Description
+		-- FightersPanel gives the description a 40px box (2 lines of 15pt) in an info
+		-- column roughly 290px wide at full size: 70 characters is a rough proxy.
+		h.expect(#d <= 70, id .. " description is " .. #d .. " characters (2 lines on the card)")
+		if id ~= "Avatar" then
+			h.expect(string.sub(d, -1) == "." and not string.find(d, "[.!?] "), id .. " description: one sentence")
+		end
+	end
+end)
+
 h.test("each legend has two weapons with three signatures each", function()
 	for _, id in Legends.Order do
 		local legend = Legends.List[id]

@@ -9,8 +9,8 @@ art/
   blender/
     sky/              shared helpers: common.py (scene, palette, primitives,
                       export, preview), skeleton.py (the SkyRig joints),
-                      hero.py (skinned fighters), rig.py (fighter builds and
-                      FighterRigs.luau), mapkit.py
+                      avatar.py (the classic blocky fighters), rig.py
+                      (fighter builds and FighterRigs.luau), mapkit.py
     fighters/         one script per fighter (kestrel.py, brann.py, ...)
     weapons.py        the 18 weapon meshes (6 base + 2 skins per legend)
     maps/             one script per map kit (sky_ship.py, ...)
@@ -18,9 +18,11 @@ art/
     vistas/           one script per map's painted 3-layer background
                       (sky_ship.py, ...) plus _kit.py (clouds, islands,
                       buildings, airships); sky/vista.py renders them
-    anims/            animation clips: core.py (poses, IK, clips), stances.py,
-                      kit.py (swing/thrust/spin helpers), locomotion.py, one
-                      file per weapon, signatures.py
+    anims/            animation clips: core.py (poses, IK, clips), stances.py
+                      (stances, holds and guard styles), kit.py (swing/thrust/
+                      spin helpers), locomotion.py, battle.py, one file per
+                      weapon, signatures.py, posecheck.py (accessory clipping
+                      in every pose)
     build.py          entry point
   export/             what you import into Roblox Studio (FBX + PNG), see IMPORTING.md
   previews/           rendered turnarounds, weapon sheet, map views (with the
@@ -34,6 +36,8 @@ With Blender installed:
 ```
 blender -b -P art/blender/build.py -- all
 blender -b -P art/blender/build.py -- fighter kestrel
+blender -b -P art/blender/build.py -- fighters lineup
+blender -b -P art/blender/build.py -- fighters posecheck brann --attacks
 blender -b -P art/blender/build.py -- weapons
 blender -b -P art/blender/build.py -- maps
 blender -b -P art/blender/build.py -- skies
@@ -41,6 +45,7 @@ blender -b -P art/blender/build.py -- vistas
 blender -b -P art/blender/build.py -- vistas sky_ship graphic test
 blender -b -P art/blender/build.py -- anims
 blender -b -P art/blender/build.py -- anims preview Sword Kestrel
+blender -b -P art/blender/build.py -- anims preview Loco body=brann
 ```
 
 `vistas` renders each map's painted background as three layers (Sky,
@@ -49,9 +54,20 @@ the way the game shows them to `art/previews/vistas/`. Add `graphic` or
 `painterly` to pick the look (inked cel shading, or soft light with brush
 strokes and bloom), and `test` to render only the preview.
 
+`fighters lineup` renders every exported fighter side by side to
+`art/previews/fighters/lineup.jpg`.
+
+`fighters posecheck [names] [--attacks]` poses each legend's accessories and
+body blocks in every key of the clips it plays (its own versions in place of
+the shared ones they replace) and lists where an accessory cuts into a limb,
+or two accessories into each other, further than at rest. By default only
+the looping clips (idles, runs, blocks, jumps) are checked; `--attacks` adds
+the attacks.
+
 `anims preview <groups>` also renders contact sheets (each clip's keys from
 the game's side view) to `art/previews/anims/`. Groups are `Loco`, a weapon
-name, or a legend name.
+name, or a legend name. Sheets use Sol's body, a legend's own group uses
+that legend's, and `body=<fighter>` picks one.
 
 Or with the `bpy` Python module (`pip install bpy==4.5.*`, Python 3.11):
 
@@ -83,43 +99,55 @@ The character faces -Z, feet at the origin. In Blender the character faces
 Z points at the camera. In Blender, the front view is the game camera's
 view: X right, Z up, and -Y toward the camera.
 
-**Fighters** are stylized heroes, about 6.5 heads tall with legs half
-their height, designed from the concept sheets in `art/concepts/`. Each is
-one smooth skinned mesh on the shared skeleton (`sky/skeleton.py`: every
-joint pivot and the grips, shared with the animation code), built by
-`sky/hero.py` from a fighter script (`fighters/<name>.py`, `HERO = True`):
+**Fighters** are classic blocky Roblox avatars, in the style of the
+battlegrounds games: the R6 silhouette (a 2x2x1 torso, 1x2x1 arms and legs
+and the classic rounded head), split like an R15 "blocky" body so elbows,
+knees and the waist bend. Every legend shares the body and the skeleton
+(`sky/skeleton.py`: every joint pivot and the grips, shared with the
+animation code), so every animation fits every legend. `sky/avatar.py`
+builds them from a fighter script (`fighters/<name>.py`) with three parts:
 
-- `body()`: a sculpted body (blended metaballs) with tweaks per legend
-  (shoulders, chest, waist, arms, jaw, ...);
-- `tint()`: paints part of the body with a clean edge (tight shirts,
-  leggings, stubble, wraps), so thin clothes can never poke through;
-- `garment()`: loose clothes grown off the body at a gap, cut cleanly along
-  their edges, with optional rolled hems; skin under them is removed;
-- `skirt()`: cloth draped over everything below it like a hull (coat
-  skirts, capelets, cloaks, ponchos), so it bridges the legs; `jag`
-  tatters the hem;
-- `panel()`: free-hanging sheets (aprons, tabards, capes);
-- `band()`, `strap()`, `ribbon()`, `lock()`, `blob()`, `fur()`, `boots()`,
-  `hands()`, `face()` and plain primitives for belts, hair, beards, fur
-  trim, armor and buckles.
+- `paint(av, p)`: the outfit and face are painted onto the body like
+  classic Shirts and Pants. Each limb has six faces on one 1024 texture
+  atlas laid out like a clothing template (`p.torso.front`, `p.arm("Right").outer`,
+  `p.leg("Left").band(...)`, `p.head.band`, ...), each drawn in body
+  coordinates with fills, shapes, tapered strokes and gradients. A last pass
+  shades the edges of every face. Clothing is never a separate mesh, so
+  nothing can clip or overlap.
+- `face(c, glow=None)`: the anime face, painted on the front of the head
+  (`anime_eye`, `anime_brow`, `anime_mouth` plus the legend's own marks;
+  `glow` draws glowing irises, as Brann's cybernetic eye does). It is also
+  exported on its own as `export/fighters/decals/<Name>_face.png`.
+- `model(av)`: the few 3D accessories, from primitives and the helpers
+  `spike()`, `lock()`, `shell()`, `sheet()` and `cape_rows()`. Hair is built
+  from overlapping blobs and spikes, then `melt()`ed into one smooth surface
+  and carved off the scalp. Each accessory is bound to one bone, or hangs
+  from a **sway chain** (capes, scarves, ponytails, tails) that the game
+  swings with springs and keeps out of the legs. Accessories are painted
+  from small swatches (`Hair`, `Cloth`, `Metal`, `Glow`, `Fur` styles).
 
-Every vertex gets skin weights by body region, blended across each joint,
-so clothes bend with the body. Capes, tails, braids, ponytails and aprons
-hang from **sway bones** (`SWAYS` in the fighter script) that the game
-swings with springs and keeps out of the thighs. The faces are painted
-decals. The build bakes one painted 1024 texture set (color with light,
-wear and edges; metalness; roughness) and exports the FBX (armature
-`SkyRig` + skinned `Body` + markers) under Roblox's 20,000-triangle limit,
-plus rig data for `src/shared/FighterRigs.luau`. The game adds a thin dark
-outline (`Config.Art.Outlines`).
-
-Moss is provisional: built from the concept brief while its concept sheet
-waits on the image generator.
+The build checks that no accessory sinks into the body, lies flat on it or
+on another accessory (coincident surfaces flicker in game). The warnings go
+to the console and the exported JSON, and `tests/art` requires none. Rest
+pose isn't enough, so `fighters posecheck` (above) checks the animations
+too. The build also skins the
+body with rigid weights (with a short soft band across each bending joint,
+so bends never open a gap), and exports the FBX (armature `SkyRig` + skinned
+`Body` + markers) with its color, metalness and roughness maps, plus rig
+data for `src/shared/FighterRigs.luau`. It also renders a plastic turnaround
+and a face close-up to `previews/fighters/`. Like classic avatars, the
+fighters are drawn without an outline (`Config.Art.Outlines` is off).
 
 **Colors:** fighters carry their painted texture set (a SurfaceAppearance
 in Roblox). Weapons and maps use one small palette texture each: a grid
 of flat color swatches, with each face mapped to one swatch, so a model
 needs a single image upload.
+
+**Weapons** are built around their grip, the center of a blocky fist.
+Hafts, guards and rings stay clear of the 1x1 fist block, and gauntlets are
+shells over the fist and the end of the forearm, a little off every face.
+A legend with armored fists of its own (`BuiltInFists` in `Legends.luau`:
+Brann) shows no gauntlet model; its knuckles glow instead.
 
 **Animations** are written in `anims/*.py` as key poses (with leg and arm
 IK; every key keeps the elbows, forearms and fists out of the torso by
@@ -131,7 +159,18 @@ plays them on every client, so there's nothing to upload. Attack keys are
 in move phases (0-1 startup, 1-2 active, 2-3 recovery), so they always
 line up with the hitboxes. Clips are authored facing right with the
 weapon in the near (right) hand, and the game mirrors them when a fighter
-faces left.
+faces left. A blocky head looks broken off when the neck bends far, so
+every key's neck pitch and turn past about 15-25 degrees is softened.
+
+Most legends share the classic stances. A legend whose look needs its own
+gets a **guard style** (`stances.LEGEND_STYLES`): Brann's "heavy" guard keeps
+his elbows under 95 degrees so his mech fists never fold into his shoulder
+armor, and Vex's "ninja" grip holds the scythe low, clear of his scarf.
+`styled_clip` makes `<Legend>.<Clip>` versions only of the clips a style
+changes (and only for the weapons that legend carries), and `kit.move`
+starts and ends a legend's own moves in its guard. The game plays
+`<Legend>.<Weapon>.<State>`, `<Weapon>.<State>`, `<Legend>.Loco.<State>`,
+then `Loco.<State>`.
 
 **Map kits** are built in arena space. Each platform's walkable top sits
 exactly on its collision rectangle from `Maps.luau`, which

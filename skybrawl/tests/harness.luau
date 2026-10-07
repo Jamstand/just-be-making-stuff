@@ -37,7 +37,8 @@ local cache = {}
 local loadModule
 
 -- Just enough of `game` for modules that do
--- game:GetService("ReplicatedStorage"):WaitForChild("Shared").X
+-- game:GetService("ReplicatedStorage"):WaitForChild("Shared").X, with no
+-- art imported (WeaponModels looks for its meshes with FindFirstChild).
 local sharedProxy = setmetatable({}, {
 	__index = function(_, child)
 		return { __module = child }
@@ -48,6 +49,9 @@ local fakeGame = {
 		return {
 			WaitForChild = function()
 				return sharedProxy
+			end,
+			FindFirstChild = function()
+				return nil
 			end,
 		}
 	end,
@@ -80,6 +84,8 @@ local function loadFile(path, name, globals, folder)
 		Vector2 = roblox.Vector2,
 		CFrame = roblox.CFrame,
 		UDim2 = roblox.UDim2,
+		ColorSequence = roblox.ColorSequence,
+		NumberSequence = roblox.NumberSequence,
 		Enum = roblox.Enum,
 		Instance = roblox.Instance,
 		Random = RandomShim,

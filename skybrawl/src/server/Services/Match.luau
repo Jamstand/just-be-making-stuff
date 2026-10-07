@@ -11,7 +11,8 @@
       - Every fighter plays a legend (Legends.luau): its signatures and
         Dexterity timing come from Legends.getAttack, and Strength/Defense
         scale damage here. Legends with imported art get their visual rig
-        (LegendRig) on top of the Roblox character.
+        (LegendRig) on top of the Roblox character, unless the player fights
+        in their own avatar's look (the FightAsAvatar setting).
       - Battlegrounds combat (Config.Battle) is decided here too: whether a
         hit is blocked (players report when they block), the guard meter and
         guard breaks, which hits ragdoll, the ultimate meter, awakening
@@ -130,6 +131,7 @@ function Match:newFighter(id, team)
 		comboCount = 0,
 		comboTrue = false,
 		legend = "Avatar",
+		ownLook = false, -- a player fighting in their own avatar's look
 		lastWeapon = nil,
 		kos = 0,
 		falls = 0,
@@ -176,6 +178,8 @@ function Match:AddPlayer(player, team)
 		local title = Cosmetics.resolve("Title", profile.Equipped.Title)
 		f.title = title and title.Name
 		f.legend = Legends.isValid(profile.Legend) and profile.Legend or Legends.Default
+		-- "Fight as my avatar": the legend's moves and stats, your own look
+		f.ownLook = profile.Settings.FightAsAvatar == true
 	end
 	if self.config.ranked then
 		f.rating = self.services.ProgressionService.ratingOf(player, self.config.mode)
@@ -419,7 +423,11 @@ function Match:preparePlayer(f)
 	character:SetAttribute("FighterId", f.id)
 	character:SetAttribute("MatchId", self.id)
 	character:SetAttribute("Legend", f.legend)
-	LegendRig.attach(character, f.legend)
+	if f.ownLook then
+		LegendRig.detach(character)
+	else
+		LegendRig.attach(character, f.legend)
+	end
 	self.services.CharacterService.setTeamColor(character, teamColor(f.team))
 	self.services.CharacterService.applyTrail(character, f.trail)
 	WeaponModels.detach(character)

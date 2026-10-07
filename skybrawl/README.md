@@ -12,17 +12,20 @@ the repo root.
 ## What's in it
 
 **Legends** (pick in the lobby's FIGHTERS panel)
-- Kestrel (sky-corsair, Sword + Bow), Brann (forge smith, Hammer +
-  Gauntlets), Yuki (frost ranger, Spear + Bow), Moss (jungle druid,
-  Scythe + Spear), Vex (shadow rogue, Scythe + Gauntlets), Sol (sun knight,
-  Sword + Hammer), or **My Avatar** (your own avatar, any weapon).
+- Sol (caped powerhouse hero, Sword + Hammer), Brann (cyborg brawler with
+  mech arms, Hammer + Gauntlets), Vex (shadow ninja, Scythe + Gauntlets),
+  Yuki (ice psychic, Spear + Bow), Moss (feral jungle berserker, Scythe +
+  Spear), Kestrel (wandering blade master, Sword + Bow), or **My Avatar**
+  (your own avatar, any weapon).
 - Each legend has Strength / Dexterity / Defense / Speed stats and a
   signature for each of their ground heavies: 36 signatures in all. Weapon
   pickups give legends their own two weapons, alternating like Brawlhalla.
-- Stylized hero legends (a mix of platform-fighter appeal and gritty
-  fighting-game costume design): smooth skinned bodies with painted
-  textures, metal that shines, swinging capes, braids and aprons, and a
-  thin dark outline, each with its own weapon skins.
+- The legends look like classic Roblox avatars in the battlegrounds style:
+  blocky bodies with their outfits printed on like classic clothing, anime
+  faces, and a few clean accessories (spiky hair, a cape, mech arms, a
+  trailing scarf, floating ice crystals...), each with its own weapon skins.
+  Capes, scarves and long hair swing as you move. Turn on **Use my
+  avatar's look** to fight as your own avatar with a legend's moves.
   Every move is animated, and the animations are mirrored when you face
   left so your weapon stays on the camera's side.
 
@@ -199,8 +202,9 @@ built file:
 In **Home → Game Settings**:
 
 - **Avatar → Avatar Type: R15** (recommended). "My Avatar" fighters are
-  animated by the same clips as the legends; R6 avatars work, but only
-  move their shoulders, hips and head.
+  animated by the same clips as the legends (so are legends played with
+  "Use my avatar's look" on); R6 avatars work, but only move their
+  shoulders, hips and head.
 - **Security → Enable Studio Access to API Services**, so DataStores
   (profiles, ratings, leaderboard) work in Studio. Without it you can
   still play, but progress doesn't save and the Profile tab says so.
@@ -329,7 +333,10 @@ for your own uploads.
 data (`src/shared/AnimationData/`). Every client plays them with
 `FighterAnimator`, so nothing is uploaded. Attacks are keyed in move
 phases, so they stay in sync with the hitboxes when you retune a move's
-timing.
+timing. A legend can square up in its own guard (Brann's low brawler guard,
+Vex's low scythe grip): the player tries `<Legend>.<Weapon>.<State>`, then
+`<Weapon>.<State>`, `<Legend>.Loco.<State>` and `Loco.<State>`, and every
+attack's recovery settles into the guard the fighter actually uses.
 
 ## Tests
 
@@ -363,8 +370,10 @@ timing, weapon alternation) and the combo flow:
 - scripted duels that must be true combos at 0% and only strings at 140%
 
 `lune run tests/art` checks the generated art data: a clip for every attack,
-signature and movement state, every legend's rig and weapon skins, every map
-kit's export and every painted background layer.
+signature and movement state, every legend's rig (a classic avatar under the
+triangle limit, with no clipping accessories, its maps and face decals) and
+weapon skins (and that Brann's built-in fists hide only the gauntlet model),
+every map kit's export and every painted background layer.
 
 `lune run tests/anims` drives the real animation player (FighterAnimator) on a
 fake rig, frame by frame at 60 fps:
@@ -380,6 +389,8 @@ fake rig, frame by frame at 60 fps:
 - air jump, landing and throw, hit-stop, mirroring when facing
   left, the weapon changing hands, other players' movement, avatars and menu
   previews
+- the legend clip lookup (a legend's own guard first, then the shared clips)
+  and recoveries settling into each fighter's own guard
 
 `lune run tests/combo_search [Weapon] [damage]` lists every true combo the
 current frame data allows. Use it when you change hitstun, knockback or

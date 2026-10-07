@@ -4,7 +4,7 @@ parts the game animates (named like Roblox R15 parts, one per joint), the
 fighter build entry point and src/shared/FighterRigs.luau, the rig data the
 game reads (joints, each fighter's proxy part boxes and sway chains).
 
-Fighters themselves are skinned heroes built by sky/hero.py.
+Fighters themselves are classic blocky avatars built by sky/avatar.py.
 """
 
 import json
@@ -95,7 +95,9 @@ def write_fighter_rigs_luau():
             b = info["parts"].get(part, {"center": [0, 3, 0], "size": [0.2, 0.2, 0.2]})
             lines.append(f"\t\t\t\t{part} = {{ Center = {_lua_vec(b['center'])}, Size = {_lua_vec(b['size'])} }},")
         lines.append("\t\t\t},")
-        if "sways" in info:
+        if "sways" in info and not info["sways"]:
+            lines.append("\t\t\tSways = {},")
+        elif "sways" in info:
             lines.append("\t\t\tSways = {")
             for sw in info["sways"]:
                 lines.append("\t\t\t\t{")
@@ -126,11 +128,10 @@ def write_fighter_rigs_luau():
 
 def build_fighter(module):
     """Runs a fighter script (art/blender/fighters/<name>.py): builds the
-    skinned hero, exports it and renders its turnaround. Returns the export
-    info."""
-    from . import hero
+    avatar, exports it and renders its turnaround. Returns the export info."""
+    from . import avatar
 
-    return hero.build(module)
+    return avatar.build(module)
 
 
 __all__ = ["PARTS", "JOINTS", "JOINT_OF_PART", "PIVOT", "GRIP", "write_fighter_rigs_luau", "build_fighter"]

@@ -12,6 +12,11 @@
     Each legend also has an Ultimate: an unblockable cinematic move they can
     use once while awakened (Config.Battle), the same whatever they hold.
 
+    BuiltInFists marks a legend whose rig has its own armored fists (Brann's
+    mech arms): their gauntlets are drawn by the rig, so WeaponModels doesn't
+    put a gauntlet model over them. Fighting in your own avatar's look, you
+    wear the gauntlet model.
+
     Legends.getAttack(legend, weapon, slot) is the one lookup everything uses
     (FighterSim, the server, visuals): it applies the signature and the
     Dexterity timing, so client and server always agree on frame data.
@@ -48,8 +53,8 @@ end
 -- stylua: ignore start
 Legends.List = {
 	Kestrel = {
-		Id = "Kestrel", Name = "Kestrel", Title = "Sky-Corsair",
-		Description = "A fast, slippery duelist who lives on the edge of the stage.",
+		Id = "Kestrel", Name = "Kestrel", Title = "Wandering Blade",
+		Description = "Darts in for quick cuts and slips away before you can answer.",
 		Weapons = { "Sword", "Bow" },
 		Stats = { Strength = 5, Dexterity = 6, Defense = 4, Speed = 7 },
 		Color = Color3.fromRGB(31, 128, 136),
@@ -58,38 +63,39 @@ Legends.List = {
 			Sword = {
 				NHeavy = { Name = "Updraft", Startup = 0.26, Active = 0.2, Recovery = 0.4, Damage = 15, BaseKnockback = 28, KnockbackScaling = 48, Angle = 85, Charge = 0.5, Motion = motion(0.24, 0.2, 4, 38), Hitbox = hb(1, 5, 4.5, 6) },
 				SHeavy = { Name = "Gale Rush", Startup = 0.28, Active = 0.16, Recovery = 0.42, Damage = 16, BaseKnockback = 30, KnockbackScaling = 52, Angle = 25, Charge = 0.5, Motion = motion(0.26, 0.18, 52, 0), Hitbox = hb(2.5, 3, 5, 3) },
-				DHeavy = { Name = "Compass Sweep", Startup = 0.28, Active = 0.2, Recovery = 0.4, Damage = 14, BaseKnockback = 26, KnockbackScaling = 46, Angle = 45, Charge = 0.5, Radial = true, Hitbox = hb(0, 1.2, 10, 2.6) },
+				DHeavy = { Name = "Cyclone Sweep", Startup = 0.28, Active = 0.2, Recovery = 0.4, Damage = 14, BaseKnockback = 26, KnockbackScaling = 46, Angle = 45, Charge = 0.5, Radial = true, Hitbox = hb(0, 1.2, 10, 2.6) },
 			},
 			Bow = {
 				NHeavy = { Name = "Skyfall Volley", Startup = 0.32, Active = 0.05, Recovery = 0.4, Damage = 8, BaseKnockback = 24, KnockbackScaling = 40, Angle = 80, Charge = 0.5, Projectile = arrows({ Speed = 90, Angle = 75, Lifetime = 0.7, Count = 3, Spread = 20 }) },
 				SHeavy = { Name = "Piercing Gale", Startup = 0.34, Active = 0.05, Recovery = 0.42, Damage = 15, BaseKnockback = 28, KnockbackScaling = 50, Angle = 20, Charge = 0.6, Projectile = arrows({ Speed = 160, Angle = 0, Lifetime = 0.9, W = 2.6, H = 0.9, Pierce = true }) },
-				DHeavy = { Name = "Anchor Kick", Startup = 0.26, Active = 0.16, Recovery = 0.4, Damage = 14, BaseKnockback = 26, KnockbackScaling = 48, Angle = 70, Charge = 0.5, Motion = motion(0.22, 0.16, -18, 30), Hitbox = hb(2, 1.5, 4.5, 3) },
+				DHeavy = { Name = "Falcon Kick", Startup = 0.26, Active = 0.16, Recovery = 0.4, Damage = 14, BaseKnockback = 26, KnockbackScaling = 48, Angle = 70, Charge = 0.5, Motion = motion(0.22, 0.16, -18, 30), Hitbox = hb(2, 1.5, 4.5, 3) },
 			},
 		},
 	},
 	Brann = {
-		Id = "Brann", Name = "Brann", Title = "Forge Smith",
-		Description = "Slow, sturdy and devastating when a swing lands.",
+		Id = "Brann", Name = "Brann", Title = "Cyborg Brawler",
+		Description = "Slow, but his steel arms shrug off hits and crush what they catch.",
 		Weapons = { "Hammer", "Gauntlets" },
+		BuiltInFists = true,
 		Stats = { Strength = 8, Dexterity = 4, Defense = 7, Speed = 3 },
 		Color = Color3.fromRGB(196, 92, 40),
 		Ultimate = { Name = "Overdrive Cannon", Startup = 0.3, Active = 0.24, Recovery = 0.45, Damage = 24, BaseKnockback = 55, KnockbackScaling = 66, Angle = 25, Motion = motion(0.28, 0.24, 75, 0), Hitbox = hb(3, 3, 5, 4) },
 		Signatures = {
 			Hammer = {
-				NHeavy = { Name = "Anvil Rise", Startup = 0.42, Active = 0.18, Recovery = 0.46, Damage = 21, BaseKnockback = 33, KnockbackScaling = 62, Angle = 78, Charge = 0.7, Hitbox = hb(1.5, 5, 6.5, 7) },
-				SHeavy = { Name = "Forge Charge", Startup = 0.38, Active = 0.24, Recovery = 0.48, Damage = 20, BaseKnockback = 32, KnockbackScaling = 60, Angle = 30, Charge = 0.7, Motion = motion(0.34, 0.24, 40, 0), Hitbox = hb(3, 3, 4.5, 4) },
+				NHeavy = { Name = "Piston Rise", Startup = 0.42, Active = 0.18, Recovery = 0.46, Damage = 21, BaseKnockback = 33, KnockbackScaling = 62, Angle = 78, Charge = 0.7, Hitbox = hb(1.5, 5, 6.5, 7) },
+				SHeavy = { Name = "Turbo Charge", Startup = 0.38, Active = 0.24, Recovery = 0.48, Damage = 20, BaseKnockback = 32, KnockbackScaling = 60, Angle = 30, Charge = 0.7, Motion = motion(0.34, 0.24, 40, 0), Hitbox = hb(3, 3, 4.5, 4) },
 				DHeavy = { Name = "Quake", Startup = 0.42, Active = 0.18, Recovery = 0.5, Damage = 19, BaseKnockback = 32, KnockbackScaling = 58, Angle = 55, Charge = 0.7, Radial = true, Hitbox = hb(0, 1, 13, 2.8) },
 			},
 			Gauntlets = {
-				NHeavy = { Name = "Bellows Blast", Startup = 0.3, Active = 0.16, Recovery = 0.36, Damage = 16, BaseKnockback = 28, KnockbackScaling = 52, Angle = 85, Charge = 0.5, Hitbox = hb(1.4, 4.8, 3.8, 5) },
-				SHeavy = { Name = "Hot Iron", Startup = 0.3, Active = 0.24, Recovery = 0.38, Damage = 16, BaseKnockback = 28, KnockbackScaling = 52, Angle = 35, Charge = 0.5, Motion = motion(0.28, 0.24, 30, 0), Hitbox = hb(1.5, 3, 5, 3.4) },
-				DHeavy = { Name = "Ember Stomp", Startup = 0.3, Active = 0.16, Recovery = 0.4, Damage = 15, BaseKnockback = 28, KnockbackScaling = 48, Angle = 65, Charge = 0.5, Radial = true, Hitbox = hb(0, 0.8, 8.5, 2.2) },
+				NHeavy = { Name = "Steam Uppercut", Startup = 0.3, Active = 0.16, Recovery = 0.36, Damage = 16, BaseKnockback = 28, KnockbackScaling = 52, Angle = 85, Charge = 0.5, Hitbox = hb(1.4, 4.8, 3.8, 5) },
+				SHeavy = { Name = "Rocket Fist", Startup = 0.3, Active = 0.24, Recovery = 0.38, Damage = 16, BaseKnockback = 28, KnockbackScaling = 52, Angle = 35, Charge = 0.5, Motion = motion(0.28, 0.24, 30, 0), Hitbox = hb(1.5, 3, 5, 3.4) },
+				DHeavy = { Name = "Seismic Stomp", Startup = 0.3, Active = 0.16, Recovery = 0.4, Damage = 15, BaseKnockback = 28, KnockbackScaling = 48, Angle = 65, Charge = 0.5, Radial = true, Hitbox = hb(0, 0.8, 8.5, 2.2) },
 			},
 		},
 	},
 	Yuki = {
-		Id = "Yuki", Name = "Yuki", Title = "Frost Ranger",
-		Description = "Keeps foes at spear's length and picks them off from range.",
+		Id = "Yuki", Name = "Yuki", Title = "Ice Psychic",
+		Description = "Floats out of reach and picks foes off with spear and ice arrows.",
 		Weapons = { "Spear", "Bow" },
 		Stats = { Strength = 5, Dexterity = 7, Defense = 4, Speed = 6 },
 		Color = Color3.fromRGB(150, 200, 240),
@@ -108,8 +114,8 @@ Legends.List = {
 		},
 	},
 	Moss = {
-		Id = "Moss", Name = "Moss", Title = "Jungle Druid",
-		Description = "Long reach and steady footing; good at everything.",
+		Id = "Moss", Name = "Moss", Title = "Jungle Berserker",
+		Description = "Feral and relentless, with long reach and no real weakness.",
 		Weapons = { "Scythe", "Spear" },
 		Stats = { Strength = 6, Dexterity = 5, Defense = 6, Speed = 5 },
 		Color = Color3.fromRGB(96, 170, 70),
@@ -128,8 +134,8 @@ Legends.List = {
 		},
 	},
 	Vex = {
-		Id = "Vex", Name = "Vex", Title = "Shadow Rogue",
-		Description = "Hits hard and fast, but can't take much in return.",
+		Id = "Vex", Name = "Vex", Title = "Shadow Ninja",
+		Description = "Strikes hard and fast from the shadows, but can't take much back.",
 		Weapons = { "Scythe", "Gauntlets" },
 		Stats = { Strength = 6, Dexterity = 7, Defense = 3, Speed = 6 },
 		Color = Color3.fromRGB(120, 70, 170),
@@ -148,8 +154,8 @@ Legends.List = {
 		},
 	},
 	Sol = {
-		Id = "Sol", Name = "Sol", Title = "Sun Knight",
-		Description = "An armored knight with crushing, reliable swings.",
+		Id = "Sol", Name = "Sol", Title = "Caped Hero",
+		Description = "Soaks up hits and ends fights with a few crushing blows.",
 		Weapons = { "Sword", "Hammer" },
 		Stats = { Strength = 7, Dexterity = 4, Defense = 7, Speed = 4 },
 		Color = Color3.fromRGB(230, 180, 60),

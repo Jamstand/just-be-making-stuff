@@ -33,7 +33,16 @@
     further to go, so they never turn a joint faster than MAX_TURN either.
 
     Clip lookup: attacks try "<Legend>.<Weapon>.<Slot>", "<Weapon>.<Slot>",
-    "Unarmed.<Slot>"; locomotion tries "<Weapon>.<State>", "Loco.<State>".
+    "Unarmed.<Slot>"; locomotion (Idle, Run, Block, ...) tries
+    "<Legend>.<Weapon>.<State>", "<Weapon>.<State>", "<Legend>.Loco.<State>",
+    "Loco.<State>" (unarmed, just the last two); one-shot clips
+    ("Loco.Dodge", "Loco.Land", ...) try "<Legend>.<Name>" before "<Name>".
+    So a legend can have its own guard (Brann's mech arms would bury the
+    shared guard's fists in his shoulder armor) and falls back to the shared
+    clips for the rest. Missing names are cached too, so a lookup is a few
+    table reads. Attacks are authored to end in the shared stance; the last
+    stretch of the recovery eases into the live locomotion pose instead
+    (settle), so every legend ends a move in its own guard.
 
     Skinned legends: the joints still drive invisible proxy parts (which hold
     the weapons), and each joint's transform is copied onto the skin's bone
@@ -112,8 +121,9 @@ local RIG_HEIGHT = 6
 local SWAY_GRAVITY = Vector3.new(0, -30, 0)
 -- Cloth hanging from the hips or waist (aprons, tabards, capes) stays this
 -- far from the line through each hip and knee, so raised knees push it
--- aside instead of poking through.
-local THIGH_RADIUS = 0.38
+-- aside instead of poking through: half a blocky leg's width (half an R6
+-- stud, scaled up to the 6-stud rig).
+local THIGH_RADIUS = 0.58
 
 -- The SkyRig skeleton, for following joints in world space (sway bones).
 local JOINT_PIVOT = {} -- [joint index] = rig-space pivot (unscaled)
@@ -502,8 +512,10 @@ local function findJoints(model)
 				joints[JOINT_INDEX[d.Name]] = d
 			end
 		end
-		return joints, scale, rig
+		return joints, scale, rig, Vector3.zero
 	end
+	-- How far above the SkyRig's root pivot the avatar's root joint turns.
+	local lift = Vector3.zero
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
 	if humanoid and humanoid.RigType == Enum.HumanoidRigType.R6 then
 		for name, path in R6_JOINTS do
@@ -513,7 +525,9 @@ local function findJoints(model)
 				joints[JOINT_INDEX[name]] = motor
 			end
 		end
-		scale = 5 / RIG_HEIGHT
+		scale = 5.2 / RIG_HEIGHT -- the SkyRig is a classic R6 body scaled from 5.2 studs to 6
+		-- RootJoint turns about the torso's center; the SkyRig's root pivot is 0.8 lower
+		lift = Vector3.new(0, 0.8, 0)
 	else
 		for name, partName in R15_PART do
 			local part = model:FindFirstChild(partName)
@@ -525,7 +539,7 @@ local function findJoints(model)
 		local feet = Util.feetOffset(model)
 		scale = math.max(0.5, (feet + 2.2) / RIG_HEIGHT)
 	end
-	return joints, scale, nil
+	return joints, scale, nil, lift
 end
 
 -- A bone's rest frame relative to the rig root, from its CFrame chain (bones
@@ -609,7 +623,7 @@ local function bindSkin(rig)
 end
 
 local function bindJoints(rig)
-	local joints, scale, visual = findJoints(rig.model)
+	local joints, scale, visual, lift = findJoints(rig.model)
 	rig.motors = {}
 	for i, motor in joints do
 		-- LegendRig builds C0 so each joint's frame is rig-aligned even when
@@ -620,6 +634,7 @@ local function bindJoints(rig)
 		rig.motors[i] = { motor = motor, rot = rot, inv = rot:Inverse(), plain = plain }
 	end
 	rig.scale = scale
+	rig.rootLift = lift
 	rig.visual = visual
 	rig.boundTo = visual or rig.model
 	bindSkin(rig)
@@ -749,9 +764,14 @@ end
 
 -- Locomotion ------------------------------------------------------------------
 
-local function locoClip(weapon, state)
-	local prefix = (weapon == nil or weapon == "Unarmed") and "Loco" or weapon
-	return compile(prefix .. "." .. state) or compile("Loco." .. state)
+local function locoClip(legend, weapon, state)
+	if weapon == nil or weapon == "Unarmed" then
+		return compile(legend .. ".Loco." .. state) or compile("Loco." .. state)
+	end
+	return compile(legend .. "." .. weapon .. "." .. state)
+		or compile(weapon .. "." .. state)
+		or compile(legend .. ".Loco." .. state)
+		or compile("Loco." .. state)
 end
 
 function FighterAnimator.setLocomotion(model, state, speed)
@@ -764,7 +784,7 @@ function FighterAnimator.setLocomotion(model, state, speed)
 		rig.loco.speed = speed or 1
 		return
 	end
-	local clip = locoClip(weapon, state)
+	local clip = locoClip(legendOf(rig), weapon, state)
 	if not clip then
 		return
 	end
@@ -793,12 +813,44 @@ local function attackClipTime(action)
 	return action.clip.seconds and toSeconds(action.spans, phase) or phase
 end
 
+-- An attack's last key span is its return to the stance it was authored
+-- with. Over that span `out` eases from the key before it into `live` (the
+-- locomotion pose underneath) instead, so a legend with a guard of its own
+-- (Brann) ends the move in it rather than swinging to the shared stance and
+-- back on the fade out. Legends without one idle in that stance anyway.
+local function settle(clip, t, mirror, live, out)
+	local keys = clip.keys
+	local n = #keys
+	local k0 = keys[n - 1]
+	if not k0 or t <= k0.t then
+		return
+	end
+	local a = math.clamp((t - k0.t) / math.max(keys[n].t - k0.t, 1e-6), 0, 1)
+	if k0.constant then
+		a = 0
+	elseif k0.style then
+		a = TweenService:GetValue(a, k0.style, k0.dir)
+	end
+	local c0 = mirror and k0.cfm or k0.cf
+	for i = 1, NJ do
+		out.cf[i] = c0[i]:Lerp(live.cf[i], a)
+	end
+	out.off = (mirror and k0.offm or k0.off):Lerp(live.off, a)
+end
+
+-- An attack's pose at its current time, settling into the locomotion pose.
+local function sampleAttack(rig, action, mirror, out)
+	local t = attackClipTime(action)
+	sample(action.clip, t, mirror, out)
+	settle(action.clip, t, mirror, rig.locoPose, out)
+end
+
 -- Fades from the pose showing now into the current action at its current
 -- time (a new action, or one that jumped ahead).
 local function fadeIn(rig)
 	local action = rig.action
 	if action.kind == "Attack" then
-		sample(action.clip, attackClipTime(action), rig.facing < 0, rig.tmp)
+		sampleAttack(rig, action, rig.facing < 0, rig.tmp)
 	else
 		sample(action.clip, 0, rig.facing < 0, rig.tmp)
 	end
@@ -941,13 +993,14 @@ function FighterAnimator.landed(model)
 	end
 end
 
--- A non-attack clip ("Loco.Dodge", ...). `duration` stretches or holds it.
+-- A non-attack clip ("Loco.Dodge", ...; the legend's own "<Legend>.<name>"
+-- if it has one). `duration` stretches or holds it.
 function FighterAnimator.playClip(model, name, duration, opts)
 	local rig = rigs[model]
 	if not rig then
 		return
 	end
-	local clip = compile(name)
+	local clip = compile(legendOf(rig) .. "." .. name) or compile(name)
 	if not clip then
 		return
 	end
@@ -1118,13 +1171,15 @@ end
 
 local function write(rig)
 	local scale = rig.scale
+	local lift = rig.rootLift
 	local pose = rig.pose
 	local bones = rig.bones
 	for i, j in rig.motors do
 		local motor = j.motor
 		local cf = pose.cf[i]
 		if i == 1 then
-			cf = CFrame.new(pose.off * scale) * cf
+			-- turn about the SkyRig's root pivot even if the root joint is higher
+			cf = CFrame.new(pose.off * scale + cf:VectorToWorldSpace(lift) - lift) * cf
 		end
 		if bones then
 			rig.written[i] = cf
@@ -1318,7 +1373,7 @@ local function updateRig(rig, dt)
 			else
 				action.t += step
 			end
-			sample(action.clip, attackClipTime(action), mirror, rig.tmp)
+			sampleAttack(rig, action, mirror, rig.tmp)
 			if action.charging and action.p0 >= 0.9 then
 				-- tremble while holding a charge
 				rig.tmp.cf[1] = rig.tmp.cf[1] * CFrame.Angles(0, math.rad(math.sin(os.clock() * 55) * 2.5), 0)

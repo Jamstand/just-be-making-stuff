@@ -9,7 +9,7 @@ leans the direction toward the camera side.
 """
 
 from .core import HAFT, SUPPORT, P, aim, arm, attack, dir2d, lerp_pose, mirror, plant, spin_keys, two_hand
-from .stances import body, stance
+from .stances import body, stance, style_of
 
 WEAPON_ARM = {"Bow": "Left"}
 
@@ -113,12 +113,22 @@ def thrust(weapon, pose_from, pose_to, upper=(-100.0, 0.0), elbow=(100.0, 0.0), 
     return a, b
 
 
-def recover(weapon, t=3.0):
-    return (t, stance(weapon), "Quad.InOut")
+def recover(weapon, t=3.0, style="classic"):
+    """Back to the stance (a legend's own guard style for its own moves; the
+    game eases shared moves into whatever stance the fighter is in)."""
+    return (t, stance(weapon, style), "Quad.InOut")
 
 
-def start(weapon):
-    return (0.0, stance(weapon), "Quad.Out")
+def start(weapon, style="classic"):
+    return (0.0, stance(weapon, style), "Quad.Out")
+
+
+def move(name, weapon, keys):
+    """Registers the move `name`: from the stance, through `keys` and back.
+    The stance is in the guard style of the legend the move belongs to
+    (Brann squares up in his own; see stances.LEGEND_STYLES)."""
+    style = style_of(name)
+    return attack(name, [start(weapon, style)] + keys + [recover(weapon, style=style)])
 
 
 def air_start(weapon):
@@ -148,6 +158,6 @@ def spin(t0, t1, pose, degrees, axis="yaw"):
 
 __all__ = [
     "P", "D", "aim", "arm", "attack", "dir2d", "lerp_pose", "mirror", "plant", "spin_keys", "two_hand",
-    "body", "stance", "ground", "air", "wield", "fists", "arc", "thrust", "recover", "start",
+    "body", "stance", "ground", "air", "wield", "fists", "arc", "thrust", "recover", "start", "move",
     "air_start", "air_end", "spin", "SUPPORT", "LEGS", "hold_last", "impact",
 ]

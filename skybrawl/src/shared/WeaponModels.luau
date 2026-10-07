@@ -7,6 +7,13 @@
 
     Weapon frame: the grip is at the origin, the weapon points along +Y,
     and its broad side lies along Z (so blades face the 2D camera when held).
+    The fist closes on the grip: gauntlets wrap it, knuckles toward -Z (the
+    end of the arm) and the cuff up the forearm (+Z).
+
+    A legend whose rig has its own fists (Legends' BuiltInFists: Brann's
+    mech arms) holds bare gauntlet models: just the grips, a glow on the
+    rig's knuckles and swing trails across them, so no gauntlet mesh pokes
+    through the rig's fists.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,6 +22,7 @@ local Weapons = require(script.Parent.Weapons)
 local WeaponMeshes = require(script.Parent.WeaponMeshes)
 local Markers = require(script.Parent.Markers)
 local Cosmetics = require(script.Parent.Cosmetics)
+local Legends = require(script.Parent.Legends)
 local Util = require(script.Parent.Util)
 
 local WeaponModels = {}
@@ -74,12 +82,12 @@ SHAPES.Spear = function(add, primary, secondary, mat)
 end
 
 SHAPES.Gauntlets = function(add, primary, secondary, mat)
-	add("Fist", Vector3.new(1.1, 1.2, 1.1), CFrame.new(0, 0.1, 0), primary, mat, true)
-	add("Cuff", Vector3.new(1.0, 0.6, 1.0), CFrame.new(0, -0.75, 0), secondary, mat)
-	for i, z in { -0.35, 0, 0.35 } do
-		add("Spike" .. i, Vector3.new(0.25, 0.45, 0.25), CFrame.new(0, 0.85, z), primary, mat, true)
+	add("Fist", Vector3.new(1.42, 1.42, 0.72), CFrame.new(0, 0, -0.03), primary, mat, true)
+	add("Cuff", Vector3.new(1.4, 1.4, 0.32), CFrame.new(0, 0, 0.48), secondary, mat)
+	for i, y in { -0.35, 0, 0.35 } do
+		add("Spike" .. i, Vector3.new(0.25, 0.25, 0.4), CFrame.new(0, y, -0.52), primary, mat, true)
 	end
-	return Vector3.new(0, 0, 0), Vector3.new(0, 0.9, 0)
+	return Vector3.new(0, -0.45, -0.42), Vector3.new(0, 0.45, -0.42)
 end
 
 SHAPES.Scythe = function(add, primary, secondary, mat)
@@ -135,6 +143,11 @@ local GLOW = {
 	Sol = Color3.fromRGB(255, 210, 90),
 }
 
+-- How far a legend's built-in fists reach past the wrist (Brann's mech
+-- fists, art/blender/fighters/brann.py: 0.61 R6 studs, at his in-game
+-- scale). Bare models put their trail and knuckle glow there.
+local BUILT_IN_KNUCKLES = -0.65
+
 local meshTemplates = {} -- [id] = template | false
 
 local function vec(t)
@@ -183,8 +196,10 @@ end
     Returns a Model whose PrimaryPart ("Grip") sits at the origin. The other
     parts are welded to it, so moving the grip moves the whole weapon.
     `skinId` picks a legend's mesh ("KestrelSword") when it's imported.
+    `bare` builds only the grip, a knuckle glow and the swing trail, for a
+    rig's built-in fists (see bareFor).
 ]]
-function WeaponModels.build(weaponId, colorId, skinId)
+function WeaponModels.build(weaponId, colorId, skinId, bare)
 	local scheme = Cosmetics.resolve("WeaponColor", colorId)
 	local shape = SHAPES[weaponId]
 	assert(shape, "no model for weapon " .. tostring(weaponId))
@@ -203,6 +218,9 @@ function WeaponModels.build(weaponId, colorId, skinId)
 	local mat = materialOf(scheme.Material)
 
 	local function add(name, size, cframe, color, material, glows)
+		if bare then
+			return nil
+		end
 		local part = newPart(name, size, cframe, color, material)
 		if glows and scheme.Glow and material ~= Enum.Material.Neon then
 			part.Reflectance = 0.15
@@ -219,7 +237,8 @@ function WeaponModels.build(weaponId, colorId, skinId)
 	local template = (skinId and meshTemplate(skinId)) or meshTemplate(weaponId)
 	if template then
 		local glowColor = GLOW[legendOf(skinId or "") or ""] or primary
-		for _, p in template.parts do
+		local parts = if bare then {} else template.parts
+		for _, p in parts do
 			local part = Markers.cloneMesh(p.source)
 			part.Size = p.size
 			part.CFrame = p.cframe
@@ -247,7 +266,21 @@ function WeaponModels.build(weaponId, colorId, skinId)
 		trailBase, trailTip = shape(add, primary, secondary, mat)
 	end
 
-	if scheme.Glow then
+	if bare then
+		-- the rig's fists light up while it holds gauntlets, and swing
+		-- trails run across its own knuckles
+		trailBase = Vector3.new(trailBase.X, trailBase.Y, BUILT_IN_KNUCKLES)
+		trailTip = Vector3.new(trailTip.X, trailTip.Y, BUILT_IN_KNUCKLES)
+		local knuckles = Instance.new("Attachment")
+		knuckles.Name = "Knuckles"
+		knuckles.Position = Vector3.new(0, 0, BUILT_IN_KNUCKLES)
+		knuckles.Parent = grip
+		local light = Instance.new("PointLight")
+		light.Color = GLOW[legendOf(skinId or "") or ""] or primary
+		light.Range = 5
+		light.Brightness = 1.5
+		light.Parent = knuckles
+	elseif scheme.Glow then
 		local light = Instance.new("PointLight")
 		light.Color = primary
 		light.Range = 8
@@ -280,15 +313,18 @@ function WeaponModels.build(weaponId, colorId, skinId)
 	return model
 end
 
+-- Where the grip sits in a hand without a "Grip" attachment. Weapons are
+-- fitted to a classic blocky fist gripped at its centre, 0.23 studs above
+-- the end of the arm (as the legend rigs grip, art/blender/sky/avatar.py).
+local FIST_CENTER = 0.23
+
 local function handOffset(hand)
 	if hand.Name == "RightHand" or hand.Name == "LeftHand" then
-		if hand.Parent and hand.Parent.Name == "VisualRig" then
-			return Vector3.zero
-		end
-		return Vector3.new(0, -0.1, 0)
+		-- an R15 hand is the end of the fist; its centre is close enough
+		return Vector3.zero
 	end
 	-- R6 arms are 2 studs long; the fist is at the bottom.
-	return Vector3.new(0, -hand.Size.Y / 2 + 0.1, 0)
+	return Vector3.new(0, -hand.Size.Y / 2 + FIST_CENTER, 0)
 end
 
 -- Grip orientation relative to the hand: weapon +Y points forward along the
@@ -311,6 +347,15 @@ function WeaponModels.detach(character)
 	end
 end
 
+-- Whether `model` (a fighter, or a legend's rig itself) holding `weaponId`
+-- gets bare models: gauntlets on a legend's own rig when that rig has
+-- built-in fists. Fighters in their own avatar's look have no rig.
+function WeaponModels.bareFor(model, weaponId)
+	local rig = if model.Name == "VisualRig" then model else model:FindFirstChild("VisualRig")
+	local legend = rig and Legends.List[rig:GetAttribute("Legend") or ""]
+	return weaponId == "Gauntlets" and legend ~= nil and legend.BuiltInFists == true
+end
+
 -- Welds a weapon to the character's hand(s). Returns the folder. Each
 -- weapon model is named after the hand it belongs in ("Right"/"Left"); the
 -- client may move it to the other hand while the fighter faces left (see
@@ -322,13 +367,14 @@ function WeaponModels.attach(character, weaponId, colorId, skinId)
 	end
 	local weapon = Weapons.get(weaponId)
 	local sides = weapon.Hand == "Both" and { "Right", "Left" } or { weapon.Hand }
+	local bare = WeaponModels.bareFor(character, weaponId)
 
 	local folder = Instance.new("Folder")
 	folder.Name = "EquippedWeapon"
 	for _, side in sides do
 		local hand = Util.getHand(character, side)
 		if hand then
-			local model = WeaponModels.build(weaponId, colorId, skinId)
+			local model = WeaponModels.build(weaponId, colorId, skinId, bare)
 			model.Name = side
 			local c0 = WeaponModels.gripC0(hand)
 			model:PivotTo(hand.CFrame * c0)

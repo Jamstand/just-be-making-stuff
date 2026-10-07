@@ -178,7 +178,7 @@ class MeshBuilder:
             limit = min(sx, sy, sz) * 0.45
             bmesh.ops.bevel(tmp, geom=list(tmp.edges), offset=min(bevel, limit), segments=segments,
                             affect="EDGES", profile=0.5)
-        self._finish(tmp, color, center, rotation, smooth or (bevel and segments > 1), clip, fill)
+        self._finish(tmp, color, center, rotation, bool(smooth or (bevel and segments > 1)), clip, fill)
 
     def sphere(self, center, radius, color, rotation=None, segments=14, rings=9, clip=None):
         """Ellipsoid; `radius` is a number or (rx, ry, rz)."""

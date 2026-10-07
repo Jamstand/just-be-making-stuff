@@ -297,7 +297,9 @@ function BattleFX.impactFrame(models, duration)
 	local lights = {}
 	for _, model in models or {} do
 		if model and model.Parent then
-			local outline = model:FindFirstChild("SkyOutline")
+			-- one highlight per model shows at a time: hide the outline or
+			-- awakening glow while the silhouette is up
+			local outline = model:FindFirstChild("SkyOutline") or model:FindFirstChild("SkyAwakenGlow")
 			if outline then
 				outline.Enabled = false
 			end
@@ -447,7 +449,9 @@ local function endAura(model)
 		a.attachment:Destroy()
 	end)
 	a.light:Destroy()
-	if a.outline and a.outline.Parent then
+	if a.glow then
+		a.glow:Destroy()
+	elseif a.outline and a.outline.Parent then
 		a.outline.OutlineColor = a.outlineColor
 	end
 end
@@ -510,7 +514,20 @@ function BattleFX.awaken(model, duration)
 	light.Brightness = lvl > 0 and 2 or 0
 	light.Parent = root
 
+	-- a glowing rim: recolor the outline, or add a glow where there's none
 	local outline = model:FindFirstChild("SkyOutline")
+	local glow = nil
+	if not outline then
+		glow = Instance.new("Highlight")
+		glow.Name = "SkyAwakenGlow"
+		glow.FillColor = bright
+		glow.FillTransparency = 0.88
+		glow.OutlineColor = bright
+		glow.OutlineTransparency = lvl > 0 and 0.15 or 0.6
+		glow.DepthMode = Enum.HighlightDepthMode.Occluded
+		glow.Adornee = model:FindFirstChild("VisualRig") or model
+		glow.Parent = model
+	end
 	auras[model] = {
 		attachment = attachment,
 		emitter = emitter,
@@ -518,6 +535,7 @@ function BattleFX.awaken(model, duration)
 		light = light,
 		outline = outline,
 		outlineColor = outline and outline.OutlineColor,
+		glow = glow,
 		ends = os.clock() + duration,
 	}
 	if outline then

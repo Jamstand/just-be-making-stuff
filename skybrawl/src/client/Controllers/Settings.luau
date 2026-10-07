@@ -22,6 +22,12 @@ local Settings = {
 local loaded = false
 local saveToken = 0
 
+-- Settings the server reads when a match starts are also sent at once (a
+-- bots match starts right away). The server applies them even when its
+-- once-a-second limit drops the rest of that save, and the usual save still
+-- follows.
+local SEND_NOW = { FightAsAvatar = true }
+
 local function scheduleSave()
 	saveToken += 1
 	local token = saveToken
@@ -46,6 +52,9 @@ function Settings.set(key, value)
 	end
 	Settings.values[key] = value
 	Settings.Changed:Fire(key, value)
+	if SEND_NOW[key] then
+		Net.get("SaveSettings"):FireServer(Settings.values)
+	end
 	scheduleSave()
 end
 

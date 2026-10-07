@@ -536,29 +536,38 @@ print("Locomotion")
 local loopReport = {}
 
 h.test("every locomotion loop plays smoothly for every weapon, speed and facing", function()
-	local contexts = { "Unarmed" }
+	-- the shared loops on Kestrel, and Brann's own (his heavy guard)
+	local contexts = { { "Kestrel", "Unarmed" } }
 	for _, w in Weapons.Order do
-		table.insert(contexts, w)
+		table.insert(contexts, { "Kestrel", w })
+	end
+	for _, w in { "Unarmed", table.unpack(Legends.List.Brann.Weapons) } do
+		table.insert(contexts, { "Brann", w })
 	end
 	local checks = 0
-	for _, weapon in contexts do
+	for _, context in contexts do
+		local legend, weapon = context[1], context[2]
 		for _, facing in { 1, -1 } do
-			local r = legendRig({ legend = "Kestrel", weapon = weapon ~= "Unarmed" and weapon or nil })
+			local r = legendRig({ legend = legend, weapon = weapon ~= "Unarmed" and weapon or nil })
 			face(r.model, facing)
-			FighterAnimator.track(r.model, { isMe = true, legend = "Kestrel" })
+			local rig = FighterAnimator.track(r.model, { isMe = true, legend = legend })
 			FighterAnimator.setWeapon(r.model, weapon)
 			local w = watch(r)
 			for _, state in { "Idle", "Run", "Jump", "Fall", "WallSlide", "Block", "Stunned", "Tumble" } do
 				for _, speed in state == "Run" and { 0.6, 1, 1.4 } or { 1 } do
 					FighterAnimator.setLocomotion(r.model, state, speed)
 					step(frames(0.2)) -- past the crossfade
-					local clipName = FighterAnimator.hasClip(weapon .. "." .. state) and weapon .. "." .. state
-						or "Loco." .. state
-					local length = AnimationData.Clips[clipName].Length
+					local length = rig.loco.clip.length
 					w:reset()
 					w:run(math.max(0.5, 2.2 * length / speed)) -- at least two loops, across the seam
-					local label =
-						string.format("%s %s x%.1f facing %s", weapon, state, speed, facing > 0 and "right" or "left")
+					local label = string.format(
+						"%s %s %s x%.1f facing %s",
+						legend,
+						weapon,
+						state,
+						speed,
+						facing > 0 and "right" or "left"
+					)
 					h.expect(
 						w.maxTurn <= LOOP_MAX_TURN,
 						string.format("%s: %s turned %.1f deg in one frame", label, w.maxTurnJoint, w.maxTurn)
@@ -583,7 +592,7 @@ h.test("every locomotion loop plays smoothly for every weapon, speed and facing"
 					checks += 1
 				end
 			end
-			expectNoWarnings(weapon)
+			expectNoWarnings(legend .. " " .. weapon)
 			finish(r)
 		end
 	end
@@ -657,6 +666,206 @@ h.test("state changes crossfade without pops", function()
 			fadeReport.Bow
 		)
 	)
+end)
+
+-- The animator's locomotion lookup, worked out from the baked clip names.
+local function expectedLoco(legend, weapon, state)
+	local chain = { legend .. ".Loco." .. state, "Loco." .. state }
+	if weapon ~= "Unarmed" then
+		chain = { legend .. "." .. weapon .. "." .. state, weapon .. "." .. state, table.unpack(chain) }
+	end
+	for _, name in chain do
+		if AnimationData.Clips[name] then
+			return name
+		end
+	end
+	return nil
+end
+
+h.test("a legend's own locomotion and one-shot clips come first, the shared ones fill in", function()
+	-- Brann's mech arms get their own guard and block; the rest is shared
+	h.expect(expectedLoco("Brann", "Unarmed", "Idle") == "Brann.Loco.Idle", "Brann has no guard of his own")
+	h.expect(expectedLoco("Brann", "Unarmed", "Block") == "Brann.Loco.Block", "Brann has no block of his own")
+	local r = legendRig({ legend = "Brann" })
+	local rig = FighterAnimator.track(r.model, { isMe = true, legend = "Brann" })
+	local function playing(state, weapon)
+		FighterAnimator.setLocomotion(r.model, state)
+		step(1)
+		return rig.loco.clip.name, string.format("Brann %s %s played %s", weapon, state, rig.loco.clip.name)
+	end
+	for state, want in
+		{ Idle = "Brann.Loco.Idle", Block = "Brann.Loco.Block", Run = "Loco.Run", Tumble = "Loco.Tumble" }
+	do
+		local got, label = playing(state, "Unarmed")
+		h.expect(got == want, label .. ", expected " .. want)
+	end
+	-- armed: his own weapon clips, the shared weapon clips, then his own
+	-- full-body clips before the shared ones
+	FighterAnimator.setWeapon(r.model, "Gauntlets")
+	for state, want in
+		{
+			Idle = "Brann.Gauntlets.Idle",
+			Run = "Gauntlets.Run",
+			Knockdown = "Brann.Loco.Knockdown",
+			WallSlide = "Loco.WallSlide",
+		}
+	do
+		local got, label = playing(state, "Gauntlets")
+		h.expect(got == want, label .. ", expected " .. want)
+	end
+	h.expect(
+		AnimationData.Clips["Brann.Gauntlets.Knockdown"] == nil and AnimationData.Clips["Gauntlets.Knockdown"] == nil,
+		"the armed fall-through to Brann.Loco.Knockdown is no longer tested"
+	)
+	-- one-shot clips: his own dodge, landing, air jump and get-up, the shared dash
+	FighterAnimator.setWeapon(r.model, "Unarmed")
+	for _, case in
+		{
+			{ "Brann.Loco.Dodge", FighterAnimator.dodge, "Spot" },
+			{ "Brann.Loco.Land", FighterAnimator.land },
+			{ "Brann.Loco.AirJump", FighterAnimator.airJump },
+			{ "Brann.Loco.GetUp", FighterAnimator.down, "GetUp" },
+			{ "Loco.Dash", FighterAnimator.dodge, "Dash" },
+		}
+	do
+		FighterAnimator.stopAction(r.model)
+		step(frames(0.3))
+		case[2](r.model, case[3])
+		local got = rig.action and rig.action.clip.name
+		h.expect(got == case[1], string.format("Brann played %s, expected %s", tostring(got), case[1]))
+	end
+	finish(r)
+	-- legends without their own clips get the shared ones
+	local k = legendRig({ legend = "Kestrel" })
+	local krig = FighterAnimator.track(k.model, { isMe = true, legend = "Kestrel" })
+	FighterAnimator.setLocomotion(k.model, "Block")
+	FighterAnimator.land(k.model)
+	step(1)
+	h.expect(krig.loco.clip.name == "Loco.Block", "Kestrel blocked with " .. krig.loco.clip.name)
+	h.expect(krig.action and krig.action.clip.name == "Loco.Land", "Kestrel landed with another clip")
+	finish(k)
+	-- every legend, weapon and state follows the lookup order
+	local checked = 0
+	for _, legendId in Legends.Order do
+		for _, weapon in { "Unarmed", table.unpack(Legends.List[legendId].Weapons or {}) } do
+			local f = legendRig({ legend = legendId, weapon = weapon ~= "Unarmed" and weapon or nil })
+			local frig = FighterAnimator.track(f.model, { isMe = true, legend = legendId })
+			FighterAnimator.setWeapon(f.model, weapon)
+			for _, state in { "Idle", "Run", "Jump", "Fall", "WallSlide", "Block", "Stunned", "Knockdown", "Tumble" } do
+				FighterAnimator.setLocomotion(f.model, state)
+				step(1)
+				local want = expectedLoco(legendId, weapon, state)
+				h.expect(
+					frig.loco.clip.name == want,
+					string.format("%s %s %s played %s, expected %s", legendId, weapon, state, frig.loco.clip.name, want)
+				)
+				checked += 1
+			end
+			finish(f)
+		end
+	end
+	-- fighting as your own avatar still squares up like the legend
+	local a = avatarRig()
+	a.model:SetAttribute("Legend", "Brann")
+	local arig = FighterAnimator.track(a.model, { isMe = true, legend = "Brann" })
+	step(1)
+	h.expect(arig.loco.clip.name == "Brann.Loco.Idle", "avatar as Brann idles with " .. arig.loco.clip.name)
+	finish(a)
+	expectNoWarnings("legend clips")
+	print(string.format("       %d legend/weapon/state lookups checked", checked))
+end)
+
+h.test("Brann's own dodge and landing play smoothly and return to his guard", function()
+	for _, facing in { 1, -1 } do
+		for _, case in
+			{
+				{ "dodge", FighterAnimator.dodge, "Spot", Config.Physics.SpotDodgeTime },
+				{ "land", FighterAnimator.land, nil, AnimationData.Clips["Brann.Loco.Land"].Length },
+			}
+		do
+			local name, fn, arg, duration = case[1], case[2], case[3], case[4]
+			local r, ref = newPair({ legend = "Brann" })
+			face(r.model, facing)
+			face(ref.model, facing)
+			step(1)
+			local w = watch(r)
+			fn(r.model, arg)
+			local gapMid = 0
+			for _ = 1, frames(duration * 0.5) do
+				w:step()
+				gapMid = math.max(gapMid, poseGap(r, ref))
+			end
+			h.expect(gapMid > 5, name .. " barely changed the pose (" .. gapMid .. " deg)")
+			w:run(duration * 0.5 + 0.02)
+			h.expect(
+				w.maxTurn <= ACTION_MAX_TURN,
+				string.format("Brann %s: %s turned %.1f deg in one frame", name, w.maxTurnJoint, w.maxTurn)
+			)
+			local spike = w:spike(SPIKE_FLOOR)
+			h.expect(spike == nil, "Brann " .. name .. ": " .. tostring(spike))
+			w:reset()
+			w:run(SETTLE)
+			local gap = poseGap(r, ref)
+			h.expect(gap < 0.5, string.format("Brann %s left the pose %.1f deg off his guard", name, gap))
+			expectNoWarnings("Brann " .. name)
+			finish(r, ref)
+		end
+	end
+end)
+
+h.test("attacks settle into the fighter's own guard: no swing to the shared stance and back", function()
+	-- Shared moves are authored to end in the shared stance (Brann's hammer
+	-- over the shoulder); over the recovery's last span the animator eases
+	-- into the guard he's in instead. Kestrel idles in the shared stance.
+	local checked = 0
+	for _, case in
+		{
+			{ "Brann", "Hammer", "NLight" },
+			{ "Brann", "Hammer", "SAir" },
+			{ "Brann", "Hammer", "NHeavy" },
+			{ "Brann", "Gauntlets", "DLight" },
+			{ "Brann", "Unarmed", "SLight" },
+			{ "Kestrel", "Sword", "NLight" },
+		}
+	do
+		local legendId, weapon, slot = case[1], case[2], case[3]
+		h.expect(Legends.getAttack(legendId, weapon, slot) ~= nil, `{legendId} has no {weapon} {slot}`)
+		for _, facing in { 1, -1 } do
+			local label = string.format("%s %s %s facing %s", legendId, weapon, slot, facing > 0 and "right" or "left")
+			local r, ref = newPair({ legend = legendId, weapon = weapon ~= "Unarmed" and weapon or nil })
+			local rig = FighterAnimator.track(r.model)
+			face(r.model, facing)
+			face(ref.model, facing)
+			step(1)
+			FighterAnimator.playAttack(r.model, weapon, slot, 1, false)
+			local keys = rig.action.clip.keys
+			local lastSpan = keys[#keys - 1].t -- re-timed clips are keyed in seconds
+			while rig.action and rig.action.t < lastSpan do
+				step(1)
+			end
+			-- the gap to the idling twin only shrinks, down to nothing when the
+			-- move ends
+			local w = watch(r)
+			local gap, grew = poseGap(r, ref), 0
+			while rig.action do
+				w:step()
+				local cur = poseGap(r, ref)
+				grew = math.max(grew, cur - gap)
+				gap = cur
+			end
+			h.expect(grew < 1, string.format("%s: the recovery swung %.1f deg away from the guard", label, grew))
+			h.expect(gap < 0.5, string.format("%s: the recovery ended %.1f deg off the guard", label, gap))
+			-- so the blend out has nothing left to do
+			w:reset()
+			w:run(SETTLE)
+			h.expect(w.maxTurn < 3, string.format("%s: the blend out turned %.1f deg in a frame", label, w.maxTurn))
+			h.expect(poseGap(r, ref) < 0.5, label .. ": the pose is off the loop after the attack")
+			expectNoWarnings(label)
+			finish(r, ref)
+			checked += 1
+		end
+	end
+	print(string.format("       %d recoveries checked", checked))
 end)
 
 print("Dodges and dashes")
@@ -1224,6 +1433,32 @@ h.test("the R15 avatar rig animates through rotated joints without errors", func
 	finish(r)
 end)
 
+h.test("fighting as your own avatar plays your legend's signature and ultimate clips on it", function()
+	-- FightAsAvatar: no VisualRig, but the character's Legend is still the legend
+	local r = avatarRig()
+	r.model:SetAttribute("Legend", "Sol")
+	local rig = FighterAnimator.track(r.model, { isMe = true, legend = "Sol" })
+	h.expect(rig.visual == nil, "the avatar got bound to a visual rig")
+	local w = watch(r)
+	for _, case in { { "Sword", "NHeavy" }, { "Hammer", "DHeavy" }, { "Sword", "Ultimate" } } do
+		local weapon, slot = case[1], case[2]
+		local move = Legends.getAttack("Sol", weapon, slot)
+		FighterAnimator.setWeapon(r.model, weapon)
+		FighterAnimator.playAttack(r.model, weapon, slot, 1, false)
+		local clip = rig.action and rig.action.clip
+		h.expect(clip and clip.name == move.AnimKey, slot .. " played " .. tostring(clip and clip.name))
+		w:reset()
+		w:run(move.Startup + move.Active + move.Recovery + 0.2)
+		h.expect(w.moved > 0, "avatar Sol " .. slot .. " never moved")
+		h.expect(
+			w.maxTurn <= ACTION_MAX_TURN,
+			string.format("avatar Sol %s: %s turned %.1f deg in one frame", slot, w.maxTurnJoint, w.maxTurn)
+		)
+	end
+	expectNoWarnings("avatar look")
+	finish(r)
+end)
+
 -- Skinned legends --------------------------------------------------------------
 
 local JOINT_OF_PART = {}
@@ -1397,7 +1632,7 @@ local APRON_SWAYS = {
 	{
 		Name = "Apron",
 		Parent = "Root",
-		Points = { { 0, 3.46, -0.46 }, { 0, 2.7, -0.5 }, { 0, 1.98, -0.52 } },
+		Points = { { 0, 2.8, -0.66 }, { 0, 2.05, -0.7 }, { 0, 1.3, -0.72 } },
 		Stiffness = 0.4,
 		Damping = 0.25,
 		Limit = 50,
@@ -1410,7 +1645,7 @@ h.test("skinned legends: cloth hanging from the hips is pushed aside by the thig
 	FighterRigs.Fighters.Kestrel.Sways = APRON_SWAYS
 	local r = skinnedRig("Kestrel", APRON_SWAYS)
 	FighterAnimator.track(r.model, { isMe = true, legend = "Kestrel" })
-	local radius = 0.38 * r.scale
+	local radius = 0.58 * r.scale
 	local closest = math.huge
 	local function clearance()
 		local joints = jointFrames(r)

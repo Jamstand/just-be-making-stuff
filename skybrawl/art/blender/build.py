@@ -3,6 +3,8 @@ Builds Skybrawl's art. Run inside Blender or with the bpy module:
 
     blender -b -P art/blender/build.py -- all
     blender -b -P art/blender/build.py -- fighter kestrel brann
+    blender -b -P art/blender/build.py -- fighters lineup
+    blender -b -P art/blender/build.py -- fighters posecheck brann
     python art/blender/build.py fighters | weapons | maps | anims | skies
 
 Outputs go to art/export (import these into Studio), art/previews (renders)
@@ -28,8 +30,21 @@ def available(package, names):
 
 
 def build_fighters(names=None):
-    from sky import rig
+    """Builds the fighters (all, or the named ones); "lineup" renders all the
+    exported fighters side by side instead, and "posecheck [names]
+    [--attacks]" checks their accessories in every animation pose (see
+    anims/posecheck.py)."""
+    from sky import avatar, rig
 
+    if names and names[0] == "lineup":
+        avatar.render_lineup([n.capitalize() for n in FIGHTERS])
+        return
+    if names and names[0] == "posecheck":
+        from anims import posecheck
+
+        rest = [n for n in names[1:] if not n.startswith("--")]
+        posecheck.check(rest or available("fighters", FIGHTERS), attacks="--attacks" in names)
+        return
     for name in names or available("fighters", FIGHTERS):
         rig.build_fighter(importlib.import_module(f"fighters.{name}"))
     rig.write_fighter_rigs_luau()
