@@ -1,10 +1,11 @@
--- STUB (owner: C2): replace the body, keep the exports.
 --[[
-    Menu screen "CustomRooms" (menus design 5.8): browse, create and join custom rooms.
-    Params: { view = "Browse" | "Room" }?
-    A screen module returns { id, title, build(host) -> ScreenInstance }
-    (design 3.8). Until C2 lands it is an empty frame.
+    Menu screen "CustomRooms" (menus design 5.8): browse, create and join
+    custom rooms, mounted from RoomsPanel (BROWSE / CREATE / ROOM tabs on
+    L1/R1). Params: { view = "Browse" | "Room" }? (results REMATCH for a
+    non-host opens the Room view).
 ]]
+
+local RoomsPanel = require(script.Parent.Parent.RoomsPanel)
 
 local Screen = {
 	id = "CustomRooms",
@@ -12,12 +13,7 @@ local Screen = {
 }
 
 function Screen.build(host)
-	local root = Instance.new("Frame")
-	root.Name = "CustomRooms"
-	root.BackgroundTransparency = 1
-	root.Size = UDim2.fromScale(1, 1)
-	root.Parent = host.content
-	return { root = root }
+	return RoomsPanel.mount(host.content, host)
 end
 
 return Screen

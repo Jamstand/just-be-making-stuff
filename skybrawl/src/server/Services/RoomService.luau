@@ -10,10 +10,16 @@
     The browser filters by mode, map, win rule, open slots, skill
     eligibility, friends' rooms and name search.
 
+    Parties: only the party leader creates or joins a room, and brings every
+    member along (each member must pass the room's rules). Members may leave
+    the room on their own afterwards; rooms and parties are independent.
+
+    START goes through legend select + map vote (SelectService); a "Random"
+    map is voted among three of the mode's map pool.
+
     Custom matches are unranked and pay reduced coins/XP (Config.Rewards).
 ]]
 
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextService = game:GetService("TextService")
 
@@ -22,8 +28,11 @@ local Config = require(Shared.Config)
 local Maps = require(Shared.Maps)
 local Weapons = require(Shared.Weapons)
 local Ranks = require(Shared.Ranks)
+local MatchRules = require(Shared.MatchRules)
 local Util = require(Shared.Util)
 local Net = require(Shared.Net)
+
+local FriendCache = require(script.Parent.FriendCache)
 
 local RoomService = {}
 local services
@@ -32,7 +41,6 @@ local rooms = {} -- [id] = room
 local roomOf = {} -- [Player] = room
 local nextId = 0
 local nextBotId = 0
-local friendCache = {} -- [Player] = { [hostUserId] = { value, time } }
 local creating = {} -- [Player] = true while a Create request is in flight
 local rng = Random.new()
 
@@ -52,21 +60,7 @@ local function isFriend(player, hostUserId)
 	if player.UserId == hostUserId then
 		return true
 	end
-	local cache = friendCache[player]
-	if not cache then
-		cache = {}
-		friendCache[player] = cache
-	end
-	local hit = cache[hostUserId]
-	if hit and os.clock() - hit.time < R.FriendCacheSeconds then
-		return hit.value
-	end
-	local ok, value = pcall(function()
-		return player:IsFriendsWith(hostUserId)
-	end)
-	value = ok and value == true
-	cache[hostUserId] = { value = value, time = os.clock() }
-	return value
+	return FriendCache.isFriend(player, hostUserId)
 end
 
 local function ratingFor(player, mode)
@@ -331,17 +325,22 @@ local function removeMember(room, player, kicked)
 	pushRoom(room)
 end
 
--- Join checks shared by browser joins and code joins.
-local function canJoin(player, room, viaCode)
+-- Room-level join checks (browser and code joins): open, space for `count` players, not private.
+local function roomAccepts(room, viaCode, count)
 	if room.state ~= "Open" then
 		return false, "That room is in a match. Try again when it's done."
 	end
-	if #room.members >= room.settings.maxPlayers then
-		return false, "That room is full."
+	if #room.members + count > room.settings.maxPlayers then
+		return false, count > 1 and "Not enough space for your party." or "That room is full."
 	end
 	if room.settings.private and not viaCode then
 		return false, "That room is private. Ask the host for the code."
 	end
+	return true
+end
+
+-- Player-level join rules: friends-only and the rating range. `room` needs only settings and host.
+local function playerAllowed(player, room)
 	-- Friends-only applies to code joins too; a leaked code doesn't bypass it.
 	if room.settings.friendsOnly and not isFriend(player, room.host.UserId) then
 		return false, "That room is for the host's friends only."
@@ -362,8 +361,9 @@ local function busyReason(player)
 	if creating[player] then
 		return "Your room is still being created."
 	end
-	if services.MatchService.getMatchOf(player) then
-		return "You're in a match."
+	local busy = services.MatchService.busyReason(player)
+	if busy then
+		return busy
 	end
 	if roomOf[player] then
 		return "Leave your current room first."
@@ -372,6 +372,76 @@ local function busyReason(player)
 		return "Your profile is still loading."
 	end
 	return nil
+end
+
+-- Parties --------------------------------------------------------------------
+
+-- Who a create/join request brings: the caller alone, or their whole party (leader only, leader first).
+local function membersFor(player)
+	if not services.PartyService.isLeader(player) then
+		return nil, "Only your party leader can join rooms. Leave the party to join on your own."
+	end
+	return services.PartyService.membersOf(player)
+end
+
+-- Every member must be free to come. A solo player gets the plain reason.
+local function checkIdle(members)
+	for _, member in members do
+		local busy = busyReason(member)
+		if busy then
+			if #members == 1 then
+				return false, busy
+			elseif roomOf[member] then
+				return false, member.DisplayName .. " is in a custom room."
+			end
+			return false, member.DisplayName .. " is busy right now."
+		end
+	end
+	return true
+end
+
+-- Every member must pass the room's friends-only and rating rules (`skip`: the host creating it).
+local function checkRules(members, room, skip)
+	for _, member in members do
+		if member ~= skip then
+			local ok, reason = playerAllowed(member, room)
+			if not ok then
+				if #members == 1 then
+					return false, reason
+				end
+				return false, member.DisplayName .. " can't join this room: " .. reason
+			end
+		end
+	end
+	return true
+end
+
+local function sameMembers(a, b)
+	if #a ~= #b then
+		return false
+	end
+	for _, player in a do
+		if not table.find(b, player) then
+			return false
+		end
+	end
+	return true
+end
+
+-- After a yield: the caller and every member are still on the server, and still exactly the caller's party.
+local function stillTogether(player, members)
+	if not player.Parent then
+		return false, "You left."
+	end
+	for _, member in members do
+		if not member.Parent then
+			return false, member.DisplayName .. " left."
+		end
+	end
+	if not sameMembers(members, services.PartyService.membersOf(player)) then
+		return false, "Your party changed. Try again."
+	end
+	return true
 end
 
 -- Actions -----------------------------------------------------------------
@@ -455,30 +525,63 @@ function actions.List(player, filters)
 	return true, list
 end
 
-function actions.Create(player, raw)
-	local busy = busyReason(player)
-	if busy then
-		return false, busy
-	end
-	services.QueueService.leave(player)
+local function roomCount()
 	local count = 0
 	for _ in rooms do
 		count += 1
 	end
-	if count >= R.MaxRooms then
+	return count
+end
+
+-- A party leader creates the room for the whole party (they all join it).
+function actions.Create(player, raw)
+	local members, notLeader = membersFor(player)
+	if not members then
+		return false, notLeader
+	end
+	local idle, busy = checkIdle(members)
+	if not idle then
+		return false, busy
+	end
+	if roomCount() >= R.MaxRooms then
 		return false, "This server has too many rooms. Join one instead!"
 	end
 	raw = type(raw) == "table" and raw or {}
+	local settings = sanitizeSettings(raw, nil)
+	if #members > settings.maxPlayers then
+		return false, "Not enough space for your party."
+	end
+	local allowed, reason = checkRules(members, { settings = settings, host = player }, player)
+	if not allowed then
+		return false, reason
+	end
 	local name = type(raw.name) == "string" and raw.name:sub(1, R.NameMaxLength) or ""
 	name = name:gsub("^%s+", ""):gsub("%s+$", "")
-	-- Filtering yields; block other requests from this player meanwhile.
-	creating[player] = true
+	-- Filtering yields; block other requests from these players meanwhile.
+	for _, member in members do
+		creating[member] = true
+	end
 	local ok, filtered = pcall(function()
 		return #name > 0 and filterName(name, player) or (player.DisplayName .. "'s Room")
 	end)
-	creating[player] = nil
-	if not player.Parent then
-		return false, "You left."
+	for _, member in members do
+		creating[member] = nil
+	end
+	-- Anything may have changed during the yield: check everyone again before anyone goes in.
+	local present, changed = stillTogether(player, members)
+	if not present then
+		return false, changed
+	end
+	idle, busy = checkIdle(members)
+	if not idle then
+		return false, busy
+	end
+	if roomCount() >= R.MaxRooms then
+		return false, "This server has too many rooms. Join one instead!"
+	end
+	-- (only now: a search started during the yield is cancelled too)
+	for _, member in members do
+		services.QueueService.leave(member)
 	end
 	nextId += 1
 	local room = {
@@ -486,29 +589,58 @@ function actions.Create(player, raw)
 		code = newCode(),
 		name = ok and filtered or (player.DisplayName .. "'s Room"),
 		host = player,
-		settings = sanitizeSettings(raw, nil),
+		settings = settings,
 		members = {},
 		state = "Open",
 	}
-	table.insert(room.members, { id = "u" .. player.UserId, player = player, team = 1 })
+	local teams = MatchRules.roomTeams(settings.mode, {}, #members)
+	for i, member in members do
+		table.insert(room.members, { id = "u" .. member.UserId, player = member, team = teams[i] })
+		roomOf[member] = room
+	end
 	rooms[room.id] = room
-	roomOf[player] = room
 	pushRoom(room)
 	return true, publicState(room)
 end
 
+-- Joins `player` (or, for a party leader, the whole party) to a room.
 local function join(player, room, viaCode)
-	local busy = busyReason(player)
-	if busy then
-		return false, busy
+	local members, notLeader = membersFor(player)
+	if not members then
+		return false, notLeader
 	end
-	local ok, reason = canJoin(player, room, viaCode)
+	local ok, reason = checkIdle(members)
 	if not ok then
 		return false, reason
 	end
-	services.QueueService.leave(player)
-	table.insert(room.members, { id = "u" .. player.UserId, player = player, team = freeTeam(room) })
-	roomOf[player] = room
+	ok, reason = roomAccepts(room, viaCode, #members)
+	if not ok then
+		return false, reason
+	end
+	ok, reason = checkRules(members, room)
+	if not ok then
+		return false, reason
+	end
+	-- the friends check may have yielded: the room and the members are checked again
+	if rooms[room.id] ~= room then
+		return false, "That room no longer exists."
+	end
+	ok, reason = stillTogether(player, members)
+	if ok then
+		ok, reason = roomAccepts(room, viaCode, #members)
+	end
+	if ok then
+		ok, reason = checkIdle(members)
+	end
+	if not ok then
+		return false, reason
+	end
+	local teams = MatchRules.roomTeams(room.settings.mode, room.members, #members)
+	for i, member in members do
+		services.QueueService.leave(member)
+		table.insert(room.members, { id = "u" .. member.UserId, player = member, team = teams[i] })
+		roomOf[member] = room
+	end
 	pushRoom(room)
 	return true, publicState(room)
 end
@@ -688,7 +820,7 @@ function actions.Start(player)
 		end
 	end
 	for _, m in room.members do
-		if m.player and services.MatchService.getMatchOf(m.player) then
+		if m.player and services.MatchService.busyReason(m.player) then
 			return false, m.player.DisplayName .. " is still in another match."
 		end
 	end
@@ -696,10 +828,8 @@ function actions.Start(player)
 		return false, "All arenas are busy. Try again in a moment."
 	end
 
-	local mapId = s.mapId
-	if mapId == "Random" then
-		mapId = Util.pick(Maps.Order, rng)
-	end
+	-- A "Random" room votes among maps of its mode's pool in legend select; a fixed map skips the vote.
+	local random = s.mapId == "Random"
 	local participants = {}
 	for _, m in room.members do
 		if m.player then
@@ -712,7 +842,8 @@ function actions.Start(player)
 		mode = s.mode,
 		source = "Custom",
 		ranked = false,
-		mapId = mapId,
+		mapId = not random and s.mapId or nil,
+		mapPool = random and (Config.Queue.MapPools[s.mode] or Maps.Order) or nil,
 		winRule = s.winRule,
 		stocks = s.stocks,
 		timeLimit = s.winRule == "Timed" and s.timeLimit or Config.Match.DefaultTimeLimit,
@@ -721,11 +852,12 @@ function actions.Start(player)
 		friendlyFire = s.friendlyFire,
 		participants = participants,
 		roomId = room.id,
+		roomName = room.name, -- the legend select label
 	}
 	room.state = "InMatch"
 	pushRoom(room)
-	local match, startErr = services.MatchService.startMatch(config)
-	if not match then
+	local session, startErr = services.SelectService.begin(config)
+	if not session then
 		room.state = "Open"
 		pushRoom(room)
 		return false, startErr
@@ -733,7 +865,8 @@ function actions.Start(player)
 	return true, publicState(room)
 end
 
-function RoomService.onMatchFinished(roomId)
+-- The room's match (or its legend select) is over: open again, without the players who left the server.
+local function reopen(roomId)
 	local room = rooms[roomId]
 	if not room then
 		return
@@ -752,6 +885,24 @@ function RoomService.onMatchFinished(roomId)
 	end
 end
 
+function RoomService.onMatchFinished(roomId)
+	reopen(roomId)
+end
+
+-- The legend select of the room's match was cancelled (a fighter left, an error).
+function RoomService.onSelectCancelled(roomId)
+	reopen(roomId)
+end
+
+-- Called by Main.server's PlayerRemoving coordinator. Never yields.
+function RoomService.onPlayerRemoving(player)
+	local room = roomOf[player]
+	if room then
+		removeMember(room, player, false)
+	end
+	creating[player] = nil
+end
+
 function RoomService.start()
 	Net.get("RoomRequest").OnServerInvoke = function(player, action, payload)
 		local handler = type(action) == "string" and actions[action]
@@ -765,15 +916,6 @@ function RoomService.start()
 		end
 		return a, b
 	end
-
-	Players.PlayerRemoving:Connect(function(player)
-		local room = roomOf[player]
-		if room then
-			removeMember(room, player, false)
-		end
-		friendCache[player] = nil
-		creating[player] = nil
-	end)
 end
 
 return RoomService

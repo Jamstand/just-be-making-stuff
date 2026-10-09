@@ -1,9 +1,10 @@
--- STUB (owner: C2): replace the body, keep the exports.
 --[[
-    Menu screen "Settings" (menus design 5.8): camera, controls, gameplay and audio.
-    A screen module returns { id, title, build(host) -> ScreenInstance }
-    (design 3.8). Until C2 lands it is an empty frame.
+    Menu screen "Settings" (menus design 5.8): camera, controls (key
+    rebinding), gameplay and audio (sound effects and music), mounted from
+    SettingsPanel with its pages as tabs (L1/R1).
 ]]
+
+local SettingsPanel = require(script.Parent.Parent.SettingsPanel)
 
 local Screen = {
 	id = "Settings",
@@ -11,12 +12,7 @@ local Screen = {
 }
 
 function Screen.build(host)
-	local root = Instance.new("Frame")
-	root.Name = "Settings"
-	root.BackgroundTransparency = 1
-	root.Size = UDim2.fromScale(1, 1)
-	root.Parent = host.content
-	return { root = root }
+	return SettingsPanel.mount(host.content, host)
 end
 
 return Screen

@@ -1,9 +1,10 @@
--- STUB (owner: C2): replace the body, keep the exports.
 --[[
-    Menu screen "Profile" (menus design 5.8): your stats and season badge.
-    A screen module returns { id, title, build(host) -> ScreenInstance }
-    (design 3.8). Until C2 lands it is an empty frame.
+    Menu screen "Profile" (menus design 5.8): your level, season badge,
+    ranked cards and lifetime stats, mounted from ProfilePanel. Read-only:
+    Up / Down scroll it.
 ]]
+
+local ProfilePanel = require(script.Parent.Parent.ProfilePanel)
 
 local Screen = {
 	id = "Profile",
@@ -11,12 +12,7 @@ local Screen = {
 }
 
 function Screen.build(host)
-	local root = Instance.new("Frame")
-	root.Name = "Profile"
-	root.BackgroundTransparency = 1
-	root.Size = UDim2.fromScale(1, 1)
-	root.Parent = host.content
-	return { root = root }
+	return ProfilePanel.mount(host.content, host)
 end
 
 return Screen

@@ -1,12 +1,25 @@
 --[[
-    Custom rooms:
-      Browse   room list with filters (mode, map, win rule, hide full,
-               hide in-match, my skill range, friends' rooms, search) and
-               join-by-code
-      Create   host form: mode, players, stocks/timed, map, weapons,
-               damage multiplier, friendly fire, private, friends only,
-               skill range
-      Room     the room you're in: members, teams, bots, start/leave
+    Custom rooms (the menus' CUSTOM ROOMS screen, menus design 5.8), three
+    views on a tab bar (L1/R1):
+      BROWSE  room list with filters (mode, map, win rule, hide full,
+              hide in-match, my skill range, friends' rooms, search) and
+              join-by-code; rows are keyed by room id and updated in place,
+              and Confirm on a row joins it
+      CREATE  host form: mode, players, stocks/timed, map, weapons,
+              damage multiplier, friendly fire, private, friends only,
+              skill range (the host of a room edits its rules here)
+      ROOM    the room you're in: members (keyed by member id, updated in
+              place), teams, bots, start/leave; START begins the legend
+              select for everyone in the room
+
+    A party member who isn't the leader sees "Your party leader picks the
+    room." and can't join or create (the leader brings the whole party).
+    Text boxes capture on Confirm and release on Enter (Focus).
+
+    RoomsPanel.mount(parent, host) builds it as a menu screen
+    (Screens/CustomRooms; params { view = "Browse" | "Room" }).
+    RoomsPanel.create(gui, close) is the old window around it, kept while
+    LobbyUI exists.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,10 +30,12 @@ local Config = require(Shared.Config)
 local Maps = require(Shared.Maps)
 local Weapons = require(Shared.Weapons)
 local Util = require(Shared.Util)
-local Net = require(Shared.Net)
 
 local UIKit = require(script.Parent.UIKit)
+local Focus = require(script.Parent.Focus)
+local Layout = require(script.Parent.Layout)
 local ClientState = require(script.Parent.Parent.ClientState)
+local Common = require(script.Parent.Screens.Common)
 
 local T = UIKit.Theme
 local make = UIKit.make
@@ -29,14 +44,21 @@ local RoomsPanel = {}
 
 local player = Players.LocalPlayer
 
+local ROOM_ROW = 96 -- design px
+local MEMBER_ROW = 72
+local PHONE_MEMBER_ROW = 104 -- with buttons 0.8 of it: 83 design px = 45 px on a 390 px phone
+local FORM_ROW = 46
+local BROWSE_REFRESH = 6
+local PHONE_HEIGHT = 1500 -- design px of the scrolling body on phones
+
+local TABS = {
+	{ id = "Browse", label = "BROWSE" },
+	{ id = "Create", label = "CREATE" },
+	{ id = "Room", label = "ROOM" },
+}
+
 local function request(action, payload)
-	local ok, a, b = pcall(function()
-		return Net.get("RoomRequest"):InvokeServer(action, payload)
-	end)
-	if not ok then
-		return false, "Couldn't reach the server."
-	end
-	return a, b
+	return Common.invoke("RoomRequest", action, payload)
 end
 
 local function mapName(id)
@@ -97,41 +119,64 @@ local function defaultForm()
 	}
 end
 
-function RoomsPanel.create(gui, close)
-	local window, body = UIKit.window(gui, "Custom Rooms", close)
+-- Whether you're in a party but not its leader (the leader picks the room).
+local function partyBlocked()
+	local size, leader = Common.partyInfo()
+	return size > 1 and not leader
+end
 
-	local tabBar, selectTab -- created once the views exist (bottom of this function)
+-- Builds the custom rooms screen inside `parent`. Returns the ScreenInstance (menus design 3.8).
+function RoomsPanel.mount(parent, host)
+	local root = Common.root({ content = parent }, "CustomRooms")
+	local sizer = Common.sizer(root)
+	local bag = Common.bag()
 
-	local content = make("Frame", {
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(0, 46),
-		Size = UDim2.new(1, 0, 1, -46),
-		Parent = body,
-	})
+	local currentView = "Browse"
+	local editing = false -- the CREATE tab edits your room's rules (host)
+	local shown = false
+	local pollToken = 0
+	local container, selectTab, partyBanner
+	local views = {} -- [id] = { frame, onShow?, defaultFocus? }
+	local unwatchBrowse = nil -- the filter grid's px watcher (dropped when the body is rebuilt)
+	local lastRoomId = nil -- the room ClientState last reported (ROOM opens only when a room appears)
+	local lastParams = nil -- the deep-link params already applied
+	local rewireTop = function() end
 
-	local views = {}
-	local currentView = nil
-	local editing = false
-
-	local function show(name)
-		currentView = name
-		for viewName, view in views do
-			view.frame.Visible = viewName == name
+	local function setView(id)
+		currentView = id
+		for viewId, v in views do
+			v.frame.Visible = viewId == id
 		end
-		if tabBar then
-			tabBar.Visible = name ~= "Room"
-		end
-		content.Position = UDim2.fromOffset(0, name == "Room" and 0 or 46)
-		content.Size = UDim2.new(1, 0, 1, name == "Room" and 0 or -46)
-		if views[name].onShow then
-			views[name].onShow()
+		if views[id] and views[id].onShow then
+			views[id].onShow()
 		end
 	end
 
-	-- Browse --------------------------------------------------------------
+	-- A view change from code: the state first, then the tab bar's look (its onSelect is a no-op then).
+	local function showView(id)
+		if id ~= "Create" then
+			editing = false
+		end
+		setView(id)
+		if selectTab then
+			selectTab(id)
+		end
+	end
 
-	do
-		local frame = make("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = content })
+	local function renderParty()
+		if partyBanner then
+			partyBanner.Visible = partyBlocked()
+		end
+		for _, v in views do
+			if v.onParty then
+				v.onParty()
+			end
+		end
+	end
+
+	-- Browse --------------------------------------------------------------------------------
+
+	local function buildBrowse(frame)
 		local filters = {
 			mode = "Any",
 			mapId = "Any",
@@ -143,18 +188,30 @@ function RoomsPanel.create(gui, close)
 			search = "",
 		}
 		local refresh
+		local rows = {} -- [roomId] = row parts
+		local ordered = {}
+		local listed = {} -- [roomId] = room entry from List
 
 		local filterBar = make("Frame", {
+			Name = "Filters",
 			BackgroundTransparency = 1,
-			Size = UDim2.new(1, 0, 0, 74),
+			Size = UDim2.fromScale(1, 0.17),
 			Parent = frame,
-		}, {
-			make("UIGridLayout", {
-				CellSize = UDim2.new(0.25, -6, 0, 32),
-				CellPadding = UDim2.fromOffset(6, 6),
-				SortOrder = Enum.SortOrder.LayoutOrder,
-			}),
 		})
+		local grid = make("UIGridLayout", {
+			CellSize = UDim2.new(0.25, -6, 0.5, -6),
+			CellPadding = UDim2.fromOffset(6, 6),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Parent = filterBar,
+		})
+		if unwatchBrowse then
+			unwatchBrowse()
+		end
+		unwatchBrowse = sizer.watch(function()
+			local gap = Layout.px(8)
+			grid.CellPadding = UDim2.fromOffset(gap, gap)
+			grid.CellSize = UDim2.new(0.25, -gap, 0.5, -gap)
+		end)
 		local modeOptions = {
 			{ value = "Any", label = "Any" },
 			{ value = "1v1", label = "1v1" },
@@ -170,17 +227,16 @@ function RoomsPanel.create(gui, close)
 			{ value = "Stocks", label = "Stocks" },
 			{ value = "Timed", label = "Timed" },
 		}
-
 		local function onFilter(key)
 			return function(value)
 				filters[key] = value
-				refresh()
+				task.spawn(refresh)
 			end
 		end
 		local chips = {
-			(UIKit.cycleChip("Mode", modeOptions, "Any", onFilter("mode"))),
-			(UIKit.cycleChip("Map", mapOptions, "Any", onFilter("mapId"))),
-			(UIKit.cycleChip("Rule", ruleOptions, "Any", onFilter("winRule"))),
+			(UIKit.cycleChip("Mode", modeOptions, filters.mode, onFilter("mode"))),
+			(UIKit.cycleChip("Map", mapOptions, filters.mapId, onFilter("mapId"))),
+			(UIKit.cycleChip("Rule", ruleOptions, filters.winRule, onFilter("winRule"))),
 			(UIKit.chip("Hide full", false, onFilter("hideFull"))),
 			(UIKit.chip("Hide in match", false, onFilter("hideInMatch"))),
 			(UIKit.chip("My skill range", false, onFilter("eligibleOnly"))),
@@ -188,54 +244,217 @@ function RoomsPanel.create(gui, close)
 		}
 		for i, chip in chips do
 			chip.LayoutOrder = i
-			chip.Size = UDim2.new(1, 0, 1, 0)
 			chip.TextScaled = false
+			chip:SetAttribute("FocusKey", "RoomFilter" .. i)
 			chip.Parent = filterBar
 		end
-		UIKit.button("Refresh", "secondary", function()
+		local refreshButton = UIKit.button("Refresh", "secondary", function()
 			refresh()
 		end, { LayoutOrder = 8, Parent = filterBar })
+		refreshButton:SetAttribute("FocusKey", "RoomFilterRefresh")
 
 		local searchRow = make("Frame", {
+			Name = "Search",
 			BackgroundTransparency = 1,
-			Position = UDim2.fromOffset(0, 80),
-			Size = UDim2.new(1, 0, 0, 38),
+			Position = UDim2.fromScale(0, 0.19),
+			Size = UDim2.fromScale(1, 0.08),
 			Parent = frame,
 		})
 		local search = UIKit.textbox("Search room names", { Size = UDim2.new(0.5, -6, 1, 0), Parent = searchRow })
 		search.FocusLost:Connect(function()
 			filters.search = search.Text
-			refresh()
+			task.spawn(refresh)
 		end)
 		local code = UIKit.textbox("Room code", {
 			Position = UDim2.new(0.5, 6, 0, 0),
-			Size = UDim2.new(0.3, -6, 1, 0),
+			Size = UDim2.new(0.28, -6, 1, 0),
 			Parent = searchRow,
 		})
-		UIKit.button("Join code", "primary", function()
+		local joinCode = UIKit.button("Join code", "primary", function()
+			if partyBlocked() then
+				host.toast("Your party leader picks the room.", "error")
+				return
+			end
 			local ok, result = request("JoinCode", code.Text)
 			if not ok then
-				ClientState.toast(result or "Couldn't join.", "error")
+				host.toast(result or "Couldn't join.", "error")
 			end
 		end, {
-			Position = UDim2.new(0.8, 6, 0, 0),
-			Size = UDim2.new(0.2, -6, 1, 0),
+			Position = UDim2.new(0.78, 6, 0, 0),
+			Size = UDim2.new(0.22, -6, 1, 0),
 			Parent = searchRow,
 		})
 
-		local list = UIKit.scroll({
-			Position = UDim2.fromOffset(0, 126),
-			Size = UDim2.new(1, 0, 1, -126),
-			Parent = frame,
+		local list = Common.list(frame, {
+			Position = UDim2.fromScale(0, 0.29),
+			Size = UDim2.fromScale(1, 0.71),
 		})
-		UIKit.list(Enum.FillDirection.Vertical, 8).Parent = list
-		local emptyLabel = UIKit.label("No rooms match. Make one in the Create tab!", 16, {
+		local emptyLabel = Common.text("No rooms match. Make one in the CREATE tab!", 24, {
+			Name = "Empty",
 			TextColor3 = T.Muted,
 			TextXAlignment = Enum.TextXAlignment.Center,
-			Size = UDim2.new(1, 0, 0, 60),
+			Position = UDim2.fromScale(0, 0.36),
+			Size = UDim2.fromScale(1, 0.08),
 			Visible = false,
-			Parent = list,
+			Parent = frame,
 		})
+
+		local function canJoin(room)
+			return room.eligible and not room.inMatch and room.players < room.maxPlayers
+		end
+
+		local function join(roomId)
+			local room = listed[roomId]
+			if not room then
+				return
+			end
+			if partyBlocked() then
+				host.toast("Your party leader picks the room.", "error")
+				return
+			end
+			if not canJoin(room) then
+				local reason = if room.inMatch
+					then "That room is in a match. Try again when it's done."
+					elseif not room.eligible then "Your rating is outside this room's skill range."
+					else "That room is full."
+				host.toast(reason, "error")
+				return
+			end
+			local ok, result = request("Join", roomId)
+			if not ok then
+				host.toast(result or "Couldn't join.", "error")
+				task.spawn(refresh)
+			end
+		end
+
+		local function buildRow(roomId)
+			local button = make("TextButton", {
+				Name = "Room" .. roomId,
+				AutoButtonColor = false,
+				Text = "",
+				BackgroundColor3 = T.Raised,
+				BorderSizePixel = 0,
+				Parent = list,
+			})
+			sizer.height(button, ROOM_ROW)
+			local name = Common.text("", 32, {
+				Name = "RoomName",
+				Font = T.HeadFont,
+				Position = UDim2.fromScale(0.02, 0.04),
+				Size = UDim2.fromScale(0.74, 0.4),
+				TextWrapped = false,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				Parent = button,
+			})
+			local tags = Common.text("", 18, {
+				Name = "Tags",
+				Font = T.BoldFont,
+				TextColor3 = T.Gold,
+				Position = UDim2.fromScale(0.02, 0.44),
+				Size = UDim2.fromScale(0.74, 0.25),
+				TextWrapped = false,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				Parent = button,
+			})
+			local info = Common.text("", 18, {
+				Name = "Summary",
+				TextColor3 = T.Muted,
+				Position = UDim2.fromScale(0.02, 0.69),
+				Size = UDim2.fromScale(0.74, 0.25),
+				TextWrapped = false,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				Parent = button,
+			})
+			local action = UIKit.slantFrame({
+				name = "Join",
+				slant = T.Slant,
+				gradient = { T.RedLight, T.RedDark },
+				outline = 4,
+				anchor = Vector2.new(1, 0.5),
+				position = UDim2.fromScale(0.985, 0.5),
+				size = UDim2.fromScale(0.17, 0.56),
+				parent = button,
+			})
+			local actionText = Common.text("JOIN", 30, {
+				Name = "Label",
+				Font = T.HeadFont,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				TextWrapped = false,
+				Parent = action:FindFirstChild("Content") or action,
+			})
+			Common.focusable(button, { key = "Room" .. roomId }, function()
+				join(roomId)
+			end)
+			return {
+				button = button,
+				name = name,
+				tags = tags,
+				info = info,
+				action = action,
+				actionText = actionText,
+			}
+		end
+
+		local function renderRow(row, room, index)
+			row.button.LayoutOrder = index
+			row.name.Text = room.name
+			local tags = { "Host: " .. room.hostName, string.format("%d/%d players", room.players, room.maxPlayers) }
+			if room.isFriend then
+				table.insert(tags, "Friend")
+			end
+			if room.friendsOnly then
+				table.insert(tags, "Friends only")
+			end
+			if room.minRating or room.maxRating then
+				table.insert(tags, string.format("Skill %s-%s", room.minRating or "0", room.maxRating or "any"))
+			end
+			if room.inMatch then
+				table.insert(tags, "In match")
+			end
+			row.tags.Text = table.concat(tags, "  ·  ")
+			row.info.Text = summary({
+				mode = room.mode,
+				winRule = room.winRule,
+				stocks = room.stocks,
+				timeLimit = room.timeLimit,
+				mapId = room.mapId,
+				damageMultiplier = room.damageMultiplier,
+				weapons = table.create(room.weaponCount or 0, true),
+			})
+			local open = canJoin(room) and not partyBlocked()
+			row.actionText.Text = if canJoin(room)
+				then "JOIN"
+				elseif room.inMatch then "BUSY"
+				elseif room.eligible then "FULL"
+				else "LOCKED"
+			row.actionText.TextColor3 = if open then T.Text else T.Dim
+			if row.action:GetAttribute("Open") ~= open then
+				row.action:SetAttribute("Open", open)
+				UIKit.setSlantFill(row.action, if open then { T.RedLight, T.RedDark } else T.PanelLight)
+			end
+		end
+
+		local function render(rooms)
+			local seen = {}
+			table.clear(ordered)
+			table.clear(listed)
+			for index, room in rooms do
+				seen[room.id] = true
+				listed[room.id] = room
+				local row = rows[room.id] or buildRow(room.id)
+				rows[room.id] = row
+				renderRow(row, room, index)
+				table.insert(ordered, row.button)
+			end
+			for id, row in rows do
+				if not seen[id] then
+					row.button:Destroy()
+					rows[id] = nil
+				end
+			end
+			Focus.linkColumn(ordered)
+			emptyLabel.Visible = #ordered == 0
+		end
 
 		local refreshToken = 0
 		refresh = function()
@@ -245,85 +464,7 @@ function RoomsPanel.create(gui, close)
 			if token ~= refreshToken or not ok or type(rooms) ~= "table" then
 				return
 			end
-			for _, child in list:GetChildren() do
-				if child:IsA("Frame") and child ~= emptyLabel then
-					child:Destroy()
-				end
-			end
-			emptyLabel.Visible = #rooms == 0
-			for i, room in rooms do
-				local row = UIKit.panel({
-					LayoutOrder = i,
-					Size = UDim2.new(1, -8, 0, 70),
-					BackgroundColor3 = T.Panel,
-					Parent = list,
-				})
-				UIKit.padding(12, 8).Parent = row
-				UIKit.heading(room.name, 19, {
-					Size = UDim2.new(1, -130, 0, 24),
-					TextTruncate = Enum.TextTruncate.AtEnd,
-					TextWrapped = false,
-					Parent = row,
-				})
-				local tags =
-					{ "Host: " .. room.hostName, string.format("%d/%d players", room.players, room.maxPlayers) }
-				if room.isFriend then
-					table.insert(tags, "Friend")
-				end
-				if room.friendsOnly then
-					table.insert(tags, "Friends only")
-				end
-				if room.minRating or room.maxRating then
-					table.insert(tags, string.format("Skill %s-%s", room.minRating or "0", room.maxRating or "any"))
-				end
-				if room.inMatch then
-					table.insert(tags, "In match")
-				end
-				UIKit.label(table.concat(tags, "  ·  "), 13, {
-					Position = UDim2.fromOffset(0, 24),
-					Size = UDim2.new(1, -130, 0, 16),
-					TextColor3 = T.Gold,
-					Font = T.BoldFont,
-					Parent = row,
-				})
-				UIKit.label(
-					summary({
-						mode = room.mode,
-						winRule = room.winRule,
-						stocks = room.stocks,
-						timeLimit = room.timeLimit,
-						mapId = room.mapId,
-						damageMultiplier = room.damageMultiplier,
-						weapons = table.create(room.weaponCount, true),
-					}),
-					13,
-					{
-						Position = UDim2.fromOffset(0, 40),
-						Size = UDim2.new(1, -130, 0, 16),
-						TextColor3 = T.Muted,
-						Parent = row,
-					}
-				)
-				local canJoin = room.eligible and not room.inMatch and room.players < room.maxPlayers
-				local join = UIKit.button(
-					canJoin and "Join" or (room.inMatch and "Busy" or (room.eligible and "Full" or "Locked")),
-					canJoin and "primary" or "ghost",
-					function()
-						local okJoin, result = request("Join", room.id)
-						if not okJoin then
-							ClientState.toast(result or "Couldn't join.", "error")
-							refresh()
-						end
-					end,
-					{
-						AnchorPoint = Vector2.new(1, 0.5),
-						Position = UDim2.new(1, 0, 0.5, 0),
-						Size = UDim2.fromOffset(110, 40),
-						Parent = row,
-					}
-				)
-				UIKit.setEnabled(join, canJoin)
-			end
+			render(rooms)
 		end
 
 		views.Browse = {
@@ -331,46 +472,80 @@ function RoomsPanel.create(gui, close)
 			onShow = function()
 				task.spawn(refresh)
 			end,
-		}
-		task.spawn(function()
-			while true do
-				task.wait(6)
-				if window.Visible and currentView == "Browse" then
-					refresh()
+			onParty = function()
+				UIKit.setEnabled(joinCode, not partyBlocked())
+				for id, row in rows do
+					if listed[id] then
+						renderRow(row, listed[id], row.button.LayoutOrder)
+					end
 				end
-			end
-		end)
+			end,
+			defaultFocus = function()
+				return ordered[1] or chips[1]
+			end,
+			top = function()
+				return { chips[1], chips[2], chips[3], chips[4] }
+			end,
+			refresh = refresh,
+		}
 	end
 
-	-- Create / edit -----------------------------------------------------
+	-- Create / edit ------------------------------------------------------------------------
 
 	local form = defaultForm()
 	local formSetters = {}
-	local submitButton
 
-	do
-		local frame = make(
-			"Frame",
-			{ BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = content }
-		)
-		local scroll = UIKit.scroll({ Size = UDim2.new(1, 0, 1, -54), Parent = frame })
+	local function loadForm(room)
+		local s = room.settings
+		form.name = room.name
+		form.mode = s.mode
+		form.maxPlayers = s.maxPlayers
+		form.winRule = s.winRule
+		form.stocks = s.stocks
+		form.timeLimit = s.timeLimit
+		form.mapId = s.mapId
+		form.weapons = table.clone(s.weapons or {})
+		form.damageMultiplier = s.damageMultiplier
+		form.friendlyFire = s.friendlyFire
+		form.private = s.private
+		form.friendsOnly = s.friendsOnly
+		form.skillRange = s.minRating ~= nil or s.maxRating ~= nil
+		form.minRating = s.minRating or 800
+		form.maxRating = s.maxRating or 1400
+		for key, set in formSetters do
+			set(form[key])
+		end
+	end
+
+	local function resetForm()
+		form = defaultForm()
+		for key, set in formSetters do
+			set(form[key])
+		end
+	end
+
+	local function buildCreate(frame)
+		local scroll = UIKit.scroll({ Size = UDim2.fromScale(1, 0.85), Parent = frame })
 		UIKit.list(Enum.FillDirection.Vertical, 6).Parent = scroll
 		local order = 0
-		local function add(row)
+		local firstRow = nil
+		-- rows are sized in design px (they grow with their text at 1440p and up)
+		local function add(row, px)
 			order += 1
 			row.LayoutOrder = order
-			row.Size = UDim2.new(1, -10, 0, row.Size.Y.Offset)
+			sizer.height(row, px or FORM_ROW, UDim.new(1, -10))
 			row.Parent = scroll
 			return row
 		end
 		local visibility = {}
 
-		local nameRow = make("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 40) })
+		local nameRow = make("Frame", { BackgroundTransparency = 1 })
 		local nameBox = UIKit.textbox("Room name", { Text = form.name, Size = UDim2.fromScale(1, 1), Parent = nameRow })
 		nameBox.FocusLost:Connect(function()
 			form.name = nameBox.Text
 		end)
-		add(nameRow)
+		add(nameRow, 40)
+		firstRow = nameBox
 		formSetters.name = function(v)
 			nameBox.Text = v
 		end
@@ -455,7 +630,7 @@ function RoomsPanel.create(gui, close)
 		end
 		formSetters.timeLimit = setTime
 
-		local mapOptions = { { value = "Random", label = "Random" } }
+		local mapOptions = { { value = "Random", label = "Random (map vote)" } }
 		for _, id in Maps.Order do
 			table.insert(mapOptions, { value = id, label = Maps.get(id).Name })
 		end
@@ -465,18 +640,24 @@ function RoomsPanel.create(gui, close)
 		add(rowMap)
 		formSetters.mapId = setMap
 
-		local weaponsRow =
-			UIKit.panel({ BackgroundColor3 = T.Panel, BackgroundTransparency = 0.2, Size = UDim2.new(1, 0, 0, 100) })
-		UIKit.padding(12, 8).Parent = weaponsRow
-		UIKit.label("Weapons that drop", 16, { Font = T.BoldFont, Size = UDim2.new(1, 0, 0, 20), Parent = weaponsRow })
+		-- the weapon chips: 3 a row, 36 design px each under a 30 design px title, all in Scale of the row
+		local weaponLines = math.ceil(#Weapons.Order / 3)
+		local weaponsPx = 30 + weaponLines * 36 + 16
+		local weaponsRow = Common.fill(T.Raised, {})
+		Common.padding(weaponsRow, 12, 8)
+		UIKit.label("Weapons that drop", 18, {
+			Font = T.BoldFont,
+			Size = UDim2.fromScale(1, 30 / (weaponsPx - 16)),
+			Parent = weaponsRow,
+		})
 		local weaponGrid = make("Frame", {
 			BackgroundTransparency = 1,
-			Position = UDim2.fromOffset(0, 26),
-			Size = UDim2.new(1, 0, 0, 66),
+			Position = UDim2.fromScale(0, 30 / (weaponsPx - 16)),
+			Size = UDim2.fromScale(1, 1 - 30 / (weaponsPx - 16)),
 			Parent = weaponsRow,
 		}, {
 			make("UIGridLayout", {
-				CellSize = UDim2.new(1 / 3, -6, 0, 30),
+				CellSize = UDim2.new(1 / 3, -6, 1 / weaponLines, -6),
 				CellPadding = UDim2.fromOffset(6, 6),
 				SortOrder = Enum.SortOrder.LayoutOrder,
 			}),
@@ -488,10 +669,11 @@ function RoomsPanel.create(gui, close)
 			end)
 			chip.LayoutOrder = i
 			chip.Size = UDim2.fromScale(1, 1)
+			chip:SetAttribute("FocusKey", "RoomWeapon" .. id)
 			chip.Parent = weaponGrid
 			weaponSetters[id] = set
 		end
-		add(weaponsRow)
+		add(weaponsRow, weaponsPx)
 		formSetters.weapons = function(map)
 			for id, set in weaponSetters do
 				set(map[id] == true)
@@ -562,14 +744,31 @@ function RoomsPanel.create(gui, close)
 
 		refreshVisibility()
 
-		local footer = make("Frame", {
-			BackgroundTransparency = 1,
-			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.fromScale(0, 1),
-			Size = UDim2.new(1, 0, 0, 46),
+		local note = Common.text("", 20, {
+			Name = "Note",
+			Font = T.BoldFont,
+			TextColor3 = T.Warning,
+			Position = UDim2.fromScale(0, 0.87),
+			Size = UDim2.fromScale(0.62, 0.12),
 			Parent = frame,
 		})
-		submitButton = UIKit.button("Create Room", "primary", function()
+		local submit = Common.slantButton("CREATE ROOM", {
+			name = "Submit",
+			style = "primary",
+			textSize = 34,
+			anchor = Vector2.new(1, 1),
+			position = UDim2.fromScale(1, 1),
+			size = UDim2.fromScale(0.3, 0.12),
+			parent = frame,
+		}, function()
+			if partyBlocked() then
+				host.toast("Your party leader picks the room.", "error")
+				return
+			end
+			if ClientState.room and not editing then
+				host.toast("Leave your room first to make another one.", "error")
+				return
+			end
 			form.name = nameBox.Text
 			local payload = {
 				name = form.name,
@@ -590,146 +789,224 @@ function RoomsPanel.create(gui, close)
 			local wasEditing = editing
 			local ok, result = request(wasEditing and "Update" or "Create", payload)
 			if ok then
-				editing = false
-				ClientState.toast(wasEditing and "Room updated." or "Room ready!", "good")
-				show("Room")
+				host.toast(wasEditing and "Room updated." or "Room ready!", "good")
+				showView("Room")
 			else
-				ClientState.toast(result or "Couldn't save the room.", "error")
+				host.toast(result or "Couldn't save the room.", "error")
 			end
-		end, {
-			AnchorPoint = Vector2.new(1, 1),
-			Position = UDim2.fromScale(1, 1),
-			Size = UDim2.fromOffset(180, 44),
-			Parent = footer,
-		})
-		local cancelEdit = UIKit.button("Back to room", "ghost", function()
-			editing = false
-			show("Room")
-		end, {
-			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.fromScale(0, 1),
-			Size = UDim2.fromOffset(160, 44),
-			Visible = false,
-			Parent = footer,
-		})
+		end)
+
+		local function renderNote()
+			local room = ClientState.room
+			local text = ""
+			if partyBlocked() then
+				text = "Your party leader picks the room."
+			elseif room and not editing then
+				text = "You're in a room. Leave it to make your own."
+			elseif editing then
+				text = "Editing your room's rules."
+			end
+			note.Text = text
+			Common.setButtonText(submit, if editing then "SAVE CHANGES" else "CREATE ROOM")
+			UIKit.setEnabled(submit, not partyBlocked() and (editing or room == nil))
+		end
 
 		views.Create = {
 			frame = frame,
 			onShow = function()
-				submitButton.Text = editing and "Save Changes" or "Create Room"
-				cancelEdit.Visible = editing
+				local room = ClientState.room
+				local isHost = room ~= nil and room.hostUserId == player.UserId
+				if isHost and room.state == "Open" then
+					if not editing then
+						editing = true
+						loadForm(room)
+					end
+				elseif editing then
+					editing = false
+					resetForm()
+				end
 				refreshVisibility()
+				renderNote()
+			end,
+			onParty = renderNote,
+			defaultFocus = function()
+				return firstRow
+			end,
+			top = function()
+				return { firstRow }
 			end,
 		}
 	end
 
-	local function loadForm(room)
-		local s = room.settings
-		form.name = room.name
-		form.mode = s.mode
-		form.maxPlayers = s.maxPlayers
-		form.winRule = s.winRule
-		form.stocks = s.stocks
-		form.timeLimit = s.timeLimit
-		form.mapId = s.mapId
-		form.weapons = table.clone(s.weapons or {})
-		form.damageMultiplier = s.damageMultiplier
-		form.friendlyFire = s.friendlyFire
-		form.private = s.private
-		form.friendsOnly = s.friendsOnly
-		form.skillRange = s.minRating ~= nil or s.maxRating ~= nil
-		form.minRating = s.minRating or 800
-		form.maxRating = s.maxRating or 1400
-		for key, set in formSetters do
-			set(form[key])
-		end
-	end
+	-- Room view ------------------------------------------------------------------------------
 
-	-- Room view -----------------------------------------------------------
-
-	do
-		local frame = make(
-			"Frame",
-			{ BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = content }
-		)
-		local title = UIKit.heading("", 24, {
-			Size = UDim2.new(1, -230, 0, 30),
-			TextTruncate = Enum.TextTruncate.AtEnd,
-			TextWrapped = false,
+	local function buildRoom(frame)
+		local roomParts = make("Frame", {
+			Name = "InRoom",
+			BackgroundTransparency = 1,
+			Size = UDim2.fromScale(1, 1),
 			Parent = frame,
 		})
-		local codeBox = UIKit.textbox("", {
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.fromScale(1, 0),
-			Size = UDim2.fromOffset(220, 34),
-			TextEditable = false,
+		local empty = Common.text("You're not in a room. Join one from BROWSE or make one in CREATE.", 26, {
+			Name = "Empty",
+			TextColor3 = T.Muted,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Position = UDim2.fromScale(0, 0.3),
+			Size = UDim2.fromScale(1, 0.1),
+			Parent = frame,
+		})
+		local title = Common.text("", 44, {
+			Name = "RoomName",
+			Font = T.HeadFont,
+			Size = UDim2.fromScale(0.66, 0.09),
+			TextWrapped = false,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = roomParts,
+		})
+		-- the code is read-only: a label (a TextBox would be a focus stop that opens the on-screen keyboard)
+		local codeLabel = Common.text("", 30, {
+			Name = "Code",
 			Font = T.HeadFont,
 			TextXAlignment = Enum.TextXAlignment.Center,
-			Parent = frame,
+			BackgroundTransparency = 0,
+			BackgroundColor3 = T.Raised,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.fromScale(1, 0),
+			Size = UDim2.fromScale(0.3, 0.08),
+			TextWrapped = false,
+			Parent = roomParts,
 		})
-		local info = UIKit.label("", 14, {
-			Position = UDim2.fromOffset(0, 34),
-			Size = UDim2.new(1, 0, 0, 36),
+		Common.stroke(codeLabel, T.Stroke, 2)
+		local info = Common.text("", 20, {
+			Name = "Info",
 			TextColor3 = T.Muted,
 			TextYAlignment = Enum.TextYAlignment.Top,
-			Parent = frame,
+			Position = UDim2.fromScale(0, 0.1),
+			Size = UDim2.fromScale(1, 0.1),
+			Parent = roomParts,
 		})
-		local members = UIKit.scroll({
-			Position = UDim2.fromOffset(0, 74),
-			Size = UDim2.new(1, 0, 1, -130),
-			Parent = frame,
-		})
-		UIKit.list(Enum.FillDirection.Vertical, 6).Parent = members
-
-		local footer = make("Frame", {
-			BackgroundTransparency = 1,
-			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.fromScale(0, 1),
-			Size = UDim2.new(1, 0, 0, 46),
-			Parent = frame,
-		}, {
-			UIKit.list(Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Right, Enum.VerticalAlignment.Center),
+		local members = Common.list(roomParts, {
+			Position = UDim2.fromScale(0, 0.21),
+			Size = UDim2.fromScale(1, 0.64),
 		})
 
+		-- footer: LEAVE, bot difficulty, ADD BOT, EDIT RULES, START (host)
 		local botDifficulty = "Normal"
-		local leaveButton = UIKit.button("Leave", "danger", function()
+		local footer = make("Frame", {
+			Name = "Footer",
+			BackgroundTransparency = 1,
+			Position = UDim2.fromScale(0, 0.88),
+			Size = UDim2.fromScale(1, 0.12),
+			Parent = roomParts,
+		})
+		local function footerButton(text, x, w, style, onClick)
+			local button = Common.slantButton(text, {
+				name = "Room" .. text,
+				style = style,
+				glyph = false,
+				textSize = 30,
+				position = UDim2.fromScale(x, 0),
+				size = UDim2.fromScale(w, 1),
+				parent = footer,
+			}, onClick)
+			return button
+		end
+		local leave = footerButton("LEAVE", 0, 0.14, "dark", function()
 			request("Leave")
-		end, { LayoutOrder = 1, Size = UDim2.fromOffset(100, 42), Parent = footer })
+		end)
 		local diffButton
-		diffButton = UIKit.button("Bot: Normal", "ghost", function()
+		diffButton = footerButton("BOT: NORMAL", 0.16, 0.18, "dark", function()
 			local order = Config.Bots.DifficultyOrder
 			local index = table.find(order, botDifficulty) or 1
 			botDifficulty = order[index % #order + 1]
-			diffButton.Text = "Bot: " .. botDifficulty
-		end, { LayoutOrder = 2, Size = UDim2.fromOffset(120, 42), Parent = footer })
-		local addBot = UIKit.button("Add bot", "secondary", function()
+			Common.setButtonText(diffButton, "BOT: " .. string.upper(botDifficulty))
+		end)
+		local addBot = footerButton("ADD BOT", 0.36, 0.14, "dark", function()
 			local ok, result = request("AddBot", { difficulty = botDifficulty })
 			if not ok then
-				ClientState.toast(result, "error")
+				host.toast(result or "Couldn't add a bot.", "error")
 			end
-		end, { LayoutOrder = 3, Size = UDim2.fromOffset(110, 42), Parent = footer })
-		local edit = UIKit.button("Edit rules", "secondary", function()
-			if ClientState.room then
-				editing = true
-				loadForm(ClientState.room)
-				show("Create")
-			end
-		end, { LayoutOrder = 4, Size = UDim2.fromOffset(120, 42), Parent = footer })
-		local start = UIKit.button("Start Match", "good", function()
+		end)
+		local edit = footerButton("EDIT RULES", 0.52, 0.16, "dark", function()
+			showView("Create")
+		end)
+		local start = footerButton("START MATCH", 0.72, 0.28, "primary", function()
 			local ok, result = request("Start")
 			if not ok then
-				ClientState.toast(result, "error")
+				host.toast(result or "Couldn't start the match.", "error")
 			end
-		end, { LayoutOrder = 5, Size = UDim2.fromOffset(150, 42), Parent = footer })
+		end)
+
+		local memberRows = {} -- [member id] = row parts
+		local function buildMember(id)
+			local phone = Common.isPhone()
+			local row = Common.fill(T.Raised, { Name = "Member" .. tostring(id), Parent = members })
+			sizer.height(row, if phone then PHONE_MEMBER_ROW else MEMBER_ROW)
+			local buttonHeight = if phone then 0.8 else 0.62
+			local bar = Common.fill(T.Stroke, { Name = "Team", Size = UDim2.fromScale(0.008, 1), Parent = row })
+			local name = Common.text("", 28, {
+				Name = "MemberName",
+				Font = T.BlackFont,
+				Position = UDim2.fromScale(0.02, 0.06),
+				Size = UDim2.fromScale(0.5, 0.5),
+				TextWrapped = false,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				Parent = row,
+			})
+			local detail = Common.text("", 18, {
+				Name = "Detail",
+				TextColor3 = T.Muted,
+				Position = UDim2.fromScale(0.02, 0.56),
+				Size = UDim2.fromScale(0.5, 0.38),
+				TextWrapped = false,
+				Parent = row,
+			})
+			local parts = { row = row, bar = bar, name = name, detail = detail, member = nil }
+			parts.switch = UIKit.button("Switch team", "secondary", function()
+				local m = parts.member
+				if not m then
+					return
+				end
+				local ok, result = request("SetTeam", { memberId = m.id, team = m.team == 1 and 2 or 1 })
+				if not ok then
+					host.toast(result or "Couldn't switch teams.", "error")
+				end
+			end, {
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(0.82, -6, 0.5, 0),
+				Size = UDim2.fromScale(0.17, buttonHeight),
+				Parent = row,
+			})
+			parts.switch:SetAttribute("FocusKey", "MemberSwitch" .. tostring(id))
+			parts.kick = UIKit.button("Kick", "danger", function()
+				local m = parts.member
+				if m then
+					request(m.isBot and "RemoveBot" or "Kick", m.id)
+				end
+			end, {
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(0.99, 0, 0.5, 0),
+				Size = UDim2.fromScale(0.15, buttonHeight),
+				Parent = row,
+			})
+			parts.kick:SetAttribute("FocusKey", "MemberKick" .. tostring(id))
+			return parts
+		end
 
 		local function render(room)
+			roomParts.Visible = room ~= nil
+			empty.Visible = room == nil
 			if not room then
+				for id, parts in memberRows do
+					parts.row:Destroy()
+					memberRows[id] = nil
+				end
 				return
 			end
 			local isHost = room.hostUserId == player.UserId
 			local open = room.state == "Open"
 			title.Text = room.name
-			codeBox.Text = "Code: " .. room.code
+			codeLabel.Text = "CODE: " .. room.code
 			local extras = {}
 			if room.settings.private then
 				table.insert(extras, "Private")
@@ -748,74 +1025,32 @@ function RoomsPanel.create(gui, close)
 			end
 			info.Text = summary(room.settings) .. (#extras > 0 and ("\n" .. table.concat(extras, "  ·  ")) or "")
 
-			for _, child in members:GetChildren() do
-				if child:IsA("Frame") then
-					child:Destroy()
-				end
-			end
 			local teams = room.settings.mode ~= "FFA"
+			local seen = {}
 			for i, m in room.members do
-				local row = UIKit.panel({
-					LayoutOrder = i,
-					Size = UDim2.new(1, -8, 0, 50),
-					BackgroundColor3 = T.Panel,
-					Parent = members,
-				})
-				make("Frame", {
-					BackgroundColor3 = Config.TeamColors[m.team] or T.Stroke,
-					BorderSizePixel = 0,
-					Size = UDim2.new(0, 8, 1, 0),
-					Parent = row,
-				}, { UIKit.corner(4) })
-				local label = m.name
-				if m.isHost then
-					label = label .. "  (Host)"
-				end
-				UIKit.heading(label, 18, {
-					Position = UDim2.fromOffset(20, 4),
-					Size = UDim2.new(1, -300, 0, 22),
-					TextTruncate = Enum.TextTruncate.AtEnd,
-					TextWrapped = false,
-					Parent = row,
-				})
-				local detail = m.isBot and (m.difficulty .. " bot")
-					or string.format("Level %s  ·  %s rating", m.level or "?", m.rating or "?")
+				seen[m.id] = true
+				local parts = memberRows[m.id] or buildMember(m.id)
+				memberRows[m.id] = parts
+				parts.member = m
+				parts.row.LayoutOrder = i
+				parts.bar.BackgroundColor3 = Config.TeamColors[m.team] or T.Stroke
+				parts.name.Text = m.name .. (if m.isHost then "  (Host)" else "")
+				local detail = if m.isBot
+					then (tostring(m.difficulty) .. " bot")
+					else string.format("Level %s  ·  %s rating", m.level or "?", m.rating or "?")
 				if teams then
 					detail = "Team " .. m.team .. "  ·  " .. detail
 				end
-				UIKit.label(detail, 13, {
-					Position = UDim2.fromOffset(20, 26),
-					Size = UDim2.new(1, -300, 0, 18),
-					TextColor3 = T.Muted,
-					Parent = row,
-				})
-				local actions = make("Frame", {
-					BackgroundTransparency = 1,
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, -8, 0.5, 0),
-					Size = UDim2.fromOffset(260, 36),
-					Parent = row,
-				}, {
-					UIKit.list(
-						Enum.FillDirection.Horizontal,
-						6,
-						Enum.HorizontalAlignment.Right,
-						Enum.VerticalAlignment.Center
-					),
-				})
+				parts.detail.Text = detail
 				local isMe = m.userId == player.UserId
-				if teams and open and (isHost or isMe) then
-					UIKit.button("Switch team", "ghost", function()
-						local ok, result = request("SetTeam", { memberId = m.id, team = m.team == 1 and 2 or 1 })
-						if not ok then
-							ClientState.toast(result, "error")
-						end
-					end, { Size = UDim2.fromOffset(120, 34), TextSize = 15, Parent = actions })
-				end
-				if isHost and open and not isMe then
-					UIKit.button(m.isBot and "Remove" or "Kick", "danger", function()
-						request(m.isBot and "RemoveBot" or "Kick", m.id)
-					end, { Size = UDim2.fromOffset(90, 34), TextSize = 15, Parent = actions })
+				parts.switch.Visible = teams and open and (isHost or isMe)
+				parts.kick.Visible = isHost and open and not isMe
+				parts.kick.Text = if m.isBot then "Remove" else "Kick"
+			end
+			for id, parts in memberRows do
+				if not seen[id] then
+					parts.row:Destroy()
+					memberRows[id] = nil
 				end
 			end
 
@@ -826,7 +1061,32 @@ function RoomsPanel.create(gui, close)
 			UIKit.setEnabled(addBot, open)
 			UIKit.setEnabled(edit, open)
 			UIKit.setEnabled(start, open)
-			leaveButton.Visible = true
+			leave.Visible = true
+			-- the top row changes with the members: clear the old Up links, then link the new top row
+			for _, parts in memberRows do
+				Focus.link(parts.switch, "Up", nil)
+				Focus.link(parts.kick, "Up", nil)
+			end
+			for _, button in { leave, diffButton, addBot, edit, start } do
+				Focus.link(button, "Up", nil)
+			end
+			if currentView == "Room" then
+				rewireTop()
+			end
+		end
+
+		-- The top focusable row: the first member row with buttons, else the footer.
+		local function topRow()
+			local first, firstOrder = nil, math.huge
+			for _, parts in memberRows do
+				if (parts.switch.Visible or parts.kick.Visible) and parts.row.LayoutOrder < firstOrder then
+					first, firstOrder = parts, parts.row.LayoutOrder
+				end
+			end
+			if first then
+				return { first.switch, first.kick }
+			end
+			return { leave, diffButton, addBot, edit, start }
 		end
 
 		views.Room = {
@@ -834,59 +1094,216 @@ function RoomsPanel.create(gui, close)
 			onShow = function()
 				render(ClientState.room)
 			end,
+			render = render,
+			defaultFocus = function()
+				local room = ClientState.room
+				if room and room.hostUserId == player.UserId and room.state == "Open" then
+					return start
+				end
+				return if room then leave else nil
+			end,
+			top = topRow,
 		}
-		ClientState.RoomChanged:Connect(function(room)
-			if room then
-				render(room)
-			end
-		end)
 	end
 
-	-- Switching -------------------------------------------------------------
+	-- Switching ------------------------------------------------------------------------------
 
-	local function syncView()
-		if ClientState.room then
-			if not editing then
-				show("Room")
+	local function onRoomChanged(room)
+		-- ROOM opens when you join or create a room, not on every update of it (a member browsing CREATE stays)
+		local appeared = room ~= nil and room.id ~= lastRoomId
+		lastRoomId = room and room.id
+		if views.Room then
+			views.Room.render(room)
+		end
+		if room then
+			if appeared and (currentView == "Browse" or (currentView == "Create" and not editing)) then
+				showView("Room")
 			end
-		else
+		elseif currentView ~= "Browse" then
 			editing = false
-			if currentView == "Room" or currentView == nil then
-				selectTab("Browse")
-			end
+			showView("Browse")
+		end
+		if views.Create and views.Create.onParty then
+			views.Create.onParty()
 		end
 	end
 
-	tabBar, selectTab = UIKit.tabs({
-		{ id = "Browse", label = "Browse" },
-		{ id = "Create", label = "Create" },
-	}, function(id)
-		if id == "Create" and not editing then
-			form = defaultForm()
-			for key, set in formSetters do
-				set(form[key])
+	local function build()
+		if container then
+			container:Destroy()
+		end
+		table.clear(views)
+		local phone = Common.isPhone()
+		-- phones: the whole body scrolls (the lists inside still scroll on their own)
+		local canvas
+		if phone then
+			local scroller
+			canvas, scroller = Common.body(root, sizer, { phoneHeight = PHONE_HEIGHT })
+			container = scroller
+		else
+			container = Common.region(root)
+			canvas = container
+		end
+		local top = if phone then 0.08 else 0.1
+		local _, selectFromBar = UIKit.tabBar(TABS, {
+			name = "Tabs",
+			style = "big",
+			position = UDim2.fromScale(0, 0),
+			size = UDim2.fromScale(if phone then 0.6 else 0.45, top - 0.02),
+			parent = canvas,
+			onSelect = function(id)
+				if id ~= currentView then
+					if id ~= "Create" then
+						editing = false
+					end
+					setView(id)
+				end
+			end,
+		})
+		selectTab = selectFromBar
+		partyBanner = Common.text("Your party leader picks the room.", 24, {
+			Name = "PartyBanner",
+			Font = T.BlackFont,
+			TextColor3 = T.Warning,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.fromScale(1, 0),
+			Size = UDim2.fromScale(if phone then 0.38 else 0.5, top - 0.02),
+			Visible = false,
+			Parent = canvas,
+		})
+		local content = make("Frame", {
+			Name = "Views",
+			BackgroundTransparency = 1,
+			Position = UDim2.fromScale(0, top),
+			Size = UDim2.fromScale(1, 1 - top),
+			Parent = canvas,
+		})
+		for _, tab in TABS do
+			local frame = make("Frame", {
+				Name = tab.id,
+				BackgroundTransparency = 1,
+				Size = UDim2.fromScale(1, 1),
+				Visible = false,
+				Parent = content,
+			})
+			if tab.id == "Browse" then
+				buildBrowse(frame)
+			elseif tab.id == "Create" then
+				buildCreate(frame)
+			else
+				buildRoom(frame)
 			end
 		end
-		show(id)
+		views.Room.render(ClientState.room)
+		setView(currentView)
+		selectTab(currentView)
+		renderParty()
+	end
+	rewireTop = Common.linkTop(host, function()
+		local v = views[currentView]
+		return if v and v.top then v.top() else {}
 	end)
-	tabBar.Parent = body
+	lastRoomId = ClientState.room and ClientState.room.id
+	build()
+	Common.onModeChange(root, function()
+		build()
+		rewireTop()
+		host.refresh()
+	end)
 
-	ClientState.RoomChanged:Connect(function()
-		if window.Visible then
-			syncView()
+	local function cycle(delta)
+		local index = 1
+		for i, tab in TABS do
+			if tab.id == currentView then
+				index = i
+			end
 		end
-	end)
+		local id = TABS[(index - 1 + delta) % #TABS + 1].id
+		showView(id)
+		rewireTop()
+		local v = views[id]
+		local target = v and v.defaultFocus and v.defaultFocus()
+		if target then
+			Focus.set(target)
+		end
+	end
 
 	return {
-		window = window,
-		open = function()
-			window.Visible = true
-			syncView()
+		root = root,
+		show = function(params)
+			shown = true
+			pollToken += 1
+			local poll = pollToken
+			-- the shell re-shows the screen with its last params after every match: a deep link applies once
+			local wanted = if params ~= lastParams and type(params) == "table" then params.view else nil
+			lastParams = params
+			local room = ClientState.room
+			lastRoomId = room and room.id
+			if wanted == "Room" or (wanted == nil and room and currentView == "Browse") then
+				showView("Room")
+			elseif wanted == "Browse" or (room == nil and (currentView == "Room" or editing)) then
+				-- (the room closed while this screen was hidden)
+				showView("Browse")
+			else
+				setView(currentView)
+			end
+			bag.add(ClientState.RoomChanged:Connect(onRoomChanged))
+			bag.add(ClientState.PartyChanged:Connect(renderParty))
+			renderParty()
+			rewireTop()
+			task.spawn(function()
+				while shown and pollToken == poll do
+					task.wait(BROWSE_REFRESH)
+					if shown and pollToken == poll and currentView == "Browse" and views.Browse then
+						views.Browse.refresh()
+					end
+				end
+			end)
 		end,
-		close = function()
-			window.Visible = false
+		hide = function()
+			shown = false
+			bag.clear()
+		end,
+		back = function()
+			if currentView == "Create" and editing then
+				showView("Room")
+				return true
+			end
+			return false
+		end,
+		defaultFocus = function()
+			local v = views[currentView]
+			return v and v.defaultFocus and v.defaultFocus()
+		end,
+		actions = {
+			L1 = function()
+				cycle(-1)
+			end,
+			R1 = function()
+				cycle(1)
+			end,
+		},
+		hints = function()
+			return {
+				{ action = "Confirm", label = "SELECT" },
+				{ action = "L1", label = "" },
+				{
+					action = "R1",
+					label = "TABS",
+					onClick = function()
+						cycle(1)
+					end,
+				},
+				{ action = "Back", label = "BACK" },
+			}
 		end,
 	}
+end
+
+-- The old Custom Rooms window (LobbyUI). TODO(I): delete once LobbyUI is gone (menus design 5.8).
+function RoomsPanel.create(gui, close)
+	return Common.legacyWindow(gui, "Custom Rooms", close, RoomsPanel.mount)
 end
 
 return RoomsPanel

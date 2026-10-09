@@ -7,13 +7,30 @@
     "Hit" events (including knockback when you're the one hit), blocked
     hits and guard breaks, awakenings, KOs, respawns, weapon changes,
     projectiles and the final results.
+
+    Phases (menus design 5.13): "Start" sets the phase to "Match" (the VS
+    splash fades), "End" shows the results screen after
+    Config.Menu.ResultsDelay (phase "Results"; training and requeued dodges
+    skip it), and cleanup returns a match that ends without results to the
+    menu. Every MatchEvent carries matchId: events of any other match are
+    dropped, and an End / Leave of the VS match before its "Start" returns
+    the VS splash to the menu (UI/Match/Models.phaseAfter decides).
+
+    Characters exist only for matches: the server destroys yours when you
+    leave one, so CharacterRemoving before "End" (forfeit, server error)
+    also returns you to the menu. Roblox's own controls stay off for good
+    (Controls.set(false)); Focus owns fight input (Focus.setFightInput).
+
+    Training matches (info.training) scale the sim, input and animation dt
+    by the match's time scale and call TrainingClient's hooks. Combat
+    timers (invulnerability, awakening, guard regen, the KO wait) run on
+    the match clock (m.clock: the scaled dt summed), as the server's do, so
+    slow motion stretches them too.
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local StarterGui = game:GetService("StarterGui")
-local GuiService = game:GetService("GuiService")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -36,11 +53,15 @@ local SkyBackdrop = require(script.Parent.SkyBackdrop)
 local CharacterAnimator = require(script.Parent.CharacterAnimator)
 local Sound = require(script.Parent.Sound)
 local BattleFX = require(script.Parent.BattleFX)
+local Controls = require(script.Parent.Controls)
+local TrainingClient = require(script.Parent.TrainingClient)
 
 local UI = script.Parent.Parent:WaitForChild("UI")
 local MatchHUD = require(UI.MatchHUD)
 local ResultsScreen = require(UI.ResultsScreen)
 local MobileControls = require(UI.MobileControls)
+local Focus = require(UI.Focus)
+local Models = require(UI:WaitForChild("Match"):WaitForChild("Models"))
 
 local MatchClient = {}
 
@@ -48,10 +69,45 @@ local player = Players.LocalPlayer
 local fighterAction = Net.get("FighterAction")
 local STEP_NAME = "SkybrawlFighter"
 local GRAVEYARD_Y = 600
+local CHARACTER_WAIT = 5 -- seconds onStart waits for your (already loaded) character to replicate
+local LEGEND_RETRACK = 0.25 -- a legend change re-tracks the model again after this, once the new rig has replicated
+local REQUEUED_TOAST = "A player left before the fight. You're back in the queue."
 local rng = Random.new()
 
 local match = nil
 local hitboxPart = nil
+local startSeq = 0 -- bumped by every "Start": an older onStart still waiting for its character gives up
+local endedEarly = {} -- [matchId] = true: its End / Leave came while no match ran (before its fighter was set up)
+
+-- Calls TrainingClient[name](...) without letting a training error break the match.
+local function trainingHook(name, ...)
+	local ok, err = pcall(TrainingClient[name], ...)
+	if not ok then
+		warn("[MatchClient] TrainingClient." .. name .. " failed:", err)
+	end
+end
+
+-- What Models.phaseAfter needs to know about the client right now.
+local function phaseState()
+	local vs = ClientState.vs
+	return {
+		phase = ClientState.phase,
+		vsId = vs and vs.id,
+		vsMatchId = vs and vs.matchId,
+		matchId = match and match.info.matchId,
+	}
+end
+
+-- Applies a Models.phaseAfter decision: its toast, then the phase.
+local function applyPhase(result)
+	if not result then
+		return
+	end
+	if result.toast then
+		ClientState.toast(result.toast, result.toastKind)
+	end
+	ClientState.setPhase(result.phase)
+end
 
 local B = Config.Battle
 local GOLD = Color3.fromRGB(255, 205, 70)
@@ -77,27 +133,6 @@ local DISABLED_STATES = {
 	Enum.HumanoidStateType.Flying,
 	Enum.HumanoidStateType.StrafingNoPhysics,
 }
-
-local function setDefaultControls(enabled)
-	pcall(function()
-		local playerModule = require(player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule"))
-		local controls = playerModule:GetControls()
-		if enabled then
-			controls:Enable()
-		else
-			controls:Disable()
-		end
-	end)
-	pcall(function()
-		GuiService.TouchControlsEnabled = enabled
-	end)
-	pcall(function()
-		StarterGui:SetCore("ResetButtonCallback", enabled)
-	end)
-	pcall(function()
-		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, enabled)
-	end)
-end
 
 local function prepareCharacter(m)
 	local character = player.Character
@@ -189,7 +224,7 @@ end
 
 -- Guard refill and the awakening countdown, for the HUD meters.
 local function stepMeters(m, dt)
-	local now = os.clock()
+	local now = m.clock
 	for _, f in m.order do
 		local dirty = false
 		if f.awakened then
@@ -303,7 +338,10 @@ end
 local function detectHits(m)
 	local sim = m.sim
 	local x1, y1, x2, y2 = FighterSim.activeHitbox(sim)
-	drawHitbox(m, x1, y1, x2, y2)
+	if not m.training then
+		-- (TrainingClient draws its own hitbox overlays)
+		drawHitbox(m, x1, y1, x2, y2)
+	end
 	if not x1 then
 		return
 	end
@@ -324,7 +362,7 @@ local function detectHits(m)
 					local heavy = move and move.Kind == "Heavy"
 					-- The server will reject hits on a dodging/respawning target;
 					-- don't spark or open the combo window for those.
-					if os.clock() < (f.invulnUntil or 0) then
+					if m.clock < (f.invulnUntil or 0) then
 						continue
 					end
 					-- Predict the server's hit-stop so the freeze and the combo
@@ -377,6 +415,9 @@ local function handleSimEvent(m, ev)
 			m.me.ultUsed = true
 			ultimateCutIn(m, m.me, move)
 		end
+		if m.training then
+			trainingHook("onOwnAttack", m, ev, move)
+		end
 	elseif kind == "Release" then
 		fighterAction:FireServer("Release", { seq = ev.seq, charge = ev.charge })
 		Visuals.releaseCharge(m.character, ev.seq)
@@ -415,6 +456,9 @@ local function handleSimEvent(m, ev)
 		FighterAnimator.land(m.character)
 	elseif kind == "AttackEnd" then
 		FighterAnimator.endAttack(m.character, ev.seq)
+		if m.training then
+			trainingHook("onOwnAttackEnd", m, ev)
+		end
 	elseif kind == "Block" then
 		m.me.blocking = ev.on
 		fighterAction:FireServer("Block", { on = ev.on, facing = ev.facing })
@@ -440,6 +484,9 @@ local function step(dt)
 	if not m then
 		return
 	end
+	-- match time: slower than real time in a slowed-down training room
+	dt *= m.timeScale
+	m.clock += dt
 	local sim = m.sim
 	-- During hit-stop the sim is frozen, so buffered presses wait for it
 	-- (otherwise a cancel pressed on the hit could expire before its window).
@@ -466,9 +513,9 @@ local function step(dt)
 		if Maps.isOutOfBounds(m.world, sim.x, sim.y) then
 			-- Hold here until the server confirms the KO.
 			sim.frozen = true
-			m.waitingKO = os.clock()
+			m.waitingKO = m.clock
 		end
-	elseif m.waitingKO and os.clock() - m.waitingKO > 3 and m.me.alive then
+	elseif m.waitingKO and m.clock - m.waitingKO > 3 and m.me.alive then
 		sim.frozen = false
 		m.waitingKO = nil
 	end
@@ -490,40 +537,78 @@ local function step(dt)
 		anim,
 		anim == "Run" and math.clamp(math.abs(sim.vx) / Config.Physics.RunSpeed, 0.6, 1.4) or 1
 	)
+	if m.training then
+		trainingHook("step", m, dt)
+	end
 end
 
 -- Server events -----------------------------------------------------------
 
-local function cleanup()
+--[[
+    Tears the match down. Roblox's own controls stay off (Controls.set(false)
+    for good) and the results screen, if any, outlives the match. A match
+    that ends without results (training leave, a requeued dodge, a forfeit,
+    an abandoned match) goes back to the menu, unless keepPhase (a new
+    "Start" is replacing it).
+]]
+local function cleanup(keepPhase)
 	local m = match
 	if not m then
 		return
 	end
 	match = nil
 	RunService:UnbindFromRenderStep(STEP_NAME)
-	Input.setEnabled(false)
+	Focus.setFightInput(false)
 	CameraController.stop()
 	Visuals.stopMatch()
 	BattleFX.stopMatch()
 	FighterAnimator.stopMatch()
+	FighterAnimator.setTimeScale(1)
 	SkyBackdrop.stop()
 	CharacterAnimator.setMatchMode(false)
+	trainingHook("stop")
 	MatchHUD.hide()
 	MobileControls.hide()
-	ResultsScreen.hide()
 	if hitboxPart then
 		hitboxPart:Destroy()
 		hitboxPart = nil
 	end
 	restoreCharacter(m)
-	setDefaultControls(true)
 	ClientState.setInMatch(false)
+	if not keepPhase then
+		applyPhase(Models.phaseAfter({ type = "Cleanup" }, phaseState()))
+	end
 end
 
-local function onStart(info)
-	cleanup()
-	local character = player.Character or player.CharacterAdded:Wait()
-	character:WaitForChild("HumanoidRootPart", 5)
+-- Your character for this match: the server loaded it before "Start", but its replication may trail the event.
+local function waitForCharacter()
+	local deadline = os.clock() + CHARACTER_WAIT
+	while not player.Character and os.clock() < deadline do
+		task.wait(0.05)
+	end
+	return player.Character
+end
+
+-- The match couldn't be set up here: forfeit (the server releases your character) and go back to the menu.
+local function setupFailed(reason)
+	warn("[MatchClient] couldn't set up your fighter:", reason)
+	cleanup(true)
+	fighterAction:FireServer("Forfeit", {})
+	applyPhase(Models.phaseAfter({ type = "SetupFailed" }, phaseState()))
+end
+
+local function onStart(info, seq)
+	cleanup(true)
+	ClientState.select = nil
+	local character = waitForCharacter()
+	if character then
+		character:WaitForChild("HumanoidRootPart", 5)
+	end
+	if seq ~= startSeq or endedEarly[info.matchId] then
+		-- a newer "Start" took over, or this match ended while its fighter loaded (a pre-fight dodge): the router
+		-- already handled that, so there is nothing to set up, forfeit or toast
+		return
+	end
 
 	local m = {
 		info = info,
@@ -540,6 +625,9 @@ local function onStart(info)
 		humanoid = nil,
 		root = nil,
 		feetOffset = 3,
+		timeScale = if type(info.timeScale) == "number" and info.timeScale > 0 then info.timeScale else 1,
+		clock = 0, -- match time (see the header)
+		training = info.training == true or info.source == "Training",
 	}
 	for _, fi in info.fighters do
 		local f = {
@@ -556,6 +644,7 @@ local function onStart(info)
 			stocks = fi.stocks,
 			score = fi.score,
 			legend = fi.legend,
+			ownLook = fi.ownLook == true,
 			damage = 0,
 			ult = fi.ult or 0,
 			guard = fi.guard or B.GuardMax,
@@ -572,8 +661,8 @@ local function onStart(info)
 		table.insert(m.order, f)
 	end
 	m.me = m.fighters[info.you]
-	if not m.me or not prepareCharacter(m) then
-		warn("[MatchClient] couldn't set up your fighter")
+	if not character or not m.me or not prepareCharacter(m) then
+		setupFailed(if character then "no fighter or humanoid" else "no character")
 		return
 	end
 	m.me.model = m.character
@@ -582,11 +671,13 @@ local function onStart(info)
 	m.sim = FighterSim.newState(info.spawn.x, info.spawn.y, info.spawn.facing)
 	m.sim.frozen = true
 	match = m
+	table.clear(endedEarly)
 	applyTransform(m)
 
 	ClientState.setInMatch(true)
-	setDefaultControls(false)
-	Input.setEnabled(true)
+	Controls.set(false)
+	Focus.setFightInput(true)
+	FighterAnimator.setTimeScale(m.timeScale)
 	CameraController.start(info.origin, m.world)
 	CameraController.setProvider(cameraData)
 	Visuals.startMatch(info.origin)
@@ -601,11 +692,16 @@ local function onStart(info)
 	end
 	RunService:BindToRenderStep(STEP_NAME, Enum.RenderPriority.Input.Value + 1, step)
 	fighterAction:FireServer("Ready")
+	-- the arena is in place: the VS splash fades out, the menu music fades
+	applyPhase(Models.phaseAfter({ type = "Start" }, phaseState()))
 
 	-- UI last, and never allowed to block the fight itself.
 	local ok, err = pcall(MatchHUD.show, m)
 	if not ok then
 		warn("[MatchClient] HUD failed:", err)
+	end
+	if m.training then
+		trainingHook("start", m)
 	end
 	if UserInputService.TouchEnabled then
 		ok, err = pcall(MobileControls.show)
@@ -613,6 +709,32 @@ local function onStart(info)
 			warn("[MatchClient] touch controls failed:", err)
 		end
 	end
+end
+
+-- What the results screen needs from the match once it is gone (after "Leave").
+local function summaryOf(m)
+	local fighters = {}
+	for id, f in m.fighters do
+		fighters[id] = {
+			name = f.name,
+			legend = f.legend,
+			ownLook = f.ownLook == true,
+			userId = f.userId,
+			team = f.team,
+			isBot = f.isBot == true,
+		}
+	end
+	return {
+		mapId = m.info.mapId,
+		mode = m.info.mode,
+		source = m.info.source,
+		ranked = m.info.ranked == true,
+		queueType = m.info.queueType,
+		you = m.me.id,
+		legend = m.legend,
+		ownLook = m.me.ownLook == true,
+		fighters = fighters,
+	}
 end
 
 local handlers = {}
@@ -649,7 +771,7 @@ function handlers.Action(d)
 	elseif d.kind == "Down" then
 		local invuln = DOWN_INVULN[d.downKind]
 		if invuln then
-			f.invulnUntil = math.max(f.invulnUntil or 0, os.clock() + invuln)
+			f.invulnUntil = math.max(f.invulnUntil or 0, match.clock + invuln)
 		end
 		setBlocking(f, false)
 		FighterAnimator.down(f.model, d.downKind, d.dir)
@@ -667,7 +789,7 @@ function handlers.Action(d)
 		local P = Config.Physics
 		local invuln = ({ Spot = P.SpotDodgeTime, AirSpot = P.SpotDodgeTime, Air = P.AirDodgeInvuln })[d.dodgeKind]
 		if invuln then
-			f.invulnUntil = math.max(f.invulnUntil or 0, os.clock() + invuln)
+			f.invulnUntil = math.max(f.invulnUntil or 0, match.clock + invuln)
 		end
 		Visuals.dodge(f.model, d.dodgeKind)
 		if d.dodgeKind ~= "Dash" and d.dodgeKind ~= "Chase" then
@@ -726,6 +848,9 @@ function handlers.Hit(d)
 	if attacker then
 		MatchHUD.updateMeters(attacker)
 	end
+	if match.training then
+		trainingHook("onHit", match, d)
+	end
 end
 
 -- A hit landed on someone's guard.
@@ -735,7 +860,7 @@ function handlers.Blocked(d)
 	if victim then
 		victim.guard = d.guard
 		victim.ult = d.ult or victim.ult
-		victim.lastGuardHit = os.clock()
+		victim.lastGuardHit = match.clock
 		MatchHUD.updateMeters(victim)
 	end
 	-- your own blocked hits already flashed locally
@@ -764,7 +889,7 @@ function handlers.GuardBreak(d)
 	end
 	victim.guard = 0
 	victim.ult = d.ult or victim.ult
-	victim.lastGuardHit = os.clock()
+	victim.lastGuardHit = match.clock
 	setBlocking(victim, false)
 	BattleFX.guardBreak(d.x, d.y)
 	BattleFX.impactFrame({ attacker and attacker.model, victim.model }, 0.12)
@@ -793,7 +918,7 @@ function handlers.Awaken(d)
 	if not f then
 		return
 	end
-	local now = os.clock()
+	local now = match.clock
 	f.awakened = true
 	f.ult = 0
 	f.ultUsed = false
@@ -902,8 +1027,9 @@ function handlers.Respawn(d)
 		return
 	end
 	f.alive = true
-	f.damage = 0
-	f.respawnInvulnUntil = os.clock() + (d.invuln or 0)
+	-- 0 normally; training can keep the damage over a KO, and placing a fighter keeps it
+	f.damage = if type(d.damage) == "number" then d.damage else 0
+	f.respawnInvulnUntil = match.clock + (d.invuln or 0)
 	f.invulnUntil = math.max(f.invulnUntil or 0, f.respawnInvulnUntil)
 	if f == match.me then
 		FighterSim.respawn(match.sim, d.x, d.y, d.facing, d.invuln)
@@ -934,13 +1060,83 @@ function handlers.Left(d)
 	end
 end
 
+-- Slow motion (training): the sim, input and animation run on match time.
+function handlers.TimeScale(d)
+	local scale = d.scale
+	if type(scale) ~= "number" or scale ~= scale or scale <= 0 or scale == math.huge then
+		return
+	end
+	match.timeScale = scale
+	FighterAnimator.setTimeScale(scale)
+end
+
+-- A fighter's legend changed (training): re-track the model so the animator binds the new rig.
+function handlers.Legend(d)
+	local m = match
+	local f = m.fighters[d.fighterId]
+	if not f or not Legends.isValid(d.legend) then
+		return
+	end
+	f.legend = d.legend
+	f.ownLook = d.ownLook == true
+	if f == m.me then
+		m.legend = d.legend
+	end
+	local function retrack()
+		if match == m and f.model and f.model.Parent and f.legend == d.legend then
+			-- (the weapon too: the server's "Weapon" for a weapon the new legend keeps came before this "Legend")
+			FighterAnimator.untrack(f.model)
+			FighterAnimator.track(f.model, { isMe = f == m.me, legend = d.legend, weapon = f.weapon })
+		end
+	end
+	retrack()
+	-- the server swaps the rig before it broadcasts, but bind again once the swap has surely replicated
+	task.delay(LEGEND_RETRACK, retrack)
+	MatchHUD.updateFighter(f)
+end
+
+-- Damage set outside a hit (training).
+function handlers.Damage(d)
+	local f = match.fighters[d.fighterId]
+	if not f or type(d.total) ~= "number" then
+		return
+	end
+	f.damage = d.total
+	MatchHUD.updateFighter(f)
+end
+
+function handlers.Training(d)
+	trainingHook("onServer", match, d)
+end
+
 function handlers.End(d)
-	match.phase = "Ended"
-	match.sim.frozen = true
-	Input.setEnabled(false)
+	local m = match
+	m.phase = "Ended"
+	m.sim.frozen = true
+	Focus.setFightInput(false)
 	MobileControls.hide()
 	MatchHUD.ended()
-	ResultsScreen.show(d, match)
+	if m.training or d.source == "Training" or d.requeued then
+		-- no results: the following "Leave" returns you to the menu
+		if d.requeued then
+			ClientState.toast(REQUEUED_TOAST, "good")
+		end
+		return
+	end
+	local summary = summaryOf(m)
+	task.delay(Config.Menu.ResultsDelay, function()
+		-- (a match whose "Leave" came first is back in the menu: the results still show over it)
+		if ClientState.phase ~= "Match" and ClientState.phase ~= "Menu" then
+			return
+		end
+		local ok, shown = pcall(ResultsScreen.show, d, summary)
+		if not ok or not shown then
+			-- no results: "Leave" (or the menu you're already in) takes over
+			warn("[MatchClient] results failed:", if ok then "not shown" else shown)
+			return
+		end
+		ClientState.setPhase("Results")
+	end)
 end
 
 function handlers.Leave()
@@ -953,27 +1149,63 @@ end
 
 function MatchClient.init()
 	Net.get("MatchEvent").OnClientEvent:Connect(function(kind, data)
-		if kind == "Start" then
-			onStart(data)
+		data = if type(data) == "table" then data else {}
+		local route = Models.routeMatchEvent(kind, data, match and match.info.matchId, match ~= nil)
+		if route == "start" then
+			startSeq += 1
+			local seq = startSeq
+			local ok, err = pcall(onStart, data, seq)
+			if not ok and seq == startSeq and not endedEarly[data.matchId] then
+				setupFailed(err)
+			end
 			return
-		end
-		if not match then
+		elseif route == "orphan" then
+			-- no match here: an End / Leave of the VS match means it died before "Start" (or while its fighter
+			-- loaded: onStart then gives up)
+			if kind == "End" or kind == "Leave" then
+				if data.matchId ~= nil then
+					endedEarly[data.matchId] = true
+				end
+				applyPhase(Models.phaseAfter({
+					type = "MatchEnd",
+					matchId = data.matchId,
+					requeued = data.requeued == true,
+				}, phaseState()))
+			end
+			return
+		elseif route == "ignore" then
+			-- a late event of another match
 			return
 		end
 		local handler = handlers[kind]
 		if handler then
-			local ok, err = pcall(handler, data or {})
+			local ok, err = pcall(handler, data)
 			if not ok then
 				warn("[MatchClient]", kind, err)
 			end
 		end
 	end)
 
-	-- A new character means we're back in the lobby (match over, or you
-	-- forfeited / reset).
-	player.CharacterAdded:Connect(function()
-		if match then
+	-- Characters exist only in matches: losing yours before the end (a forfeit, a server error) means you're out.
+	-- The server takes it with `Character = nil` and Destroy (no LoadCharacter), so the Character property going
+	-- nil is watched too. [Studio check: whether CharacterRemoving fires on the client for that.]
+	local function characterGone()
+		if match and match.phase ~= "Ended" then
 			cleanup()
+		end
+	end
+	player.CharacterRemoving:Connect(characterGone)
+	player:GetPropertyChangedSignal("Character"):Connect(function()
+		if player.Character == nil then
+			characterGone()
+		end
+	end)
+
+	-- Leaving an ended match's screen before its "Leave" (MENU on the results): the HUD (GAME!, the cards; it
+	-- draws above the menu) goes at once
+	ClientState.PhaseChanged:Connect(function(phase)
+		if match and match.phase == "Ended" and phase ~= "Match" then
+			MatchHUD.hide()
 		end
 	end)
 end

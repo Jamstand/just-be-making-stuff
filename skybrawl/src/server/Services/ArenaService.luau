@@ -1,9 +1,14 @@
 --[[
-    Builds the lobby and the arenas.
+    Builds the arenas and hands out arena slots. There is no lobby: players
+    sit in the menus between matches and only have a character in a match.
 
     Arenas are built from Maps data when a match starts and destroyed when
     it ends. Each arena slot sits far apart on the X axis so matches running
-    side by side can never see each other.
+    side by side can never see each other. Slots come from two pools:
+      Match     slots 1..Config.Match.MaxArenas (queues, custom rooms, bots;
+                the select phase reserves one before the match exists)
+      Training  the next Config.Training.MaxRooms slots, so training rooms
+                never block matchmaking
 
     A map with a Kit uses the imported Blender kit from
     ReplicatedStorage.MapModels.<Kit> when it's there (see art/IMPORTING.md);
@@ -60,14 +65,6 @@ local function part(parent, name, size, cframe, color, material, shape)
 		p.Shape = shape
 	end
 	p.Parent = parent
-	return p
-end
-
-local function solidPart(parent, name, size, cframe, color, material, shape)
-	local p = part(parent, name, size, cframe, color, material, shape)
-	p.CanCollide = true
-	p.CanQuery = true
-	p.CollisionGroup = "Default"
 	return p
 end
 
@@ -407,8 +404,18 @@ end
 
 -- Slots -------------------------------------------------------------------
 
-function ArenaService.acquire()
-	for slot = 1, Config.Match.MaxArenas do
+-- First and last slot of a pool ("Match" when nil).
+local function poolRange(pool)
+	if pool == "Training" then
+		return Config.Match.MaxArenas + 1, Config.Match.MaxArenas + Config.Training.MaxRooms
+	end
+	return 1, Config.Match.MaxArenas
+end
+
+-- Reserves a free slot of the pool. Returns slot, origin (nil when the pool is full).
+function ArenaService.acquire(pool)
+	local first, last = poolRange(pool)
+	for slot = first, last do
 		if not slotsInUse[slot] then
 			slotsInUse[slot] = true
 			local origin = Vector3.new(slot * Config.Match.ArenaSpacing, Config.Match.ArenaHeight, 0)
@@ -422,175 +429,15 @@ function ArenaService.release(slot)
 	slotsInUse[slot] = nil
 end
 
-function ArenaService.freeSlots()
+function ArenaService.freeSlots(pool)
+	local first, last = poolRange(pool)
 	local free = 0
-	for slot = 1, Config.Match.MaxArenas do
+	for slot = first, last do
 		if not slotsInUse[slot] then
 			free += 1
 		end
 	end
 	return free
-end
-
--- Lobby -------------------------------------------------------------------
-
-local function kiosk(parent, position, label, panel, color)
-	local model = Instance.new("Model")
-	model.Name = "Kiosk_" .. panel
-	local base = solidPart(
-		model,
-		"Pedestal",
-		Vector3.new(4, 3, 4),
-		CFrame.new(position + Vector3.new(0, 1.5, 0)),
-		COLORS.Rock,
-		Enum.Material.Slate
-	)
-	solidPart(
-		model,
-		"Cap",
-		Vector3.new(5, 0.6, 5),
-		CFrame.new(position + Vector3.new(0, 3.3, 0)),
-		COLORS.RuinDark,
-		Enum.Material.Limestone
-	)
-	local crystal = part(
-		model,
-		"Crystal",
-		Vector3.new(1.6, 3.2, 1.6),
-		CFrame.new(position + Vector3.new(0, 5.6, 0)) * CFrame.Angles(0, math.rad(45), 0),
-		color,
-		Enum.Material.Neon
-	)
-	crystal.CollisionGroup = "Default"
-	local light = Instance.new("PointLight")
-	light.Color = color
-	light.Range = 14
-	light.Brightness = 1.5
-	light.Parent = crystal
-
-	local sign = Instance.new("BillboardGui")
-	sign.Size = UDim2.fromOffset(220, 50)
-	sign.StudsOffsetWorldSpace = Vector3.new(0, 4, 0)
-	sign.LightInfluence = 0
-	sign.MaxDistance = 140
-	sign.Parent = crystal
-	local text = Instance.new("TextLabel")
-	text.Size = UDim2.fromScale(1, 1)
-	text.BackgroundTransparency = 1
-	text.Font = Enum.Font.FredokaOne
-	text.TextSize = 30
-	text.Text = label
-	text.TextColor3 = Color3.new(1, 1, 1)
-	text.TextStrokeTransparency = 0.2
-	text.TextStrokeColor3 = Color3.fromRGB(20, 25, 50)
-	text.Parent = sign
-
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Open"
-	prompt.ObjectText = label
-	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 12
-	prompt.RequiresLineOfSight = false
-	prompt:SetAttribute("Panel", panel)
-	prompt.Parent = base
-
-	model.Parent = parent
-	return model
-end
-
-function ArenaService.buildLobby()
-	local lobby = workspace:FindFirstChild("Lobby")
-	if not lobby then
-		lobby = Instance.new("Folder")
-		lobby.Name = "Lobby"
-		lobby.Parent = workspace
-	end
-	local rng = Random.new(7)
-
-	-- Main island (top surface at y = 0).
-	local island = solidPart(
-		lobby,
-		"Island",
-		Vector3.new(4, 120, 120),
-		CFrame.new(0, -2, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		COLORS.Grass,
-		Enum.Material.Grass,
-		Enum.PartType.Cylinder
-	)
-	island.CastShadow = true
-	part(
-		lobby,
-		"IslandRock1",
-		Vector3.new(10, 112, 112),
-		CFrame.new(0, -9, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		COLORS.Rock,
-		Enum.Material.Slate,
-		Enum.PartType.Cylinder
-	)
-	part(
-		lobby,
-		"IslandRock2",
-		Vector3.new(14, 80, 80),
-		CFrame.new(0, -20, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		COLORS.RockDark,
-		Enum.Material.Slate,
-		Enum.PartType.Cylinder
-	)
-	part(
-		lobby,
-		"IslandRock3",
-		Vector3.new(16, 40, 40),
-		CFrame.new(0, -34, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		COLORS.RockDark,
-		Enum.Material.Slate,
-		Enum.PartType.Cylinder
-	)
-	-- An invisible rim so nobody walks off the edge by accident.
-	for i = 0, 23 do
-		local angle = i / 24 * math.pi * 2
-		local wall = solidPart(
-			lobby,
-			"Rim",
-			Vector3.new(16, 8, 1),
-			CFrame.new(math.cos(angle) * 59.5, 4, math.sin(angle) * 59.5) * CFrame.Angles(0, -angle + math.pi / 2, 0),
-			Color3.new(1, 1, 1)
-		)
-		wall.Transparency = 1
-	end
-
-	for i = 0, 9 do
-		local angle = i / 10 * math.pi * 2 + rng:NextNumber(-0.2, 0.2)
-		local r = rng:NextNumber(44, 52)
-		tree(lobby, Vector3.new(math.cos(angle) * r, 0, math.sin(angle) * r), rng, rng:NextNumber(1, 1.4), i % 3 == 0)
-	end
-
-	kiosk(lobby, Vector3.new(0, 0, -26), "PLAY", "Play", Color3.fromRGB(255, 200, 70))
-	kiosk(lobby, Vector3.new(-24, 0, -14), "CUSTOM ROOMS", "Rooms", Color3.fromRGB(110, 210, 255))
-	kiosk(lobby, Vector3.new(24, 0, -14), "SHOP", "Shop", Color3.fromRGB(255, 120, 200))
-	kiosk(lobby, Vector3.new(-24, 0, 14), "FIGHTERS", "Fighters", Color3.fromRGB(140, 255, 160))
-
-	for _ = 1, 10 do
-		local angle = rng:NextNumber(0, math.pi * 2)
-		local r = rng:NextNumber(90, 170)
-		floatingIsland(
-			lobby,
-			Vector3.new(math.cos(angle) * r, rng:NextNumber(-30, 40), math.sin(angle) * r),
-			rng:NextNumber(10, 26),
-			rng
-		)
-	end
-	for _ = 1, 12 do
-		local angle = rng:NextNumber(0, math.pi * 2)
-		local r = rng:NextNumber(110, 260)
-		cloud(
-			lobby,
-			Vector3.new(math.cos(angle) * r, rng:NextNumber(-20, 70), math.sin(angle) * r),
-			rng,
-			rng:NextNumber(1, 2)
-		)
-	end
-
-	return lobby
 end
 
 function ArenaService.init()
@@ -599,7 +446,6 @@ function ArenaService.init()
 		arenas.Name = "Arenas"
 		arenas.Parent = workspace
 	end
-	ArenaService.buildLobby()
 end
 
 function ArenaService.start() end

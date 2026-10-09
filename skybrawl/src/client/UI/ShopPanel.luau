@@ -1,39 +1,55 @@
 --[[
-    Cosmetic shop: weapon colors, trails, KO effects and titles, bought
-    with coins earned from matches.
+    Cosmetic shop (the menus' STORE screen, menus design 5.8): weapon
+    colors, trails, KO effects and titles, bought with coins earned from
+    matches.
+
+    ShopPanel.mount(parent, host) builds it as a menu screen
+    (Screens/Store): category tabs (L1/R1) over a grid of item cards. The
+    cards are built once, keyed by item id, and updated in place when your
+    profile changes. Confirm (or a click / tap) on an item you own equips
+    it; on one you don't, it asks first (UIKit.dialog "Buy for <price>
+    coins?"), since coins spent can't come back. Prices are in Gold.
+    ShopPanel.create(gui, close) is the old window around it, kept while
+    LobbyUI exists.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Cosmetics = require(Shared.Cosmetics)
-local Util = require(Shared.Util)
-local Net = require(Shared.Net)
 
 local UIKit = require(script.Parent.UIKit)
+local Focus = require(script.Parent.Focus)
+local Layout = require(script.Parent.Layout)
 local ClientState = require(script.Parent.Parent.ClientState)
+local Common = require(script.Parent.Screens.Common)
+local Models = require(script.Parent.Screens.Models)
 
 local T = UIKit.Theme
 local make = UIKit.make
 
 local ShopPanel = {}
 
-local function swatch(item)
-	local frame = make("Frame", {
-		BackgroundColor3 = T.PanelLight,
-		BorderSizePixel = 0,
-		Size = UDim2.new(1, 0, 0, 56),
-	}, { UIKit.corner(10) })
+local CARD_HEIGHT = 270 -- design px
+local CARD_GAP = 14
+local PHONE_TABS = 80 -- the phone tab bar, design px (46 px on a 390 px phone)
+
+-- The item's look: colours for weapon colors, a gradient for trails and KO effects, the text for titles.
+local function swatch(item, parent)
+	local frame = Common.fill(T.PanelLight, {
+		Name = "Swatch",
+		Size = UDim2.fromScale(1, 0.56),
+		ClipsDescendants = true,
+		Parent = parent,
+	})
 	if item.Category == "WeaponColor" then
 		frame.BackgroundColor3 = item.Primary
-		make("Frame", {
-			BackgroundColor3 = item.Secondary,
-			BorderSizePixel = 0,
+		Common.fill(item.Secondary, {
 			AnchorPoint = Vector2.new(1, 1),
 			Position = UDim2.fromScale(1, 1),
 			Size = UDim2.fromScale(0.3, 0.45),
 			Parent = frame,
-		}, { UIKit.corner(8) })
+		})
 	elseif item.Category == "Trail" or item.Category == "KOEffect" then
 		local colors = item.Colors or (item.Color and { item.Color, item.Color:Lerp(Color3.new(1, 1, 1), 0.5) })
 		if colors then
@@ -48,105 +64,333 @@ local function swatch(item)
 			make("UIGradient", { Color = ColorSequence.new(keypoints), Parent = frame })
 		end
 		if item.Style then
-			UIKit.heading(item.Style, 18, {
-				Size = UDim2.fromScale(1, 1),
+			Common.text(item.Style, 30, {
+				Font = T.HeadFont,
 				TextXAlignment = Enum.TextXAlignment.Center,
 				TextColor3 = Color3.fromRGB(30, 30, 50),
+				TextWrapped = false,
 				Parent = frame,
 			})
 		end
 	elseif item.Category == "Title" then
-		UIKit.heading(item.Name, 20, {
-			Size = UDim2.fromScale(1, 1),
+		Common.text(item.Name, 34, {
+			Font = T.HeadFont,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			TextColor3 = Color3.fromRGB(255, 225, 140),
+			TextWrapped = false,
 			Parent = frame,
 		})
 	end
 	return frame
 end
 
-function ShopPanel.create(gui, close)
-	local window, body = UIKit.window(gui, "Shop", close)
-	local category = Cosmetics.Categories[1]
+-- Builds the shop as a menu screen inside `parent`. Returns the ScreenInstance (menus design 3.8).
+function ShopPanel.mount(parent, host)
+	local root = Common.root({ content = parent }, "Store")
+	local sizer = Common.sizer(root)
+	local bag = Common.bag()
 
-	local tabs = {}
-	for _, id in Cosmetics.Categories do
-		table.insert(tabs, { id = id, label = Cosmetics.CategoryNames[id] })
+	local category = Cosmetics.Categories[1]
+	local container, grid, gridLayout, selectTab
+	local cards = {} -- [itemId] = card parts
+	local columns = 5
+	local closeDialog = nil -- the open "Buy ...?" dialog's close()
+
+	local function request(action, item)
+		local ok, message = Common.invoke("ShopRequest", action, item.Id)
+		host.toast(message or (if ok then "Done." else "Couldn't do that."), ok and "good" or "error")
 	end
 
-	local grid = UIKit.scroll({
-		Position = UDim2.fromOffset(0, 48),
-		Size = UDim2.new(1, 0, 1, -48),
-		Parent = body,
-	})
-	make("UIGridLayout", {
-		CellSize = UDim2.fromOffset(196, 150),
-		CellPadding = UDim2.fromOffset(10, 10),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = grid,
-	})
+	local function buy(item)
+		local view = Models.shopItem(item, ClientState.profile)
+		if view.state == "Equipped" then
+			host.toast(item.Name .. " is equipped.", "info")
+			return
+		elseif view.state == "Owned" then
+			request("Equip", item)
+			return
+		elseif not view.affordable then
+			host.toast("You need " .. view.label .. " coins for " .. item.Name .. ".", "error")
+			return
+		end
+		if closeDialog then
+			return
+		end
+		closeDialog = UIKit.dialog({
+			title = string.upper(item.Name),
+			body = "Buy " .. item.Name .. " for " .. view.label .. " coins?",
+			confirm = "BUY",
+			cancel = "CANCEL",
+			onConfirm = function()
+				closeDialog = nil
+				request("Buy", item)
+			end,
+			onCancel = function()
+				closeDialog = nil
+			end,
+		})
+	end
+
+	local rewireTop = function() end
+	local setCategory
+
+	local function visibleCards()
+		local out = {}
+		for i, item in Cosmetics.inCategory(category) do
+			local c = cards[item.Id]
+			if c then
+				out[i] = c.button
+			end
+		end
+		return out
+	end
+
+	local function linkCards()
+		local list = visibleCards()
+		local rows = {}
+		for i, button in list do
+			local r = math.floor((i - 1) / columns) + 1
+			rows[r] = rows[r] or {}
+			table.insert(rows[r], button)
+		end
+		Focus.linkGrid(rows)
+	end
+
+	local function renderCard(c)
+		local view = Models.shopItem(c.item, ClientState.profile)
+		c.price.Text = view.label
+		c.coin.Visible = view.state == "Buy"
+		c.price.Position = UDim2.fromScale(if view.state == "Buy" then 0.2 else 0.06, 0.8)
+		if view.state == "Equipped" then
+			c.price.TextColor3 = T.Good
+		elseif view.state == "Owned" then
+			c.price.TextColor3 = T.Muted
+		else
+			c.price.TextColor3 = T.Gold
+		end
+		c.price.TextTransparency = if view.state == "Buy" and not view.affordable then 0.45 else 0
+		c.equipped.Visible = view.state == "Equipped"
+	end
 
 	local function render()
-		for _, child in grid:GetChildren() do
-			if child:IsA("Frame") then
-				child:Destroy()
+		for _, c in cards do
+			c.button.Visible = c.item.Category == category
+			if c.button.Visible then
+				renderCard(c)
 			end
 		end
-		local profile = ClientState.profile
-		for i, item in Cosmetics.inCategory(category) do
-			local owned = profile and profile.Owned[item.Id]
-			local equipped = profile and profile.Equipped[item.Category] == item.Id
-			local cardFrame = UIKit.panel({ LayoutOrder = i, BackgroundColor3 = T.Panel, Parent = grid })
-			UIKit.padding(10, 8).Parent = cardFrame
-			UIKit.list(Enum.FillDirection.Vertical, 6).Parent = cardFrame
-			local sw = swatch(item)
-			sw.LayoutOrder = 1
-			sw.Parent = cardFrame
-			UIKit.heading(item.Name, 17, { LayoutOrder = 2, Size = UDim2.new(1, 0, 0, 20), Parent = cardFrame })
-			local text, style
-			if equipped then
-				text, style = "Equipped", "ghost"
-			elseif owned then
-				text, style = "Equip", "secondary"
-			else
-				text, style = Util.formatNumber(item.Price) .. " coins", "primary"
-			end
-			local button = UIKit.button(text, style, function()
-				local action = owned and "Equip" or "Buy"
-				local ok, message = Net.get("ShopRequest"):InvokeServer(action, item.Id)
-				ClientState.toast(message or "", ok and "good" or "error")
-			end, { LayoutOrder = 3, Size = UDim2.new(1, 0, 0, 34), TextSize = 16, Parent = cardFrame })
-			if equipped then
-				UIKit.setEnabled(button, false)
-			elseif not owned and profile and profile.Coins < item.Price then
-				button.BackgroundTransparency = 0.4
-			end
+		linkCards()
+		-- linkGrid cleared the top row's Up link to CANCEL
+		rewireTop()
+	end
+
+	function setCategory(id)
+		if id == category then
+			return
+		end
+		category = id
+		render()
+	end
+
+	local function buildCard(item, order)
+		local button = make("TextButton", {
+			Name = item.Id,
+			AutoButtonColor = false,
+			Text = "",
+			BackgroundColor3 = T.Raised,
+			BorderSizePixel = 0,
+			LayoutOrder = order,
+			Parent = grid,
+		})
+		Common.stroke(button, T.Stroke, 2)
+		swatch(item, button)
+		Common.text(item.Name, 30, {
+			Name = "ItemName",
+			Font = T.HeadFont,
+			Position = UDim2.fromScale(0.06, 0.6),
+			Size = UDim2.fromScale(0.88, 0.17),
+			TextWrapped = false,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = button,
+		})
+		local coin = Common.fill(T.Gold, {
+			Name = "Coin",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.fromScale(0.06, 0.885),
+			Size = UDim2.fromScale(0.1, 0.1),
+			Parent = button,
+		})
+		make("UIAspectRatioConstraint", { AspectRatio = 1, Parent = coin })
+		make("UICorner", { CornerRadius = UDim.new(0.5, 0), Parent = coin })
+		local price = Common.text("", 30, {
+			Name = "Price",
+			Font = T.LogoFont,
+			TextColor3 = T.Gold,
+			Position = UDim2.fromScale(0.2, 0.8),
+			Size = UDim2.fromScale(0.74, 0.17),
+			TextWrapped = false,
+			Parent = button,
+		})
+		local equipped = Common.tag("EQUIPPED", {
+			name = "EquippedTag",
+			anchor = Vector2.new(1, 0),
+			position = UDim2.fromScale(0.97, 0.04),
+			size = UDim2.fromScale(0.5, 0.1),
+			fill = T.Good,
+			textColor = T.Backdrop,
+			zIndex = 3,
+			parent = button,
+		})
+		cards[item.Id] = { item = item, button = button, price = price, coin = coin, equipped = equipped }
+		Common.focusable(button, { key = "Shop" .. item.Id }, function()
+			buy(item)
+		end)
+	end
+
+	-- the grid's cells in px (re-applied when the safe area changes); on phones the grid starts below the tabs
+	local function applyCells()
+		if gridLayout and gridLayout.Parent then
+			local gap = Layout.px(CARD_GAP)
+			gridLayout.CellPadding = UDim2.fromOffset(gap, gap)
+			gridLayout.CellSize = UDim2.new(1 / columns, -gap, 0, Layout.px(CARD_HEIGHT))
+		end
+		if grid and grid.Parent and Common.isPhone() then
+			local below = Layout.px(PHONE_TABS + 10)
+			grid.Position = UDim2.fromOffset(0, below)
+			grid.Size = UDim2.new(1, 0, 1, -below)
 		end
 	end
 
-	local tabBar, selectTab = UIKit.tabs(tabs, function(id)
-		category = id
-		render()
-	end)
-	tabBar.Parent = body
-
-	ClientState.ProfileChanged:Connect(function()
-		if window.Visible then
-			render()
+	local function build()
+		if container then
+			container:Destroy()
 		end
+		table.clear(cards)
+		local phone = Common.isPhone()
+		columns = if phone then 3 else 5
+		container = Common.region(root)
+		local tabs = {}
+		for _, id in Cosmetics.Categories do
+			table.insert(tabs, { id = id, label = string.upper(Cosmetics.CategoryNames[id]) })
+		end
+		-- (phone: the grid is the scrolling list, so the body itself doesn't scroll; nested scrolling frames
+		-- would trap touch drags)
+		local tabBar, selectFromBar = UIKit.tabBar(tabs, {
+			name = "Categories",
+			style = "big",
+			position = UDim2.fromScale(0, 0),
+			size = UDim2.fromScale(if phone then 1 else 0.7, if phone then 0.12 else 0.08),
+			parent = container,
+			onSelect = setCategory,
+		})
+		selectTab = selectFromBar
+		if phone then
+			-- tabs at least 44 px tall
+			sizer.height(tabBar, PHONE_TABS, UDim.new(1, 0))
+		end
+		local top = if phone then 0.15 else 0.11
+		grid = make("ScrollingFrame", {
+			Name = "Grid",
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Position = UDim2.fromScale(0, top),
+			Size = UDim2.fromScale(1, 1 - top),
+			CanvasSize = UDim2.new(),
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			ScrollingDirection = Enum.ScrollingDirection.Y,
+			ScrollBarThickness = 6,
+			ScrollBarImageColor3 = T.Dim,
+			Selectable = false,
+			Parent = container,
+		})
+		gridLayout = make("UIGridLayout", {
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Parent = grid,
+		})
+		applyCells()
+		local order = 0
+		for _, id in Cosmetics.Categories do
+			for _, item in Cosmetics.inCategory(id) do
+				order += 1
+				buildCard(item, order)
+			end
+		end
+		render()
+		selectFromBar(category)
+	end
+	build()
+	sizer.watch(applyCells)
+
+	rewireTop = Common.linkTop(host, function()
+		local list = visibleCards()
+		local top = {}
+		for i = 1, math.min(columns, #list) do
+			table.insert(top, list[i])
+		end
+		return top
 	end)
+	Common.onModeChange(root, function()
+		build()
+		rewireTop()
+		host.refresh()
+	end)
+
+	local function cycle(delta)
+		local index = table.find(Cosmetics.Categories, category) or 1
+		local id = Cosmetics.Categories[(index - 1 + delta) % #Cosmetics.Categories + 1]
+		setCategory(id)
+		selectTab(id)
+		local first = visibleCards()[1]
+		if first then
+			Focus.set(first)
+		end
+	end
 
 	return {
-		window = window,
-		open = function()
-			window.Visible = true
-			selectTab(category)
+		root = root,
+		show = function()
+			bag.add(ClientState.ProfileChanged:Connect(render))
+			render()
+			rewireTop()
 		end,
-		close = function()
-			window.Visible = false
+		hide = function()
+			bag.clear()
+			if closeDialog then
+				closeDialog()
+				closeDialog = nil
+			end
+		end,
+		defaultFocus = function()
+			return visibleCards()[1]
+		end,
+		actions = {
+			L1 = function()
+				cycle(-1)
+			end,
+			R1 = function()
+				cycle(1)
+			end,
+		},
+		hints = function()
+			return {
+				{ action = "Confirm", label = "BUY / EQUIP" },
+				{ action = "L1", label = "" },
+				{
+					action = "R1",
+					label = "CATEGORY",
+					onClick = function()
+						cycle(1)
+					end,
+				},
+				{ action = "Back", label = "BACK" },
+			}
 		end,
 	}
+end
+
+-- The old Shop window (LobbyUI). TODO(I): delete once LobbyUI is gone (menus design 5.8).
+function ShopPanel.create(gui, close)
+	return Common.legacyWindow(gui, "Shop", close, ShopPanel.mount)
 end
 
 return ShopPanel
