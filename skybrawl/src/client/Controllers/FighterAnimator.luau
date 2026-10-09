@@ -49,6 +49,14 @@
     of the same name, turned into the bone's own axes. Sway bones (capes,
     hair, tails) hang from a joint and follow it on damped springs, within a
     swing limit, and capes never swing through the body.
+
+    Menus: preview rigs (track with preview = true) outlive matches
+    (stopMatch drops only match rigs) and always play at 1x, while
+    setTimeScale slows match rigs (training slow motion). still() poses a
+    preview once in its idle and never updates it again (portraits). A
+    preview tracked before its model is parented waits up to
+    PREVIEW_PARENT_WAIT seconds for a parent instead of being dropped (a
+    still one is posed as soon as it has one).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -114,6 +122,8 @@ local LOCO_FADE = 0.12
 local ACTION_FADE_IN = 0.05
 local ACTION_FADE_OUT = 0.12
 local MAX_FADE = 0.2
+-- A preview tracked before its model has a parent waits this long (seconds of frames) for one.
+local PREVIEW_PARENT_WAIT = 5
 -- Fastest a joint may turn: 55 degrees a frame at 60 fps.
 local MAX_TURN = math.rad(55 * 60)
 local RIG_HEIGHT = 6
@@ -153,6 +163,7 @@ local LEGS = {
 local rigs = {} -- [model] = rig
 local world = nil
 local origin = Vector3.zero
+local timeScale = 1 -- match rigs only; previews always play at 1x
 
 -- Clips -------------------------------------------------------------------
 
@@ -698,6 +709,7 @@ function FighterAnimator.track(model, opts)
 		airborneFor = 0,
 		weaponHand = setmetatable({}, { __mode = "k" }),
 		trailOn = false,
+		parentWait = if opts.preview == true and not model.Parent then PREVIEW_PARENT_WAIT else nil,
 	}
 	bindJoints(rig)
 	rigs[model] = rig
@@ -1428,6 +1440,33 @@ local function updateRig(rig, dt)
 	end
 end
 
+-- Samples a still rig's pose once (its idle at t = 0).
+local function poseStill(rig)
+	rig.posed = true
+	local ok, err = pcall(updateRig, rig, 0)
+	if not ok then
+		warn("[FighterAnimator]", err)
+	end
+end
+
+--[[
+    A still preview: tracked like track(model, opts) with preview = true,
+    posed once in its idle, then skipped by the frame loop (no per-frame
+    cost). A parented model is posed right away; one that isn't parented
+    yet is posed on the first frame after it gets a parent (within
+    PREVIEW_PARENT_WAIT seconds). untrack works as usual.
+]]
+function FighterAnimator.still(model, opts)
+	local previewOpts = table.clone(opts or {})
+	previewOpts.preview = true
+	local rig = FighterAnimator.track(model, previewOpts)
+	rig.still = true
+	if model.Parent then
+		poseStill(rig)
+	end
+	return rig
+end
+
 -- Match lifecycle ----------------------------------------------------------------
 
 function FighterAnimator.startMatch(mapId, arenaOrigin)
@@ -1435,15 +1474,45 @@ function FighterAnimator.startMatch(mapId, arenaOrigin)
 	origin = arenaOrigin
 end
 
+-- Drops the match's rigs; menu previews stay tracked.
 function FighterAnimator.stopMatch()
-	FighterAnimator.untrackAll()
+	for model, rig in rigs do
+		if not rig.preview then
+			FighterAnimator.untrack(model)
+		end
+	end
 	world = nil
+	timeScale = 1
+end
+
+-- Slows (or speeds up) every match rig's animation; previews keep playing at 1x.
+function FighterAnimator.setTimeScale(scale)
+	timeScale = if type(scale) == "number" and scale >= 0 and scale < math.huge then scale else 1
 end
 
 function FighterAnimator.init()
 	RunService.PreRender:Connect(function(dt)
-		for _, rig in rigs do
-			local ok, err = pcall(updateRig, rig, dt)
+		for model, rig in rigs do
+			if rig.parentWait then
+				-- a preview built before it was parented: wait for the parent instead of dropping it
+				if not model.Parent then
+					rig.parentWait -= dt
+					if rig.parentWait <= 0 then
+						rigs[model] = nil
+					end
+					continue
+				end
+				rig.parentWait = nil
+			end
+			if rig.still then
+				if not model.Parent then
+					rigs[model] = nil
+				elseif not rig.posed then
+					poseStill(rig)
+				end
+				continue
+			end
+			local ok, err = pcall(updateRig, rig, if rig.preview then dt else dt * timeScale)
 			if not ok then
 				warn("[FighterAnimator]", err)
 				rigs[rig.model] = nil

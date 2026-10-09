@@ -8,6 +8,7 @@
 local Config = {}
 
 Config.GameName = "Skybrawl"
+Config.GameVersion = "0.9"
 
 -- Movement ----------------------------------------------------------------
 
@@ -178,7 +179,8 @@ Config.Match = {
 	ArenaSpacing = 2500,
 	ArenaHeight = 300,
 	CountdownSeconds = 3,
-	ResultsSeconds = 9,
+	ResultsSeconds = 9, -- deprecated: the results screen is client-side now (EndLingerSeconds)
+	EndLingerSeconds = 3, -- after "End" the arena stays this long, then everyone is released
 	LoadTimeout = 10,
 	DefaultStocks = 3,
 	DefaultTimeLimit = 480, -- stock matches still end after this long
@@ -210,6 +212,8 @@ Config.Queue = {
 	FFAStartAfterSeconds = 20, -- start an FFA with 2-3 people after this
 	FFAFillWithBots = true,
 	FFAFillDifficulty = "Normal",
+	StatsSeconds = 2, -- QueueStats broadcast interval
+	RequestCooldown = 0.5, -- per-player QueueRequest spam guard
 	MapPools = {
 		["1v1"] = { "SkyShip", "FrozenPeaks", "JungleTemple", "SkyholdKeep", "AncientRuins", "DuelRock" },
 		["2v2"] = { "SkyShip", "VolcanicForge", "JungleTemple", "SkyholdKeep", "TwinIsles", "AncientRuins" },
@@ -228,6 +232,51 @@ Config.Rooms = {
 	DamageMultMin = 0.5,
 	DamageMultMax = 3,
 	FriendCacheSeconds = 60,
+}
+
+-- Parties: up to MaxSize players queue, enter rooms and play bots together.
+Config.Party = {
+	MaxSize = 4,
+	InviteSeconds = 30, -- countdown on an invite once the invitee is free to answer
+	WaitingInviteSeconds = 600, -- an invite to a busy player waits at most this long for them to come back
+	ReinviteCooldown = 30, -- after a Decline or an expiry, the same party can't invite that player again for this long
+	MaxIncomingInvites = 10,
+	RequestsPerSecond = 4,
+	RequestBurst = 6,
+}
+
+-- Legend select + map vote + VS splash, after a match is found (every mode except training).
+Config.Select = {
+	Seconds = 15,
+	AllLockedDelay = 0.75, -- once every human is locked in, this long until the VS splash
+	VsSeconds = 3,
+	MapChoices = 3,
+	ActionsPerSecond = 8,
+	BroadcastInterval = 0.1,
+	HoverInterval = 0.2,
+}
+
+-- Training room: you against a dummy, with frame data, hitboxes and slow motion.
+Config.Training = {
+	MaxRooms = 8, -- training arena slots, numbered after Config.Match.MaxArenas
+	MapId = "DuelRock",
+	DummyLegend = "Brann",
+	DummyName = "Training Dummy",
+	DummyModes = { "Stand", "Jump", "Dodge", "Block", "Fight" },
+	DefaultMode = "Stand",
+	DefaultDifficulty = "Normal",
+	Speeds = { 1, 0.5, 0.25 },
+	DamageStep = 10,
+	JumpInterval = 0.9,
+	DodgeRange = 12,
+	DummyRecovers = true, -- non-Fight dummies still return to the stage when knocked off
+	SnapshotRate = 20,
+	RequestsPerSecond = 10,
+	MaxManualPickups = 6, -- weapon spawner: oldest manual pickup removed beyond this
+	Hotkeys = {
+		Keyboard = { Panel = "Tab", Reset = "R", Spawn = "V" },
+		Gamepad = { Panel = "ButtonSelect", Reset = "ButtonR3", Spawn = "ButtonL3" },
+	},
 }
 
 -- Bots --------------------------------------------------------------------
@@ -313,6 +362,7 @@ Config.Rewards = {
 		Casual = 1.0,
 		Custom = 0.5,
 		Bots = 0.4,
+		Training = 0,
 	},
 	-- Custom rooms with any bot in them pay out like bot matches.
 	MinMatchSecondsForRewards = 20,
@@ -324,14 +374,207 @@ Config.Levels = {
 	MaxLevel = 200,
 }
 
+-- Daily missions: PerDay a day (UTC), one free reroll, CLAIM pays coins + XP.
+-- FreeRerolls is 1 (one a day) or 0 (none): the profile keeps one Rerolled flag a day, so more isn't supported.
+-- Text placeholders: {goal} (formatted number) and {param} (weapon phrase or legend name).
+-- Rewards are for Goals[1]; a bigger goal scales them linearly (rounded to 5).
+Config.Missions = {
+	PerDay = 3,
+	FreeRerolls = 1,
+	TrueComboHits = 3, -- a combo counts as a "true combo" when it reaches this many hits, all linked
+	RequestsPerSecond = 2,
+	-- Anti-farming. Only these sources count (Training never does). Count stats (matches, wins, KOs, true combos)
+	-- count fully from an eligible match; amount stats (Damage, WeaponDamage) are multiplied by the factor, floored.
+	Sources = { Ranked = 1, Casual = 1, Bots = 0.5, Custom = 0.5 },
+	MinBotDifficulty = "Normal", -- a match with any bot easier than this (Easy) never counts
+	-- Custom rooms count only with standard damage (damageMultiplier == 1). Matches that pay no rewards
+	-- (reward multiplier 0, e.g. shorter than the minimum match length) never count either.
+	Templates = {
+		{
+			Id = "OnlineWins",
+			Text = "Win {goal} online matches",
+			Stat = "OnlineWins",
+			Goals = { 2, 3 },
+			Coins = 120,
+			XP = 150,
+		},
+		{
+			Id = "OnlineMatches",
+			Text = "Play {goal} online matches",
+			Stat = "OnlineMatches",
+			Goals = { 3, 5 },
+			Coins = 60,
+			XP = 80,
+		},
+		{
+			Id = "RankedWins",
+			Text = "Win {goal} ranked matches",
+			Stat = "RankedWins",
+			Goals = { 1, 2 },
+			Coins = 100,
+			XP = 120,
+		},
+		{
+			Id = "WeaponDamage",
+			Text = "Deal {goal} damage with {param}",
+			Stat = "WeaponDamage",
+			Param = "Weapon",
+			Goals = { 1000, 1500 },
+			Coins = 70,
+			XP = 80,
+		},
+		{
+			Id = "FFAKOs",
+			Text = "KO {goal} opponents in online Free-for-all",
+			Stat = "ModeKOs:FFA",
+			Goals = { 5, 8 },
+			Coins = 80,
+			XP = 100,
+		},
+		{
+			Id = "LegendWin",
+			Text = "Win as {param}",
+			Stat = "LegendWins",
+			Param = "Legend",
+			Goals = { 1 },
+			Coins = 90,
+			XP = 110,
+		},
+		{
+			Id = "LegendMatches",
+			Text = "Play {goal} matches as {param}",
+			Stat = "LegendMatches",
+			Param = "Legend",
+			Goals = { 3 },
+			Coins = 60,
+			XP = 70,
+		},
+		{
+			Id = "TrueCombos",
+			Text = "Land {goal} true combos",
+			Stat = "TrueCombos",
+			Goals = { 5, 8 },
+			Coins = 80,
+			XP = 100,
+		},
+		{ Id = "KOs", Text = "KO {goal} opponents", Stat = "KOs", Goals = { 8, 12 }, Coins = 70, XP = 90 },
+		{ Id = "Damage", Text = "Deal {goal} damage", Stat = "Damage", Goals = { 2000, 3000 }, Coins = 60, XP = 80 },
+	},
+}
+
+-- Live events (UTC). XPMult / CoinMult default 1; Legend limits the bonus to matches played as that legend.
+-- Active events show as featured tiles; the best matching multiplier applies to match rewards (no stacking).
+Config.Events = {
+	{
+		Id = "ShadowWeek",
+		Tag = "WEEKEND EVENT",
+		Title = "Double XP Shadow Week",
+		Body = "2x XP when you play Vex",
+		Starts = "2026-10-09T00:00:00Z",
+		Ends = "2026-10-16T00:00:00Z",
+		XPMult = 2,
+		Legend = "Vex",
+		Color = Color3.fromRGB(120, 70, 170),
+		Screen = "Legends",
+		ScreenParams = { legend = "Vex" },
+	},
+	{
+		Id = "LaunchCoins",
+		Tag = "EVENT",
+		Title = "Launch Weekend",
+		Body = "1.5x coins from every match",
+		Starts = "2026-10-16T00:00:00Z",
+		Ends = "2026-10-19T00:00:00Z",
+		CoinMult = 1.5,
+		Color = Color3.fromRGB(226, 160, 24),
+	},
+}
+Config.EventMaxMult = 3
+
+-- Ranked seasons. A season runs from the previous one's end to its own Ends (UTC). At a new season every
+-- rating is soft-reset toward Ranked.StartRating and last season's tiers become a profile badge.
+Config.Seasons = {
+	List = {
+		{ Id = 1, Name = "Season 1", Ends = "2026-12-01T00:00:00Z" },
+		{ Id = 2, Name = "Season 2", Ends = "2027-03-01T00:00:00Z" },
+	},
+	SoftResetFactor = 0.5,
+}
+
+Config.Rankings = {
+	StorePrefix = "SkybrawlRanked_v1_", -- + "S<season>_<mode>" (one OrderedDataStore per season and mode)
+	TopSize = 100,
+	PageSize = 10,
+	RefreshSeconds = 120,
+	PastSeasonCacheSeconds = 600,
+	FlushSeconds = 30,
+	FriendsMax = 50,
+	FriendsCacheSeconds = 300,
+	FriendsBatch = 10, -- parallel GetAsync calls per batch
+	FriendsTimeout = 5, -- seconds; then answer with what we have (status "partial")
+	GlobalCooldown = 2,
+	FriendsCooldown = 15,
+	MinBudget = 5, -- writes and sorted reads: leave at least this many requests of the type unused
+	FriendsReserve = 20, -- friends' GetAsync calls stop while the GetAsync budget is at or below this (profiles first)
+}
+
 -- Saving ------------------------------------------------------------------
 
 Config.Data = {
 	StoreName = "SkybrawlProfiles_v1",
+	-- deprecated: LeaderboardStore, LeaderboardRefreshSeconds and LeaderboardSize belong to the old 1v1 board
+	-- (Config.Rankings replaces them)
 	LeaderboardStore = "SkybrawlRating1v1_v1",
 	AutosaveSeconds = 90,
 	LeaderboardRefreshSeconds = 120,
 	LeaderboardSize = 10,
+}
+
+-- Menus -------------------------------------------------------------------
+
+-- Featured tiles on the main menu (active events are added in front of these).
+-- Image: optional image asset id (the number an ImageLabel shows after you paste the decal into it; a raw decal id
+-- shows nothing when set from a script); Screen: optional menu screen id to open (with ScreenParams).
+Config.News = {
+	{
+		Id = "Welcome",
+		Tag = "NEWS",
+		Title = "Welcome to Skybrawl",
+		Body = "Six legends, six weapons, eight maps.",
+		Color = Color3.fromRGB(236, 47, 59),
+		Screen = "Legends",
+	},
+	{
+		Id = "Training",
+		Tag = "NEW",
+		Title = "Training Room",
+		Body = "Frame data, hitboxes and a dummy that fights back.",
+		Color = Color3.fromRGB(63, 140, 255),
+		Screen = "Practice",
+	},
+	{
+		Id = "Season",
+		Tag = "RANKED",
+		Title = "Season 1 is live",
+		Body = "Climb the 1v1 and 2v2 ladders.",
+		Color = Color3.fromRGB(255, 197, 61),
+		Screen = "Rankings",
+	},
+}
+
+Config.Menu = {
+	BackdropMap = "SkyShip", -- the painted sky behind the menus; "Random" = a random map with sky images per session
+	FeaturedSeconds = 6,
+	ResultsDelay = 1.5, -- after "End", the results screen opens this much later
+	ResultsAutoReturn = 20,
+	InputGrace = 0.5, -- Confirm is ignored this long after results, legend select, prompts and dialogs appear
+	VsWatchdogExtra = 5, -- VS splash gives up after startsIn + Config.Match.LoadTimeout + this many seconds
+}
+
+Config.Music = {
+	Menu = "", -- sound asset id (number or "rbxassetid://...") for the menu loop ("" = silent)
+	Volume = 0.5, -- times the MusicVolume setting
+	FadeSeconds = 1.5,
 }
 
 -- Camera ------------------------------------------------------------------
@@ -369,6 +612,10 @@ Config.Art = {
 		FrozenPeaks = { Sky = "", Landmarks = "", Haze = "" },
 		JungleTemple = { Sky = "", Landmarks = "", Haze = "" },
 	},
+	-- image asset ids of art/export/portraits/<Legend>_portrait.png (the number an ImageLabel shows after you paste
+	-- the decal into it; "" = a still 3D head)
+	Portraits = { Kestrel = "", Brann = "", Yuki = "", Moss = "", Vex = "", Sol = "" },
+	MenuWeapons = { Brann = "Gauntlets" }, -- weapon a legend holds in menus (default: its first weapon)
 }
 
 Config.Camera = {
@@ -452,6 +699,7 @@ Config.DefaultSettings = {
 	MouseAttacks = true,
 	MobileButtonScale = 1.0,
 	SfxVolume = 0.7,
+	MusicVolume = 0.5,
 	ShowHitboxes = false,
 	FightAsAvatar = false, -- your own avatar's look with your legend's moves (read when a match starts)
 	Keybinds = Config.DefaultKeybinds,
@@ -467,6 +715,13 @@ Config.Sounds = {
 	Jump = "rbxasset://sounds/action_jump.mp3",
 	Land = "rbxasset://sounds/action_jump_land.mp3",
 	KO = "rbxasset://sounds/swordlunge.wav",
+	-- menus (built-in sounds; check them in Studio and swap ids freely)
+	MenuHover = "rbxasset://sounds/clickfast.wav",
+	MenuConfirm = "rbxasset://sounds/button.wav",
+	MenuBack = "rbxasset://sounds/switch.wav",
+	LockIn = "rbxasset://sounds/unsheath.wav",
+	Tick = "rbxasset://sounds/electronicpingshort.wav",
+	MatchFound = "rbxasset://sounds/victory.wav",
 }
 
 return Config

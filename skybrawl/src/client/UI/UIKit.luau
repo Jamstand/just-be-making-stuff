@@ -26,6 +26,35 @@ UIKit.Theme = {
 	HeadFont = Enum.Font.FredokaOne,
 	BodyFont = Enum.Font.GothamMedium,
 	BoldFont = Enum.Font.GothamBold,
+
+	-- Menus palette (menus design 3.8). C1 restyles the keys above with it.
+	Raised = Color3.fromRGB(24, 27, 34),
+	Outline = Color3.fromRGB(0, 0, 0),
+	Dim = Color3.fromRGB(107, 114, 130),
+	Red = Color3.fromRGB(236, 47, 59),
+	RedLight = Color3.fromRGB(255, 75, 85),
+	RedDark = Color3.fromRGB(207, 21, 32),
+	GoldLight = Color3.fromRGB(255, 215, 105),
+	GoldDeep = Color3.fromRGB(226, 160, 24),
+	XP = Color3.fromRGB(143, 211, 255),
+	Warning = Color3.fromRGB(255, 154, 46),
+	ButtonTop = Color3.fromRGB(39, 43, 52),
+	ButtonBottom = Color3.fromRGB(22, 24, 30),
+	Hurtbox = Color3.fromRGB(73, 180, 255),
+	Hitbox = Color3.fromRGB(255, 59, 70),
+	DamageHot = Color3.fromRGB(255, 138, 42),
+	Startup = Color3.fromRGB(47, 191, 92),
+	Active = Color3.fromRGB(236, 47, 59),
+	Recovery = Color3.fromRGB(63, 140, 255),
+	VsRed = { Color3.fromRGB(61, 6, 12), Color3.fromRGB(143, 16, 24) },
+	VsBlue = { Color3.fromRGB(11, 42, 96), Color3.fromRGB(18, 63, 138) },
+	LogoGradient = { Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 210, 63), Color3.fromRGB(242, 134, 15) },
+	LogoFont = Enum.Font.LuckiestGuy,
+	BlackFont = Enum.Font.GothamBlack,
+	Slant = 14, -- degrees
+	CardSlant = 6,
+	SlotSlant = 10,
+	Cut = 22, -- design px
 }
 
 local T = UIKit.Theme
@@ -490,6 +519,256 @@ function UIKit.clear(frame, keepClasses)
 			child:Destroy()
 		end
 	end
+end
+
+-- Menus builders ------------------------------------------------------------
+--[[
+    STUB (owner: C1): the menus' builders (menus design 3.8), as thin
+    fallbacks over the builders above so callers type-check and run before
+    C1 lands: slantButton is a plain button, cutPanel a panel, tabBar wraps
+    tabs, assetId is real, the rest are plain frames and no-op setters.
+    Common opts for every builder: parent, position, size, anchor, zIndex,
+    layoutOrder, name (Scale preferred). Replace the bodies, keep the
+    signatures.
+]]
+
+local function applyCommon(obj, opts)
+	if not opts then
+		return obj
+	end
+	if opts.position then
+		obj.Position = opts.position
+	end
+	if opts.size then
+		obj.Size = opts.size
+	end
+	if opts.anchor then
+		obj.AnchorPoint = opts.anchor
+	end
+	if opts.zIndex then
+		obj.ZIndex = opts.zIndex
+	end
+	if opts.layoutOrder then
+		obj.LayoutOrder = opts.layoutOrder
+	end
+	if opts.name then
+		obj.Name = opts.name
+	end
+	if opts.parent then
+		obj.Parent = opts.parent
+	end
+	return obj
+end
+
+local function plainFrame(name, opts)
+	local frame = Instance.new("Frame")
+	frame.Name = name
+	frame.BackgroundTransparency = 1
+	frame.BorderSizePixel = 0
+	frame.Size = UDim2.fromScale(1, 1)
+	return applyCommon(frame, opts)
+end
+
+local function textInside(frame, text, size)
+	UIKit.label(text, size or 16, {
+		Name = "Text",
+		Size = UDim2.fromScale(1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Parent = frame,
+	})
+end
+
+-- "123", 123 or "rbxassetid://123" -> "rbxassetid://123"; "" / nil -> "". Other URLs pass through.
+function UIKit.assetId(id)
+	if type(id) == "number" then
+		-- (not a NaN, fraction, infinity or past the exact integer range)
+		if id ~= id or id <= 0 or id ~= math.floor(id) or id >= 2 ^ 53 then
+			return ""
+		end
+		return "rbxassetid://" .. string.format("%d", id)
+	end
+	if type(id) ~= "string" then
+		return ""
+	end
+	local trimmed = string.match(id, "^%s*(.-)%s*$")
+	if trimmed == "" then
+		return ""
+	end
+	if string.match(trimmed, "^%d+$") then
+		return "rbxassetid://" .. trimmed
+	end
+	return trimmed
+end
+
+-- opts = { slant?, fill?, gradient?, outline?, shadow?, transparency? } & Common. Children go in root.Content.
+function UIKit.slantFrame(opts)
+	opts = opts or {}
+	local root = plainFrame("SlantFrame", opts)
+	root.BackgroundTransparency = opts.transparency or 0
+	root.BackgroundColor3 = opts.fill or (opts.gradient and opts.gradient[1]) or T.Panel
+	plainFrame("Content", { parent = root })
+	return root
+end
+
+function UIKit.setSlantFill(root, fill)
+	root.BackgroundColor3 = if typeof(fill) == "Color3" then fill else fill[1]
+end
+
+-- opts = { style?, icon?, textSize?, badge?, sublabel?, glyph?, nudge?, slant? } & Common.
+function UIKit.slantButton(text, opts, onClick)
+	local button = UIKit.button(text, "primary", onClick)
+	applyCommon(button, opts)
+	return button
+end
+
+function UIKit.setBadge(_button, _text) end
+
+-- opts = { cut?, fill?, border?, title?, titleSize? } & Common. Returns panel, body.
+function UIKit.cutPanel(opts)
+	opts = opts or {}
+	local panel = UIKit.panel({ BackgroundColor3 = opts.fill or T.Panel })
+	applyCommon(panel, opts)
+	local body = plainFrame("Body", { parent = panel })
+	return panel, body
+end
+
+-- opts = { size?, accent? } & Common.
+function UIKit.header(text, opts)
+	local frame = plainFrame("Header", opts)
+	textInside(frame, text, opts and opts.size)
+	return frame
+end
+
+-- opts = { fill?, textColor?, size? } & Common.
+function UIKit.tag(text, opts)
+	local frame = plainFrame("Tag", opts)
+	textInside(frame, text, opts and opts.size)
+	return frame
+end
+
+-- opts = { size? } & Common.
+function UIKit.glyph(_action, opts)
+	return plainFrame("Glyph", opts)
+end
+
+-- items = { { action, label, onClick? } }; opts = { anchor?, position? }. Returns bar, setItems(items).
+function UIKit.hintBar(parent, _items, opts)
+	local bar = plainFrame("Hints", opts)
+	bar.Parent = parent
+	return bar, function(_newItems) end
+end
+
+-- tabs = { { id, label } }; opts = { style?, onSelect } & Common. Returns frame, select(id), current(), cycle(delta).
+function UIKit.tabBar(tabs, opts)
+	opts = opts or {}
+	local currentId = tabs[1] and tabs[1].id
+	local frame, selectTab = UIKit.tabs(tabs, function(id)
+		currentId = id
+		if opts.onSelect then
+			opts.onSelect(id)
+		end
+	end)
+	applyCommon(frame, opts)
+	local function current()
+		return currentId
+	end
+	local function cycle(delta)
+		local index = 1
+		for i, tab in tabs do
+			if tab.id == currentId then
+				index = i
+			end
+		end
+		local nextTab = tabs[(index - 1 + delta) % #tabs + 1]
+		if nextTab then
+			selectTab(nextTab.id)
+		end
+	end
+	return frame, selectTab, current, cycle
+end
+
+-- opts = { slant?, accent?, onClick? } & Common. Returns card, body.
+function UIKit.card(opts)
+	opts = opts or {}
+	local card = Instance.new("TextButton")
+	card.Name = "Card"
+	card.Text = ""
+	card.AutoButtonColor = false
+	card.BorderSizePixel = 0
+	card.BackgroundColor3 = T.Panel
+	card.Size = UDim2.fromScale(1, 1)
+	applyCommon(card, opts)
+	local body = plainFrame("Body", { parent = card })
+	if opts.onClick then
+		UIKit.onActivate(card, function()
+			opts.onClick()
+		end)
+	end
+	return card, body
+end
+
+-- opts = { fill?, back? } & Common. Returns bar, set(fraction, fill?).
+function UIKit.progressBar(opts)
+	opts = opts or {}
+	local bar = plainFrame("ProgressBar", opts)
+	bar.BackgroundTransparency = 0
+	bar.BackgroundColor3 = opts.back or T.PanelDark
+	local fillFrame = plainFrame("Fill", { parent = bar })
+	fillFrame.BackgroundTransparency = 0
+	fillFrame.BackgroundColor3 = opts.fill or T.Gold
+	local function set(fraction, fill)
+		fillFrame.Size = UDim2.fromScale(math.clamp(fraction, 0, 1), 1)
+		if fill then
+			fillFrame.BackgroundColor3 = fill
+		end
+	end
+	set(0)
+	return bar, set
+end
+
+-- opts = { fill? } & Common. Returns frame, set(filled).
+function UIKit.pips(_total, _filled, opts)
+	return plainFrame("Pips", opts), function(_newFilled) end
+end
+
+-- opts = { fill?, textSize? } & Common. Returns frame, set(fraction, text).
+function UIKit.ring(opts)
+	local frame = plainFrame("Ring", opts)
+	textInside(frame, "", opts and opts.textSize)
+	local label = frame:FindFirstChild("Text")
+	return frame, function(_fraction, text)
+		if label then
+			label.Text = text
+		end
+	end
+end
+
+-- opts = { size? } & Common.
+function UIKit.tierBadge(tierName, opts)
+	local frame = plainFrame("TierBadge", opts)
+	textInside(frame, tierName, opts and opts.size)
+	return frame
+end
+
+-- opts = { title, body, confirm, cancel?, onConfirm, onCancel? }. Returns close().
+function UIKit.dialog(_opts)
+	return function() end
+end
+
+-- Runs fn(button) on activation, ignoring presses while a previous fn is still running.
+function UIKit.onActivate(button, fn)
+	local running = false
+	button.Activated:Connect(function()
+		if running or button:GetAttribute("Disabled") then
+			return
+		end
+		running = true
+		local ok, err = pcall(fn, button)
+		running = false
+		if not ok then
+			warn("[UIKit] activate handler failed:", err)
+		end
+	end)
 end
 
 return UIKit

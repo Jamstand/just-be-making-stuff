@@ -21,7 +21,9 @@
       - facing left mirrors the pose exactly and moves a one-handed weapon
         to the other hand (and back)
       - other players' locomotion is read correctly from their movement
-      - the R15 avatar rig path and menu previews work too
+      - the R15 avatar rig path and menu previews work too; previews
+        survive the end of a match, ignore the training time scale, and
+        still (portrait) rigs are posed once and then cost nothing
 ]]
 
 local fs = require("@lune/fs")
@@ -452,7 +454,9 @@ for _, file in
 		"Controllers/MatchClient",
 		"Controllers/Visuals",
 		"Controllers/FighterAnimator",
+		"Controllers/TrainingClient",
 		"UI/FightersPanel",
+		"UI/LegendView",
 		"Main.client",
 	}
 do
@@ -1700,6 +1704,126 @@ h.test("menu previews animate and ignore the character's facing", function()
 		end
 	end
 	expectNoWarnings("previews")
+end)
+
+h.test("stopMatch keeps menu previews tracked and drops match rigs", function()
+	local preview = legendRig({ legend = "Vex" })
+	local previewRig = FighterAnimator.track(preview.model, { preview = true, legend = "Vex" })
+	FighterAnimator.setLocomotion(preview.model, "Idle")
+	local fighter = legendRig({ legend = "Sol" })
+	FighterAnimator.track(fighter.model, { isMe = true, legend = "Sol" })
+	step(10)
+	FighterAnimator.stopMatch()
+	for name, motor in fighter.motors do
+		h.expect(
+			angleBetween(motor.Transform, CFrame.identity) < 1e-6,
+			"stopMatch left the fighter's " .. name .. " posed"
+		)
+	end
+	h.expect(FighterAnimator.track(preview.model, { preview = true }) == previewRig, "stopMatch dropped the preview")
+	local w = watch(preview)
+	w:run(1)
+	h.expect(w.moved > 0, "the preview stopped animating after the match")
+	local f = watch(fighter)
+	f:run(0.5)
+	h.expect(f.moved == 0, "the match rig still animates after stopMatch")
+	finish(preview, fighter)
+	expectNoWarnings("stopMatch")
+end)
+
+h.test("setTimeScale slows match rigs but not previews", function()
+	local preview = legendRig({ legend = "Kestrel" })
+	local previewRig = FighterAnimator.track(preview.model, { preview = true, legend = "Kestrel" })
+	local fighter = legendRig({ legend = "Kestrel" })
+	local fighterRig = FighterAnimator.track(fighter.model, { isMe = true, legend = "Kestrel" })
+	FighterAnimator.setTimeScale(0.5)
+	local p0, f0 = previewRig.loco.t, fighterRig.loco.t
+	step(60)
+	h.near(previewRig.loco.t - p0, 1, 1e-6, "preview clock at time scale 0.5")
+	h.near(fighterRig.loco.t - f0, 0.5, 1e-6, "match rig clock at time scale 0.5")
+	FighterAnimator.setTimeScale(0.25)
+	f0 = fighterRig.loco.t
+	step(60)
+	h.near(fighterRig.loco.t - f0, 0.25, 1e-6, "match rig clock at time scale 0.25")
+	FighterAnimator.stopMatch() -- resets the scale
+	local again = legendRig({ legend = "Kestrel" })
+	local againRig = FighterAnimator.track(again.model, { isMe = true, legend = "Kestrel" })
+	local a0 = againRig.loco.t
+	step(30)
+	h.near(againRig.loco.t - a0, 0.5, 1e-6, "stopMatch didn't reset the time scale")
+	-- junk scales play at 1x
+	for _, junk in { math.huge, 0 / 0, -1, "fast" } do
+		FighterAnimator.setTimeScale(junk)
+		a0 = againRig.loco.t
+		step(30)
+		h.near(againRig.loco.t - a0, 0.5, 1e-6, "time scale " .. tostring(junk))
+	end
+	finish(preview, fighter, again)
+	expectNoWarnings("time scale")
+end)
+
+h.test("a still rig is posed once and skipped afterwards", function()
+	local r = legendRig({ legend = "Moss" })
+	local rig = FighterAnimator.still(r.model, { legend = "Moss" })
+	h.expect(rig.preview and rig.still, "still() didn't make a still preview")
+	local posed = false
+	local pose = {}
+	for name, motor in r.motors do
+		pose[name] = motor.Transform
+		if angleBetween(motor.Transform, CFrame.identity) > 0.5 then
+			posed = true
+		end
+	end
+	h.expect(posed, "the still rig wasn't posed in its idle")
+	local t0 = rig.loco.t
+	step(30)
+	for name, motor in r.motors do
+		-- (re-multiplying equal frames leaves ~1e-6 deg of float noise)
+		h.expect(angleBetween(motor.Transform, pose[name]) < 1e-3, "the still rig's " .. name .. " moved")
+	end
+	h.expect(rig.loco.t == t0, "the frame loop updated a still rig")
+	FighterAnimator.stopMatch()
+	h.expect(FighterAnimator.track(r.model, { preview = true }) == rig, "stopMatch dropped a still preview")
+	FighterAnimator.untrack(r.model)
+	for name, motor in r.motors do
+		h.expect(angleBetween(motor.Transform, CFrame.identity) < 1e-6, "untrack left " .. name .. " posed")
+	end
+	-- a still rig whose model is removed is forgotten
+	local gone = legendRig({ legend = "Moss" })
+	local goneRig = FighterAnimator.still(gone.model, { legend = "Moss" })
+	gone.model.Parent = nil
+	step(1)
+	h.expect(FighterAnimator.track(gone.model, { preview = true }) ~= goneRig, "a removed still rig stayed tracked")
+	FighterAnimator.untrack(gone.model)
+	-- built before it is parented (LegendView builds, then parents): posed once it gets its parent
+	local late = legendRig({ legend = "Moss" })
+	late.model.Parent = nil
+	local lateRig = FighterAnimator.still(late.model, { legend = "Moss" })
+	step(10)
+	for name, motor in late.motors do
+		h.expect(angleBetween(motor.Transform, CFrame.identity) < 1e-6, "an unparented still rig posed " .. name)
+	end
+	h.expect(FighterAnimator.track(late.model, { preview = true }) == lateRig, "an unparented still rig was dropped")
+	late.model.Parent = workspaceFolder
+	step(1)
+	for name, motor in late.motors do
+		h.expect(angleBetween(motor.Transform, pose[name]) < 1e-3, "the late still rig's " .. name .. " isn't idle")
+	end
+	h.expect(lateRig.loco.t == t0, "the late still rig's clock moved")
+	step(30)
+	for name, motor in late.motors do
+		h.expect(angleBetween(motor.Transform, pose[name]) < 1e-3, "the late still rig's " .. name .. " moved")
+	end
+	-- a preview that never gets a parent is dropped after a while
+	local never = legendRig({ legend = "Moss" })
+	never.model.Parent = nil
+	local neverRig = FighterAnimator.still(never.model, { legend = "Moss" })
+	step(frames(6))
+	h.expect(FighterAnimator.track(never.model, { preview = true }) ~= neverRig, "a never-parented rig stayed tracked")
+	finish(late, never)
+	r.model:Destroy()
+	gone.model:Destroy()
+	expectNoWarnings("still")
 end)
 
 h.test("match fighters get an outline only when Config.Art.Outlines is on; untrack cleans up", function()

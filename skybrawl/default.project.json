@@ -21,7 +21,24 @@
         "QueueRequest": { "$className": "RemoteFunction" },
         "RoomRequest": { "$className": "RemoteFunction" },
         "ShopRequest": { "$className": "RemoteFunction" },
-        "SelectLegend": { "$className": "RemoteFunction" }
+        "SelectLegend": { "$className": "RemoteFunction" },
+        "PartyUpdate": { "$className": "RemoteEvent" },
+        "QueueStats": { "$className": "RemoteEvent" },
+        "SelectEvent": { "$className": "RemoteEvent" },
+        "SelectAction": { "$className": "RemoteEvent" },
+        "PartyRequest": { "$className": "RemoteFunction" },
+        "MissionRequest": { "$className": "RemoteFunction" },
+        "GetRankings": { "$className": "RemoteFunction" },
+        "TrainingRequest": { "$className": "RemoteFunction" }
+      },
+      "AvatarModels": {
+        "$className": "Folder"
+      }
+    },
+    "Players": {
+      "$className": "Players",
+      "$properties": {
+        "CharacterAutoLoads": false
       }
     },
     "ServerScriptService": {
@@ -59,6 +76,9 @@
           "Position": [0, 0.5, 18],
           "Anchored": true,
           "Duration": 0,
+          "Transparency": 1,
+          "CanQuery": false,
+          "CanTouch": false,
           "Color": [0.98, 0.78, 0.27],
           "Material": "Limestone",
           "TopSurface": "Smooth",
