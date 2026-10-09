@@ -42,12 +42,23 @@ function Models.cancelToast(reason, requeued)
 end
 
 --[[
+    The toast for a match that ended before the fight and put you back in
+    the queue (MatchEvent End / Leave with requeued): the End's note (why it
+    ended, e.g. "Ann left before the fight." or "The match couldn't
+    start.") when it has one.
+]]
+function Models.requeuedToast(note)
+	local text = if type(note) == "string" and note ~= "" then note else "A player left before the fight."
+	return Models.cancelToast(text, true)
+end
+
+--[[
     What the client phase becomes after an event. event = { type, id?,
-    matchId?, reason?, requeued? } with type:
+    matchId?, reason?, requeued?, note? } with type:
       "Begin" / "Vs"   SelectEvent Begin / Vs (id = the session id)
       "Cancel"         SelectEvent Cancel (id, reason, requeued)
       "Start"          MatchEvent Start
-      "MatchEnd"       MatchEvent End or Leave while no match is running (matchId, requeued)
+      "MatchEnd"       MatchEvent End or Leave while no match is running (matchId, requeued, note)
       "Watchdog"       the VS splash waited too long for Start
       "Cleanup"        MatchClient finished cleaning up a match
       "SetupFailed"    MatchClient couldn't set up your fighter
@@ -85,11 +96,8 @@ function Models.phaseAfter(event, state)
 			return nil
 		end
 		if event.requeued then
-			return {
-				phase = "Menu",
-				toast = "A player left before the fight. You're back in the queue.",
-				toastKind = "good",
-			}
+			local text, toastKind = Models.requeuedToast(event.note)
+			return { phase = "Menu", toast = text, toastKind = toastKind }
 		end
 		return { phase = "Menu", toast = "The match couldn't start.", toastKind = "error" }
 	elseif kind == "Watchdog" then
@@ -683,10 +691,10 @@ end
 --[[
     The results buttons. opts = { party, userId, room }. Returns { primary,
     menu } where primary is nil or { kind, label, enabled, note }:
-      kind "Queue"      QUEUE AGAIN (online queues)        leader only ("Leader queues")
-      kind "Bots"       REMATCH (vs Bots)                  leader only
-      kind "RoomStart"  REMATCH (custom room host)         RoomRequest("Start") once the room is Open
-      kind "RoomBack"   REMATCH (custom room, not host)    back to the room screen
+      kind "Queue"      QUEUE AGAIN (online queues)          leader only ("Leader queues")
+      kind "Bots"       REMATCH (vs Bots)                    leader only ("Leader starts it")
+      kind "RoomStart"  REMATCH (custom room host)           RoomRequest("Start") once the room is Open
+      kind "RoomBack"   BACK TO ROOM (custom room guest)     back to the room screen (the host starts it)
     Leadership comes from the live party (no party, or you lead it).
 ]]
 function Models.resultButtons(data, opts)
@@ -706,13 +714,13 @@ function Models.resultButtons(data, opts)
 				if room.hostUserId == opts.userId then
 					primary = { kind = "RoomStart", label = "REMATCH", enabled = true }
 				else
-					primary = { kind = "RoomBack", label = "REMATCH", enabled = true }
+					primary = { kind = "RoomBack", label = "BACK TO ROOM", enabled = true }
 				end
 			end
 		end
 	end
 	if primary and not primary.enabled then
-		primary.note = "Leader queues"
+		primary.note = if primary.kind == "Queue" then "Leader queues" else "Leader starts it"
 	end
 	return { primary = primary, menu = { label = "MENU" } }
 end

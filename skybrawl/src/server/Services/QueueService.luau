@@ -244,31 +244,41 @@ function QueueService.onPartyChanged(party, changed, reason)
 	end
 end
 
--- Whether a player can still go back into a queue (on the server, idle, not searching, not in a room).
-local function available(player)
-	return player.Parent ~= nil
-		and services.MatchService.busyReason(player) == nil
-		and unitOf[player] == nil
-		and services.RoomService.getRoomOf(player) == nil
-		and services.DataService.get(player) ~= nil
+--[[
+    Whether a player can still go back into a queue: on the server, idle,
+    not searching, not in a room. `ending` = a match that is releasing its
+    players right now (Match Cleanup re-queues them once MatchService has
+    forgotten it), so being in that match doesn't count as busy.
+]]
+local function available(player, ending)
+	if player.Parent == nil or unitOf[player] ~= nil then
+		return false
+	end
+	if ending ~= nil and services.MatchService.getMatchOf(player) == ending then
+		if services.SelectService.getSessionOf(player) ~= nil then
+			return false
+		end
+	elseif services.MatchService.busyReason(player) ~= nil then
+		return false
+	end
+	return services.RoomService.getRoomOf(player) == nil and services.DataService.get(player) ~= nil
 end
 
 --[[
-    Puts units back in `queueType` keeping their `joined` time. Leavers are
-    dropped first, then players who are gone, busy or already elsewhere. A
-    unit is kept only when its remaining players are exactly its party
-    (minus the leavers) and still fit the queue; its players are toasted
-    keptText (kind keptKind). Otherwise they're told the search was cancelled.
+    How `units` would go back in `queueType` right now: a list of
+    { players, joined, keep }. Leavers are dropped first, then players who
+    are gone, busy or already elsewhere (see available). keep: the
+    remaining players are exactly their party (minus the leavers) and still
+    fit the queue; their list is then sorted leader first, as in a fresh
+    search.
 ]]
-local function restore(units, queueType, leavers, keptText, keptKind)
-	if not units or not QUEUES[queueType] then
-		return
-	end
+local function sortOut(units, queueType, leavers, ending)
 	local leaverSet = toSet(leavers)
+	local list = {}
 	for _, original in units do
 		local players = {}
 		for _, player in original.players do
-			if not leaverSet[player] and available(player) then
+			if not leaverSet[player] and available(player, ending) then
 				table.insert(players, player)
 			end
 		end
@@ -279,28 +289,79 @@ local function restore(units, queueType, leavers, keptText, keptKind)
 					table.insert(party, member)
 				end
 			end
-			local fits = Party.canStart(queueType, nil, #players, true)
-			if sameSet(players, party) and fits then
-				-- leader first, as in a fresh search
+			local keep = sameSet(players, party) and Party.canStart(queueType, nil, #players, true) == true
+			if keep then
 				table.sort(players, function(a, b)
 					return (table.find(party, a) or 0) < (table.find(party, b) or 0)
 				end)
-				addUnit(queueType, players, original.joined)
-				for _, player in players do
+			end
+			table.insert(list, { players = players, joined = original.joined, keep = keep })
+		end
+	end
+	return list
+end
+
+--[[
+    Puts units back in `queueType` keeping their `joined` time (see
+    sortOut for who is kept); the players kept are toasted keptText (kind
+    keptKind) when there is one, the others are told the search was
+    cancelled. Returns the set of players put back ({ [Player] = true }).
+]]
+local function restore(units, queueType, leavers, keptText, keptKind)
+	local kept = {}
+	if not units or not QUEUES[queueType] then
+		return kept
+	end
+	for _, entry in sortOut(units, queueType, leavers) do
+		if entry.keep then
+			addUnit(queueType, entry.players, entry.joined)
+			for _, player in entry.players do
+				kept[player] = true
+				if keptText then
 					toast(player, keptText, keptKind)
 				end
-			else
-				for _, player in players do
-					toast(player, "Your party changed. Search cancelled.", "warn")
-				end
+			end
+		else
+			for _, player in entry.players do
+				toast(player, "Your party changed. Search cancelled.", "warn")
 			end
 		end
 	end
+	return kept
 end
 
--- After a ranked dodge (select or before the fight): everyone else goes back in the queue.
+--[[
+    After a ranked dodge or a server error between "match found" and the
+    fight (select, VS splash): everyone else goes back in the queue.
+    Returns the set of players put back. No toast for them: the Cancel or
+    End they were sent says "You're back in the queue." exactly when
+    wouldRequeue said they would be (requeued = true); a unit that can't be
+    kept is told its search was cancelled.
+]]
 function QueueService.requeue(units, queueType, leavers)
-	restore(units, queueType, leavers, "A player left. You're back in the queue.", "good")
+	return restore(units, queueType, leavers, nil, nil)
+end
+
+--[[
+    Who requeue(units, queueType, leavers) would put back right now, as a
+    set of players, without changing anything. `ending` = a match about to
+    release its players (they count as free). Callers ask this before
+    telling the players (Cancel / End requeued) and call requeue with no
+    yield in between, so the message and the queue always agree.
+]]
+function QueueService.wouldRequeue(units, queueType, leavers, ending)
+	local kept = {}
+	if not units or not QUEUES[queueType] then
+		return kept
+	end
+	for _, entry in sortOut(units, queueType, leavers, ending) do
+		if entry.keep then
+			for _, player in entry.players do
+				kept[player] = true
+			end
+		end
+	end
+	return kept
 end
 
 -- Starting matches ---------------------------------------------------------------

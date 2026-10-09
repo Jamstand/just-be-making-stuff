@@ -1,8 +1,8 @@
 --[[
     Pure view logic for the menu screens (menus design 5.8): what the Online
-    Play cards, the Practice bot options, the Rankings pages and rank card,
-    the missions reset line, the Invite rows, the Profile season badge and
-    the Store cards show,
+    Play cards and hints, the Practice bot options, the Rankings pages and
+    rank card, the missions reset line and hints, the Invite rows, the
+    Profile season badge and the Store cards show,
     decided from plain data (snapshots and server payloads) so it can be
     tested under Lune (tests/screens.luau).
 
@@ -126,6 +126,26 @@ function Models.onlineCards(state)
 		table.insert(cards, Models.onlineCard(info, state))
 	end
 	return cards
+end
+
+--[[
+    Online Play's hints for the focused card's view (Models.onlineCard; nil
+    when no card is focused): Confirm says what it does there (the card's
+    action: FIND MATCH, or CANCEL SEARCH on the queue you are in), with no
+    Confirm hint on a locked card (Confirm only says why there) or without
+    a focused card; then Back BACK, and X INVITE when you may invite
+    (`canInvite`: solo or the party leader).
+]]
+function Models.onlineHints(view, canInvite)
+	local hints = {}
+	if type(view) == "table" and not view.locked then
+		table.insert(hints, { action = "Confirm", label = view.action })
+	end
+	table.insert(hints, { action = "Back", label = "BACK" })
+	if canInvite then
+		table.insert(hints, { action = "X", label = "INVITE" })
+	end
+	return hints
 end
 
 -- Practice ------------------------------------------------------------------------
@@ -309,6 +329,25 @@ function Models.missionsReset(now)
 		return string.format("RESETS IN %dH %dM", hours, minutes)
 	end
 	return string.format("RESETS IN %dM", minutes)
+end
+
+--[[
+    The MISSIONS screen's hints for the focused row (`mission` =
+    { claimable, rerollable }, MissionsWidget's rowState; nil when no row
+    is focused): Confirm CLAIM on a claimable row, X REROLL on a row that
+    can be rerolled, then Back BACK. Confirm and X do nothing on any other
+    row, so they get no hint there.
+]]
+function Models.missionsHints(mission)
+	local hints = {}
+	if mission ~= nil and mission.claimable == true then
+		table.insert(hints, { action = "Confirm", label = "CLAIM" })
+	end
+	if mission ~= nil and mission.rerollable == true then
+		table.insert(hints, { action = "X", label = "REROLL" })
+	end
+	table.insert(hints, { action = "Back", label = "BACK" })
+	return hints
 end
 
 local function percent(wins, played)

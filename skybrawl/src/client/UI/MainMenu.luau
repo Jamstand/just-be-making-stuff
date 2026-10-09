@@ -111,6 +111,13 @@ function MainMenu.build(host)
 		host.push(id)
 	end
 
+	-- (a mission row's hints can change without a profile change: the missions' day ran out)
+	local function refreshIfShown()
+		if shown then
+			host.refresh()
+		end
+	end
+
 	local function canInvite()
 		return MenuModels.canInvite(ClientState.party, game:GetService("Players").LocalPlayer.UserId)
 	end
@@ -423,6 +430,7 @@ function MainMenu.build(host)
 			position = UDim2.fromScale(0.741, 0.435),
 			size = UDim2.fromScale(0.24, 0.39),
 			zIndex = 4,
+			onChanged = refreshIfShown,
 		})
 	end
 
@@ -481,8 +489,14 @@ function MainMenu.build(host)
 		featured = FeaturedPanel.new(root, { compact = true, position = fPosition, size = fSize, zIndex = 4 })
 		featured.frame.AnchorPoint = fAnchor
 		local mPosition, mSize, mAnchor = phoneRect(640, 155, 156, 150, true)
-		missions =
-			MissionsWidget.new(root, { compact = true, mini = true, position = mPosition, size = mSize, zIndex = 4 })
+		missions = MissionsWidget.new(root, {
+			compact = true,
+			mini = true,
+			position = mPosition,
+			size = mSize,
+			zIndex = 4,
+			onChanged = refreshIfShown,
+		})
 		missions.frame.AnchorPoint = mAnchor
 	end
 

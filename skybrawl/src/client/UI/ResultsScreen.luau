@@ -12,17 +12,24 @@
     DEFEAT, DRAW, "2ND PLACE", MATCH ENDED) with the score chip, the
     scoreboard grouped by team (winners first), the rewards (XP bar from
     before to after, coins, event bonus, rating and the next tier, the
-    missions the match moved), QUEUE AGAIN / REMATCH and MENU, and the
-    "BACK TO MENU IN 0:20" countdown (MENU at 0).
+    missions the match moved), QUEUE AGAIN / REMATCH (or BACK TO ROOM) and
+    MENU, and the "BACK TO MENU IN 0:20" countdown (MENU at 0).
 
     QUEUE AGAIN / bots REMATCH follow the live party (no party, or you lead
-    it; otherwise disabled, "Leader queues") and re-render on PartyChanged;
-    the server's QueueRequest check stays the authority. A custom room's
-    host REMATCH starts the room once it is Open again (WAITING...
-    meanwhile); anyone else's REMATCH goes back to the room screen. Every
-    request waits until the match has let you go (ClientState.inMatch
-    false). Success returns to the menu (the queue banner or the next
-    select takes over); failure toasts and stays.
+    it; otherwise disabled, "Leader queues" / "Leader starts it") and
+    re-render on PartyChanged; the server's QueueRequest check stays the
+    authority. A custom room's host REMATCH starts the room once it is Open
+    again; anyone else in the room gets BACK TO ROOM (the room screen; the
+    host starts the rematch). Every request waits until the match has let
+    you go (ClientState.inMatch false). Meanwhile the pressed button says
+    WAITING... and keeps the focus (it isn't disabled: Focus would move to
+    MENU, and a mashed A would then leave); pressing it again does nothing.
+    Success returns to the menu (the queue banner or the next select takes
+    over); failure toasts and stays. Leaving first (MENU, Back, the auto
+    return) still sends QUEUE AGAIN / bots REMATCH once the match lets you
+    go, if you are in the menus and not in a queue by then (the queue
+    banner shows the search; a refusal toasts there), but cancels a host's
+    REMATCH not sent yet ("Rematch cancelled.").
 
     Focus: an overlay layer that ignores Confirm for Config.Menu.InputGrace
     (mashing A to jump at the end of the fight can't press QUEUE AGAIN), and
@@ -779,7 +786,7 @@ local function buildRewards(sc, L)
 				ZIndex = 7,
 			})
 			fill("Accent", rowFrame, accent, { Size = UDim2.new(0, math.max(3, Layout.px(5)), 1, 0), ZIndex = 8 })
-			text(m.text, Rw.label * 1.15, {
+			local missionText = text(m.text, Rw.label, {
 				Name = "Text",
 				Font = T.BoldFont,
 				TextTruncate = Enum.TextTruncate.AtEnd,
@@ -788,6 +795,8 @@ local function buildRewards(sc, L)
 				ZIndex = 8,
 				Parent = rowFrame,
 			})
+			-- mockup g's size; a mission too long for the column shrinks a little before it is cut
+			Layout.bindFitText(missionText, Rw.label, Rw.label * 0.8)
 			local _, setMission = UIKit.progressBar({
 				parent = rowFrame,
 				fill = accent,
@@ -821,6 +830,10 @@ local function close()
 	screen = nil
 	if sc.layer then
 		Focus.popLayer(sc.layer)
+	end
+	if sc.busy and sc.pending == "RoomStart" and not sc.sent and ClientState.phase == "Menu" then
+		-- you left before it was sent: the rematch won't start (runPrimary drops it)
+		ClientState.toast("Rematch cancelled.", "info")
 	end
 	for _, conn in sc.conns do
 		conn.Disconnect()
@@ -863,21 +876,35 @@ local renderButtons -- (below)
     The QUEUE AGAIN / REMATCH request. It waits (at most REQUEST_WAIT) for
     the match to let you go, and a host's REMATCH for the room to reopen;
     a failure toasts and re-renders the buttons from the live party and
-    room (a leadership change that came while busy applies then).
+    room (a leadership change that came while busy applies then). The
+    button stays enabled while it waits (sc.busy ignores more presses): a
+    disabled one loses the focus to MENU, so the next Confirm would leave
+    and drop the request. QUEUE AGAIN / bots REMATCH still go out if you
+    left the results first (see the header); a host's REMATCH doesn't.
 ]]
 local function runPrimary(sc, button, primary)
 	if sc.busy then
 		return
 	end
 	sc.busy = true
-	UIKit.setEnabled(button, false)
+	sc.pending = primary.kind
+	sc.sent = false
+	setButtonText(button, "WAITING...")
 	local post = sc.data.postMatch or {}
+	local search = primary.kind == "Queue" or primary.kind == "Bots"
 	local finished = false
 	local function finish(ok, message)
-		if finished or screen ~= sc then
+		if finished then
 			return
 		end
 		finished = true
+		if screen ~= sc then
+			-- you left the results while it was in flight: a search that couldn't start still says why
+			if search and ok ~= true and ClientState.phase == "Menu" then
+				ClientState.toast(message or "Couldn't start the search.", "error")
+			end
+			return
+		end
 		sc.busy = false
 		if ok then
 			toMenu(sc)
@@ -888,14 +915,26 @@ local function runPrimary(sc, button, primary)
 		end
 	end
 	whenOutOfMatch(function()
-		if screen ~= sc then
+		if search then
+			if screen ~= sc and (ClientState.phase ~= "Menu" or ClientState.queue ~= nil) then
+				-- something took over since you left the results (a select, another queue): not wanted any more
+				finished = true
+				return
+			end
+			sc.sent = true
+			if primary.kind == "Queue" then
+				finish(invoke("QueueRequest", "Join", post.queueType))
+			else
+				finish(invoke("QueueRequest", "Join", "Bots", post.botOptions))
+			end
 			return
 		end
-		if primary.kind == "Queue" then
-			finish(invoke("QueueRequest", "Join", post.queueType))
-		elseif primary.kind == "Bots" then
-			finish(invoke("QueueRequest", "Join", "Bots", post.botOptions))
-		elseif primary.kind == "RoomBack" then
+		if screen ~= sc then
+			-- (a host's REMATCH that wasn't sent: close() said "Rematch cancelled.")
+			finished = true
+			return
+		end
+		if primary.kind == "RoomBack" then
 			finished = true
 			sc.busy = false
 			toMenu(sc)
@@ -903,6 +942,7 @@ local function runPrimary(sc, button, primary)
 		elseif primary.kind == "RoomStart" then
 			local function start()
 				if screen == sc then
+					sc.sent = true
 					finish(invoke("RoomRequest", "Start"))
 				end
 			end
@@ -911,7 +951,6 @@ local function runPrimary(sc, button, primary)
 				start()
 				return
 			end
-			setButtonText(button, "WAITING...")
 			local waiting = true
 			local conn
 			conn = ClientState.RoomChanged:Connect(function(newRoom)
@@ -1047,8 +1086,8 @@ local function build(sc)
 			return sc.menuButton
 		end,
 		onBack = function()
-			-- Back is gamepad B, the heavy attack: mashing it as the fight ends mustn't leave at once (the layer's
-			-- confirmDelay holds back only Confirm)
+			-- Back is gamepad B, the heavy attack: mashing it as the fight ends mustn't leave at once (Focus's
+			-- confirmDelay holds Back too; this also covers the BACK hint)
 			if os.clock() - sc.openedAt >= Config.Menu.InputGrace then
 				toMenu(sc)
 			end

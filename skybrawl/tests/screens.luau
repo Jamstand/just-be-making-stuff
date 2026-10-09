@@ -101,6 +101,34 @@ h.test("online play shows CANCEL SEARCH on the queue you are in", function()
 	h.expect(cardOf(solo, "FFA").action == "FIND MATCH", "solo FFA find")
 end)
 
+h.test("online play hints say what Confirm does on the focused card", function()
+	local function labels(items)
+		local out = {}
+		for _, item in items do
+			table.insert(out, item.action .. " " .. item.label)
+		end
+		return table.concat(out, ", ")
+	end
+	local open = cardOf(Models.onlineCards({ userId = ME }), "Ranked1v1")
+	h.expect(
+		labels(Models.onlineHints(open, true)) == "Confirm FIND MATCH, Back BACK, X INVITE",
+		labels(Models.onlineHints(open, true))
+	)
+	local queued = cardOf(Models.onlineCards({ userId = ME, queue = { queue = "Ranked1v1" } }), "Ranked1v1")
+	h.expect(
+		labels(Models.onlineHints(queued, true)) == "Confirm CANCEL SEARCH, Back BACK, X INVITE",
+		"your queue: " .. labels(Models.onlineHints(queued, true))
+	)
+	-- a locked card: Confirm only toasts why, so no Confirm hint; a member can't invite
+	local locked = cardOf(Models.onlineCards({ party = party(2, { ME }), userId = ME }), "Ranked2v2")
+	h.expect(locked.locked, "members' cards are locked")
+	h.expect(
+		labels(Models.onlineHints(locked, false)) == "Back BACK",
+		"locked: " .. labels(Models.onlineHints(locked, false))
+	)
+	h.expect(labels(Models.onlineHints(nil, true)) == "Back BACK, X INVITE", "no card focused")
+end)
+
 h.test("online play shows your rating and tier on ranked cards only", function()
 	local profile = { Rating1v1 = 1432, Rating2v2 = 1218 }
 	local cards = Models.onlineCards({ userId = ME, profile = profile })
@@ -195,6 +223,23 @@ h.test("rankings season label says ENDS IN or ENDED", function()
 	h.expect(Models.seasonLabel(past, NOW) == "SEASON 1 · ENDED", "a past season")
 	local endless = { id = 1, name = "Season 1", endsAt = math.huge, current = true }
 	h.expect(Models.seasonLabel(endless, NOW) == "SEASON 1", "an endless season")
+end)
+
+h.test("missions hints offer CLAIM and REROLL only on a row that does that", function()
+	local function labels(items)
+		local out = {}
+		for _, item in items do
+			table.insert(out, item.action .. " " .. item.label)
+		end
+		return table.concat(out, ", ")
+	end
+	local function hints(mission)
+		return labels(Models.missionsHints(mission))
+	end
+	h.expect(hints({ claimable = true, rerollable = false }) == "Confirm CLAIM, Back BACK", "done row")
+	h.expect(hints({ claimable = false, rerollable = true }) == "X REROLL, Back BACK", "rerollable row")
+	h.expect(hints({ claimable = false, rerollable = false }) == "Back BACK", "claimed row, or the reroll is used")
+	h.expect(hints(nil) == "Back BACK", "no row focused (touch)")
 end)
 
 h.test("missions reset label counts down to the UTC midnight", function()

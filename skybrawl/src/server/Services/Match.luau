@@ -96,7 +96,7 @@ local function liveCharacter(player)
 	return nil
 end
 
--- Takes a player's match character away (no LoadCharacter: players have no character outside matches).
+-- Takes a player's match character away (no LoadCharacterAsync: players have no character outside matches).
 local function releaseCharacter(player)
 	local ok, err = pcall(function()
 		local character = player.Character
@@ -419,6 +419,8 @@ function Match:IsAttacking(f)
 	return self:now() - rec.start < rec.move.Startup + rec.move.Active + (rec.move.Charge or 0)
 end
 
+-- A fighter as "Start" lists it. A fighter already out (left on the VS splash, a bot whose model couldn't be built)
+-- says so: alive / eliminated / left.
 function Match:fighterInfo(f)
 	return {
 		id = f.id,
@@ -439,6 +441,9 @@ function Match:fighterInfo(f)
 		ownLook = f.ownLook == true,
 		ult = f.ult,
 		guard = f.guard,
+		alive = f.alive ~= false,
+		eliminated = f.eliminated == true,
+		left = f.left == true,
 	}
 end
 
@@ -482,6 +487,23 @@ function Match:sendCancel(player, reason, requeued)
 	end
 end
 
+--[[
+    "Left" once more, to one player whose client has just set its match up
+    ("Ready"), for every fighter who left before that: a "Left" that went
+    out while the client had no match yet (on the VS splash, or while it
+    waited for its character after "Start") was dropped. "Start" lists the
+    ones out by then too (fighterInfo), so a bot whose model couldn't be
+    built (spawnFailed) shows as OUT and needs nothing here.
+]]
+function Match:sendOutFighters(player)
+	for _, id in self.order do
+		local other = self.fighters[id]
+		if other.left then
+			self:Send(player, "Left", { fighterId = other.id })
+		end
+	end
+end
+
 -- Setup -------------------------------------------------------------------
 
 local function disableHumanoidStates(humanoid)
@@ -519,7 +541,7 @@ function Match:spawnBotModel(f)
 	desc.RightLegColor = pants
 
 	local ok, model = pcall(function()
-		return Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15)
+		return Players:CreateHumanoidModelFromDescriptionAsync(desc, Enum.HumanoidRigType.R15)
 	end)
 	if not ok or not model then
 		warn("[Match] couldn't create bot model:", model)
@@ -567,13 +589,13 @@ function Match:releaseUnused(player)
 	end
 end
 
--- Starts loading the player's character in the background; f.loading stays true until LoadCharacter returns.
+-- Starts loading the player's character in the background; f.loading stays true until LoadCharacterAsync returns.
 function Match:preloadCharacter(f)
 	local player = f.player
 	f.loading = true
 	task.spawn(function()
 		local ok, err = pcall(function()
-			player:LoadCharacter()
+			player:LoadCharacterAsync()
 		end)
 		f.loading = false
 		if not ok then
@@ -610,10 +632,10 @@ function Match:preparePlayer(f, deadline)
 		end)
 		if not liveCharacter(player) and not f.loading and wanted() then
 			pcall(function()
-				player:LoadCharacter()
+				player:LoadCharacterAsync()
 			end)
 		end
-		-- LoadCharacter returns once the character exists; its parts may still be arriving.
+		-- LoadCharacterAsync returns once the character exists; its parts may still be arriving.
 		waitFor(function()
 			return liveCharacter(player) ~= nil
 		end)
@@ -690,12 +712,13 @@ function Match:Start()
 	if self.phase == "Ended" then
 		return
 	end
-	-- Bots first (CreateHumanoidModelFromDescription yields).
+	-- Bots first (CreateHumanoidModelFromDescriptionAsync yields).
 	for _, id in self.order do
 		local f = self.fighters[id]
 		if f.isBot and not self:spawnBotModel(f) then
 			f.eliminated = true
 			f.alive = false
+			f.spawnFailed = true
 		end
 	end
 	if self.phase == "Ended" then
@@ -1331,6 +1354,8 @@ end
         "Cancel" (they are still on the VS splash).
       - Ranked before the fight: the leaver takes a loss (not with
         noPenalty) and the match is abandoned; everyone else is re-queued.
+        A noPenalty fighter isn't a leaver: they go back in the queue with
+        the others, and their Cancel says so (requeued).
 ]]
 function Match:Forfeit(f, opts)
 	if self.phase == "Ended" or f.left then
@@ -1370,8 +1395,12 @@ function Match:Forfeit(f, opts)
 			end
 			if self.startSent[player] then
 				self:Send(player, "Leave", {})
+			elseif f.noPenalty then
+				-- before a ranked fight, the Finish below re-queues them with everyone else (Cleanup)
+				local requeued = wasPreFight and self.config.ranked and self:requeueKept()[player] == true
+				self:sendCancel(player, "Couldn't load your fighter.", requeued)
 			else
-				self:sendCancel(player, f.noPenalty and "Couldn't load your fighter." or "You left the match.", false)
+				self:sendCancel(player, "You left the match.", false)
 			end
 		end
 		if self.onPlayerLeft then
@@ -1818,6 +1847,9 @@ function Match:OnAction(player, kind, data)
 	local now = self:now()
 
 	if kind == "Ready" then
+		if not f.ready and self.startSent[player] then
+			self:sendOutFighters(player)
+		end
 		f.ready = true
 		return
 	elseif kind == "Forfeit" then
@@ -2033,9 +2065,13 @@ end
     Ends the match. linger = seconds the arena stays before Cleanup
     (Config.Match.EndLingerSeconds when nil; 0 = clean up now).
     opts.requeue: put the queue units back in their queue at Cleanup (ranked
-    pre-fight dodges); opts.reason: the Cancel text for players who never
-    got "Start". Cleanup is always scheduled, even when the results or the
-    rewards fail.
+    pre-fight dodges, a match that failed to start); the End / Cancel says
+    requeued only to the players that requeue keeps (requeueKept). Callers
+    pass linger 0 with it, so nothing changes between that answer and the
+    requeue.
+    opts.reason: the Cancel text for players who never got "Start", and the
+    End's note for those who did (their requeued toast). Cleanup is always
+    scheduled, even when the results or the rewards fail.
 ]]
 function Match:Finish(reason, linger, opts)
 	if self.phase == "Ended" then
@@ -2174,6 +2210,8 @@ function Match:sendResults(reason, linger, opts, wasPlaying)
 		rewards = self:applyRewards(entries, hasBots, botDifficulties, duration)
 	end
 
+	-- (asked now, before anyone is told: Cleanup re-queues them with no yield in between when linger is 0)
+	local kept = if opts.requeue then self:requeueKept() else {}
 	local postMatch = {
 		queueType = self.training == nil and self.config.queueType or nil,
 		botOptions = self.config.botOptions,
@@ -2196,15 +2234,47 @@ function Match:sendResults(reason, linger, opts, wasPlaying)
 					mapId = self.config.mapId,
 					duration = duration,
 					mvpId = mvpId,
-					requeued = opts.requeue == true,
+					requeued = kept[player] == true,
+					note = opts.reason,
 					postMatch = postMatch,
 				})
 			else
 				-- still on the VS splash: they never saw this match
-				self:sendCancel(player, opts.reason or "The match couldn't start.", opts.requeue == true)
+				self:sendCancel(player, opts.reason or "The match couldn't start.", kept[player] == true)
 			end
 		end
 	end
+end
+
+-- The players a requeue at Cleanup drops: everyone who left, except a fighter the server couldn't load (noPenalty).
+function Match:requeueLeavers()
+	local leavers = {}
+	for player, f in self.playerFighters do
+		if f.left and not f.noPenalty then
+			table.insert(leavers, player)
+		end
+	end
+	return leavers
+end
+
+--[[
+    Who a requeue at Cleanup would put back in the queue right now (a set
+    of players; {} without queue units): the "requeued" each player is told.
+    Players still in this match count as free (Cleanup releases them
+    first). A failing lookup answers {}: nobody is promised a search.
+]]
+function Match:requeueKept()
+	local config = self.config
+	if not (config.units and config.queueType) then
+		return {}
+	end
+	local QueueService = self.services.QueueService
+	local ok, kept = pcall(QueueService.wouldRequeue, config.units, config.queueType, self:requeueLeavers(), self)
+	if not ok or type(kept) ~= "table" then
+		warn("[Match] wouldRequeue failed:", kept)
+		return {}
+	end
+	return kept
 end
 
 -- Cleanup for one player still in the fight: "Leave" if they got "Start", and their character goes.
@@ -2230,13 +2300,9 @@ function Match:Cleanup()
 		return
 	end
 	self.cleanedUp = true
-	local leavers = {}
+	local leavers = self:requeueLeavers()
 	for player, f in self.playerFighters do
-		if f.left then
-			if not f.noPenalty then
-				table.insert(leavers, player)
-			end
-		else
+		if not f.left then
 			try("release", self.releasePlayer, self, player)
 		end
 	end

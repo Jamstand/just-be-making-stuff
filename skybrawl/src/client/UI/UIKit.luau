@@ -337,63 +337,6 @@ function UIKit.scroll(props)
 	return scroll
 end
 
--- A centered modal window. Returns window, body.
-function UIKit.window(parent, title, onClose)
-	local window = UIKit.panel({
-		Name = title,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.49),
-		Size = UDim2.fromScale(0.94, 0.78),
-		BackgroundColor3 = T.PanelDark,
-		Visible = false,
-		Parent = parent,
-	})
-	make("UISizeConstraint", { MaxSize = Vector2.new(940, 640), Parent = window })
-	local header = make("Frame", {
-		Name = "Header",
-		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, 52),
-		Parent = window,
-	}, { UIKit.padding(16, 8) })
-	UIKit.heading(title, 32, { Size = UDim2.new(1, -60, 1, 0), Parent = header })
-	UIKit.button("X", "ghost", onClose, {
-		Name = "Close",
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, 0, 0.5, 0),
-		Size = UDim2.fromOffset(38, 38),
-		Parent = header,
-	})
-	local body = make("Frame", {
-		Name = "Body",
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(0, 52),
-		Size = UDim2.new(1, 0, 1, -52),
-		Parent = window,
-	}, { UIKit.padding(16, 10) })
-	return window, body
-end
-
--- Horizontal tab strip. tabs = { {id, label} }. Returns frame, select(id), buttons.
-function UIKit.tabs(tabs, onSelect)
-	local frame = make("Frame", {
-		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, 38),
-	}, { UIKit.list(Enum.FillDirection.Horizontal, 8) })
-	local buttons = {}
-	local function selectTab(id)
-		for tabId, button in buttons do
-			UIKit.styleButton(button, tabId == id and "primary" or "ghost")
-		end
-		onSelect(id)
-	end
-	for i, tab in tabs do
-		buttons[tab.id] = UIKit.button(tab.label, "ghost", function()
-			selectTab(tab.id)
-		end, { LayoutOrder = i, Size = UDim2.fromOffset(math.max(96, #tab.label * 11 + 24), 36), Parent = frame })
-	end
-	return frame, selectTab, buttons
-end
-
 local function settingRow(text, height)
 	local row = make("Frame", {
 		BackgroundColor3 = T.Raised,
@@ -1268,9 +1211,14 @@ end
     onClick? } }; every item is a tappable button (never registered with
     Focus): onClick, else it does what the action's key does (Focus.press,
     which runs the focused object's own action first, so a hint for a
-    layer action should pass onClick). On phones the bar is at least 44 px
-    tall and every item has side padding, so each is a 44 px touch target.
-    opts = { anchor?, position? } (default bottom-right). Returns bar,
+    layer action should pass onClick). On touch a Confirm hint without
+    onClick is hidden (again on every input mode change): touch shows no
+    focus and focuses no default, so it would do nothing, or confirm
+    whatever was tapped last; the player taps the item itself instead. A
+    Confirm hint that must stay on touch passes its own onClick (legend
+    select's LOCK IN). On phones the bar is at least 44 px tall and every
+    item has side padding, so each is a 44 px touch target. opts =
+    { anchor?, position? } (default bottom-right). Returns bar,
     setItems(items).
 ]]
 function UIKit.hintBar(parent, items, opts)
@@ -1344,6 +1292,17 @@ function UIKit.hintBar(parent, items, opts)
 				Parent = button,
 			})
 			Layout.bindText(label, 22)
+			if item.action == "Confirm" and not item.onClick then
+				-- (hidden on touch: see above; UIListLayout closes the gap)
+				local function fit()
+					button.Visible = Focus.mode() ~= "Touch"
+				end
+				local conn = Focus.ModeChanged:Connect(fit)
+				button.Destroying:Connect(function()
+					conn.Disconnect()
+				end)
+				fit()
+			end
 			button.Activated:Connect(function()
 				if item.onClick then
 					item.onClick()

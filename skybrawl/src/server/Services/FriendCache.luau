@@ -7,8 +7,9 @@
     Config.Rankings.FriendsCacheSeconds and then refreshed in the background
     the next time someone asks (the old set keeps answering meanwhile).
     While a player's set is still loading (or failed to load), isFriend asks
-    Roblox per pair (player:IsFriendsWith, cached Config.Rooms.FriendCacheSeconds)
-    and friendIds returns {}.
+    Roblox per pair (player:IsFriendsWithAsync, cached
+    Config.Rooms.FriendCacheSeconds) and friendIds returns {}. Nothing is
+    cached again for a player who has left (forget dropped their entries).
 
     A plain module, not a service (no init/start): it connects PlayerAdded
     when first required, and Main.server's PlayerRemoving coordinator calls
@@ -24,9 +25,6 @@ local Config = require(Shared.Config)
 local FriendCache = {}
 
 local MAX_FRIENDS = 200
--- After a failed load, ask Roblox again this much later.
--- TODO(I): move to Config.Rankings.FriendsRetrySeconds (tuning value the design doesn't give).
-local RETRY_SECONDS = 60
 
 -- [Player] = { ids: { [userId] = true }?, list: { number }?, loadedAt: number?, loading: boolean, retryAt: number? }
 local sets = {}
@@ -77,7 +75,7 @@ local function startLoad(player)
 		if ok then
 			entry.ids, entry.list, entry.loadedAt, entry.retryAt = ids, list, os.clock(), nil
 		else
-			entry.retryAt = os.clock() + RETRY_SECONDS
+			entry.retryAt = os.clock() + Config.Rankings.FriendsRetrySeconds
 			if not entry.ids then
 				warn("[FriendCache] couldn't load friends of", player.Name, ids)
 			end
@@ -105,19 +103,22 @@ local function setOf(player)
 	return entry.ids and entry
 end
 
--- One pcall'd IsFriendsWith per pair, cached (the fallback while the set loads).
+-- One pcall'd IsFriendsWithAsync per pair, cached (the fallback while the set loads).
 local function askRoblox(player, userId)
 	local cache = pairCache[player]
 	if not cache then
 		cache = {}
-		pairCache[player] = cache
+		-- a player who left was forgotten: a request still running for them gets an answer, but nothing is kept
+		if player.Parent then
+			pairCache[player] = cache
+		end
 	end
 	local hit = cache[userId]
 	if hit and os.clock() - hit.time < Config.Rooms.FriendCacheSeconds then
 		return hit.value
 	end
 	local ok, value = pcall(function()
-		return player:IsFriendsWith(userId)
+		return player:IsFriendsWithAsync(userId)
 	end)
 	value = ok and value == true
 	cache[userId] = { value = value, time = os.clock() }

@@ -25,6 +25,9 @@ art/
                       in every pose)
     build.py          entry point
   export/             what you import into Roblox Studio (FBX + PNG), see IMPORTING.md
+    portraits/        512x512 head-and-shoulders renders used by the menus (made
+                      from the posed rigs with the weapon hidden; build.py
+                      doesn't remake them)
   previews/           rendered turnarounds, weapon sheet, map views (with the
                       collision overlaid) and animation contact sheets
 ```

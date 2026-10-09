@@ -39,6 +39,7 @@
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextService = game:GetService("TextService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Util = require(Shared.Util)
@@ -53,6 +54,7 @@ Layout.STROKE_FOLLOWS_UISCALE = true
 local PHONE_TEXT = 1.6
 Layout.PHONE_TEXT = PHONE_TEXT -- how much bigger design px are on phones
 local TOP_GAP = 8 -- design px between the top bar and a pushed element
+local MEASURE_BOX = Vector2.new(100000, 100000) -- bindFitText measures one line, unbounded
 
 -- Pure helpers -------------------------------------------------------------
 
@@ -75,6 +77,22 @@ function Layout.textFit(px)
 		return px, 1
 	end
 	return 100, px / 100
+end
+
+--[[
+    The biggest design size from `size` down to `minSize` (1 px steps)
+    whose text, widthOf(design) px wide, fits in `width` px; minSize when
+    none does (the label's TextTruncate cuts the rest).
+]]
+function Layout.fitTextSize(size, minSize, width, widthOf)
+	local design = size
+	while design > minSize do
+		if widthOf(design) <= width then
+			return design
+		end
+		design -= 1
+	end
+	return minSize
 end
 
 -- How far down `rect` ({ x, y, w, h }) must move so its top edge clears every box it overlaps, plus `gap`.
@@ -232,6 +250,43 @@ function Layout.bindText(obj, size)
 		track(obj)
 	end
 	applyText(obj, entry)
+end
+
+--[[
+    bindText for a one-line label whose text can be too long for it (a
+    mission, a name): its design size is the biggest from `size` down to
+    `minSize` at which label.Text fits the label's width (Layout.fitTextSize,
+    measured with TextService:GetTextSize in the label's Font), chosen again
+    whenever its Text, its width or the safe area changes. Text still too
+    wide at minSize is cut by the label's TextTruncate (TextScaled is not
+    used: a scaled label doesn't truncate). Until the label has a width (not
+    laid out yet) it uses `size`.
+]]
+function Layout.bindFitText(obj, size, minSize)
+	local function fit()
+		local width = obj.AbsoluteSize.X
+		local design = size
+		if width > 0 and obj.Text ~= "" then
+			-- (2 px spare: the engine's own layout of the text can round a little wider than the measure)
+			design = Layout.fitTextSize(size, minSize, width - 2, function(n)
+				local textSize, scale = Layout.textFit(Layout.px(n))
+				local ok, bounds = pcall(function()
+					return TextService:GetTextSize(obj.Text, textSize, obj.Font, MEASURE_BOX)
+				end)
+				-- (a font GetTextSize can't measure keeps the full size)
+				return if ok then bounds.X * scale else 0
+			end)
+		end
+		local entry = texts[obj]
+		if not (entry and entry.size == design) then
+			Layout.bindText(obj, design)
+		end
+	end
+	-- (an Instance's own connections end when it is destroyed)
+	obj:GetPropertyChangedSignal("Text"):Connect(fit)
+	obj:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+	-- the safe area changing changes Layout.px
+	Layout.bindApply(obj, fit)
 end
 
 -- Changes a bound label's design size (any other object: just its Size).

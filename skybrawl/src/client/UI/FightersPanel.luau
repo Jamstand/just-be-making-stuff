@@ -22,8 +22,6 @@
     a screen with its last params after every match), and focuses that
     tile, so the tile Focus remembers from the last visit can't win. The
     3D view is created in show and destroyed in hide.
-    FightersPanel.create(gui, close) is the old window around it, kept
-    while LobbyUI exists.
 ]]
 
 local Players = game:GetService("Players")
@@ -569,11 +567,6 @@ function FightersPanel.mount(parent, host)
 			closeView()
 		end,
 	}
-end
-
--- The old Fighters window (LobbyUI). TODO(I): delete once LobbyUI is gone (menus design 5.8).
-function FightersPanel.create(gui, close)
-	return Common.legacyWindow(gui, "Fighters", close, FightersPanel.mount)
 end
 
 return FightersPanel

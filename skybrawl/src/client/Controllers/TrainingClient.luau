@@ -270,8 +270,8 @@ local function openPanel(s)
 		defaultFocus = function()
 			return s.hud:defaultFocus()
 		end,
-		-- (deferred: the B / Tab that closes the layer must not reach Input once fight input is back on)
-		-- TODO(I): Focus.applyFightInput re-enabling with task.defer would cover every inMatch layer (C1)
+		-- (deferred, so the HUD and the layer close after every handler has seen the B / Tab; Focus also turns
+		-- fight input back on one task.defer later, so that key never reaches Input)
 		onBack = function()
 			afterInput(s, closePanel, s, false)
 		end,

@@ -9,8 +9,6 @@
     profile changes. Confirm (or a click / tap) on an item you own equips
     it; on one you don't, it asks first (UIKit.dialog "Buy for <price>
     coins?"), since coins spent can't come back. Prices are in Gold.
-    ShopPanel.create(gui, close) is the old window around it, kept while
-    LobbyUI exists.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -386,11 +384,6 @@ function ShopPanel.mount(parent, host)
 			}
 		end,
 	}
-end
-
--- The old Shop window (LobbyUI). TODO(I): delete once LobbyUI is gone (menus design 5.8).
-function ShopPanel.create(gui, close)
-	return Common.legacyWindow(gui, "Shop", close, ShopPanel.mount)
 end
 
 return ShopPanel

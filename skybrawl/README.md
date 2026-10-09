@@ -11,7 +11,7 @@ the repo root.
 
 ## What's in it
 
-**Legends** (pick in the lobby's FIGHTERS panel)
+**Legends** (pick in the **LEGENDS** screen, and again before every match)
 - Sol (caped powerhouse hero, Sword + Hammer), Brann (cyborg brawler with
   mech arms, Hammer + Gauntlets), Vex (shadow ninja, Scythe + Gauntlets),
   Yuki (ice psychic, Spear + Bow), Moss (feral jungle berserker, Scythe +
@@ -85,11 +85,42 @@ the repo root.
 - Zoom, smoothing and screen shake settings, plus battle effects (Full /
   Reduced / Off) and ultimate camera cut-ins
 
+**Menus** (full screen, in the Brawlhalla style)
+- A title screen with six legends, then the main menu: ONLINE PLAY,
+  PRACTICE, CUSTOM ROOMS, LEGENDS, STORE, RANKINGS, PROFILE and SETTINGS,
+  with your legend in 3D, a FEATURED panel (events and news) and your
+  DAILY MISSIONS. Your player card, the party bar and the queue banner
+  stay on screen while you browse.
+- There is no lobby. You sit in the menus between matches and only have
+  a character during a match.
+- Every menu works with a keyboard, a mouse, a gamepad or touch. Phones
+  get their own layout (see Controls).
+- Menu music (set `Config.Music.Menu`) and built-in menu sounds.
+
+**Parties**
+- Up to 4 players. Invite anyone on the server from the INVITE screen
+  (friends are listed first). An invite lasts 30 s. An invite to a player
+  who is in a match waits until they're back in the menus. After a decline
+  or an expiry, the same player can't be invited again for 30 s.
+- The leader queues, starts bot matches and joins custom rooms for the
+  whole party. Any member can cancel a search. A member can still go to
+  the Training Room alone.
+
 **Matchmaking** (several arenas run side by side in one server)
 - Ranked 1v1 (rating-matched, with a widening search window)
-- Ranked 2v2 (four solo players, balanced teams)
-- Free-for-all (up to 4 players; bots fill empty spots after a short wait)
-- vs Bots (1v1 duel, 3-bot FFA, or 2v2 with a bot teammate)
+- Ranked 2v2: a duo against a duo, a duo against two solos, or four solos
+  in balanced teams
+- Free-for-all (up to 4 players; bots fill empty spots after 20 s; a party
+  is never split)
+- vs Bots, from PRACTICE: a 1v1 duel, 2v2 (you and your party, with a bot
+  teammate if you're alone) or FFA (up to 3 of you against bots)
+- Every match starts with **legend select**: 15 seconds to pick a legend
+  (or Random), turn your avatar's look on or off, and vote for one of three
+  maps. It ends early once everyone has locked in. In ranked, the other
+  team's picks stay hidden until the **VS** screen.
+- After the match, the results screen offers **QUEUE AGAIN** (online),
+  **REMATCH** (bots, and a custom room's host), **BACK TO ROOM** (everyone
+  else in a custom room) and **MENU**.
 - Custom rooms. Hosts choose:
   - mode
   - stocks or timed rules
@@ -103,12 +134,35 @@ the repo root.
   - a skill (rating) range
 
   The room browser filters by mode, map, rule, open slots, in-match rooms,
-  your skill range, friends' rooms, and name search.
+  your skill range, friends' rooms, and name search. A room set to a
+  "Random" map votes among its mode's maps in legend select.
+
+**Training Room** (PRACTICE → TRAINING ROOM)
+- You against a dummy on Duel Rock. The dummy can stand, jump, dodge,
+  block or fight back (with a bot level), and it climbs back to the stage
+  when you knock it off.
+- Frame data for every attack you do, a combo readout (true combo or
+  string), hitbox overlays, slow motion (0.5x and 0.25x), a weapon spawner
+  (at most 6 drops at a time), a damage setter with "Keep damage after
+  KO", and RESET POSITIONS. Change your legend and weapon, and the
+  dummy's, at any time.
+- Nothing in the training room counts for missions, XP or rating. It has
+  its own arenas, so it never holds up matchmaking.
 
 **Progression** (saved with DataStores)
 - Elo rating for ranked 1v1 and 2v2 (Tin → Bronze → Silver → Gold →
-  Platinum → Diamond) with 10 placement matches, and a global top-10
-  board in the lobby
+  Platinum → Diamond) with 10 placement matches
+- **Seasons**: at the end of a season every rating is pulled halfway back
+  toward 1000, and last season's tiers become a badge on your profile.
+- **Rankings**: 1v1 and 2v2 ladders for the season, the global top 100 and
+  your friends, plus past seasons.
+- **Daily missions**: three a day (they reset at midnight UTC), with one
+  free reroll a day. CLAIM pays coins and XP. Missions you finished but
+  didn't claim are paid at the reset. Once the reset has passed, the old
+  list can't be rerolled or claimed: the server refuses it ("Your missions
+  changed. Take another look.") and the new list shows.
+- **Events**: timed bonuses (like double XP for one legend) from
+  `Config.Events`. They show as featured tiles on the main menu.
 - Coins and XP from every match, with levels shown on your nameplate
 - Coin shop for weapon colors, trails, KO effects and titles (no Robux)
 
@@ -140,33 +194,52 @@ src/shared/                     ReplicatedStorage.Shared
   Cosmetics.luau                Shop items
   WeaponModels.luau             Weapon visuals: imported meshes, or Parts as a fallback
   Locomotion.luau               Default Roblox idle/run/jump/fall animations
+  Party, Select, Matchmaking,   Pure rules for parties, legend select + map vote, queue matching
+  MatchRules                    ...and match setup (bot formats, MVP, room teams)
+  Missions, Events, Seasons,    Pure rules for daily missions, events, seasons, the ranked
+  Rankings, RankingsView        ...ladders' stored values and the rankings screen's rows
+  DummyBrain, FrameData         The training dummy's behaviours, frame data and the combo readout
   Util.luau, Net.luau
 
 src/server/                     ServerScriptService.Server
-  Main.server.luau              Boots every service
+  Main.server.luau              Boots every service; the one PlayerRemoving handler, which calls each
+                                service's onPlayerRemoving in a fixed order
   Services/
-    DataService                 Profiles, saving, settings sanitizing
-    ProgressionService          Coins, XP, ratings after each match
+    DataService                 Profiles (v2: missions, season stats), saving, settings sanitizing
+    ProgressionService          Coins, XP, ratings, events and seasons after each match
+    MissionService              Daily missions: progress, claim, reroll, the midnight rollover
     ShopService                 Buy / equip cosmetics
-    CharacterService            Collision groups, nameplates, trails
-    ArenaService                Builds the lobby + arenas, arena slots
-    LeaderboardService          Global ranked board
-    MatchService + Match        Match lifecycle, hits, KOs, weapons, projectiles
+    CharacterService            Collision groups, nameplates, trails, the menus' avatar models
+    ArenaService                Builds the arenas, arena slots (match and training pools)
+    LeaderboardService          Seasonal ranked boards (global and friends)
+    FriendCache                 Each player's friend list, for invites and friends rankings
+    PartyService                Parties and invites
+    QueueService                Ranked/FFA queues (whole parties), vs Bots
+    SelectService               Legend select and the map vote, then the match
+    MatchService + Match        Match lifecycle, hits, KOs, weapons, projectiles, results
     BotBrain                    Bot AI
-    QueueService                Ranked/FFA/bot queues
     RoomService                 Custom rooms
+    TrainingService             The training room (TrainingRoom: its controls and the dummy)
 
 src/client/                     StarterPlayerScripts.Client
   Main.client.luau
-  ClientState.luau
+  ClientState.luau              Server state copies and the phase (Title, Menu, Select, Vs, Match, Results)
   Controllers/                  Input, Settings, CameraController, MatchClient, Visuals,
-                                FighterAnimator (plays the clips on every fighter), CharacterAnimator, Sound
-  UI/                           LobbyUI, PlayPanel, RoomsPanel, FightersPanel, ShopPanel, ProfilePanel,
-                                SettingsPanel, MatchHUD, ResultsScreen, MobileControls, Toasts, UIKit
+                                FighterAnimator (plays the clips on every fighter), CharacterAnimator, Sound,
+                                Controls (Roblox's own controls and chat), Music, TrainingClient
+  UI/                           Focus + FocusNav (keyboard/gamepad/touch navigation), Layout (scaling, phones),
+                                UIKit + Shapes (the look), LegendView (3D legends in the menus),
+                                TitleScreen, MenuShell (screen stack), MainMenu, PlayerCard, QueueBanner,
+                                PartyBar, FeaturedPanel, MissionsWidget, Toasts,
+                                RoomsPanel, FightersPanel, ShopPanel, ProfilePanel, SettingsPanel,
+                                MatchHUD, ResultsScreen, TrainingHUD, MobileControls
+    Screens/                    The menu screens (OnlinePlay, Practice, CustomRooms, Legends, Store,
+                                Rankings, Profile, Settings, Missions, Invite)
+    Match/                      Legend select and the VS splash
 
 src/character/Animate.client.luau   Empty stub that replaces Roblox's default Animate
 
-tests/                          Lune simulation tests for the shared code
+tests/                          Lune tests (see Tests)
 ```
 
 ## Setup
@@ -188,14 +261,20 @@ rojo build -o Skybrawl.rbxl
 Open `Skybrawl.rbxl` in Roblox Studio. This is the cleanest start: the
 place contains only Skybrawl, with streaming already off.
 
+There is no lobby. Players stay in the menus between matches, and
+characters only load for a match. `Players.CharacterAutoLoads` is off in
+the project file, and the `SpawnLocation` is an invisible holding pad where
+a match's characters wait (during the VS screen) until they're placed on
+the stage.
+
 For live-syncing while you edit, run `rojo serve` and connect with the
 plugin. If you serve into a fresh **Baseplate** template instead of the
 built file:
 
-- delete the template's `Baseplate` and `SpawnLocation` (the lobby island
-  sits at the same height and they'd overlap)
-- set **Workspace → StreamingEnabled** to off (Rojo can't always set it
-  over live sync)
+- delete the template's `Baseplate` and `SpawnLocation` (the project's
+  invisible pad replaces them)
+- set **Players → CharacterAutoLoads** to off, and **Workspace →
+  StreamingEnabled** to off (Rojo can't always set these over live sync)
 
 ### 3. Game settings
 
@@ -206,25 +285,46 @@ In **Home → Game Settings**:
   "Use my avatar's look" on); R6 avatars work, but only move their
   shoulders, hips and head.
 - **Security → Enable Studio Access to API Services**, so DataStores
-  (profiles, ratings, leaderboard) work in Studio. Without it you can
-  still play, but progress doesn't save and the Profile tab says so.
+  (profiles, ratings, rankings) work in Studio. Without it you can
+  still play, but progress doesn't save and the PROFILE screen says so.
+  Rankings then list the players on the server.
 
 ### 4. Import the art (optional, but it's the good-looking part)
 
 Follow `art/IMPORTING.md`: import the FBX files from `art/export/` into
 three folders in ReplicatedStorage and paste the painted background ids
-(three layers per map) into `Config.Art.SkyImages`. Until then, legends fall back to your avatar,
-and weapons and maps to code-built Parts.
+(three layers per map) into `Config.Art.SkyImages`. The painted skies also
+show behind the title screen and the menus. Until then, legends fall back
+to your avatar in matches and to a coloured card in the menus, and weapons
+and maps to code-built Parts.
+
+Two more uploads are optional:
+
+- **Legend portraits:** upload `art/export/portraits/<Legend>_portrait.png`
+  and paste the ids into `Config.Art.Portraits`. Without them the menus
+  show a still 3D head.
+- **Menu music:** upload a sound and paste its id into `Config.Music.Menu`
+  (`""` is silent).
+
+Use **image asset ids**, not decal ids. If an image shows nothing, paste
+the id into an ImageLabel's `Image` in Studio: Studio turns a decal id
+into the image id, and that number is the one to use.
 
 ### 5. Play-test
 
-- **Solo:** press **Play**, open **PLAY** → **vs Bots** → **Start**.
-- **Multiplayer:** **Test → Clients and Servers** with 2–4 players to try
-  ranked queues, free-for-all and custom rooms. Ranked 1v1 needs two
-  players in the queue.
-
-The lobby kiosks (PLAY / CUSTOM ROOMS / SHOP) open the same panels as the
-bottom menu.
+- **Solo:** press **Play**, press any key on the title screen, then
+  **PRACTICE** → **vs Bots** → **START**. You get legend select, the VS
+  screen, the match and the results screen. Try REMATCH and MENU.
+- **Training:** **PRACTICE** → **TRAINING ROOM**. Leave with LEAVE
+  TRAINING in the panel (Tab).
+- **Multiplayer:** **Test → Clients and Servers** with 2–4 players.
+  Invite each other (X on the main menu, or the party bar's + slots), then
+  try ranked queues (Ranked 1v1 needs two players; Ranked 2v2 needs four:
+  two duos, a duo and two solos, or four solos), free-for-all, vs Bots as a
+  party and custom rooms.
+- **Ranked boards:** the test players of Clients and Servers (user ids of 0
+  or less) never write to them. **Play** with Studio API access on writes
+  under your real user id.
 
 ### 6. Publish
 
@@ -243,7 +343,7 @@ experience too. Nothing else is required: there are no Robux products yet.
 | Throw / pick up weapon| H                   | Y         | THROW           |
 | Block (hold)          | F                   | LB        | BLOCK           |
 | Awaken / ultimate     | G                   | RB        | ULT             |
-| Match menu            | P                   |           | Menu button     |
+| Match menu            | P                   | View      | Menu button     |
 
 - Direction + attack picks the move: neutral, side or down (and up
   counts as neutral).
@@ -272,22 +372,99 @@ experience too. Nothing else is required: there are no Robux products yet.
   left of the screen says TRUE COMBO when the target never got out of
   hitstun.
 
+**Menus**
+
+| Action                     | Keyboard               | Gamepad      | Mouse / touch        |
+|----------------------------|------------------------|--------------|----------------------|
+| Move focus                 | Arrows or W A S D      | Stick / D-pad | Hover moves focus   |
+| Confirm                    | Enter or Space         | A            | Click / tap          |
+| Back                       | Backspace              | B            | The BACK hint        |
+| Switch tabs                | Q / E                  | LB / RB      | Tap the tab          |
+| Switch sub-tabs            | Z / C                  | LT / RT      | Tap the tab          |
+| Screen actions             | X, Y                   | X, Y         | The hints            |
+| Panel (training)           | Tab                    | View         | The PANEL button     |
+
+- **Escape is not Back.** Roblox always opens its own menu on Escape, so
+  Back is Backspace (or B), and every hint bar has a BACK you can click or
+  tap. Every hint in a hint bar can be clicked or tapped, except that on
+  touch a Confirm hint that only presses the focused item is hidden (tap
+  the item itself).
+- Hints follow the focus: on ONLINE PLAY, Confirm says FIND MATCH or
+  CANCEL SEARCH for the focused card (none on a locked card), and on
+  MISSIONS, CLAIM and REROLL show only on a row that can do them.
+- On the main menu, X invites and Y changes your legend. On ONLINE PLAY, X
+  invites. On RANKINGS, LB / RB switch 1V1 / 2V2, LT / RT switch GLOBAL /
+  FRIENDS, Y jumps to you and X shows the next season. On MISSIONS, X
+  rerolls. On LEGENDS, Y toggles your avatar's look. On INVITE, Y
+  refreshes.
+- **Legend select:** Confirm (or a click) locks in, Back unlocks, X locks
+  Random, Y toggles your avatar's look, LB / RB (Q / E) move your map vote,
+  and a click on a map votes for it. On touch, tap a tile to look at the
+  legend and tap it again (or LOCK IN) to lock.
+- **Phones:** a safe area under 500 px tall or 900 px wide gets the phone
+  layout, with 1.6x text. Screens scroll.
+- **Pause:** P, the Menu (P) button, or the gamepad's View button (not in
+  the training room, where View opens the panel).
+
+**Training room**
+
+| Action                       | Keyboard | Gamepad |
+|------------------------------|----------|---------|
+| Open / close the panel       | Tab      | View    |
+| Reset positions              | R        | R3      |
+| Drop the selected weapon     | V        | L3      |
+
+- While the panel is open, fight input is off. Back closes the panel but
+  keeps it on screen; Tab (or View) again hides it. Mouse and touch use the
+  PANEL button.
+- A hotkey that is also one of your fight keybinds is turned off and its
+  hint hidden.
+- **Frame data** uses the usual fighting-game convention. STARTUP is the
+  frame the hitbox first comes out on (it counts that frame), ACTIVE is how
+  many frames it stays out and RECOVERY the frames after that. TOTAL is
+  startup − 1 + active + recovery, so Avatar's Sword side light is 7 / 6 /
+  12, 24 frames in all. The line under the move name says which frame it
+  hits on ("HITS ON FRAME 7"). Frames are 60 fps frames of the match clock,
+  so slow motion doesn't change them.
+
 ## How a match works
 
-1. Everyone is placed on the arena; 3-2-1-GO.
-2. Hits add damage %. Knockback = `(base + scaling × damage/100) × KnockbackScale`.
+1. **Match found:** a "MATCH FOUND" flash, then **legend select** (15 s;
+   it ends 0.75 s after everyone has locked in). Pick a legend or Random
+   and vote for one of three maps. The map with the most votes wins (ties,
+   and no votes at all, pick at random). A custom room with a fixed map has
+   no vote. In ranked, you see the other team's picks only on the VS
+   screen.
+2. **VS** (3 s) while the arena is built and the characters load.
+3. Everyone is placed on the arena; 3-2-1-GO.
+4. Hits add damage %. Knockback = `(base + scaling × damage/100) × KnockbackScale`.
    Your card also shows your ultimate meter and your guard.
-3. Leaving the blast zone = KO. You lose a stock (or a point in timed
+5. Leaving the blast zone = KO. You lose a stock (or a point in timed
    matches, and whoever hit you last gets one), then respawn above the
    stage with 2 seconds of invulnerability.
-4. Last team with stocks wins. Timed matches go to the most points.
+6. Last team with stocks wins. Timed matches go to the most points.
    Stock matches also end after 8 minutes (most stocks, then least
    damage).
-5. A results screen shows placements, coins, XP and rating changes, then
-   everyone returns to the lobby (or to their custom room).
+7. "GAME!", then the results screen: placements, coins, XP, rating
+   changes, mission progress and any event bonus. **QUEUE AGAIN** (online)
+   or **REMATCH** (bots and custom rooms) starts the next one; only the
+   party leader can queue or start a bots rematch, and in a custom room the
+   host restarts it (everyone else gets **BACK TO ROOM**). The pressed
+   button says WAITING... until the match has let you go. **MENU** goes
+   back, and the screen goes back on its own after 20 s. Leaving that way
+   while QUEUE AGAIN or a bots REMATCH is waiting still sends it once the
+   match lets you go (unless you're already in a queue); a host's room
+   REMATCH is cancelled instead.
 
 Bot matches and custom rooms pay reduced rewards, and ranked matches can't
-include bots. Quitting a ranked match counts as a loss.
+include bots. Quitting a ranked match counts as a loss. So does **dodging**:
+leaving a ranked legend select, or the match before the fight starts, costs
+you a ranked loss, and everyone else goes back in the queue (they keep
+their search time). A player whose party changed meanwhile can't go back
+and is told the search was cancelled. A fighter the server couldn't load
+isn't a dodger: they go back in the queue with the others and are told so.
+A match that fails to start puts its queue players back in their queue
+too. In a casual match a bot takes the leaver's place.
 
 ## Tuning and extending
 
@@ -300,11 +477,41 @@ Almost everything lives in `src/shared/Config.luau`:
   slack
 - `Battle`: chain window, guard meter and break, ragdoll force and
   knockdown/tech timings, ultimate meter gains and the awakening
-- `Art`: fighter height, outlines, sky image ids
+- `Art`: fighter height, outlines, sky image ids, legend portrait ids
+  (`Portraits`), the weapon each legend holds in the menus (`MenuWeapons`)
 - `WeaponDrops`: spawn rate, max on stage, throw speed/damage
 - `Queue`, `Rooms`, `Bots`, `Ranked`, `Rewards`, `Levels`
+- `Party`: party size, invite timers, the re-invite cooldown, request limits
+- `Select`: legend select length, the delay after everyone locks, the VS
+  length, the number of maps to vote on, action limits
+- `Training`: the training map, the dummy, speeds, the damage step, the
+  weapon spawner cap and the hotkeys
+- `Missions`: missions a day, rerolls (`FreeRerolls` is 1 or 0: the profile
+  keeps one reroll flag a day, so more isn't supported), the templates
+  (each with a `Short` form for the phone menu), which sources count
+  (`Sources`) and the easiest bot that counts (`MinBotDifficulty`)
+- `Events` and `EventMaxMult`: timed XP / coin bonuses (UTC dates, an
+  optional legend). The best one applies; they don't stack.
+- `News`: the main menu's featured tiles (events are added in front)
+- `Menu`: the menu backdrop map (`BackdropMap`; `"Random"` picks a random
+  map with a painted sky), featured tile timing, the results delay and
+  auto-return, the input grace
+- `Seasons`: the season list (UTC end dates) and the soft reset
+- `Rankings`: the ranked stores, list sizes, refresh and cache times, the
+  DataStore budget limits, and how often each player may ask for rankings
+  (`RequestsPerSecond`, `RequestBurst`; past that the answer is "Slow
+  down.")
+- `Music`: the menu music id, volume and fade
 - `Camera`: modes and looks (FOV and pitch per look)
 - `DefaultKeybinds`, `DefaultSettings`, `Sounds`
+
+**Adding a season:** add it to `Config.Seasons.List` with its end date.
+Season ids must only go up. The next season starts when the one before it
+ends.
+
+**Adding an event or a news tile:** add an entry to `Config.Events` (with
+`Starts` and `Ends`) or `Config.News`. `Screen` and `ScreenParams` make the
+tile open a menu screen.
 
 **Adding a weapon:** add an entry to `Weapons.List` with its 11 attack
 slots and a `Chain` spec for the punch chain,
@@ -392,6 +599,32 @@ fake rig, frame by frame at 60 fps:
 - the legend clip lookup (a legend's own guard first, then the shared clips)
   and recoveries settling into each fighter's own guard
 
+The menus have their own suites. Each one tests the logic in plain
+modules, because Lune's fake instances have no events to click:
+
+- `lune run tests/contract`: the remotes and the project file (every remote
+  the client calls has exactly one server handler), Config's menu sections,
+  the pure rules (parties, legend select, missions, events, seasons, the
+  ranked values), the client's state copies and profile v2 (migration,
+  season stats, a save that can't be read).
+- `lune run tests/matchflow`: matchmaking with parties, parties and
+  invites, the queue, legend select and its leavers and dodges, custom
+  rooms with parties, and the match changes (match ids, character
+  preloads, cancels and requeues before the fight, the training hooks).
+- `lune run tests/progression`: rewards with events and seasons, daily
+  missions (progress, claim, reroll, the midnight rollover) and the ranked
+  boards (season stores, request budgets, the request rate limit, friends,
+  the Studio fallbacks).
+- `lune run tests/ui`: focus navigation, the layout maths, the slanted
+  shapes and the main menu's view models.
+- `lune run tests/screens`: the menu screens' view logic (Online Play locks,
+  bot formats, rankings pages and rank card, invite rows, the season badge,
+  store cards, the missions reset countdown).
+- `lune run tests/matchscreens`: legend select, the VS screen and the
+  results screen's view logic, and the phase changes on server events.
+- `lune run tests/training`: the dummy's behaviours, frame data, the
+  training room's controls and TrainingRequest.
+
 `lune run tests/combo_search [Weapon] [damage]` lists every true combo the
 current frame data allows. Use it when you change hitstun, knockback or
 timings.
@@ -413,14 +646,102 @@ skips `.luau` files.
 
   A modified client could still move faster than allowed, so add
   server-side speed checks before scaling up.
-- **Matchmaking is per server.** Queues and rooms only see players on the
-  same server (up to ~30). Cross-server matchmaking would need
-  MemoryStoreService + TeleportService reserved servers.
+- **Matchmaking is per server.** Parties, queues and rooms only see
+  players on the same server (up to ~30), and the friends rankings show
+  friends you have on this server live and the rest from the stored
+  boards. Cross-server matchmaking would need MemoryStoreService +
+  TeleportService reserved servers.
+- **Rankings** show positions only inside the global top 100 (an ordered
+  DataStore can't tell you yours beyond that). Friends rankings read at
+  most `Rankings.FriendsMax` (50) stored friends.
+- **Seasons are edited in Config.** There is no admin tool.
+- **Sounds** are built-in placeholder sounds.
+- **Back is not on Escape** (Roblox owns Escape); it's Backspace or B.
+- **Roblox chat** is collapsed on your first visit to the menu only where
+  `SetCore("ChatActive")` is supported. Elsewhere it shows in its default
+  top-left spot over the menu until you close it.
+- An invite's 30 s countdown starts as soon as the player is free on the
+  server, so a player still on the title screen can miss it.
 - **Session locking is light.** A server claims a profile when it loads
   it. An older server that still holds the profile can't overwrite it. A
   player rejoining fast waits a few seconds for the old server's final
-  save. A profile that failed to load is never saved. For a big game,
-  consider a battle-tested library such as ProfileStore.
+  save. A profile that failed to load is never saved. A stored profile
+  that can't be read loads on defaults and is never saved either; its
+  claim stays until it goes stale, so joining another server right after
+  waits about 8 s. Results from a profile that isn't saving never reach
+  the ranked boards either. For a big game, consider a battle-tested
+  library such as ProfileStore.
 - With the **Flat 2D** camera look the camera sits far from the stage. On
   the very lowest graphics quality, Roblox may stop drawing distant
   scenery; use 2.5D there.
+
+## Things to check in Studio
+
+The menus were built without Studio, so these engine details still need a
+look. The code has a fallback or a note where it could.
+
+**Characters and matches**
+- Characters load (`LoadCharacterAsync`) during the 3 s VS screen and wait
+  on the invisible pad until they're placed on the stage at "Start".
+- The client notices when the server takes its character (`Character =
+  nil`, then Destroy): `CharacterRemoving` or the `Character` property
+  should fire. The client also waits up to 5 s for its character after
+  "Start".
+- The menus' avatar models (`ReplicatedStorage.AvatarModels`): the server
+  builds them with `GetHumanoidDescriptionFromUserIdAsync` and
+  `CreateHumanoidModelFromDescriptionAsync`. Check what they cost to
+  replicate, and that a model replaced by the 5 s retry shows in the menus.
+- `GetFriendsAsync` paging (and `IsFriendsWithAsync`, used while a friend
+  list loads), and `UserService:GetUserInfosByUserIdsAsync` on the server
+  (rankings names).
+
+**Rankings**
+- What `GetRequestBudgetForRequestType` returns on a live server for
+  `OrderedRead`, `OrderedList` and `OrderedWrite`, and for the older
+  `GetAsync`, `GetSortedAsync` and `SetIncrementSortedAsync`. With none
+  reported, a warning is logged once and a fixed per-minute limit is used.
+- Stored values up to about 9e15 save and sort exactly.
+- An endless season (`endsAt = math.huge`) survives the RemoteFunction.
+- The "unavailable" fallback in an unpublished place and with Studio API
+  access off.
+
+**Input**
+- Input events come before RenderStepped in the same frame, and a
+  `task.defer` from an InputBegan handler runs after every other handler of
+  that key press (with both SignalBehavior settings). The menus rely on this
+  so the key that opens or closes a screen, the pause menu or the training
+  panel isn't also read as a menu press or an attack.
+- Tab and the gamepad's View button arrive as not game-processed; R3 and L3
+  work as hotkeys; `GetImageForKeyCode` gives gamepad glyph images.
+- Gamepad A held down as the results, legend select or an invite appear
+  presses nothing for half a second.
+- Key rebinding: Enter, Space or A on a slot wait for the next key; B
+  cancels a keyboard slot and Backspace clears a gamepad slot.
+- Touch: tap-then-tap to lock a legend, scrolling inside the training panel
+  over its buttons, and clicks on the training panel that never become
+  attacks.
+- The engine's own selection stays off, and `SetCore("ChatActive")`
+  collapses the chat.
+
+**Look**
+- Text: a `UIScale` scales `UIStroke` thickness (if not, flip
+  `Layout.STROKE_FOLLOWS_UISCALE`) and scales around the AnchorPoint.
+- The special characters (♛ ± ✓ • — – · ◀ ▶) render in Bangers,
+  GothamBlack and LuckiestGuy.
+- Slanted shapes: the gradients meet at the seams, outlines are clipped
+  right, the disabled dim draws over the content.
+- 3D views: placeholders inside ViewportFrames render; the title's legend
+  pairs, the LEGENDS screen, legend select, VS and results framing match
+  the mockups.
+- The VS seam and its fade-out, the pop-in animations, the Online Play
+  locked band and the "VS" outline.
+- Phones: the top bar (`GuiService.TopbarInset`) stays clear on every screen
+  (legend select, results, VS, the training panel), touch targets are at
+  least 44 px, and 1.6x text never overflows.
+- Mission text shrinks to fit (`Layout.bindFitText`): `TextService:GetTextSize`
+  measures what the label draws, and the text is fitted again once the label
+  has its width.
+- On touch, a hint bar closes the gap left by a hidden Confirm hint.
+- The training room's hitbox outlines and tags, and the focus ring and glow
+  on its panel.
+- The built-in menu sounds play.

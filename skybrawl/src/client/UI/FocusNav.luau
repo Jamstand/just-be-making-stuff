@@ -20,7 +20,7 @@
                           before it appeared (it is the key that opened it,
                           seen by a later handler of the same input event),
                           so it never counts; Confirm also waits out the
-                          layer's confirmDelay.
+                          layer's confirmDelay (Focus holds Back for it too).
 
     Rects are { x, y, w, h } in screen pixels, y growing downward.
 ]]

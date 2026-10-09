@@ -1,9 +1,10 @@
 # Importing the art into Roblox Studio
 
 The game runs without any of this: fighters fall back to your Roblox
-avatar, weapons and maps to code-built Parts, and skies to gradients. The
-steps below swap in the Blender art. You only do them once per asset (and
-again if you rebuild an asset).
+avatar in matches and to a coloured card in the menus, weapons and maps to
+code-built Parts, and skies to gradients. The steps below swap in the
+Blender art. You only do them once per asset (and again if you rebuild an
+asset).
 
 Everything you import goes into **three folders in ReplicatedStorage**, and
 the names matter:
@@ -110,7 +111,34 @@ more of the scene. If you change a layer's `Parallax`, change it in
 `art/blender/sky/vista.py` (`PARALLAX`) too and re-render the backgrounds
 (`tests/art` checks that the two match).
 
-## 4. Keep the imports
+## 4. Upload the legend portraits (optional)
+
+The menus show each legend's face in small places: the Online Play cards,
+the party bar, legend select's slots, the results rows. Without portraits
+they use a still 3D head, which is fine. Images look sharper and cost less:
+
+1. In the **Asset Manager**, **Bulk Import** the six
+   `art/export/portraits/<Legend>_portrait.png` files (512x512
+   head-and-shoulders renders).
+2. Copy each image's id and paste it into `Config.Art.Portraits`:
+
+```lua
+Portraits = { Kestrel = "1234567890", Brann = "...", Yuki = "...", Moss = "...", Vex = "...", Sol = "..." },
+```
+
+The painted skies from step 3 also show behind the title screen and the
+menus (the map in `Config.Menu.BackdropMap`, or a random one with sky
+images when it's `"Random"`).
+
+The menu music works the same way: upload a sound and paste its id into
+`Config.Music.Menu` (`""` keeps the menus silent).
+
+**Use image asset ids, not decal ids** (this goes for the skies too). A
+decal id set from a script shows nothing. If an image stays blank, paste
+the id into an ImageLabel's `Image` property in Studio: Studio turns a
+decal id into the image id, and that number is the one to use.
+
+## 5. Keep the imports
 
 The imported models live in your place file, not in this repo. To keep them:
 
@@ -130,22 +158,34 @@ The imported models live in your place file, not in this repo. To keep them:
 "MapModels": { "$path": "assets/MapModels.rbxm" },
 ```
 
-## 5. Check it worked
+## 6. Check it worked
 
+There is no lobby, so you check the art in the menus and in a match.
 Play-test (Test > Play, or 2 players with Test > Clients and Servers):
 
-- **Fighters panel:** the lobby menu's FIGHTERS panel shows each legend
-  turning in a 3D preview, playing its idle animation. "3D model not
-  imported yet" means `FighterModels.<Name>` is missing or misnamed.
+- **Title screen:** six legends stand in front of the painted sky, playing
+  their idle animations. A coloured card in a legend's place means
+  `FighterModels.<Name>` is missing or misnamed.
+- **Main menu:** your legend stands in the middle in 3D, holding its
+  weapon, in front of the painted sky.
+- **LEGENDS screen:** each legend turns in a 3D preview as you move over
+  the tiles. With portraits uploaded, the tiles and the Online Play cards
+  show them; without, a still 3D head.
+- **Legend select and VS:** PRACTICE > vs Bots > START. The slots show
+  portraits (or heads), the big preview shows the legend you're on, and
+  the VS screen shows every fighter.
 - **Matches:** your legend (a classic blocky avatar with its printed outfit
   and anime face) replaces your avatar and holds its own weapon skins. Capes,
   scarves, ponytails and long hair swing on their sway bones. Brann squares
   up in his own low guard, and shows no gauntlet model over his mech fists
   (his knuckles glow when he holds gauntlets). With "Use my
-  avatar's look" on (FIGHTERS panel or Settings), you keep your own avatar
-  and only borrow the legend's moves.
+  avatar's look" on (LEGENDS screen, legend select or Settings), you keep
+  your own avatar and only borrow the legend's moves.
 - **Maps:** Sky-Ship Deck, Volcanic Forge, Frozen Peaks and Jungle Temple
   use the kits and their painted skies.
+- **Results:** your legend stands in 3D on the results screen.
+- **Training room:** PRACTICE > TRAINING ROOM. The dummy is Brann on Duel
+  Rock; change its legend in the panel to see the others.
 
 The Output window explains any problem it finds, for example:
 

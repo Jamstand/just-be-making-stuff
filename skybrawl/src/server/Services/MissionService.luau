@@ -2,7 +2,8 @@
     Daily missions on the server (menus design 4.8). The rules live in the
     pure Missions module; this service wires them to profiles:
 
-      MissionRequest   "Reroll" / "Claim" a mission by index (rate limited)
+      MissionRequest   "Reroll" / "Claim" a mission by index (rate limited);
+                       refused when the list the player saw is another day's
       rollDay          ProgressionService calls it first inside its
                        profile update when a match pays rewards: a new UTC
                        day pays yesterday's missions before the match's
@@ -148,11 +149,18 @@ function actions.Claim(profile, _userId, index)
 end
 
 --[[
-    The MissionRequest handler body: (action "Reroll" | "Claim", index) ->
-    ok, message. The day is rolled first (paying yesterday's missions), so
-    an index always refers to today's list.
+    The MissionRequest handler body: (action "Reroll" | "Claim", index,
+    day?) -> ok, message. `day` is the Missions day of the list the player
+    acted on (their snapshot's missions.day). The day is rolled first
+    (paying yesterday's missions); then the request is refused ("Your
+    missions changed. Take another look.") when it was made on another
+    day's list: this roll started a new day (nobody has seen its list yet),
+    or `day` isn't the profile's day (the client hadn't got the list a
+    rollover just pushed). So an index pressed on yesterday's row never
+    rerolls or claims one of today's missions. The update pushes the
+    current list either way.
 ]]
-function MissionService.request(player, action, index)
+function MissionService.request(player, action, index, day)
 	if not allowRequest(player) then
 		return false, "Slow down."
 	end
@@ -166,7 +174,12 @@ function MissionService.request(player, action, index)
 	local userId = player.UserId
 	local ok, message, paid, levelBefore, levelAfter = services.DataService.update(player, function(profile)
 		local before = Ranks.levelFromXP(profile.XP)
+		local dayBefore = profile.Missions.Day
 		local rolled = rollTo(profile, userId, Missions.dayIndex(os.time()))
+		-- a day that starts right here can't have been seen yet
+		if profile.Missions.Day ~= dayBefore or (day ~= nil and day ~= dayBefore) then
+			return false, "Your missions changed. Take another look.", rolled, before, (Ranks.levelFromXP(profile.XP))
+		end
 		local done, text = handler(profile, userId, index)
 		return done, text, rolled, before, (Ranks.levelFromXP(profile.XP))
 	end)
@@ -219,8 +232,8 @@ function MissionService.init(s)
 end
 
 function MissionService.start()
-	Net.get("MissionRequest").OnServerInvoke = function(player, action, index)
-		local ok, result, message = pcall(MissionService.request, player, action, index)
+	Net.get("MissionRequest").OnServerInvoke = function(player, action, index, day)
+		local ok, result, message = pcall(MissionService.request, player, action, index, day)
 		if not ok then
 			warn("[MissionService]", action, "failed:", result)
 			return false, "Something went wrong."

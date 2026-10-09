@@ -162,6 +162,19 @@ h.test("Layout.modeFor picks Phone for short or narrow safe areas", function()
 	expectEqual(Layout.modeFor(Vector2.new(900, 500)), "Wide", "exactly at the limits")
 end)
 
+h.test("Layout.fitTextSize picks the biggest size that fits, down to the minimum", function()
+	-- a text 20 px wide per design px
+	local function widthOf(design)
+		return design * 20
+	end
+	expectEqual(Layout.fitTextSize(18, 14, 400, widthOf), 18, "fits at full size")
+	expectEqual(Layout.fitTextSize(18, 14, 340, widthOf), 17, "one px smaller")
+	expectEqual(Layout.fitTextSize(18, 14, 300, widthOf), 15, "15 fits exactly")
+	expectEqual(Layout.fitTextSize(18, 14, 100, widthOf), 14, "never under the minimum (truncated there)")
+	expectEqual(Layout.fitTextSize(26.25, 18, 470, widthOf), 23.25, "fractional design sizes step by 1")
+	expectEqual(Layout.fitTextSize(26.25, 18, 10, widthOf), 18, "fractional: the minimum")
+end)
+
 h.test("Layout.pxFor scales with height and enlarges text on phones", function()
 	expectEqual(Layout.pxFor(54, 1080, "Wide"), 54, "1080p")
 	expectEqual(Layout.pxFor(54, 2160, "Wide"), 108, "4K")
@@ -466,6 +479,14 @@ h.test("mission rows show DONE, CLAIM and the reroll state", function()
 	)
 	expectEqual({ r3.status, r3.tag, r3.rerollable, r3.claimable }, { "DONE", "CLAIMED", false, false }, "row 3")
 	expectEqual(r2.index, 2, "rows keep the mission index")
+	-- the phone panel's short form: the snapshot's when it has one, else the text
+	expectEqual(r2.short, "Deal 1,500 damage with a Sword", "short falls back to the text")
+	missions.list[2].short = "1,500 Sword dmg"
+	expectEqual(MenuModels.missionRows(missions, NOW).rows[2].short, "1,500 Sword dmg", "the snapshot's short form")
+	-- past the reset, before the new list arrives: nothing to reroll (the server would refuse it)
+	expectEqual(view.expired, false, "not expired yet")
+	local late = MenuModels.missionRows(missions, missions.resetAt)
+	expectEqual({ late.expired, late.rows[1].rerollable }, { true, false }, "no reroll on yesterday's list")
 	missions.rerollAvailable = false
 	view = MenuModels.missionRows(missions, NOW)
 	expectEqual(view.footer, "Reroll used", "footer after the reroll")
@@ -616,6 +637,35 @@ h.test("invite prompts skip invites still waiting and expired ones", function()
 	expectEqual(MenuModels.promptInvite({ live, { partyId = 4, expiresAt = NOW + 5 } }, NOW), live, "the first one")
 	expectEqual(MenuModels.promptInvite({ { partyId = 5, expiresAt = NOW } }, NOW), nil, "expiring now")
 	expectEqual(MenuModels.promptInvite(nil, NOW), nil, "no invites")
+end)
+
+h.test("an answered invite stays answered when a push resends it with a new expiresAt", function()
+	-- the server converts expiresAt to server time on every push, so the same invite's value drifts a little
+	local first = { partyId = 3, fromName = "c", size = 2, expiresAt = NOW + 20.123456 }
+	local pushed = { partyId = 3, fromName = "c", size = 3, expiresAt = NOW + 20.1234562 }
+	local other = { partyId = 4, fromName = "d", size = 2, expiresAt = NOW + 25 }
+	local answered = {}
+	local function answeredList()
+		local list = {}
+		for partyId in answered do
+			table.insert(list, partyId)
+		end
+		table.sort(list)
+		return list
+	end
+	expectEqual(MenuModels.promptInvite({ first }, NOW, answered), first, "prompted")
+	answered[first.partyId] = true -- DECLINE
+	expectEqual(MenuModels.promptInvite({ pushed }, NOW, answered), nil, "not prompted again after a push")
+	expectEqual(MenuModels.promptInvite({ pushed, other }, NOW, answered), other, "another party's invite still is")
+	-- a push that still lists it keeps the answer; one without it forgets it, so a later invite prompts again
+	MenuModels.pruneAnswers(answered, { pushed, other })
+	expectEqual(answeredList(), { 3 }, "kept while listed")
+	MenuModels.pruneAnswers(answered, { other })
+	expectEqual(answeredList(), {}, "forgotten once gone")
+	expectEqual(MenuModels.promptInvite({ first }, NOW, answered), first, "a new invite from that party prompts")
+	answered[4] = true
+	MenuModels.pruneAnswers(answered, nil)
+	expectEqual(answeredList(), {}, "no invites: nothing kept")
 end)
 
 h.test("countdowns, the backdrop map and the title labels", function()

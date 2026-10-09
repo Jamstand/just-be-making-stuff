@@ -18,7 +18,8 @@
 
     Pure: no services, no clocks. `match` is read the way BotBrain reads it
     (fighters, GetPosition, IsAttacking, SameTeam); `fight` is anything with
-    Update(dt) and isOffstage(state), normally a BotBrain.
+    Update(dt) and isOffstage(state) (and optionally Wake()), normally a
+    BotBrain.
 ]]
 
 local Config = require(script.Parent.Config)
@@ -109,11 +110,9 @@ function DummyBrain:Update(dt)
 	end
 	local fight = self.fight
 	if fight and (self.mode == "Fight" or (Config.Training.DummyRecovers and fight:isOffstage(s))) then
-		if self.mode ~= "Fight" and not self.recovering and type(fight.thinkTimer) == "number" then
+		if self.mode ~= "Fight" and not self.recovering and fight.Wake then
 			-- decide at once: the bot brain may still be waiting out a decision from long ago
-			-- TODO(I): this writes BotBrain's own field; a public BotBrain:wake() would replace it (the
-			-- "an offstage dummy recovers through the bot brain" test fails if the field is renamed)
-			fight.thinkTimer = 0
+			fight:Wake()
 		end
 		self.recovering = self.mode ~= "Fight"
 		return fight:Update(dt)

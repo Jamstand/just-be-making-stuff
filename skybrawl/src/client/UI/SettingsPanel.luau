@@ -14,8 +14,6 @@
     cancels a keyboard slot and Backspace clears a gamepad slot, so neither
     device is ever stuck. With a gamepad in hand, keyboard slots toast
     instead of capturing. Hiding the screen or changing tabs cancels.
-    SettingsPanel.create(gui, close) is the old window around it, kept while
-    LobbyUI exists.
 
     Rows are sized in design px (Layout.px, through a Common.sizer) so they
     grow with their text; description lines size themselves to their text.
@@ -655,11 +653,6 @@ function SettingsPanel.mount(parent, host)
 			}
 		end,
 	}
-end
-
--- The old Settings window (LobbyUI). TODO(I): delete once LobbyUI is gone (menus design 5.8).
-function SettingsPanel.create(gui, close)
-	return Common.legacyWindow(gui, "Settings", close, SettingsPanel.mount)
 end
 
 return SettingsPanel

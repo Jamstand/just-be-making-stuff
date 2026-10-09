@@ -81,7 +81,8 @@ end
     background (deferred). reserved = { slot, origin, startAt? }: an arena slot the
     caller already holds (it stays the caller's if this fails). Without it a
     "Match" slot is acquired here. Every player is marked as in this match
-    before it returns.
+    before it returns. A Start that throws abandons the match at once; before
+    the fight its queue units go back in their queue.
 ]]
 function MatchService.startMatch(config, reserved)
 	if not reserved and not MatchService.hasFreeArena() then
@@ -135,7 +136,13 @@ function MatchService.startMatch(config, reserved)
 		local started, startErr = pcall(match.Start, match)
 		if not started then
 			warn("[MatchService] match failed to start:", startErr)
-			local ended, finishErr = pcall(match.Finish, match, "Abandoned")
+			-- Our failure, not a dodge: before the fight, queue players go back in their queue with their joined
+			-- time (as on a select error). Bots, custom and training matches have no queue to go back to.
+			local queueType = config.queueType
+			local ended, finishErr = pcall(match.Finish, match, "Abandoned", 0, {
+				requeue = match.phase ~= "Playing" and queueType ~= nil and queueType ~= "Bots",
+				reason = "The match couldn't start.",
+			})
 			if not ended then
 				warn("[MatchService] couldn't end the match:", finishErr)
 			end

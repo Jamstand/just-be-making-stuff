@@ -333,6 +333,12 @@ function BotBrain:Decide()
 	end
 end
 
+-- Decide on the next Update instead of waiting out the current decision (DummyBrain calls this when a
+-- training dummy starts recovering to the stage).
+function BotBrain:Wake()
+	self.thinkTimer = 0
+end
+
 function BotBrain:Update(dt)
 	local buffer = self.input.buffer
 	for action, remaining in buffer do

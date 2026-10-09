@@ -18,10 +18,10 @@
     Dexterity) is 7 / 6 / 12, 24 frames in all, and its strip has 24 cells:
     6 startup, 6 active, 12 recovery. A charged heavy waits on frame 0 while
     it charges (actionTime doesn't run), and hit-stop holds the frame.
-    TODO(I): mockup f shows this move as 7 / 6 / 12 with 25 TOTAL and 7
-    green cells (startup counted as frames before the hitbox), which the
-    sim's 24 frames can't match; record this convention in DESIGN.md 5.11
-    and the README (the HUD says "HITS ON FRAME 7" under the move name).
+    This is the decided convention (menus design 5.11, README): mockup f's
+    25 TOTAL and 7 startup cells count startup as the frames before the
+    hitbox, which the sim's 24 frames can't match. The HUD says "HITS ON
+    FRAME 7" under the move name, so the two readings can't be confused.
 
     Meter (one per attack you start): start(move, seq) lays out the strip,
     observe(sim) marks the frame the sim is on, finish(seq, sim) freezes it.

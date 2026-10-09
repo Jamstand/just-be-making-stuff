@@ -8,7 +8,9 @@
 
     A card your party can't start (Party.canStart) is "greyscale" with a
     striped SOLO ONLY / LEADER QUEUES band; Confirm on it toasts why. What
-    each card says comes from Models.onlineCards (tested).
+    each card says comes from Models.onlineCards (tested). The Confirm hint
+    follows the focused card (Models.onlineHints): FIND MATCH, CANCEL
+    SEARCH on the queue you are in, none on a locked card.
 
     Confirm = QueueRequest("Join", queueType) or ("Leave"). X opens the
     Invite screen for a solo player or the party leader. Phone: the rules
@@ -243,10 +245,17 @@ function Screen.build(host)
 		end
 	end
 
+	-- What the Confirm hint says for the focused card (nil: no Confirm hint).
+	local function confirmHint()
+		local first = Models.onlineHints(focusedType and views[focusedType], false)[1]
+		return if first.action == "Confirm" then first.label else nil
+	end
+
 	local function focusCard(queueType)
 		if focusedType == queueType then
 			return
 		end
+		local hintBefore = confirmHint()
 		local old = focusedType
 		focusedType = queueType
 		for _, id in { old, queueType } do
@@ -257,6 +266,10 @@ function Screen.build(host)
 			end
 		end
 		render()
+		-- (the shell re-reads the hints itself on QueueChanged / PartyChanged)
+		if confirmHint() ~= hintBefore then
+			host.refresh()
+		end
 	end
 
 	local function buildCard(parent, index, info)
@@ -264,7 +277,7 @@ function Screen.build(host)
 		local art = ART[queueType]
 		local phone = geometry == PHONE
 		local button, body = UIKit.card({
-			slant = -T.CardSlant,
+			slant = T.CardSlant, -- leans "/" like mockup c (and the legend select tiles)
 			name = queueType,
 			anchor = Vector2.new(0.5, 0.5),
 			position = UDim2.fromScale(geometry.centers[index], geometry.y),
@@ -596,12 +609,11 @@ function Screen.build(host)
 			X = openInvite,
 		},
 		hints = function()
-			local items = {
-				{ action = "Confirm", label = "FIND MATCH" },
-				{ action = "Back", label = "BACK" },
-			}
-			if canManage() then
-				table.insert(items, { action = "X", label = "INVITE", onClick = openInvite })
+			local items = Models.onlineHints(focusedType and views[focusedType], canManage())
+			for _, item in items do
+				if item.action == "X" then
+					item.onClick = openInvite
+				end
 			end
 			return items
 		end,

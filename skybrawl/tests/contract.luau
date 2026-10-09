@@ -1,5 +1,6 @@
 --[[
-    Contract tests for the menus foundation: the remotes and project file,
+    Contract tests for the menus foundation: the remotes and project file
+    (every remote the client calls has exactly one server handler),
     Config's menu sections, the pure shared modules (Party, Select,
     Missions, Events, Seasons, Rankings), ClientState, DataService's
     profile v2 (migration, season stats, snapshot) and the test harness.
@@ -141,7 +142,10 @@ print("Config")
 h.test("Config has the menu sections with their defaults", function()
 	h.expect(Config.GameVersion == "0.9", "GameVersion")
 	h.expect(Config.Match.EndLingerSeconds == 3, "Match.EndLingerSeconds")
-	h.expect(Config.Match.ResultsSeconds ~= nil, "Match.ResultsSeconds stays until the Integration track")
+	h.expect(
+		Config.Match.ResultsSeconds == nil,
+		"Match.ResultsSeconds is deprecated (the results screen is client-side)"
+	)
 	h.expect(Config.Queue.StatsSeconds == 2 and Config.Queue.RequestCooldown == 0.5, "Queue additions")
 	expectEqual(Config.Party, {
 		MaxSize = 4,
@@ -158,6 +162,7 @@ h.test("Config has the menu sections with their defaults", function()
 		VsSeconds = 3,
 		MapChoices = 3,
 		ActionsPerSecond = 8,
+		ActionBurst = 8,
 		BroadcastInterval = 0.1,
 		HoverInterval = 0.2,
 	}, "Config.Select")
@@ -205,6 +210,7 @@ h.test("Config has the menu sections with their defaults", function()
 	expectEqual(templateOf("WeaponDamage"), {
 		Id = "WeaponDamage",
 		Text = "Deal {goal} damage with {param}",
+		Short = "{goal} {param} dmg",
 		Stat = "WeaponDamage",
 		Param = "Weapon",
 		Goals = { 1000, 1500 },
@@ -247,6 +253,9 @@ h.test("Config has the menu sections with their defaults", function()
 		FriendsCooldown = 15,
 		MinBudget = 5,
 		FriendsReserve = 20,
+		FriendsRetrySeconds = 60,
+		RequestsPerSecond = 4,
+		RequestBurst = 8,
 	}, "Config.Rankings")
 	h.expect(Config.Rewards.SourceMultiplier.Training == 0, "training pays nothing")
 	expectEqual(
@@ -269,8 +278,10 @@ h.test("Config has the menu sections with their defaults", function()
 	do
 		h.expect(Config.Sounds[name] == id, "Sounds." .. name)
 	end
-	-- deprecated keys stay until the Integration track removes them
-	h.expect(Config.Data.LeaderboardStore and Config.Data.LeaderboardSize, "old leaderboard keys removed early")
+	-- the old 1v1 board's keys are gone (Config.Rankings replaces them)
+	for _, key in { "LeaderboardStore", "LeaderboardSize", "LeaderboardRefreshSeconds" } do
+		h.expect(Config.Data[key] == nil, "deprecated Config.Data." .. key .. " is back")
+	end
 end)
 
 print("Party")
@@ -897,11 +908,44 @@ h.test("Missions.describe formats goals and params", function()
 		{ entry("LegendMatches", 3, 0, { param = "Yuki" }), "Play 3 matches as Yuki" },
 		{ entry("FFAKOs", 8, 0), "KO 8 opponents in online Free-for-all" },
 		{ entry("Damage", 3000, 0), "Deal 3,000 damage" },
+		{ entry("RankedWins", 1, 0), "Win 1 ranked match" },
+		{ entry("RankedWins", 2, 0), "Win 2 ranked matches" },
 	}
 	for _, case in cases do
 		local text = Missions.describe(case[1])
 		h.expect(text == case[2], text)
 	end
+end)
+
+h.test("Missions.describe gives the phone panel's short forms, and the view sends both", function()
+	local cases = {
+		{ entry("OnlineWins", 2, 0), "Win 2 online" },
+		{ entry("WeaponDamage", 1500, 0, { param = "Sword" }), "1,500 Sword dmg" },
+		{ entry("WeaponDamage", 1000, 0, { param = "Gauntlets" }), "1,000 Gauntlets dmg" },
+		{ entry("FFAKOs", 5, 0), "5 KOs in FFA" },
+		{ entry("LegendMatches", 3, 0, { param = "Yuki" }), "3 matches as Yuki" },
+		{ entry("LegendWin", 1, 0, { param = "Vex" }), "Win as Vex" },
+	}
+	for _, case in cases do
+		local text = Missions.describe(case[1], true)
+		h.expect(text == case[2], text)
+	end
+	-- every template has one, with no placeholder left over
+	for _, template in Config.Missions.Templates do
+		h.expect(type(template.Short) == "string", template.Id .. " has no Short")
+		for _, goal in template.Goals do
+			local param = if template.Param == "Weapon" then "Bow" elseif template.Param == "Legend" then "Moss" else nil
+			for _, short in { false, true } do
+				local text = Missions.describe(entry(template.Id, goal, 0, { param = param }), short)
+				h.expect(not string.find(text, "{", 1, true), template.Id .. ": " .. text)
+			end
+		end
+	end
+	local state = Missions.newState()
+	state.Day = TODAY
+	state.List = { entry("FFAKOs", 8, 2) }
+	local row = Missions.view(state, NOW).list[1]
+	h.expect(row.text == "KO 8 opponents in online Free-for-all" and row.short == "8 KOs in FFA", row.short)
 end)
 
 h.test("Missions.sanitize drops junk entries and unknown templates", function()
@@ -1426,9 +1470,9 @@ h.test("the harness resolves sibling services, fake shared modules and fake play
 	h.expect(joined[1] == "Kim" and #players:GetPlayers() == 1 and kim.Parent == players, "PlayerAdded")
 	players:_remove(kim)
 	h.expect(left[1] == "Kim" and #players:GetPlayers() == 0 and kim.Parent == nil, "PlayerRemoving")
-	h.expect(kim.DisplayName == "Kim" and kim.UserId == 7 and not kim:IsFriendsWith(8), "fake player")
+	h.expect(kim.DisplayName == "Kim" and kim.UserId == 7 and not kim:IsFriendsWithAsync(8), "fake player")
 	kim._friends[8] = true
-	h.expect(kim:IsFriendsWith(8), "IsFriendsWith")
+	h.expect(kim:IsFriendsWithAsync(8), "IsFriendsWithAsync")
 	h.expect(game:GetService("RunService").Heartbeat ~= nil, "Heartbeat")
 	h.expect(game:GetService("Players").LocalPlayer.Parent == players, "LocalPlayer")
 end)
@@ -1456,38 +1500,78 @@ h.test("h.Random is deterministic per seed and nearby seeds start differently", 
 	end
 end)
 
-h.test('server stubs answer "Not ready." until their track lands', function()
+-- Every .luau file under a folder, as { [path] = source }.
+local function sourcesUnder(dir, into)
+	into = into or {}
+	for _, name in fs.readDir(dir) do
+		local path = dir .. "/" .. name
+		if fs.isDir(path) then
+			sourcesUnder(path, into)
+		elseif string.sub(name, -5) == ".luau" then
+			into[path] = fs.readFile(path)
+		end
+	end
+	return into
+end
+
+h.test("every remote the client calls has one server handler, and no stub is left", function()
+	local declared = serde.decode("json", fs.readFile("default.project.json")).tree.ReplicatedStorage.Remotes
+	local header = string.match(fs.readFile("src/shared/Net.luau"), "^%-%-%[%[(.-)%]%]")
+	local direction = {} -- [name] = "C->S" | "S->C"
+	for line in string.gmatch(header, "[^\n]+") do
+		local name, dir = string.match(line, "^%s+(%u%w+)%s+([SC]%->[SC])%s")
+		if name then
+			direction[name] = dir
+		end
+	end
+	local handlers, clientUses = {}, {}
+	for path, source in sourcesUnder("src") do
+		h.expect(not string.find(source, "%-%- STUB"), path .. " still has a STUB header")
+		if string.find(path, "^src/server/") then
+			for _, pattern in
+				{ 'Net%.get%("(%w+)"%)%.OnServerInvoke%s*=', 'Net%.get%("(%w+)"%)%.OnServerEvent:Connect' }
+			do
+				for name in string.gmatch(source, pattern) do
+					handlers[name] = (handlers[name] or 0) + 1
+				end
+			end
+		elseif string.find(path, "^src/client/") then
+			-- direct lookups, and the screens' never-throwing invoke("<Remote>", ...) helpers
+			for _, pattern in { 'Net%.get%("(%w+)"%)', 'invoke%("(%w+)"' } do
+				for name in string.gmatch(source, pattern) do
+					clientUses[name] = true
+				end
+			end
+		end
+	end
+	for name in clientUses do
+		h.expect(declared[name] ~= nil, "the client uses " .. name .. ", which default.project.json doesn't declare")
+	end
+	for name, dir in direction do
+		if dir == "C->S" then
+			h.expect(handlers[name] == 1, name .. " has " .. (handlers[name] or 0) .. " server handlers, want 1")
+			h.expect(clientUses[name], name .. " is never sent by the client")
+		else
+			h.expect(handlers[name] == nil, name .. " is S->C but the server listens to it")
+			h.expect(clientUses[name], "the client never listens to " .. name)
+		end
+	end
+end)
+
+h.test("PartyService answers for a player who isn't in a party", function()
 	h.resetRemotes()
 	local player = h.fakePlayer(3, "Ann")
-	for service, remote in { TrainingService = "TrainingRequest", MissionService = "MissionRequest" } do
-		h.requireServer(service).start()
-		local ok, message = h.remote(remote).OnServerInvoke(player, "Start", {})
-		h.expect(ok == false and message == "Not ready.", service)
-	end
 	local PartyService = h.requireServer("PartyService")
 	PartyService.start()
-	local ok, list = h.remote("PartyRequest").OnServerInvoke(player, "List")
-	h.expect(ok and #list.players == 0, "PartyRequest List")
 	h.expect(PartyService.isLeader(player) and PartyService.membersOf(player)[1] == player, "solo party")
-	local SelectService = h.requireServer("SelectService")
-	local session, err = SelectService.begin({})
-	h.expect(session == nil and err == "Not ready." and SelectService.getSessionOf(player) == nil, "SelectService")
-	local MissionService = h.requireServer("MissionService")
-	h.expect(MissionService.onMatch({}, {}, {}) == nil, "MissionService.onMatch")
-	MissionService.init({})
-	local rankingsOk, rankingsMessage = h.remote("GetRankings").OnServerInvoke(player, { mode = "1v1" })
-	h.expect(rankingsOk == false and rankingsMessage == "Not ready.", "GetRankings")
-	local FriendCache = h.requireServer("FriendCache")
-	player._friends[9] = true
-	h.expect(FriendCache.isFriend(player, 9) and not FriendCache.isFriend(player, 10), "FriendCache.isFriend")
-	h.expect(#FriendCache.friendIds(player) == 0, "FriendCache.friendIds")
+	h.expect(#PartyService.membersOf(player) == 1, "a solo player's party has one member")
 end)
 
 h.test("ClientState stores party, queue stats and the select session, and ignores stale Cancels", function()
 	h.resetRemotes()
 	local ClientState = h.requireClientFile("ClientState")
 	ClientState.init()
-	h.expect(ClientState.OpenPanel == ClientState.OpenScreen, "OpenPanel isn't the OpenScreen signal")
+	h.expect(ClientState.OpenPanel == nil, "the old OpenPanel alias is back (use OpenScreen)")
 	local relayed = {}
 	local previous = {}
 	ClientState.SelectEvent:Connect(function(kind, data, previousSelect, previousVs)

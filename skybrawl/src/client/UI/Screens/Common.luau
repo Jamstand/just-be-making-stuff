@@ -15,7 +15,6 @@
       Common.invoke(remote, ...)      a RemoteFunction call that never throws
       Common.bag()                    connections made in show() and dropped in hide()
       Common.tag / header / glyph / tierBadge   the UIKit builders inside a box of a given UDim2 size
-      Common.legacyWindow(...)        the old panel window around a mounted screen (until LobbyUI goes)
 
     Geometry is in Scale (fractions of the canvas, from the 1920x1080
     mockups); only text, strokes, paddings and the phone canvas use px.
@@ -668,58 +667,6 @@ function Common.linkTop(host, getTop)
 		task.defer(rewire)
 	end)
 	return rewire
-end
-
---[[
-    A Host for the old panel windows (X.create, kept while LobbyUI still
-    exists): content is the window body, pop closes the window, push opens
-    a screen through ClientState.OpenScreen, the rest are no-ops.
-    TODO(I): delete with the panels' create wrappers once LobbyUI is gone.
-]]
-function Common.legacyHost(content, close)
-	return {
-		content = content,
-		push = function(id, params)
-			ClientState.OpenScreen:Fire(id, params)
-		end,
-		pop = function()
-			close()
-		end,
-		replace = function(id, params)
-			ClientState.OpenScreen:Fire(id, params)
-		end,
-		refresh = function() end,
-		toast = function(text, kind)
-			ClientState.toast(text, kind)
-		end,
-		cancelButton = function()
-			return nil
-		end,
-	}
-end
-
---[[
-    The old window wrapper around a mounted screen: { window, open, close }
-    as LobbyUI expects. TODO(I): delete once LobbyUI is gone.
-]]
-function Common.legacyWindow(gui, title, close, mount)
-	local window, body = UIKit.window(gui, title, close)
-	local inst = mount(body, Common.legacyHost(body, close))
-	return {
-		window = window,
-		open = function()
-			window.Visible = true
-			if inst.show then
-				inst.show()
-			end
-		end,
-		close = function()
-			if inst.hide then
-				inst.hide()
-			end
-			window.Visible = false
-		end,
-	}
 end
 
 return Common

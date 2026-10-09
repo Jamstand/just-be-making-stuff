@@ -218,7 +218,7 @@ local function newWorld(opts)
 				end
 			end
 			table.insert(w.started, record)
-			local match = w.makeMatch and w.makeMatch(config) or { id = 100 + #w.started, config = config }
+			local match = w.makeMatch and w.makeMatch(config, reserved) or { id = 100 + #w.started, config = config }
 			for _, p in config.participants do
 				if p.player then
 					w.playerMatch[p.player] = match
@@ -306,6 +306,8 @@ local function matchWorld()
 		playerMatch = {},
 		released = {},
 		requeued = {},
+		asked = {}, -- wouldRequeue calls
+		dropped = {}, -- [Player] = true: the fake requeue wouldn't keep them (their party changed...)
 		leavers = {},
 		applied = {},
 	}
@@ -366,6 +368,19 @@ local function matchWorld()
 		QueueService = {
 			requeue = function(units, queueType, leavers)
 				table.insert(w.requeued, { units = units, queueType = queueType, leavers = leavers })
+			end,
+			-- keeps every unit player who isn't a leaver or in w.dropped
+			wouldRequeue = function(units, queueType, leavers, ending)
+				table.insert(w.asked, { units = units, queueType = queueType, leavers = leavers, ending = ending })
+				local kept = {}
+				for _, u in units do
+					for _, player in u.players do
+						if not table.find(leavers or {}, player) and not w.dropped[player] then
+							kept[player] = true
+						end
+					end
+				end
+				return kept
 			end,
 		},
 	}
@@ -456,6 +471,57 @@ local function fakeCharacter()
 		self.destroyed = true
 	end
 	return character
+end
+
+--[[
+    Real Matches in a newWorld: its startMatch builds one (fakes around it
+    for the arena, characters and nameplates) and adds it to w.matches; the
+    test runs its Start.
+]]
+local function useRealMatches(w)
+	local Match = h.requireServer("Match", { game = w.game, os = fakeOs })
+	w.matches = {}
+	local services = setmetatable({
+		ArenaService = setmetatable({
+			buildMap = function()
+				return {
+					Destroy = function() end,
+					FindFirstChild = function()
+						return nil
+					end,
+				}
+			end,
+		}, { __index = w.services.ArenaService }),
+		CharacterService = {
+			setupCharacter = function() end,
+			setNameplate = function() end,
+			setTeamColor = function() end,
+			applyTrail = function() end,
+		},
+	}, { __index = w.services })
+	function w.makeMatch(config, reserved)
+		local match = Match.new(200 + #w.matches, config, services, reserved)
+		for _, p in config.participants do
+			if p.player then
+				match:AddPlayer(p.player, p.team, { legend = p.legend, ownLook = p.ownLook })
+			end
+		end
+		-- what MatchService does: forget a player who forfeits, and everyone at Cleanup
+		match.onPlayerLeft = function(player)
+			if w.playerMatch[player] == match then
+				w.playerMatch[player] = nil
+			end
+		end
+		match.onFinished = function()
+			for player, other in w.playerMatch do
+				if other == match then
+					w.playerMatch[player] = nil
+				end
+			end
+		end
+		table.insert(w.matches, match)
+		return match
+	end
 end
 
 -- Matchmaking ------------------------------------------------------------------
@@ -662,23 +728,38 @@ end)
 
 h.test("a pre-Start abandon sends SelectEvent Cancel instead of End", function()
 	local w = matchWorld()
-	local units = { { players = {}, joined = 1 } }
-	local m = w.match({ ranked = true, selectId = 9, units = units, queueType = "Ranked1v1" })
 	local ann, ben = w.player(1, "Ann"), w.player(2, "Ben")
+	local cid, dee = w.player(3, "Cid"), w.player(4, "Dee")
+	local units = {
+		{ players = { ann }, joined = 1 },
+		{ players = { ben }, joined = 1 },
+		{ players = { cid }, joined = 1 },
+		{ players = { dee }, joined = 1 },
+	}
+	local m = w.match({ mode = "2v2", ranked = true, selectId = 9, units = units, queueType = "Ranked2v2" })
 	m:AddPlayer(ann, 1)
 	m:AddPlayer(ben, 2)
-	w.playerMatch[ann], w.playerMatch[ben] = m, m
-	m.startSent[ann] = true
-	m:Finish("Abandoned", 0, { requeue = true, reason = "Cid left before the fight." })
+	m:AddPlayer(cid, 1)
+	m:AddPlayer(dee, 2)
+	w.track(m, ann, ben, cid, dee)
+	m.startSent[ann], m.startSent[cid] = true, true
+	-- Cid's and Dee's units can't go back (their parties changed meanwhile): nobody tells them otherwise
+	w.dropped[cid], w.dropped[dee] = true, true
+	m:Finish("Abandoned", 0, { requeue = true, reason = "Eve left before the fight." })
 	local annEvents = calls("MatchEvent", ann)
 	h.expect(#annEvents == 2 and annEvents[1].args[1] == "End" and annEvents[2].args[1] == "Leave", "Ann: End, Leave")
 	local endData = annEvents[1].args[2]
 	h.expect(endData.requeued == true and endData.returnIn == 0 and endData.matchId == m.id, "End fields")
-	h.expect(endData.postMatch.queueType == "Ranked1v1" and endData.mapId == "DuelRock", "postMatch")
+	h.expect(endData.note == "Eve left before the fight.", "End note")
+	h.expect(endData.postMatch.queueType == "Ranked2v2" and endData.mapId == "DuelRock", "postMatch")
+	h.expect(calls("MatchEvent", cid)[1].args[2].requeued == false, "Cid's End says he's back in the queue")
 	h.expect(#calls("MatchEvent", ben) == 0, "Ben got a MatchEvent before Start")
 	local cancels = selectEvents(ben, "Cancel")
 	h.expect(#cancels == 1, "Ben got no Cancel")
-	h.expect(cancels[1].id == 9 and cancels[1].reason == "Cid left before the fight." and cancels[1].requeued, "Cancel")
+	h.expect(cancels[1].id == 9 and cancels[1].reason == "Eve left before the fight." and cancels[1].requeued, "Cancel")
+	local deeCancel = selectEvents(dee, "Cancel")[1]
+	h.expect(deeCancel and deeCancel.requeued == false, "Dee's Cancel says she's back in the queue")
+	h.expect(#w.asked == 1 and w.asked[1].ending == m and #w.asked[1].leavers == 0, "wouldRequeue")
 	h.expect(#w.released == 1 and #w.requeued == 1 and w.requeued[1].units == units, "slot and requeue")
 end)
 
@@ -697,12 +778,12 @@ h.test("Forfeit on an ended match sends nothing", function()
 	h.expect(not f.left and #w.leavers == 0, "Forfeit changed an ended match")
 end)
 
-h.test("a preload is never followed by a second LoadCharacter", function()
+h.test("a preload is never followed by a second LoadCharacterAsync", function()
 	local w = matchWorld()
 	local m = w.match()
 	local ann = w.player(1, "Ann")
 	local loads = 0
-	function ann.LoadCharacter(self)
+	function ann.LoadCharacterAsync(self)
 		loads += 1
 		task.wait(0.15)
 		self.Character = fakeCharacter()
@@ -710,7 +791,7 @@ h.test("a preload is never followed by a second LoadCharacter", function()
 	-- Ben still has a live character: no load at all
 	local ben = w.player(2, "Ben")
 	ben.Character = fakeCharacter()
-	function ben.LoadCharacter()
+	function ben.LoadCharacterAsync()
 		error("Ben was loaded")
 	end
 	m:AddPlayer(ann, 1, { ownLook = true })
@@ -725,7 +806,7 @@ h.test("a preload is never followed by a second LoadCharacter", function()
 		task.wait(0.05)
 	end
 	h.expect(m.startSent[ann] and m.startSent[ben], "Start wasn't sent")
-	h.expect(loads == 1, "LoadCharacter ran " .. loads .. " times")
+	h.expect(loads == 1, "LoadCharacterAsync ran " .. loads .. " times")
 	h.expect(m.playerFighters[ann].model == ann.Character, "the preloaded character wasn't used")
 	h.expect(m.playerFighters[ben].legend == "Avatar", "the select pick wasn't used")
 	local start = calls("MatchEvent", ann)[1].args[2]
@@ -834,11 +915,11 @@ end)
 
 h.test("a fighter whose character can't load is dropped without a loss and everyone is re-queued", function()
 	local w = matchWorld()
-	local units = { { players = {}, joined = 1 } }
-	local m = w.match({ ranked = true, selectId = 5, units = units, queueType = "Ranked1v1" })
 	local ann, ben = w.player(1, "Ann"), w.player(2, "Ben")
+	local units = { { players = { ann }, joined = 1 }, { players = { ben }, joined = 1 } }
+	local m = w.match({ ranked = true, selectId = 5, units = units, queueType = "Ranked1v1" })
 	local loads = 0
-	function ann.LoadCharacter()
+	function ann.LoadCharacterAsync()
 		loads += 1 -- returns without a character (the server couldn't build one)
 	end
 	ben.Character = fakeCharacter()
@@ -857,7 +938,8 @@ h.test("a fighter whose character can't load is dropped without a loss and every
 	h.expect(#w.leavers == 0, "a fighter the server couldn't load took a loss")
 	local annCancel = selectEvents(ann, "Cancel")[1]
 	h.expect(annCancel and annCancel.id == 5 and annCancel.reason == "Couldn't load your fighter.", "Ann's Cancel")
-	h.expect(not annCancel.requeued, "Ann was told she's re-queued")
+	-- (not a leaver: she goes back in the queue with Ben, and is told so)
+	h.expect(annCancel.requeued == true, "Ann wasn't told she's re-queued")
 	local benCancel = selectEvents(ben, "Cancel")[1]
 	h.expect(benCancel and benCancel.reason == "A fighter couldn't load." and benCancel.requeued, "Ben's Cancel")
 	for _, call in calls("MatchEvent") do
@@ -871,9 +953,9 @@ end)
 
 h.test("a ranked dodge before Start costs a loss, sends Cancel and re-queues the others", function()
 	local function setup(w)
-		local units = { { players = {}, joined = 1 } }
-		local m = w.match({ ranked = true, selectId = 6, units = units, queueType = "Ranked1v1" })
 		local ann, ben = w.player(1, "Ann"), w.player(2, "Ben")
+		local units = { { players = { ann }, joined = 1 }, { players = { ben }, joined = 1 } }
+		local m = w.match({ ranked = true, selectId = 6, units = units, queueType = "Ranked1v1" })
 		ann.Character, ben.Character = fakeCharacter(), fakeCharacter()
 		local f = m:AddPlayer(ann, 1, { legend = "Moss" })
 		m:AddPlayer(ben, 2)
@@ -943,6 +1025,70 @@ h.test("Cleanup leaves a player who already moved on to another match alone", fu
 	h.expect(benEvents[#benEvents].args[1] == "Leave" and benCharacter.destroyed, "Ben wasn't released")
 end)
 
+h.test("Start lists fighters already out, and Ready sends their Left again", function()
+	local w = matchWorld()
+	-- the bot's model can't be built
+	w.game:GetService("Players").CreateHumanoidModelFromDescriptionAsync = function()
+		error("avatar service down")
+	end
+	local m = w.match(
+		{ mode = "FFA", source = "Casual", selectId = 4 },
+		{ slot = 5, origin = Vector3.new(0, 300, 0), startAt = clock.now + 3 }
+	)
+	local ann, ben, cid = w.player(1, "Ann"), w.player(2, "Ben"), w.player(3, "Cid")
+	for _, player in { ann, ben, cid } do
+		player.Character = fakeCharacter()
+	end
+	local fAnn = m:AddPlayer(ann, 1, { ownLook = true })
+	local fBen = m:AddPlayer(ben, 2, { ownLook = true })
+	m:AddPlayer(cid, 3, { ownLook = true })
+	local bot = m:AddBot("Normal", 4)
+	w.track(m, ann, ben, cid)
+	task.spawn(m.Start, m)
+	h.expect(bot.spawnFailed and not bot.alive, "the bot's model was built")
+	-- Ann leaves the server on the VS splash: her "Left" reaches clients that have no match yet (they drop it)
+	m:RemovePlayer(ann)
+	ann.Parent = nil
+	h.expect(m.phase == "Loading" and fAnn.left, "Ann's leave ended the casual match")
+	clock.now += 3.1
+	h.expect(
+		waitUntil(function()
+			return m.startSent[ben] == true
+		end, 1),
+		"Start wasn't sent"
+	)
+	local events = calls("MatchEvent", ben)
+	local startAt
+	for i, call in events do
+		if call.args[1] == "Start" then
+			startAt = i
+		end
+	end
+	h.expect(startAt and events[1].args[1] == "Left", "Ben's events: Left before Start")
+	local listed = {}
+	for _, fi in events[startAt].args[2].fighters do
+		listed[fi.id] = fi
+	end
+	local annInfo, botInfo, benInfo = listed[fAnn.id], listed[bot.id], listed[fBen.id]
+	h.expect(annInfo.left == true and annInfo.eliminated == true and annInfo.alive == false, "Ann isn't out")
+	h.expect(botInfo.left == false and botInfo.eliminated == true and botInfo.alive == false, "the bot isn't out")
+	h.expect(benInfo.left == false and benInfo.eliminated == false and benInfo.alive == true, "Ben is out")
+	-- Ben's client has its match now ("Ready"): the Left it dropped comes again (not for the bot: it never left, and
+	-- "Start" already lists it as out)
+	m:OnAction(ben, "Ready", {})
+	local again = {}
+	for i = startAt + 1, #calls("MatchEvent", ben) do
+		local call = calls("MatchEvent", ben)[i]
+		h.expect(call.args[1] == "Left", "after Ready: " .. call.args[1])
+		again[call.args[2].fighterId] = true
+	end
+	h.expect(again[fAnn.id] and not again[bot.id] and not again[fBen.id], "Left wasn't sent again")
+	local count = #calls("MatchEvent", ben)
+	m:OnAction(ben, "Ready", {})
+	h.expect(#calls("MatchEvent", ben) == count, "a second Ready sent the Left events again")
+	m:Finish("Abandoned", 0)
+end)
+
 h.test("Start keeps the characters on the spawn pad until startAt", function()
 	local w = matchWorld()
 	local m = w.match(nil, { slot = 5, origin = Vector3.new(0, 300, 0), startAt = clock.now + 3 })
@@ -975,7 +1121,7 @@ h.test("a preload that finishes after its fighter is gone is released", function
 	local m = w.match()
 	local ann = w.player(1, "Ann")
 	local loaded
-	function ann.LoadCharacter(self)
+	function ann.LoadCharacterAsync(self)
 		task.wait(0.15)
 		loaded = fakeCharacter()
 		self.Character = loaded
@@ -998,7 +1144,7 @@ h.test("a preload that finishes after its fighter is gone is released", function
 	ann = w.player(1, "Ann")
 	loaded = nil
 	local loads = 0
-	function ann.LoadCharacter(self)
+	function ann.LoadCharacterAsync(self)
 		loads += 1
 		if loads == 1 then
 			return
@@ -1026,7 +1172,7 @@ h.test("a preload that finishes after its fighter is gone is released", function
 	local ben
 	ann, ben = w.player(1, "Ann"), w.player(2, "Ben")
 	loaded = nil
-	function ann.LoadCharacter(self)
+	function ann.LoadCharacterAsync(self)
 		task.wait(0.4)
 		loaded = fakeCharacter()
 		self.Character = loaded
@@ -1060,7 +1206,7 @@ h.test("slow character loads share one deadline", function()
 	local m = w.match({ mode = "FFA", source = "Casual", selectId = 9 })
 	local ann, ben, cid = w.player(1, "Ann"), w.player(2, "Ben"), w.player(3, "Cid")
 	for _, player in { ann, ben } do
-		function player.LoadCharacter() end -- never produces a character
+		function player.LoadCharacterAsync() end -- never produces a character
 	end
 	cid.Character = fakeCharacter()
 	local fAnn = m:AddPlayer(ann, 1, { ownLook = true })
@@ -1101,10 +1247,10 @@ h.test("a failing reward or leaver call never leaves a match half-finished", fun
 	w.services.ProgressionService.applyLeaver = function()
 		error("S2 bug")
 	end
-	local units = { { players = {}, joined = 1 } }
-	m = w.match({ ranked = true, selectId = 2, units = units, queueType = "Ranked1v1" })
 	local ben
 	ann, ben = w.player(1, "Ann"), w.player(2, "Ben")
+	local units = { { players = { ann }, joined = 1 }, { players = { ben }, joined = 1 } }
+	m = w.match({ ranked = true, selectId = 2, units = units, queueType = "Ranked1v1" })
 	local f = m:AddPlayer(ann, 1)
 	m:AddPlayer(ben, 2)
 	w.track(m, ann, ben)
@@ -1256,7 +1402,7 @@ h.test("startMatch starts the match only after its caller is done", function()
 	-- a match that ends before its Start runs loads nobody
 	local ben = h.fakePlayer(2, "Ben")
 	local loads = 0
-	function ben.LoadCharacter()
+	function ben.LoadCharacterAsync()
 		loads += 1
 	end
 	match = MatchService.startMatch({
@@ -1273,6 +1419,102 @@ h.test("startMatch starts the match only after its caller is done", function()
 	match:Finish("Abandoned", 0)
 	task.wait(0.05)
 	h.expect(loads == 0, "an ended match loaded a character")
+end)
+
+h.test("a match whose Start throws re-queues its queue players before the fight", function()
+	local function run(config)
+		h.resetRemotes()
+		clock.now = 50
+		local game = h.fakeGame()
+		local MatchService = h.requireServer("MatchService", { game = game, os = fakeOs })
+		local requeued = {}
+		local services = {
+			ArenaService = {
+				buildMap = function()
+					return {
+						Destroy = function() end,
+						FindFirstChild = function()
+							return nil
+						end,
+					}
+				end,
+				release = function() end,
+			},
+			SelectService = {
+				getSessionOf = function()
+					return nil
+				end,
+			},
+			DataService = {
+				get = function()
+					return profileFor()
+				end,
+			},
+			ProgressionService = {
+				ratingOf = function()
+					return 1000
+				end,
+			},
+			CharacterService = {
+				setTeamColor = function()
+					error("CharacterService bug")
+				end,
+				applyTrail = function() end,
+			},
+			QueueService = {
+				requeue = function(units, queueType, leavers)
+					table.insert(requeued, { units = units, queueType = queueType, leavers = leavers })
+				end,
+				wouldRequeue = function(units, _, _, ending)
+					local kept = {}
+					for _, u in units do
+						for _, player in u.players do
+							kept[player] = MatchService.getMatchOf(player) == ending
+						end
+					end
+					return kept
+				end,
+			},
+		}
+		services.MatchService = MatchService
+		MatchService.init(services)
+		local ann, ben = h.fakePlayer(1, "Ann"), h.fakePlayer(2, "Ben")
+		ann.Character, ben.Character = fakeCharacter(), fakeCharacter()
+		config.units = config.queueType ~= "Bots"
+				and { { players = { ann }, joined = 4 }, { players = { ben }, joined = 5 } }
+			or nil
+		local base = {
+			mapId = "DuelRock",
+			winRule = "Stocks",
+			stocks = 3,
+			timeLimit = 0,
+			damageMultiplier = 1,
+			participants = { { player = ann, team = 1, ownLook = true }, { player = ben, team = 2, ownLook = true } },
+			selectId = 8,
+		}
+		for key, value in base do
+			config[key] = value
+		end
+		local match = MatchService.startMatch(config, { slot = 4, origin = Vector3.new(0, 300, 0) })
+		h.expect(match, "no match")
+		h.expect(
+			waitUntil(function()
+				return match.phase == "Ended"
+			end, 1),
+			"the match didn't end"
+		)
+		h.expect(MatchService.getMatchOf(ann) == nil and MatchService.getMatchOf(ben) == nil, "players kept")
+		return selectEvents(ann, "Cancel")[1], selectEvents(ben, "Cancel")[1], requeued, config
+	end
+	local annCancel, benCancel, requeued, config =
+		run({ mode = "1v1", source = "Ranked", ranked = true, queueType = "Ranked1v1" })
+	for _, cancel in { annCancel, benCancel } do
+		h.expect(cancel and cancel.reason == "The match couldn't start." and cancel.requeued == true, "Cancel")
+	end
+	h.expect(#requeued == 1 and requeued[1].units == config.units and #requeued[1].leavers == 0, "requeue")
+	-- vs Bots has no queue to go back to
+	annCancel, _, requeued = run({ mode = "1v1", source = "Bots", ranked = false, queueType = "Bots" })
+	h.expect(annCancel and annCancel.requeued == false and #requeued == 0, "a bots match was re-queued")
 end)
 
 h.test("an avatar that can't be read gets a default model at once, then one retry", function()
@@ -1292,7 +1534,7 @@ h.test("an avatar that can't be read gets a default model at once, then one retr
 		return waitForChild(self, name)
 	end
 	local state = { readFails = true, buildFails = 0 }
-	function players.GetHumanoidDescriptionFromUserId()
+	function players.GetHumanoidDescriptionFromUserIdAsync()
 		if state.readFails then
 			error("avatar service down")
 		end
@@ -1300,7 +1542,7 @@ h.test("an avatar that can't be read gets a default model at once, then one retr
 		desc.Name = "Real"
 		return desc
 	end
-	function players.CreateHumanoidModelFromDescription(_, desc)
+	function players.CreateHumanoidModelFromDescriptionAsync(_, desc)
 		if state.buildFails > 0 then
 			state.buildFails -= 1
 			error("build failed")
@@ -1409,6 +1651,14 @@ h.test("FriendCache answers from the friend set and asks Roblox while it loads",
 	FriendCache.onPlayerRemoving(ann)
 	ann.Parent = nil
 	h.expect(#FriendCache.friendIds(ann) == 0, "a forgotten player still has friends")
+	-- a request still running for a player who left asks Roblox each time: nothing is cached for them again
+	local asks = 0
+	function ann.IsFriendsWithAsync()
+		asks += 1
+		return true
+	end
+	h.expect(FriendCache.isFriend(ann, 7) and FriendCache.isFriend(ann, 7), "answer after the leave")
+	h.expect(asks == 2 and fetches == 2, "something was cached for a player who left: " .. asks .. " asks")
 end)
 
 -- Parties ------------------------------------------------------------------------
@@ -1844,7 +2094,10 @@ h.test("a ranked select leaver takes a loss and the others are requeued with the
 	h.expect(w.services.QueueService.isQueued(ben), "Ben wasn't re-queued")
 	local status = lastQueueUpdate(ben)
 	h.expect(status.queue == "Ranked1v1" and status.waited == 6, "joined time lost: waited " .. status.waited)
-	h.expect(hasToast(ben, "A player left. You're back in the queue."), "Ben wasn't told")
+	-- (the Cancel's requeued flag is what tells him; a server toast too would say it twice)
+	for _, text in toasts(ben) do
+		h.expect(not string.find(text, "back in the queue", 1, true), "Ben was told twice: " .. text)
+	end
 	h.expect(next(w.inUse) == nil, "the arena slot is still reserved")
 	h.expect(w.services.SelectService.getSessionOf(ben) == nil, "Ben is still in the session")
 end)
@@ -1895,8 +2148,83 @@ h.test("requeue drops a unit whose party changed", function()
 	for _, player in { ann, ben } do
 		h.expect(not w.services.QueueService.isQueued(player), player.Name .. " was re-queued")
 		h.expect(hasToast(player, "Your party changed. Search cancelled."), player.Name .. " wasn't told")
+		local cancel = selectEvents(player, "Cancel")[1]
+		h.expect(cancel and cancel.requeued == false, player.Name .. "'s Cancel says they're back in the queue")
 	end
 	h.expect(w.services.QueueService.isQueued(dee), "Dee wasn't re-queued")
+	h.expect(selectEvents(dee, "Cancel")[1].requeued == true, "Dee wasn't told she's back in the queue")
+end)
+
+h.test("a select dodge doesn't promise a search to a player whose party changed during select", function()
+	local w = newWorld()
+	local ann, ben, cid = w:player(1, "Ann"), w:player(2, "Ben"), w:player(3, "Cid")
+	-- an invite still pending doesn't stop Ann's solo search
+	h.expect(w:party(ann, "Invite", cid.UserId), "invite")
+	h.expect(w:queue(ann, "Join", "Ranked1v1") and w:queue(ben, "Join", "Ranked1v1"), "join")
+	w:run(Config.Queue.TickSeconds + 0.1)
+	h.expect(w.services.SelectService.getSessionOf(ann), "no session")
+	-- Cid accepts from the menus while Ann picks her legend
+	h.expect(w:party(cid, "Accept", w.services.PartyService.getParty(ann).id), "accept")
+	h.expect(w.services.SelectService.getSessionOf(ann), "the accept ended the select")
+	w:remove(ben)
+	local cancel = selectEvents(ann, "Cancel")[1]
+	h.expect(cancel and cancel.reason == "Ben left." and cancel.requeued == false, "Ann was promised a search")
+	h.expect(hasToast(ann, "Your party changed. Search cancelled."), "Ann wasn't told her search was cancelled")
+	h.expect(not w.services.QueueService.isQueued(ann) and lastQueueUpdate(ann) == nil, "Ann was re-queued")
+end)
+
+h.test("a ranked fighter whose character can't load goes back in the queue and is told so", function()
+	local w = newWorld()
+	useRealMatches(w)
+	local ann, ben = w:player(1, "Ann"), w:player(2, "Ben")
+	function ann.LoadCharacterAsync() end -- never produces a character
+	ben.Character = fakeCharacter()
+	h.expect(w:queue(ann, "Join", "Ranked1v1") and w:queue(ben, "Join", "Ranked1v1"), "join")
+	w:run(Config.Queue.TickSeconds + 0.1)
+	w:run(Config.Select.Seconds + 0.2)
+	local match = w.matches[1]
+	h.expect(match and match.config.queueType == "Ranked1v1", "no match")
+	task.spawn(match.Start, match)
+	h.expect(
+		waitUntil(function()
+			return match.phase == "Ended"
+		end, 2, 1),
+		"the match didn't end"
+	)
+	local annCancel = selectEvents(ann, "Cancel")[1]
+	h.expect(annCancel and annCancel.reason == "Couldn't load your fighter.", "Ann's Cancel")
+	h.expect(annCancel.requeued == true, "Ann wasn't told she's back in the queue")
+	local benCancel = selectEvents(ben, "Cancel")[1]
+	h.expect(benCancel and benCancel.reason == "A fighter couldn't load." and benCancel.requeued, "Ben's Cancel")
+	for _, player in { ann, ben } do
+		h.expect(w.services.QueueService.isQueued(player), player.Name .. " isn't back in the queue")
+		h.expect(lastQueueUpdate(player).queue == "Ranked1v1", player.Name .. "'s queue")
+	end
+	h.expect(#w.leavers == 0, "a fighter the server couldn't load took a loss")
+	h.expect(next(w.playerMatch) == nil, "a player is still in the match")
+end)
+
+h.test("a ranked dodge on the VS splash doesn't promise a search to a player whose party changed", function()
+	local w = newWorld()
+	useRealMatches(w)
+	local ann, ben, cid = w:player(1, "Ann"), w:player(2, "Ben"), w:player(3, "Cid")
+	h.expect(w:party(ann, "Invite", cid.UserId), "invite")
+	h.expect(w:queue(ann, "Join", "Ranked1v1") and w:queue(ben, "Join", "Ranked1v1"), "join")
+	w:run(Config.Queue.TickSeconds + 0.1)
+	w:run(Config.Select.Seconds + 0.2)
+	local match = w.matches[1]
+	h.expect(match and match.phase == "Loading", "no match on the VS splash")
+	h.expect(w:party(cid, "Accept", w.services.PartyService.getParty(ann).id), "accept")
+	match:Forfeit(match.playerFighters[ben])
+	h.expect(match.phase == "Ended" and #w.leavers == 1 and w.leavers[1].player == ben, "Ben's dodge")
+	local cancel = selectEvents(ann, "Cancel")[1]
+	h.expect(cancel and cancel.reason == "Ben left before the fight.", "Ann's Cancel")
+	h.expect(cancel.requeued == false, "Ann was promised a search")
+	h.expect(hasToast(ann, "Your party changed. Search cancelled."), "Ann wasn't told her search was cancelled")
+	h.expect(not w.services.QueueService.isQueued(ann), "Ann was re-queued")
+	local benCancel = selectEvents(ben, "Cancel")[1]
+	h.expect(benCancel and benCancel.reason == "You left the match." and benCancel.requeued == false, "Ben")
+	h.expect(not w.services.QueueService.isQueued(ben), "the dodger was re-queued")
 end)
 
 h.test("a casual leaver becomes a bot", function()
@@ -2295,7 +2623,7 @@ h.test("a room join checks the party again after the friends check", function()
 	w.friendsDelay = 0.3 -- friend sets of players who join now are still loading: the check asks Roblox
 	local ann, dee = w:player(1, "Ann"), w:player(4, "Dee")
 	for _, player in { ann, dee } do
-		function player.IsFriendsWith(_, userId)
+		function player.IsFriendsWithAsync(_, userId)
 			task.wait(0.05)
 			return userId == 10
 		end

@@ -332,24 +332,38 @@ function Missions.claim(state, index)
 	return true, entry.Coins, entry.XP
 end
 
--- "Deal 1,500 damage with a Sword", "Win as Vex".
-function Missions.describe(entry)
+--[[
+    "Deal 1,500 damage with a Sword", "Win as Vex", "Win 1 ranked match".
+    short: the template's Short form for narrow panels ("1,500 Sword dmg",
+    with the weapon's bare name), else its Text.
+]]
+function Missions.describe(entry, short)
 	local template = templateOf(entry.Id)
 	if not template then
 		return "Unknown mission"
 	end
+	local useShort = short == true and type(template.Short) == "string"
 	local param = ""
 	if template.Param == "Weapon" then
-		param = WEAPON_PHRASES[entry.Param] or tostring(entry.Param)
+		if useShort and Weapons.isWeapon(entry.Param) then
+			param = Weapons.get(entry.Param).Name
+		else
+			param = WEAPON_PHRASES[entry.Param] or tostring(entry.Param)
+		end
 	elseif template.Param == "Legend" then
 		param = Legends.get(entry.Param).Name
 	end
 	local goal = Util.formatNumber(entry.Goal)
-	local text = string.gsub(template.Text, "{goal}", function()
+	local plural = entry.Goal ~= 1
+	local text = string.gsub(if useShort then template.Short else template.Text, "{goal}", function()
 		return goal
 	end)
 	text = string.gsub(text, "{param}", function()
 		return param
+	end)
+	-- plural endings: "match{es}", "KO{s}"
+	text = string.gsub(text, "{(e?s)}", function(ending)
+		return if plural then ending else ""
 	end)
 	return text
 end
@@ -425,6 +439,7 @@ function Missions.view(state, now)
 			index = index,
 			id = entry.Id,
 			text = Missions.describe(entry),
+			short = Missions.describe(entry, true),
 			progress = entry.Progress,
 			goal = entry.Goal,
 			coins = entry.Coins,

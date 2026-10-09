@@ -247,7 +247,7 @@ local function buildAvatar(player, token, isRetry)
 	local fallback = false
 	if player.UserId > 0 then
 		local ok, result = pcall(function()
-			return Players:GetHumanoidDescriptionFromUserId(player.UserId)
+			return Players:GetHumanoidDescriptionFromUserIdAsync(player.UserId)
 		end)
 		if ok and typeof(result) == "Instance" then
 			desc = result
@@ -261,7 +261,7 @@ local function buildAvatar(player, token, isRetry)
 	end
 	desc = desc or Instance.new("HumanoidDescription")
 	local ok, model = pcall(function()
-		return Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15)
+		return Players:CreateHumanoidModelFromDescriptionAsync(desc, Enum.HumanoidRigType.R15)
 	end)
 	if not ok or typeof(model) ~= "Instance" then
 		warn("[CharacterService] couldn't build the avatar of", player.Name, model)

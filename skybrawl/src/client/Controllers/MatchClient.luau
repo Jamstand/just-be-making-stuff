@@ -71,7 +71,6 @@ local STEP_NAME = "SkybrawlFighter"
 local GRAVEYARD_Y = 600
 local CHARACTER_WAIT = 5 -- seconds onStart waits for your (already loaded) character to replicate
 local LEGEND_RETRACK = 0.25 -- a legend change re-tracks the model again after this, once the new rig has replicated
-local REQUEUED_TOAST = "A player left before the fight. You're back in the queue."
 local rng = Random.new()
 
 local match = nil
@@ -651,9 +650,10 @@ local function onStart(info, seq)
 			blocking = false,
 			awakened = false,
 			weapon = "Unarmed",
-			alive = true,
-			eliminated = false,
-			left = false,
+			-- (a fighter can be out already: one who left on the VS splash, a bot whose model couldn't be built)
+			alive = fi.alive ~= false,
+			eliminated = fi.eliminated == true,
+			left = fi.left == true,
 		}
 		f.feetOffset = fi.model and Util.feetOffset(fi.model) or 3
 		f.root = fi.model and fi.model:FindFirstChild("HumanoidRootPart")
@@ -1119,7 +1119,7 @@ function handlers.End(d)
 	if m.training or d.source == "Training" or d.requeued then
 		-- no results: the following "Leave" returns you to the menu
 		if d.requeued then
-			ClientState.toast(REQUEUED_TOAST, "good")
+			ClientState.toast(Models.requeuedToast(d.note))
 		end
 		return
 	end
@@ -1170,6 +1170,7 @@ function MatchClient.init()
 					type = "MatchEnd",
 					matchId = data.matchId,
 					requeued = data.requeued == true,
+					note = data.note,
 				}, phaseState()))
 			end
 			return
@@ -1187,7 +1188,7 @@ function MatchClient.init()
 	end)
 
 	-- Characters exist only in matches: losing yours before the end (a forfeit, a server error) means you're out.
-	-- The server takes it with `Character = nil` and Destroy (no LoadCharacter), so the Character property going
+	-- The server takes it with `Character = nil` and Destroy (no LoadCharacterAsync), so the Character property going
 	-- nil is watched too. [Studio check: whether CharacterRemoving fires on the client for that.]
 	local function characterGone()
 		if match and match.phase ~= "Ended" then

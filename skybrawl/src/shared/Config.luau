@@ -179,7 +179,6 @@ Config.Match = {
 	ArenaSpacing = 2500,
 	ArenaHeight = 300,
 	CountdownSeconds = 3,
-	ResultsSeconds = 9, -- deprecated: the results screen is client-side now (EndLingerSeconds)
 	EndLingerSeconds = 3, -- after "End" the arena stays this long, then everyone is released
 	LoadTimeout = 10,
 	DefaultStocks = 3,
@@ -252,6 +251,7 @@ Config.Select = {
 	VsSeconds = 3,
 	MapChoices = 3,
 	ActionsPerSecond = 8,
+	ActionBurst = 8, -- SelectAction token bucket size (refills at ActionsPerSecond)
 	BroadcastInterval = 0.1,
 	HoverInterval = 0.2,
 }
@@ -376,7 +376,9 @@ Config.Levels = {
 
 -- Daily missions: PerDay a day (UTC), one free reroll, CLAIM pays coins + XP.
 -- FreeRerolls is 1 (one a day) or 0 (none): the profile keeps one Rerolled flag a day, so more isn't supported.
--- Text placeholders: {goal} (formatted number) and {param} (weapon phrase or legend name).
+-- Text placeholders: {goal} (formatted number), {param} (weapon phrase or legend name), and {s} / {es}, plural
+-- endings left out when the goal is 1. Short is the phone menu's short form ("1,500 Sword dmg"; its {param} is the
+-- weapon's bare name).
 -- Rewards are for Goals[1]; a bigger goal scales them linearly (rounded to 5).
 Config.Missions = {
 	PerDay = 3,
@@ -392,7 +394,8 @@ Config.Missions = {
 	Templates = {
 		{
 			Id = "OnlineWins",
-			Text = "Win {goal} online matches",
+			Text = "Win {goal} online match{es}",
+			Short = "Win {goal} online",
 			Stat = "OnlineWins",
 			Goals = { 2, 3 },
 			Coins = 120,
@@ -400,7 +403,8 @@ Config.Missions = {
 		},
 		{
 			Id = "OnlineMatches",
-			Text = "Play {goal} online matches",
+			Text = "Play {goal} online match{es}",
+			Short = "Play {goal} online",
 			Stat = "OnlineMatches",
 			Goals = { 3, 5 },
 			Coins = 60,
@@ -408,7 +412,8 @@ Config.Missions = {
 		},
 		{
 			Id = "RankedWins",
-			Text = "Win {goal} ranked matches",
+			Text = "Win {goal} ranked match{es}",
+			Short = "Win {goal} ranked",
 			Stat = "RankedWins",
 			Goals = { 1, 2 },
 			Coins = 100,
@@ -417,6 +422,7 @@ Config.Missions = {
 		{
 			Id = "WeaponDamage",
 			Text = "Deal {goal} damage with {param}",
+			Short = "{goal} {param} dmg",
 			Stat = "WeaponDamage",
 			Param = "Weapon",
 			Goals = { 1000, 1500 },
@@ -425,7 +431,8 @@ Config.Missions = {
 		},
 		{
 			Id = "FFAKOs",
-			Text = "KO {goal} opponents in online Free-for-all",
+			Text = "KO {goal} opponent{s} in online Free-for-all",
+			Short = "{goal} KO{s} in FFA",
 			Stat = "ModeKOs:FFA",
 			Goals = { 5, 8 },
 			Coins = 80,
@@ -434,6 +441,7 @@ Config.Missions = {
 		{
 			Id = "LegendWin",
 			Text = "Win as {param}",
+			Short = "Win as {param}",
 			Stat = "LegendWins",
 			Param = "Legend",
 			Goals = { 1 },
@@ -442,7 +450,8 @@ Config.Missions = {
 		},
 		{
 			Id = "LegendMatches",
-			Text = "Play {goal} matches as {param}",
+			Text = "Play {goal} match{es} as {param}",
+			Short = "{goal} match{es} as {param}",
 			Stat = "LegendMatches",
 			Param = "Legend",
 			Goals = { 3 },
@@ -451,14 +460,31 @@ Config.Missions = {
 		},
 		{
 			Id = "TrueCombos",
-			Text = "Land {goal} true combos",
+			Text = "Land {goal} true combo{s}",
+			Short = "{goal} true combo{s}",
 			Stat = "TrueCombos",
 			Goals = { 5, 8 },
 			Coins = 80,
 			XP = 100,
 		},
-		{ Id = "KOs", Text = "KO {goal} opponents", Stat = "KOs", Goals = { 8, 12 }, Coins = 70, XP = 90 },
-		{ Id = "Damage", Text = "Deal {goal} damage", Stat = "Damage", Goals = { 2000, 3000 }, Coins = 60, XP = 80 },
+		{
+			Id = "KOs",
+			Text = "KO {goal} opponent{s}",
+			Short = "{goal} KO{s}",
+			Stat = "KOs",
+			Goals = { 8, 12 },
+			Coins = 70,
+			XP = 90,
+		},
+		{
+			Id = "Damage",
+			Text = "Deal {goal} damage",
+			Short = "{goal} dmg",
+			Stat = "Damage",
+			Goals = { 2000, 3000 },
+			Coins = 60,
+			XP = 80,
+		},
 	},
 }
 
@@ -516,18 +542,16 @@ Config.Rankings = {
 	FriendsCooldown = 15,
 	MinBudget = 5, -- writes and sorted reads: leave at least this many requests of the type unused
 	FriendsReserve = 20, -- friends' GetAsync calls stop while the GetAsync budget is at or below this (profiles first)
+	FriendsRetrySeconds = 60, -- after a failed friend-list load (GetFriendsAsync), ask Roblox again this much later
+	RequestsPerSecond = 4, -- GetRankings calls a second per player (each tab change is one call)
+	RequestBurst = 8, -- GetRankings token bucket size (flipping through tabs quickly stays under it)
 }
 
 -- Saving ------------------------------------------------------------------
 
 Config.Data = {
 	StoreName = "SkybrawlProfiles_v1",
-	-- deprecated: LeaderboardStore, LeaderboardRefreshSeconds and LeaderboardSize belong to the old 1v1 board
-	-- (Config.Rankings replaces them)
-	LeaderboardStore = "SkybrawlRating1v1_v1",
 	AutosaveSeconds = 90,
-	LeaderboardRefreshSeconds = 120,
-	LeaderboardSize = 10,
 }
 
 -- Menus -------------------------------------------------------------------

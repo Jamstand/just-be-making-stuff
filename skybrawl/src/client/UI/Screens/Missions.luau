@@ -5,7 +5,11 @@
     MissionsWidget (compact = false), whose rows claim on Confirm and
     reroll on X, plus the rules in a side panel. The widget updates its
     rows in place from ClientState.profile.Missions and calls
-    MissionRequest itself.
+    MissionRequest itself. The hints say what Confirm and X do on the
+    focused row (Models.missionsHints from the widget's rowState: CLAIM
+    once it is done, REROLL while it can be rerolled), refreshed when the
+    focus moves, when the profile changes and when the day runs out; with
+    no row focused (touch), only BACK.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -95,6 +99,12 @@ function Screen.build(host)
 			name = "Missions",
 			position = UDim2.fromScale(0, if phone then 0.06 else 0.1),
 			size = UDim2.fromScale(listWidth, if phone then 0.55 else 0.88),
+			-- (the day ran out: REROLL went, so did its hint)
+			onChanged = function()
+				if shown then
+					host.refresh()
+				end
+			end,
 		})
 		local _, rules = Common.cutPanel({
 			name = "Rules",
@@ -147,6 +157,14 @@ function Screen.build(host)
 			-- the widget builds its rows when the profile arrives
 			bag.add(ClientState.ProfileChanged:Connect(function()
 				task.defer(relink)
+				-- (a claimed or rerolled row changes the hints; deferred, so the widget's rows are updated first)
+				task.defer(host.refresh)
+			end))
+			-- the hints say what Confirm and X do on the focused row
+			bag.add(Focus.Changed:Connect(function(new, old)
+				if widget and (widget.rowState(new) or widget.rowState(old)) then
+					host.refresh()
+				end
 			end))
 			renderReset()
 			showToken += 1
@@ -169,11 +187,7 @@ function Screen.build(host)
 			return rows()[1]
 		end,
 		hints = function()
-			return {
-				{ action = "Confirm", label = "CLAIM" },
-				{ action = "X", label = "REROLL" },
-				{ action = "Back", label = "BACK" },
-			}
+			return Models.missionsHints(if widget then widget.rowState(Focus.get()) else nil)
 		end,
 		destroy = function()
 			if widget then

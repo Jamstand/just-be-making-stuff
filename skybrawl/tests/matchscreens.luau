@@ -87,7 +87,7 @@ h.test("results banner reads VICTORY, DEFEAT, DRAW, the FFA place or MATCH ENDED
 	h.expect(ended.text == "MATCH ENDED" and ended.tone == "Neutral", "abandoned")
 end)
 
-h.test("results buttons: QUEUE AGAIN online, REMATCH for bots and custom, MENU always", function()
+h.test("results buttons: QUEUE AGAIN online, REMATCH for bots and the room host, MENU always", function()
 	local function buttons(postMatch, opts)
 		return Models.resultButtons({ source = "Ranked", postMatch = postMatch }, opts or { userId = ME })
 	end
@@ -102,7 +102,7 @@ h.test("results buttons: QUEUE AGAIN online, REMATCH for bots and custom, MENU a
 	local host = buttons({ roomId = 9 }, { userId = ME, room = room })
 	h.expect(host.primary.kind == "RoomStart" and host.primary.label == "REMATCH", "host rematch")
 	local guest = buttons({ roomId = 9 }, { userId = 2, room = { id = 9, hostUserId = ME } })
-	h.expect(guest.primary.kind == "RoomBack" and guest.primary.label == "REMATCH", "guest back to the room")
+	h.expect(guest.primary.kind == "RoomBack" and guest.primary.label == "BACK TO ROOM", "guest back to the room")
 	local gone = buttons({ roomId = 9 }, { userId = 2, room = nil })
 	h.expect(gone.primary == nil and gone.menu.label == "MENU", "out of the room: MENU only")
 	local training = Models.resultButtons({ source = "Training", postMatch = {} }, { userId = ME })
@@ -122,7 +122,7 @@ h.test("results queue again follows the live party leader", function()
 		{ source = "Bots", postMatch = { queueType = "Bots" } },
 		{ userId = ME, party = party(2, { ME }) }
 	)
-	h.expect(not bots.primary.enabled and bots.primary.note == "Leader queues", "bots rematch is the leader's too")
+	h.expect(not bots.primary.enabled and bots.primary.note == "Leader starts it", "bots rematch is the leader's too")
 end)
 
 h.test("results rows group by team with the winners first", function()
@@ -468,12 +468,22 @@ h.test("End or Leave of the VS match before Start returns to the menu", function
 	local requeued = Models.phaseAfter({ type = "MatchEnd", matchId = 40, requeued = true }, state)
 	h.expect(requeued.toast == "A player left before the fight. You're back in the queue.", "requeued")
 	h.expect(requeued.toastKind == "good", "requeued is good news")
+	local noted = Models.phaseAfter({ type = "MatchEnd", matchId = 40, requeued = true, note = "Ann left." }, state)
+	h.expect(noted.toast == "Ann left. You're back in the queue.", "the End's note: " .. tostring(noted.toast))
 	h.expect(Models.phaseAfter({ type = "MatchEnd", matchId = 39 }, state) == nil, "another match")
 	h.expect(Models.phaseAfter({ type = "MatchEnd", matchId = 40 }, { phase = "Menu", vsMatchId = 40 }) == nil)
 	h.expect(
 		Models.phaseAfter({ type = "MatchEnd", matchId = 40 }, { phase = "Vs", vsMatchId = 40, matchId = 40 }) == nil
 	)
 	h.expect(Models.routeMatchEvent("End", { matchId = 40 }, nil, false) == "orphan", "no match running")
+end)
+
+h.test("a requeued End's toast says why the match ended", function()
+	local text, kind = Models.requeuedToast("The match couldn't start.")
+	h.expect(text == "The match couldn't start. You're back in the queue." and kind == "good", tostring(text))
+	text = Models.requeuedToast(nil)
+	h.expect(text == "A player left before the fight. You're back in the queue.", "no note: " .. tostring(text))
+	h.expect(Models.requeuedToast("") == text and Models.requeuedToast(5) == text, "a bad note")
 end)
 
 h.test("events of another match are ignored", function()

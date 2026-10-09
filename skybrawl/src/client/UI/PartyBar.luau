@@ -24,9 +24,14 @@
     to expiresAt, one at a time, in a modal Focus layer that ignores
     Confirm for Config.Menu.InputGrace. Prompts show only in phases Menu and
     Results; leaving them hides the card (its countdown keeps running) and
-    it comes back afterwards if the invite hasn't expired. An answered
-    invite isn't prompted again, unless the answer failed (the request was
-    refused) or the party sent it again (a new expiresAt).
+    it comes back afterwards if the invite hasn't expired. Answers go by
+    party (PartyRequest's Accept / Decline take the partyId; an invite's
+    expiresAt differs a little on every push, so it can't identify one):
+    an answered party's invite isn't prompted again while it is still
+    listed, unless the answer failed (the request was refused). Once it is
+    gone (accepted, declined, expired), a new invite from that party
+    prompts again. While the card is up, a re-sent invite only restarts its
+    countdown bar.
 ]]
 
 local Players = game:GetService("Players")
@@ -219,13 +224,8 @@ end
 
 -- Prompts ------------------------------------------------------------------------------
 
--- An invite's identity for `answered`: the same party sending it again (a new expiresAt) prompts again.
-local function answerKey(invite)
-	return tostring(invite.partyId) .. ":" .. tostring(invite.expiresAt)
-end
-
 local function newPrompts()
-	local answered = {} -- [answerKey] = true once you pressed ACCEPT / DECLINE
+	local answered = {} -- [partyId] = true once you pressed ACCEPT / DECLINE (MenuModels.promptInvite)
 	local shownFor = nil -- partyId of the card on screen
 	local card, layer, setBar, message = nil, nil, nil, nil
 
@@ -241,16 +241,16 @@ local function newPrompts()
 		shownFor = nil
 	end
 
-	local function answer(invite, accept)
-		local key = answerKey(invite)
-		answered[key] = true
+	-- (by party: a push that refreshed the invite while the card was up is answered too)
+	local function answer(partyId, accept)
+		answered[partyId] = true
 		close()
 		local action = if accept then "Accept" else "Decline"
 		task.spawn(function()
-			local ok, reply = request(action, invite.partyId)
+			local ok, reply = request(action, partyId)
 			if ok ~= true then
 				-- refused (still busy, the party is full...) or failed: the invite may stay, so it can prompt again
-				answered[key] = nil
+				answered[partyId] = nil
 				if type(reply) == "string" then
 					ClientState.toast(reply, "error")
 				end
@@ -262,7 +262,8 @@ local function newPrompts()
 
 	local function open(invite)
 		close()
-		shownFor = invite.partyId
+		local partyId = invite.partyId
+		shownFor = partyId
 		local phone = Layout.mode() == "Phone"
 		local gui = UIKit.promptsGui()
 		local panel, body = UIKit.cutPanel({
@@ -300,7 +301,7 @@ local function newPrompts()
 			size = UDim2.fromScale(0.43, 0.36),
 			zIndex = body.ZIndex + 2,
 		}, function()
-			answer(invite, true)
+			answer(partyId, true)
 		end)
 		local decline = UIKit.slantButton("DECLINE", {
 			parent = body,
@@ -313,7 +314,7 @@ local function newPrompts()
 			size = UDim2.fromScale(0.43, 0.36),
 			zIndex = body.ZIndex + 2,
 		}, function()
-			answer(invite, false)
+			answer(partyId, false)
 		end)
 		Focus.linkRow({ accept, decline })
 		layer = Focus.pushLayer({
@@ -324,7 +325,7 @@ local function newPrompts()
 				return accept
 			end,
 			onBack = function()
-				answer(invite, false)
+				answer(partyId, false)
 			end,
 			confirmDelay = Config.Menu.InputGrace,
 		})
@@ -333,14 +334,7 @@ local function newPrompts()
 	local function update()
 		local invite = nil
 		if PROMPT_PHASES[ClientState.phase] then
-			local pending = {}
-			local invites: { any } = ClientState.invites or {}
-			for _, candidate in invites do
-				if not answered[answerKey(candidate)] then
-					table.insert(pending, candidate)
-				end
-			end
-			invite = MenuModels.promptInvite(pending, ClientState.serverNow())
+			invite = MenuModels.promptInvite(ClientState.invites, ClientState.serverNow(), answered)
 		end
 		if not invite then
 			close()
@@ -361,15 +355,7 @@ local function newPrompts()
 
 	ClientState.PartyChanged:Connect(function(_, invites)
 		-- forget answers for invites that are gone (a new invite from the same party can come later)
-		local live = {}
-		for _, invite in invites or {} do
-			live[answerKey(invite)] = true
-		end
-		for key in answered do
-			if not live[key] then
-				answered[key] = nil
-			end
-		end
+		MenuModels.pruneAnswers(answered, invites)
 		update()
 	end)
 	ClientState.PhaseChanged:Connect(update)

@@ -131,7 +131,7 @@ local function newPlayer(userId, name, parent)
 		Parent = parent,
 		_friends = {},
 	}
-	function player:IsFriendsWith(otherId)
+	function player:IsFriendsWithAsync(otherId)
 		return self._friends[otherId] == true
 	end
 	function player:GetAttribute(key)
@@ -147,8 +147,8 @@ local function newPlayer(userId, name, parent)
 end
 
 --[[
-    A stand-in Player: Name, DisplayName, UserId, IsFriendsWith (friends in
-    player._friends[userId]) and attributes. Parent is h.game's fake Players
+    A stand-in Player: Name, DisplayName, UserId, IsFriendsWithAsync (friends
+    in player._friends[userId]) and attributes. Parent is h.game's fake Players
     (so services see the player as on the server) without joining its list:
     players:_add(p) on any fake game adds it and sets Parent to that Players,
     players:_remove(p) fires PlayerRemoving and sets Parent to nil.

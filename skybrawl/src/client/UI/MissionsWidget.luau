@@ -2,19 +2,27 @@
     The DAILY MISSIONS panel (menus design 5.7): the reset countdown and one
     row per mission (MenuModels.missionRows): text, progress bar (red; gold
     when done), "p/g" or DONE, the rewards (coins, +XP), REROLL while the
-    free reroll is unused and the mission isn't done, and CLAIM once it is
-    done. Rows are keyed by mission index and updated in place on every
+    free reroll is unused, the mission isn't done and its day hasn't run
+    out, and CLAIM once it is done. Rows are keyed by mission index and updated in place on every
     ProfileUpdate, never rebuilt, so focus stays put. Each row is a focus
     stop (key "Mission<index>"): Confirm claims, X rerolls (a per-object
     action, set only while the row can be rerolled, so then it wins over
     the main menu's X = INVITE and otherwise X still invites). Both call
-    MissionRequest and toast its answer. rowState(button) tells the main
+    MissionRequest with the list's day (the server refuses a press on a
+    list that has changed) and toast its answer. rowState(button) tells the main
     menu what a focused row's Confirm and X do, for its hints. While the
     profile is still loading it says "Loading missions...".
 
     The main menu shows it compact; the Missions screen embeds it with
     compact = false (bigger rows). opts.mini (the phone main menu) keeps
-    only each mission's text and bar.
+    only each mission's short text and bar.
+
+    Mission text is one line that gets the row's width (0.9) unless REROLL
+    shares its line: compact, that is a bare X glyph like mockup b's icon
+    (0.82 left for the text), and with its label (full size, and on touch,
+    where glyphs are hidden) 0.7. It is 18 design px compact (mockup b),
+    21 x 1.25 full size and 22 mini, and shrinks a few px to fit
+    (Layout.bindFitText) before the end is cut ("...").
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -55,8 +63,10 @@ local function text(name, parent, props, size)
 end
 
 local function send(action, index)
+	local missions = ClientState.profile and ClientState.profile.Missions
+	local day = if type(missions) == "table" and type(missions.day) == "number" then missions.day else nil
 	local ok, success, message = pcall(function()
-		return Net.get("MissionRequest"):InvokeServer(action, index)
+		return Net.get("MissionRequest"):InvokeServer(action, index, day)
 	end)
 	if not ok then
 		ClientState.toast("Something went wrong.", "error")
@@ -66,14 +76,20 @@ local function send(action, index)
 end
 
 --[[
-    opts = { compact: boolean?, mini: boolean? } & Common. Returns
-    { frame, focusables() -> { GuiObject }, rowState(obj), destroy() }.
+    opts = { compact: boolean?, mini: boolean?, onChanged: (() -> ())? } &
+    Common. onChanged runs after a redraw that no profile change caused
+    (the day ran out: REROLL goes), so the screen can refresh its hints.
+    Returns { frame, focusables() -> { GuiObject }, rowState(obj),
+    destroy() }.
 ]]
 function MissionsWidget.new(parent, opts)
 	opts = opts or {}
 	local compact = opts.compact ~= false
 	local mini = opts.mini == true
 	local scale = if compact then 1 else 1.25
+	-- mission text (design px) and how far it may shrink to fit
+	local missionTextSize = if mini then 22 elseif compact then 18 else 21 * scale
+	local missionTextMin = if mini then 18 elseif compact then 14 else 18
 	local frame, body = UIKit.cutPanel({
 		cut = 18,
 		title = if mini then "MISSIONS" else "DAILY MISSIONS",
@@ -117,6 +133,7 @@ function MissionsWidget.new(parent, opts)
 	end
 
 	local rows = {} -- [index] = row
+	local renderedExpired = false -- whether the last render was past the list's reset (no REROLL)
 	local rowArea = if mini then { top = 0.02, height = 0.94 } else { top = 0.0, height = 0.88 }
 
 	local function newRow(index)
@@ -142,10 +159,12 @@ function MissionsWidget.new(parent, opts)
 			accent.Size = UDim2.new(0, math.max(2, Layout.px(5)), 1, 0)
 		end)
 		row.accent = accent
+		row.textWidth = 0.9 -- (narrower while REROLL shares the line: renderRow)
 		row.text = text("Text", button, {
 			Position = UDim2.fromScale(0.05, if mini then 0.05 else 0.06),
-			Size = UDim2.fromScale(if mini then 0.9 else 0.72, if mini then 0.5 else 0.3),
-		}, if mini then 22 else 21 * scale)
+			Size = UDim2.fromScale(row.textWidth, if mini then 0.5 else 0.3),
+		}, missionTextSize)
+		Layout.bindFitText(row.text, missionTextSize, missionTextMin)
 		local bar, setBar = UIKit.progressBar({
 			parent = button,
 			position = UDim2.fromScale(0.05, if mini then 0.62 else 0.44),
@@ -199,6 +218,7 @@ function MissionsWidget.new(parent, opts)
 				Parent = claimHolder,
 			})
 			row.claimHolder = claimHolder
+			-- (its width is set by renderRow: the bare glyph's, or room for the label; never over the text)
 			row.reroll = make("TextButton", {
 				Name = "Reroll",
 				BackgroundTransparency = 1,
@@ -230,6 +250,7 @@ function MissionsWidget.new(parent, opts)
 				Parent = row.reroll,
 			})
 			UIKit.glyph("X", { parent = glyphHolder, zIndex = zIndex + 2 })
+			row.rerollGlyph = glyphHolder
 			local rerollText = text("Label", row.reroll, {
 				Text = "REROLL",
 				Font = T.BlackFont,
@@ -239,6 +260,7 @@ function MissionsWidget.new(parent, opts)
 				LayoutOrder = 2,
 			}, 14 * scale)
 			rerollText.TextTruncate = Enum.TextTruncate.None
+			row.rerollLabel = rerollText
 		end
 
 		local function claim()
@@ -266,7 +288,19 @@ function MissionsWidget.new(parent, opts)
 		row.data = data
 		-- X rerolls only a row that can be rerolled; otherwise it falls through to the layer (INVITE)
 		Focus.register(row.button, { actions = if data.rerollable then row.rerollActions else {} })
-		row.text.Text = data.text
+		row.text.Text = if mini then data.short else data.text
+		local touch = Focus.mode() == "Touch"
+		-- compact REROLL is a bare glyph (mockup b's icon); full size, and on touch (no glyphs), its label
+		local glyphOnly = compact and not touch
+		local width = 0.9
+		if data.rerollable and not mini then
+			-- (REROLL shares the text's line, at 0.97 - its width)
+			width = if glyphOnly then 0.82 else 0.7
+		end
+		if row.textWidth ~= width then
+			row.textWidth = width
+			Layout.setSize(row.text, UDim2.fromScale(width, 0.3))
+		end
 		local color = if data.barColor == "Gold" then T.Gold else T.Red
 		row.accent.BackgroundColor3 = color
 		row.setBar(data.fraction, color)
@@ -276,6 +310,10 @@ function MissionsWidget.new(parent, opts)
 			row.coins.Text = tostring(data.coins)
 			row.xp.Text = string.format("+%d XP", data.xp)
 			row.reroll.Visible = data.rerollable
+			row.reroll.Size = UDim2.fromScale(if glyphOnly then 0.08 else 0.22, 0.26)
+			-- the glyph is hidden on touch (UIKit.glyph), so the label is the control there
+			row.rerollGlyph.Visible = not touch
+			row.rerollLabel.Visible = not glyphOnly
 			local wantTag = data.tag
 			if row.tag ~= wantTag then
 				row.tag = wantTag
@@ -322,6 +360,7 @@ function MissionsWidget.new(parent, opts)
 	local function render()
 		local view =
 			MenuModels.missionRows(ClientState.profile and ClientState.profile.Missions, ClientState.serverNow())
+		renderedExpired = view.expired
 		loading.Visible = view.loading
 		countdown.Text = view.resetIn
 		if footer then
@@ -349,6 +388,8 @@ function MissionsWidget.new(parent, opts)
 
 	render()
 	local profileConn = ClientState.ProfileChanged:Connect(render)
+	-- (touch swaps the REROLL glyph for its label, which changes the text's width)
+	local modeConn = Focus.ModeChanged:Connect(render)
 	local acc = 0
 	local tick = RunService.Heartbeat:Connect(function(dt)
 		acc += dt
@@ -356,7 +397,15 @@ function MissionsWidget.new(parent, opts)
 			acc = 0
 			local missions = ClientState.profile and ClientState.profile.Missions
 			if missions then
-				countdown.Text = MenuModels.timeLeft((missions.resetAt or 0) - ClientState.serverNow())
+				local now = ClientState.serverNow()
+				countdown.Text = MenuModels.timeLeft((missions.resetAt or 0) - now)
+				-- the day ran out before the new list arrived: draw again, without REROLL
+				if renderedExpired ~= (type(missions.resetAt) == "number" and now >= missions.resetAt) then
+					render()
+					if opts.onChanged then
+						opts.onChanged()
+					end
+				end
 			end
 		end
 	end)
@@ -383,6 +432,7 @@ function MissionsWidget.new(parent, opts)
 		end,
 		destroy = function()
 			profileConn.Disconnect()
+			modeConn.Disconnect()
 			tick:Disconnect()
 			for _, row in rows do
 				Focus.unregister(row.button)

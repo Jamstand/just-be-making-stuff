@@ -1,6 +1,8 @@
 --[[
-    Locomotion animations for your own character in the lobby: it follows
-    the Humanoid's state like Roblox's default Animate script. In a match
+    Locomotion animations for your own character outside the fight: it
+    follows the Humanoid's state like Roblox's default Animate script.
+    There is no lobby, so this only covers a character loaded for a match
+    while it waits on the spawn pad (the VS splash); once the match starts
     it stops, and FighterAnimator animates every fighter instead.
 ]]
 

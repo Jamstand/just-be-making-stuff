@@ -24,8 +24,11 @@
       ShopRequest      C->S  (action, itemId) -> ok, message
       SelectLegend     C->S  (legendId) -> ok, message
       PartyRequest     C->S  (action, payload) -> ok, result
-      MissionRequest   C->S  (action: Reroll/Claim, index) -> ok, message
+      MissionRequest   C->S  (action: Reroll/Claim, index, day?) -> ok, message
+                             (day: the day of the list acted on; another
+                             day's list is refused)
       GetRankings      C->S  ({ mode, scope, season? }) -> ok, rankings data or message
+                             (rate limited per player: "Slow down.")
       TrainingRequest  C->S  (action, payload) -> ok, message
 ]]
 

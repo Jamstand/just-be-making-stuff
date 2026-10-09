@@ -18,8 +18,6 @@
 
     RoomsPanel.mount(parent, host) builds it as a menu screen
     (Screens/CustomRooms; params { view = "Browse" | "Room" }).
-    RoomsPanel.create(gui, close) is the old window around it, kept while
-    LobbyUI exists.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1299,11 +1297,6 @@ function RoomsPanel.mount(parent, host)
 			}
 		end,
 	}
-end
-
--- The old Custom Rooms window (LobbyUI). TODO(I): delete once LobbyUI is gone (menus design 5.8).
-function RoomsPanel.create(gui, close)
-	return Common.legacyWindow(gui, "Custom Rooms", close, RoomsPanel.mount)
 end
 
 return RoomsPanel

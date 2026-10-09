@@ -405,9 +405,8 @@ h.test("an offstage dummy recovers through the bot brain", function()
 	addFighter(match, "p1", 1, -5, 0, 1)
 	local dummy = addFighter(match, "b1", 2, 40, -6, -1) -- past the right edge of Duel Rock, below its top
 	local fight = BotBrain.new(dummy, match, "Hard")
-	-- (DummyBrain wakes the bot brain through this field: a rename must fail here)
-	h.expect(type(fight.thinkTimer) == "number", "BotBrain has no thinkTimer for DummyBrain to reset")
-	fight.thinkTimer = 5 -- a stale decision must not delay the recovery
+	h.expect(type(fight.Wake) == "function", "BotBrain has no Wake for DummyBrain to call")
+	fight.thinkTimer = 5 -- a stale decision (made long ago) must not delay the recovery
 	for _, mode in DummyBrain.MODES do
 		local brain = DummyBrain.new(dummy, match, { mode = mode, fight = fight })
 		local input = brain:Update(DT)

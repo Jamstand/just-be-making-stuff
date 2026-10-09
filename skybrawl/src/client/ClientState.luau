@@ -20,8 +20,7 @@
     with previousSelect.id / previousVs.id (or with the id it kept from
     Begin / Vs), never with ClientState.select / ClientState.vs.
 
-    OpenScreen opens a menu screen from anywhere (deep links). OpenPanel is
-    the same Signal under its old name, for LobbyUI until it is gone.
+    OpenScreen opens a menu screen from anywhere (deep links).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -55,8 +54,6 @@ local ClientState = {
 	SelectEvent = Util.Signal.new(), -- (kind, data, previousSelect, previousVs), relayed after select/vs are stored
 	PhaseChanged = Util.Signal.new(), -- (phase, previous)
 }
--- TODO(I): remove once LobbyUI is gone.
-ClientState.OpenPanel = ClientState.OpenScreen
 
 function ClientState.setInMatch(value)
 	if ClientState.inMatch ~= value then

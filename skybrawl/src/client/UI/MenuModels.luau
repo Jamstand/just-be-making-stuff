@@ -111,31 +111,38 @@ end
 
 --[[
     The DAILY MISSIONS panel for a snapshot's Missions table (3.5) at `now`:
-    { loading, resetIn, claimable, footer, rows }. Each row: { index, text,
-    progress, goal, fraction, done, claimed, claimable, rerollable, status
-    ("1/2" | "DONE"), tag ("CLAIM" | "CLAIMED" | nil), coins, xp,
-    barColor ("Red" | "Gold") }. Loading (no profile yet): no rows.
+    { loading, resetIn, claimable, footer, expired, rows }. Each row: {
+    index, text, short (the mission's short form for the phone panel when
+    the snapshot has one, else its text), progress, goal, fraction, done,
+    claimed, claimable, rerollable, status ("1/2" | "DONE"), tag ("CLAIM" |
+    "CLAIMED" | nil), coins, xp, barColor ("Red" | "Gold") }. expired: the
+    list's day is over (now >= resetAt) and the new one hasn't arrived;
+    nothing is rerollable then (the server would refuse it). Loading (no
+    profile yet): no rows.
 ]]
 function MenuModels.missionRows(missions, now)
 	if type(missions) ~= "table" or type(missions.list) ~= "table" then
-		return { loading = true, resetIn = "", claimable = 0, footer = "", rows = {} }
+		return { loading = true, resetIn = "", claimable = 0, footer = "", expired = false, rows = {} }
 	end
+	local expired = type(missions.resetAt) == "number" and now >= missions.resetAt
 	local rows = {}
 	for _, mission in missions.list do
 		local goal = math.max(1, mission.goal or 1)
 		local progress = math.clamp(mission.progress or 0, 0, goal)
 		local done = mission.done == true
 		local claimed = mission.claimed == true
+		local text = mission.text or ""
 		table.insert(rows, {
 			index = mission.index,
-			text = mission.text or "",
+			text = text,
+			short = if type(mission.short) == "string" and mission.short ~= "" then mission.short else text,
 			progress = progress,
 			goal = goal,
 			fraction = if done then 1 else progress / goal,
 			done = done,
 			claimed = claimed,
 			claimable = done and not claimed,
-			rerollable = missions.rerollAvailable == true and not done and not claimed,
+			rerollable = missions.rerollAvailable == true and not done and not claimed and not expired,
 			status = if done
 				then "DONE"
 				else string.format("%s/%s", Util.formatNumber(progress), Util.formatNumber(goal)),
@@ -158,6 +165,7 @@ function MenuModels.missionRows(missions, now)
 		resetIn = MenuModels.timeLeft((missions.resetAt or now) - now),
 		claimable = missions.claimable or 0,
 		footer = footer,
+		expired = expired,
 		rows = rows,
 	}
 end
@@ -309,14 +317,35 @@ function MenuModels.statusText(status)
 	return ""
 end
 
--- The invite to prompt for now: the first one with a running countdown (busy ones have no expiresAt yet).
-function MenuModels.promptInvite(invites, now)
+--[[
+    Invite prompts. The invite to prompt for now: the first one with a
+    running countdown (busy ones have no expiresAt yet) from a party not in
+    `answered` (a set of partyIds). Answers go by party, as PartyRequest's
+    Accept / Decline do: an invite's expiresAt can't tell it apart, since
+    the server converts it to server time again on every push, so the
+    value differs a little each time.
+]]
+function MenuModels.promptInvite(invites, now, answered)
 	for _, invite in invites or {} do
-		if type(invite.expiresAt) == "number" and invite.expiresAt > now then
+		local skip = answered ~= nil and answered[invite.partyId] == true
+		if not skip and type(invite.expiresAt) == "number" and invite.expiresAt > now then
 			return invite
 		end
 	end
 	return nil
+end
+
+-- Forgets the answers (a set of partyIds) of parties with no invite in `invites`: a later invite prompts again.
+function MenuModels.pruneAnswers(answered, invites)
+	local live = {}
+	for _, invite in invites or {} do
+		live[invite.partyId] = true
+	end
+	for partyId in answered do
+		if not live[partyId] then
+			answered[partyId] = nil
+		end
+	end
 end
 
 --[[

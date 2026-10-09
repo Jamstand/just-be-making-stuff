@@ -44,9 +44,6 @@ local services
 local S = Config.Select
 -- How often a session in its pick phase is stepped.
 local STEP_SECONDS = 0.05
--- SelectAction token bucket burst (rate: Config.Select.ActionsPerSecond).
--- TODO(I): move to Config.Select.ActionBurst (tuning value the design doesn't give).
-local ACTION_BURST = 8
 
 local LABELS = {
 	Ranked1v1 = "Ranked 1v1",
@@ -122,7 +119,9 @@ end
     Ends a session without a match. Frees the slot (unless a Match took
     it) and the players, tells the remaining humans (SelectEvent "Cancel"),
     reopens a custom room, and with opts.requeue puts the queue units back
-    (opts.leavers are dropped from them).
+    (opts.leavers are dropped from them). A Cancel says requeued = true only
+    to the players the requeue really keeps (a unit whose party changed is
+    told its search was cancelled instead).
 ]]
 function SelectService.cancel(session, reason, opts)
 	if session.phase == "Cancelled" then
@@ -133,14 +132,26 @@ function SelectService.cancel(session, reason, opts)
 	releaseSlot(session)
 	local remaining = humans(session)
 	forget(session)
-	for _, entry in remaining do
-		send(entry.player, "Cancel", { id = session.id, reason = reason, requeued = opts.requeue == true })
-	end
 	local config = session.config
+	local requeue = opts.requeue == true and config.units ~= nil and config.queueType ~= nil
+	-- (decided before anyone is told, with no yield until the requeue below; a failing lookup promises nobody a
+	-- search, and never stops the Cancels)
+	local kept = {}
+	if requeue then
+		local ok, result = pcall(services.QueueService.wouldRequeue, config.units, config.queueType, opts.leavers)
+		if ok and type(result) == "table" then
+			kept = result
+		else
+			warn("[SelectService] wouldRequeue failed:", result)
+		end
+	end
+	for _, entry in remaining do
+		send(entry.player, "Cancel", { id = session.id, reason = reason, requeued = kept[entry.player] == true })
+	end
 	if config.roomId then
 		services.RoomService.onSelectCancelled(config.roomId)
 	end
-	if opts.requeue and config.units and config.queueType then
+	if requeue then
 		services.QueueService.requeue(config.units, config.queueType, opts.leavers)
 	end
 end
@@ -524,10 +535,10 @@ local function allow(player)
 	local now = os.clock()
 	local bucket = buckets[player]
 	if not bucket then
-		bucket = { tokens = ACTION_BURST, at = now }
+		bucket = { tokens = S.ActionBurst, at = now }
 		buckets[player] = bucket
 	end
-	bucket.tokens = math.min(ACTION_BURST, bucket.tokens + (now - bucket.at) * S.ActionsPerSecond)
+	bucket.tokens = math.min(S.ActionBurst, bucket.tokens + (now - bucket.at) * S.ActionsPerSecond)
 	bucket.at = now
 	if bucket.tokens < 1 then
 		return false

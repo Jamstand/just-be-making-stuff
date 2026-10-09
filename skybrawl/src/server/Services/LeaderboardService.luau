@@ -5,11 +5,14 @@
     One OrderedDataStore per season and mode (Rankings.storeName). A ranked
     result (ProgressionService) calls submit, which queues the player's
     packed value (rating, main legend, wins, losses: Rankings.encode) under
-    the store of the profile's season; the queue is written every
+    the store of the profile's season (never from a profile that isn't
+    saving: see submit); the queue is written every
     Config.Rankings.FlushSeconds and on shutdown, while the write budget
     lasts (leftovers wait for the next flush).
 
-    GetRankings({ mode, scope, season? }) answers with RankingsData:
+    GetRankings({ mode, scope, season? }) answers with RankingsData (at
+    most Config.Rankings.RequestsPerSecond calls a second per player, burst
+    RequestBurst; beyond that "Slow down."):
       Global   the season's top Config.Rankings.TopSize from one
                GetSortedAsync page (the current season refreshes every
                RefreshSeconds in the background; past seasons are fetched
@@ -20,7 +23,8 @@
                UserService call per fetch, cached per user.
       Friends  you and your friends (FriendCache) who have a rating that
                season: friends on this server from their live profiles
-               (current season, no DataStore call), the others (at most
+               (current season, no DataStore call; a profile that isn't
+               saving counts as off the server), the others (at most
                FriendsMax) from their stored entry (GetAsync in parallel
                batches; values shared by every requester for
                FriendsCacheSeconds, a read already in flight is waited for;
@@ -97,6 +101,7 @@ local values = {} -- [storeName] = { [userId] = { value = packed | false (no ent
 local reading = {} -- [storeName] = { [userId] = true } (GetAsync calls in flight, shared by every requester)
 local failed = {} -- [storeName] = { [userId] = os.clock() } (reads that threw: not retried for GlobalCooldown)
 local friends = {} -- [Player] = { [storeName] = { rows, status, updatedAt, ownValue?, fetchedAt?, fetching } }
+local buckets = {} -- [Player] = { tokens, at } (GetRankings rate limit)
 local names = {} -- [userId] = { name, username }
 local nameCount = 0
 
@@ -558,11 +563,12 @@ local function fetchFriends(player, name, seasonId, mode, isCurrent)
 	elseif player.UserId > 0 then
 		table.insert(stored, player.UserId) -- your own entry in that season's store
 	end
-	-- friends on this server (current season) cost no DataStore call: all of them; the others up to FriendsMax
+	-- friends on this server (current season) cost no DataStore call: all of them; the others up to FriendsMax. A
+	-- friend whose profile isn't saving (defaults after a failed load) is read from the store like the others.
 	local others = 0
 	for _, id in ids do
 		local other = isCurrent and Players:GetPlayerByUserId(id)
-		local profile = other and services.DataService.get(other)
+		local profile = other and services.DataService.isSaving(other) and services.DataService.get(other)
 		if profile then
 			if hasRating(profile, mode, seasonId) then
 				table.insert(list, liveItem(other, profile, mode))
@@ -634,19 +640,44 @@ local function friendsView(player, name, seasonId, mode, isCurrent)
 	return entry.rows, entry.status, entry.updatedAt, entry.ownValue
 end
 
+-- GetRankings token bucket (real time): Config.Rankings.RequestsPerSecond, burst RequestBurst. Each tab change is
+-- a call, so it is generous enough for flipping through tabs quickly.
+local function allowRequest(player)
+	local R = Config.Rankings
+	local now = os.clock()
+	local bucket = buckets[player]
+	if not bucket then
+		bucket = { tokens = R.RequestBurst, at = now }
+		buckets[player] = bucket
+	end
+	bucket.tokens = math.min(R.RequestBurst, bucket.tokens + (now - bucket.at) * R.RequestsPerSecond)
+	bucket.at = now
+	if bucket.tokens < 1 then
+		return false
+	end
+	bucket.tokens -= 1
+	return true
+end
+
 -- API ------------------------------------------------------------------------------
 
 --[[
     Queues `player`'s standing in `mode` for their profile's season store
     (Seasons.ensure has just made it current): rating, best legend of the
     season (MAIN), season wins and losses. Studio test players (UserId <= 0)
-    never write to a ranked store.
+    never write to a ranked store, and neither does a profile that isn't
+    saving (DataService.isSaving: its load failed, its stored data couldn't
+    be read, or another server took it over): it plays on defaults or a
+    stale copy, which must never overwrite the stored standing.
 ]]
 function LeaderboardService.submit(player, mode, profile)
 	if player.UserId <= 0 or not RATING_KEYS[mode] then
 		return
 	end
-	profile = profile or (services and services.DataService.get(player))
+	if not (services and services.DataService.isSaving(player)) then
+		return
+	end
+	profile = profile or services.DataService.get(player)
 	if type(profile) ~= "table" or type(profile.Season) ~= "number" or profile.Season < 1 then
 		return
 	end
@@ -823,6 +854,11 @@ local function prune()
 			failed[name] = nil
 		end
 	end
+	for player in buckets do
+		if not player.Parent then
+			buckets[player] = nil
+		end
+	end
 	for player, mine in friends do
 		if not player.Parent then
 			friends[player] = nil
@@ -839,6 +875,7 @@ end
 -- Called by Main.server's PlayerRemoving coordinator. Never yields; queued writes stay and are flushed.
 function LeaderboardService.onPlayerRemoving(player)
 	friends[player] = nil
+	buckets[player] = nil
 end
 
 function LeaderboardService.init(s)
@@ -847,6 +884,9 @@ end
 
 function LeaderboardService.start()
 	Net.get("GetRankings").OnServerInvoke = function(player, request)
+		if not allowRequest(player) then
+			return false, "Slow down."
+		end
 		local ok, result, data = pcall(LeaderboardService.getRankings, player, request)
 		if not ok then
 			warn("[LeaderboardService] GetRankings failed:", result)

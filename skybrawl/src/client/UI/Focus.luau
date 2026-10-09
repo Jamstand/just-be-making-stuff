@@ -46,7 +46,14 @@
 
     Focus also owns fight input during a match: MatchClient says what it
     wants (setFightInput) and Focus applies Input.setEnabled(wanted and no
-    inMatch layer is open).
+    inMatch layer is open). Turning it back on as an inMatch layer closes
+    waits one task.defer, so the key that closed the layer isn't a fight
+    input too.
+
+    A layer's confirmDelay (Results, legend select, invite prompts,
+    dialogs) holds back Confirm and Back after it appears: gamepad A and B
+    are also Jump and Heavy, so mashing them as a fight ends can't press
+    QUEUE AGAIN, accept or decline an invite, or leave a screen.
 ]]
 
 local GuiService = game:GetService("GuiService")
@@ -408,7 +415,18 @@ local function applyFightInput(force)
 	local want = fightWanted and not inMatchLayer
 	if force or want ~= fightApplied then
 		fightApplied = want
-		Input.setEnabled(want)
+		if want and not force then
+			-- an inMatch layer just closed, usually from inside an InputBegan handler: turn fight input back on
+			-- only after every handler has seen that key press, so the B (Heavy) or Tab that closed the pause
+			-- menu or the training panel never also reaches Input
+			task.defer(function()
+				if fightApplied then
+					Input.setEnabled(true)
+				end
+			end)
+		else
+			Input.setEnabled(want)
+		end
 	end
 end
 
@@ -499,7 +517,9 @@ function Focus.press(action)
 		end
 		activate(focused)
 	elseif action == "Back" then
-		if top and top.onBack then
+		-- the confirmDelay holds Back too: gamepad B is the heavy attack, so B mashed as a fight ends must not
+		-- decline an invite or leave the results screen
+		if top and top.onBack and os.clock() >= top.pushedAt + top.confirmDelay then
 			Sound.play("MenuBack", BACK_VOLUME)
 			run(top.onBack)
 		end

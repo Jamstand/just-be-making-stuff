@@ -151,11 +151,15 @@ local function newStore(env, name)
 	return store
 end
 
--- A DataService stand-in over real profiles: get / update (no snapshots).
-local function fakeDataService(profiles)
+-- A DataService stand-in over real profiles: get / update (no snapshots) / isSaving (every loaded profile
+-- saves unless notSaving[player]).
+local function fakeDataService(profiles, notSaving)
 	local fake = {}
 	function fake.get(player)
 		return profiles[player]
+	end
+	function fake.isSaving(player)
+		return profiles[player] ~= nil and not notSaving[player]
 	end
 	function fake.update(player, fn)
 		local profile = profiles[player]
@@ -195,6 +199,7 @@ local function newEnv(opts)
 		now = opts.now or NOW,
 		clockOffset = 0,
 		profiles = {},
+		notSaving = {}, -- [Player] = true: DataService.isSaving says no
 		stores = {},
 		budget = { GetAsync = 100, GetSortedAsync = 100, SetIncrementSortedAsync = 100 },
 		budgetTypes = {},
@@ -258,7 +263,7 @@ local function newEnv(opts)
 		task = if opts.parkWaits then parkingTask else nil,
 	}
 	local services = {
-		DataService = fakeDataService(env.profiles),
+		DataService = fakeDataService(env.profiles, env.notSaving),
 		CharacterService = {
 			refreshNameplate = function()
 				env.nameplates += 1
@@ -696,7 +701,7 @@ h.test("reroll and claim follow the mission rules", function()
 	local list = profile.Missions.List
 	local function call(action, index)
 		env.clockOffset += 1 -- stay under the rate limit
-		return env.Missions.request(player, action, index)
+		return env.Missions.request(player, action, index, profile.Missions.Day)
 	end
 	local oldIds = { [list[1].Id] = true, [list[2].Id] = true, [list[3].Id] = true }
 	local expected = serde.decode("json", serde.encode("json", profile.Missions))
@@ -749,21 +754,47 @@ h.test("reroll and claim follow the mission rules", function()
 	h.expect(message == "Unknown mission.", "the bucket didn't refill")
 end)
 
-h.test("a request after midnight acts on today's missions", function()
+h.test("a request made on yesterday's list is refused after midnight, and yesterday is still paid", function()
 	local env = newEnv({ now = NOW - DAY })
 	local player, profile = env.player(25, "Sleepy")
 	profile.Missions.List[1].Progress = profile.Missions.List[1].Goal
 	local owed = profile.Missions.List[1].Coins
 	local coins = profile.Coins
 	env.now = NOW
-	-- yesterday's done mission #1 is paid by the rollover; #1 now is a fresh mission of today
+	-- yesterday's done mission #1 is paid by the rollover; #1 now is a fresh mission of today nobody has seen
 	local ok, message = env.Missions.request(player, "Claim", 1)
-	h.expect(ok == false and message == "That mission isn't done yet.", "claim: " .. tostring(message))
+	h.expect(ok == false and message == "Your missions changed. Take another look.", "claim: " .. tostring(message))
 	h.expect(profile.Coins == coins + owed and profile.Missions.Day == TODAY, "rollover payout")
 	h.expect(
 		#toastsFor(player) >= 1 and string.find(toastsFor(player)[1], "Mission rewards collected", 1, true),
 		"toast"
 	)
+	-- today's list is the profile's now: a request on it goes through
+	env.clockOffset += 1
+	ok, message = env.Missions.request(player, "Reroll", 2, TODAY)
+	h.expect(ok == true and message == "Mission rerolled.", "reroll on today's list: " .. tostring(message))
+end)
+
+h.test("a reroll pressed on yesterday's row just after midnight keeps today's free reroll", function()
+	local env = newEnv({ now = NOW - DAY })
+	local player, profile = env.player(26, "Owl")
+	local yesterday = profile.Missions.Day
+	-- 5 s after midnight the rollover loop has moved the profile on, but the client still shows yesterday's list
+	env.now = Missions.resetAt(yesterday) + 5
+	env.Missions.rollover(player)
+	h.expect(profile.Missions.Day == TODAY, "the rollover didn't move the profile")
+	local today = table.clone(profile.Missions.List)
+	local ok, message = env.Missions.request(player, "Reroll", 2, yesterday)
+	h.expect(ok == false and message == "Your missions changed. Take another look.", "stale: " .. tostring(message))
+	h.expect(not profile.Missions.Rerolled and profile.Missions.List[2] == today[2], "a mission of today was rerolled")
+	env.clockOffset += 1
+	for _, junk in { "1", {}, 0 / 0 } do
+		ok, message = env.Missions.request(player, "Reroll", 2, junk)
+		h.expect(ok == false and message == "Your missions changed. Take another look.", "junk day")
+		env.clockOffset += 1
+	end
+	ok, message = env.Missions.request(player, "Reroll", 2, TODAY)
+	h.expect(ok == true and message == "Mission rerolled." and profile.Missions.Rerolled, tostring(message))
 end)
 
 h.test("the rollover check pays yesterday's missions and starts a new season", function()
@@ -975,6 +1006,32 @@ h.test("season store names follow the profile's season", function()
 	profile.Season = 0
 	env.Leaderboard.submit(player, "1v1", profile)
 	h.expect(env.Leaderboard.pendingFor(Rankings.storeName(0, "1v1")) == nil, "season 0")
+end)
+
+h.test("a profile that isn't saving never reaches the ladder", function()
+	local env = newEnv()
+	local player, profile = env.player(60, "Unsaved")
+	env.notSaving[player] = true
+	profile.Rating1v1 = 1000 -- the defaults it plays on after a failed load
+	env.Leaderboard.submit(player, "1v1", profile)
+	env.Progression.applyMatch(rankedInfo("1v1"), { entry(player, { won = true, opponentRating = 1000 }) })
+	env.Progression.applyLeaver(player, "2v2", 1000, "Vex")
+	h.expect(env.Leaderboard.pendingFor(STORE_1V1) == nil, "a profile that isn't saving was queued (1v1)")
+	h.expect(env.Leaderboard.pendingFor(Rankings.storeName(1, "2v2")) == nil, "queued (2v2)")
+	-- nor do friends' rankings see it (the stored standing stays the one they read)
+	local friend = env.player(61, "Buddy")
+	env.friendIds[friend] = { 60 }
+	local store = env.store(STORE_1V1)
+	store.data["60"] = Rankings.encode(1850, "Yuki", 40, 12)
+	local ok, data = env.Leaderboard.getRankings(friend, { mode = "1v1", scope = "Friends" })
+	local row
+	for _, r in ok and data.rows or {} do
+		if r.userId == 60 then
+			row = r
+		end
+	end
+	h.expect(row and row.rating == 1850 and row.wins == 40, "the stored standing was replaced: " .. describeValue(row))
+	h.expect(profile.SeasonStats["1v1"].Wins == 1, "the profile still counts the result")
 end)
 
 h.test("submits from Studio players are skipped", function()
@@ -1577,6 +1634,29 @@ h.test("the name cache starts over without losing the names of the list being bu
 	end
 end)
 
+h.test("GetRankings is rate limited per player", function()
+	local env = newEnv({ parkWaits = true })
+	local player = env.player(91, "Flipper")
+	local other = env.player(92, "Calm")
+	env.Leaderboard.start()
+	local getRankings = h.remote("GetRankings").OnServerInvoke
+	local burst = Config.Rankings.RequestBurst
+	for i = 1, burst do
+		local ok, data = getRankings(player, { mode = if i % 2 == 0 then "2v2" else "1v1", scope = "Global" })
+		h.expect(ok == true and type(data) == "table", "call " .. i .. " was limited")
+	end
+	local ok, message = getRankings(player, { mode = "1v1", scope = "Global" })
+	h.expect(ok == false and message == "Slow down.", "call " .. (burst + 1) .. " wasn't limited")
+	h.expect(getRankings(other, { mode = "1v1", scope = "Global" }) == true, "another player was limited")
+	env.clockOffset += 1 / Config.Rankings.RequestsPerSecond
+	h.expect(getRankings(player, { mode = "1v1", scope = "Global" }) == true, "the bucket didn't refill")
+	ok, message = getRankings(player, { mode = "1v1", scope = "Global" })
+	h.expect(ok == false and message == "Slow down.", "refilled more than one call")
+	-- leaving drops the bucket: a player who comes back starts with a full one
+	env.Leaderboard.onPlayerRemoving(player)
+	h.expect(getRankings(player, { mode = "1v1", scope = "Global" }) == true, "the bucket outlived the player")
+end)
+
 h.test("MissionRequest and GetRankings answer through their remotes and never throw", function()
 	local env = newEnv({ parkWaits = true })
 	local player = env.player(90, "Remote")
@@ -1584,7 +1664,7 @@ h.test("MissionRequest and GetRankings answer through their remotes and never th
 	env.Leaderboard.start()
 	local missionRequest = h.remote("MissionRequest").OnServerInvoke
 	local getRankings = h.remote("GetRankings").OnServerInvoke
-	local ok, message = missionRequest(player, "Reroll", 1)
+	local ok, message = missionRequest(player, "Reroll", 1, env.profiles[player].Missions.Day)
 	h.expect(ok == true and message == "Mission rerolled.", "MissionRequest: " .. tostring(message))
 	local okRankings, data = getRankings(player, { mode = "1v1", scope = "Global" })
 	h.expect(okRankings == true and data.status == "ok", "GetRankings")

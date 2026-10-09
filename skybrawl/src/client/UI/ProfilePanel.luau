@@ -12,8 +12,6 @@
     while you are queued. (Focus only calls a layer's onDirection from a
     focused object, so a screen with nothing focusable would never get
     it.) The badge row shows only when you have a SeasonBadge.
-    ProfilePanel.create(gui, close) is the old window around it, kept
-    while LobbyUI exists.
 ]]
 
 local Players = game:GetService("Players")
@@ -389,11 +387,6 @@ function ProfilePanel.mount(parent, host)
 			}
 		end,
 	}
-end
-
--- The old Profile window (LobbyUI). TODO(I): delete once LobbyUI is gone (menus design 5.8).
-function ProfilePanel.create(gui, close)
-	return Common.legacyWindow(gui, "Profile", close, ProfilePanel.mount)
 end
 
 return ProfilePanel
