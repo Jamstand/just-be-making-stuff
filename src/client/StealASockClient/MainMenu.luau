@@ -6,6 +6,12 @@
 -- by one and bob), two living 3D socks dancing either side of it (SockCard.Viewer; a new pair every
 -- shot), sparkles drifting up, the tagline, a big PLAY button and Settings. Its own music: UISound's
 -- "title" loop (it starts with the first State, once the saved Music volume is known).
+-- Your Sockdex progress: a cream card with the book, "SOCKDEX 12/34", a bar with the milestones
+-- marked on it, and what's next ("5 more for 🎁 $100K", or "🎁 $5.0K to claim!" with a red badge
+-- when a milestone is waiting). It comes in with the buttons once your data has arrived (the first
+-- State) - the count rolls up and the bar fills - and keeps up while the title shows. Tap it to open
+-- the Sockdex over the title. It sits bottom-left beside the buttons when there's room, else over
+-- PLAY (portrait screens); it shrinks to fit, and stays hidden rather than go under 60% or 44 px tall.
 -- PLAY (the button, Enter / Space, gamepad A): the logo flies off, the camera swoops down behind
 -- your character, the HUD, menu column and item bar come back, your controls unlock and the music
 -- crossfades to the in-game loop.
@@ -18,14 +24,19 @@
 -- circles your character instead.
 -- In Studio, set the workspace attribute SkipTitleScreen = true to go straight into the game.
 -- API: MainMenu.Show() (once per session), MainMenu.IsOpen(), MainMenu.Play() (as if PLAY was
--- pressed), MainMenu.Played (fires as PLAY is pressed), MainMenu.Shots (the camera shots).
+-- pressed), MainMenu.SetState(state) (the StateView, from init.client: the Sockdex card),
+-- MainMenu.Played (fires as PLAY is pressed), MainMenu.Shots (the camera shots).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 
-local SockConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("SockConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = Shared:WaitForChild("Config")
+local Util = require(Shared:WaitForChild("Util"))
+local SockConfig = require(Config:WaitForChild("SockConfig"))
+local DexConfig = require(Config:WaitForChild("DexConfig"))
 
 local Theme = require(script.Parent:WaitForChild("Theme"))
 local Anim = require(script.Parent:WaitForChild("Anim"))
@@ -96,6 +107,10 @@ local LOGO_W = #BLOCKS * BLOCK + (#BLOCKS - 1) * BLOCK_GAP
 local LOGO_H = 200 -- "STEAL A" over the blocks
 local SOCK_SIZE = 190 -- the 3D socks either side of the logo (their square; the sock fills ~70%)
 local SPARKLES = 14
+-- the Sockdex card (reference px) and the book's size: every sock type, as in DexUI
+local DEX_W, DEX_H = 260, 90
+local DEX_TOTAL = #SockConfig.List
+local COUNT_TAN = Color3.fromRGB(214, 160, 110) -- the HUD drawer's "3/8"
 
 -- ---------- state ----------
 
@@ -403,6 +418,154 @@ local function buildButtons(parent: Instance)
 	end)
 end
 
+-- ---------- the Sockdex card ----------
+
+local function dexCountText(n: number): string
+	return string.format("%d/%d", math.floor(n + 0.5), DEX_TOTAL)
+end
+
+local function buildDex(parent: Instance)
+	-- `holder` is placed and fitted by relayout; `card` inside it springs (popIn, press, bump)
+	local holder = frame(parent, "Sockdex", UDim2.fromOffset(DEX_W, DEX_H), UDim2.new(), Vector2.new(0, 1))
+	holder.ZIndex = 8
+	holder.Visible = false
+	local fit = Instance.new("UIScale")
+	fit.Name = "Fit"
+	fit.Parent = holder
+	ui.dex, ui.dexFit = holder, fit
+
+	local card = Theme.button(holder, "", "cream", UDim2.fromScale(1, 1))
+	card.Name = "Card"
+	card.AnchorPoint = Vector2.new(0.5, 0.5) -- its springs grow from the middle
+	card.Position = UDim2.fromScale(0.5, 0.5)
+	card.ZIndex = 8
+	card.Visible = false
+	Anim.button(card, "click")
+	ui.dexCard = card
+
+	-- the book: the Sockdex's own blue tile and 📖, as on its menu button
+	local book = Instance.new("Frame")
+	book.Name = "Book"
+	book.AnchorPoint = Vector2.new(0, 0.5)
+	book.Position = UDim2.new(0, 10, 0.5, 0)
+	book.Size = UDim2.fromOffset(62, 62)
+	book.ZIndex = 11
+	Theme.candy(book, "blue", 14, 2.5)
+	Theme.gloss(book, 14)
+	book.Parent = card
+	local glyph = Theme.label(book, "📖", 36, Theme.Color.White)
+	glyph.Name = "Glyph"
+	glyph.Size = UDim2.fromScale(1, 1)
+	glyph.ZIndex = 13
+
+	-- "SOCKDEX" (coral) and "12/34" (tan), like the HUD's "YOUR DRAWER 3/8"
+	local title = Theme.label(card, "SOCKDEX", 20, Theme.Color.Title)
+	title.Name = "Title"
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Position = UDim2.fromOffset(82, 8)
+	title.Size = UDim2.new(1, -92, 0, 24)
+	title.ZIndex = 11
+	local count = Theme.label(card, dexCountText(0), 22, COUNT_TAN)
+	count.Name = "Count"
+	count.TextXAlignment = Enum.TextXAlignment.Right
+	count.Position = UDim2.fromOffset(82, 8)
+	count.Size = UDim2.new(1, -98, 0, 24) -- ends a little short of the corner, clear of the badge
+	count.ZIndex = 11
+	ui.dexCount = count
+
+	-- the bar: green candy in a dark track, a notch at each milestone, the percent on top
+	local track = Instance.new("Frame")
+	track.Name = "Bar"
+	track.Position = UDim2.fromOffset(82, 38)
+	track.Size = UDim2.new(1, -92, 0, 18)
+	track.BackgroundColor3 = Theme.Color.InsetDark
+	track.BorderSizePixel = 0
+	track.ZIndex = 11
+	Theme.corner(track, UDim.new(0.5, 0))
+	Theme.stroke(track, Theme.Color.Stroke, 2)
+	track.Parent = card
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.ZIndex = 12
+	fill.Visible = false
+	Theme.candy(fill, "green", 9, 0)
+	local fillStroke = fill:FindFirstChildOfClass("UIStroke")
+	if fillStroke then
+		fillStroke.Enabled = false
+	end
+	Theme.gloss(fill, 9)
+	local fillMin = Instance.new("UISizeConstraint")
+	fillMin.MinSize = Vector2.new(18, 0) -- a round pill even for 1 type (its corners stay inside the track)
+	fillMin.Parent = fill
+	fill.Parent = track
+	ui.dexFill = fill
+	for _, m in ipairs(DexConfig.Milestones) do
+		if m.percent < 100 then
+			-- a short tick in from the top and the bottom edge (the percent text sits between them)
+			for _, edge in ipairs({ 0, 1 }) do
+				local notch = Instance.new("Frame")
+				notch.Name = "Milestone"
+				notch.AnchorPoint = Vector2.new(0.5, edge)
+				notch.Position = UDim2.fromScale(m.percent / 100, edge)
+				notch.Size = UDim2.fromOffset(2, 4)
+				notch.BackgroundColor3 = Theme.Color.Stroke
+				notch.BackgroundTransparency = 0.4
+				notch.BorderSizePixel = 0
+				notch.ZIndex = 14
+				notch.Parent = track
+			end
+		end
+	end
+	local percent = Theme.label(track, "0%", 13, Theme.Color.White)
+	percent.Name = "Percent"
+	percent.Size = UDim2.fromScale(1, 1)
+	percent.ZIndex = 15
+	Theme.textStroke(percent, Theme.Color.Ink, 1.5)
+	ui.dexPercent = percent
+
+	-- what's next: the next milestone's reward, or the rewards waiting to be claimed
+	local nextLine = Theme.label(card, "", 14, Theme.Color.Muted, Theme.FontBody)
+	nextLine.Name = "Next"
+	nextLine.TextXAlignment = Enum.TextXAlignment.Left
+	nextLine.Position = UDim2.fromOffset(82, 61)
+	nextLine.Size = UDim2.new(1, -92, 0, 20)
+	nextLine.ZIndex = 11
+	nextLine.TextScaled = true -- shrinks rather than spill out of the card
+	local cap = Instance.new("UITextSizeConstraint")
+	cap.MaxTextSize = 14
+	cap.MinTextSize = 9
+	cap.Parent = nextLine
+	ui.dexNext = nextLine
+
+	-- a red bubble while a milestone is waiting to be claimed (like the Sockdex menu button's)
+	local badge = Instance.new("Frame")
+	badge.Name = "Badge"
+	badge.AnchorPoint = Vector2.new(0.5, 0.5)
+	badge.Position = UDim2.new(1, 6, 0, -6) -- on the card's corner, clear of the count
+	badge.Size = UDim2.fromOffset(30, 30)
+	badge.ZIndex = 16
+	badge.Visible = false
+	Theme.candy(badge, "red", 15, 2)
+	local badgeText = Theme.label(badge, "!", 18, Theme.Color.White)
+	badgeText.Name = "Text"
+	badgeText.Size = UDim2.fromScale(1, 1)
+	badgeText.ZIndex = 17
+	Theme.textStroke(badgeText, Theme.Styles.red.stroke, 1.5)
+	badge.Parent = card
+	ui.dexBadge, ui.dexBadgeText = badge, badgeText
+
+	card.Activated:Connect(function()
+		if not open or leaving then
+			return
+		end
+		Menu.Open("Sockdex")
+		if Menu.Current() ~= "Sockdex" then
+			Anim.wiggle(card, 6) -- the Sockdex didn't load: nothing to open
+		end
+	end)
+end
+
 local function build()
 	local g, r = Theme.screen(GUI_NAME, DISPLAY_ORDER)
 	g.IgnoreGuiInset = true -- the night dip covers the whole screen, top bar included
@@ -413,6 +576,7 @@ local function build()
 	buildSocks(r)
 	buildLogo(r)
 	buildButtons(r)
+	buildDex(r)
 	-- the night between two shots (and at the very start): over the 3D room and the vignette, under
 	-- the sparkles, socks, logo and buttons, which stay up through it
 	local dip = frame(r, "Dip", UDim2.fromScale(1, 1))
@@ -464,7 +628,147 @@ local function relayout()
 	bscale.Name = "Fit"
 	bscale.Scale = bfit
 	bscale.Parent = ui.buttons
-	ui.buttons.Position = UDim2.new(0.5, 0, 1, -math.clamp(h * 0.05, 14, 40))
+	local gap = math.clamp(h * 0.05, 14, 40)
+	ui.buttons.Position = UDim2.new(0.5, 0, 1, -gap)
+	-- the Sockdex card: bottom-left, level with the buttons, when there's room beside PLAY (landscape
+	-- phones and tablets, desktops); else over PLAY (portrait screens); clear of the tagline and socks
+	if ui.dex then
+		local boxBottom = h - gap
+		local boxTop = boxBottom - 170 * bfit
+		local above = logoBottom + 38 -- the tagline's bottom
+		if #(ui.viewers or {}) > 0 and sockSize >= 90 then
+			above = math.max(above, sockY + sockSize / 2)
+		end
+		above += 22 -- (the claim badge pokes 21 px above the card)
+		-- clear of the notch / rounded corners on touch screens (60 px at every UI size)
+		local margin = if Theme.IsTouch then math.max(16, 60 / s) else 24
+		local playLeft = w / 2 - 150 * bfit
+		-- (16 px from PLAY, plus the claim badge poking 21 px out of the card's right side)
+		local cornerFit = math.min(bfit, (playLeft - 38 - margin) / DEX_W, (boxBottom - above) / DEX_H)
+		local stackFit = math.min(bfit, (w - 24) / DEX_W, (boxTop - 16 * bfit - above) / DEX_H)
+		local corner = cornerFit >= 0.8 or cornerFit >= stackFit
+		local dexFit = if corner then cornerFit else stackFit
+		if corner then
+			ui.dex.AnchorPoint = Vector2.new(0, 1)
+			ui.dex.Position = UDim2.new(0, margin, 0, boxBottom)
+		else
+			ui.dex.AnchorPoint = Vector2.new(0.5, 1)
+			ui.dex.Position = UDim2.new(0.5, 0, 0, boxTop - 16 * bfit)
+		end
+		ui.dexFit.Scale = math.max(dexFit, 0.01)
+		-- too small to tap comfortably (under 44 px tall on screen): leave it out
+		ui.dexRoom = dexFit >= 0.6 and DEX_H * dexFit * s >= 44
+		ui.dex.Visible = ui.dexShown == true and ui.dexRoom
+	end
+end
+
+-- ---------- the Sockdex card's numbers ----------
+
+type DexData = { found: number, ready: number, readyCash: number, nextMilestone: any, sig: string }
+
+-- The Sockdex as DexUI counts it: a type is found once it has an entry (unknown ids don't count);
+-- a milestone is ready once reached and not claimed yet.
+local function readDex(state: any): DexData
+	local dex = if type(state.dex) == "table" then state.dex else {}
+	local claimed = if type(state.dexClaimed) == "table" then state.dexClaimed else {}
+	local found = 0
+	for typeId in pairs(dex) do
+		if SockConfig.ById[typeId] then
+			found += 1
+		end
+	end
+	local ready, readyCash, nextMilestone = 0, 0, nil
+	for _, m in ipairs(DexConfig.Milestones) do
+		if found * 100 >= m.percent * DEX_TOTAL then
+			if claimed[m.key] ~= true then
+				ready += 1
+				readyCash += m.cash
+			end
+		elseif not nextMilestone then
+			nextMilestone = m
+		end
+	end
+	return { found = found, ready = ready, readyCash = readyCash, nextMilestone = nextMilestone, sig = found .. ":" .. ready .. ":" .. readyCash }
+end
+
+local function dexLine(d: DexData): (string, Color3)
+	if d.ready > 0 then
+		return "🎁 $" .. Util.FormatCash(d.readyCash) .. " to claim!", Theme.Color.Money
+	end
+	local m = d.nextMilestone
+	if m then
+		local need = math.ceil(m.percent * DEX_TOTAL / 100) - d.found
+		return string.format("%d more for 🎁 $%s", need, Util.FormatCash(m.cash)), Theme.Color.Muted
+	end
+	return "★ Sock Master! ★", Theme.Color.Gold2
+end
+
+local function setDexBadge(ready: number)
+	local badge = ui.dexBadge
+	ui.dexBadgeText.Text = if ready > 1 then tostring(ready) else "!"
+	local show = ready > 0
+	if show == (ui.dexBadgeOn == true) then
+		return
+	end
+	ui.dexBadgeOn = show
+	if show then
+		Anim.popIn(badge)
+		Anim.sway(badge, 8, 1.2)
+		UISound.Play("pop")
+	else
+		Anim.stop(badge, "sway")
+		badge.Rotation = 0
+		Anim.popOut(badge)
+	end
+end
+
+local function paintDex(animate: boolean)
+	local d = ui.dexData
+	if not d or not ui.dexShown then
+		return
+	end
+	local pct = if DEX_TOTAL > 0 then d.found / DEX_TOTAL else 0
+	Anim.countTo(ui.dexCount, d.found, dexCountText)
+	ui.dexPercent.Text = tostring(math.floor(pct * 100 + 0.5)) .. "%"
+	local text, color = dexLine(d)
+	ui.dexNext.Text = text
+	ui.dexNext.TextColor3 = color
+	if ui.dexPct ~= pct then
+		ui.dexPct = pct
+		ui.dexFill.Visible = pct > 0
+		if animate then
+			Anim.tween(ui.dexFill, 0.7, { Size = UDim2.fromScale(pct, 1) })
+		else
+			ui.dexFill.Size = UDim2.fromScale(pct, 1)
+		end
+	end
+	setDexBadge(d.ready)
+end
+
+-- The card springs in once the numbers are known (with the buttons, or later when the data is slow);
+-- the count rolls up from 0 and the bar fills.
+local function revealDex(delay: number)
+	if ui.dexRevealing or not ui.dexData then
+		return
+	end
+	ui.dexRevealing = true
+	task.delay(delay, function()
+		if not open or leaving then
+			return
+		end
+		ui.dexShown = true
+		Anim.countTo(ui.dexCount, 0, dexCountText) -- the first call only sets it
+		ui.dexFill.Size = UDim2.fromScale(0, 1)
+		ui.dexFill.Visible = false
+		ui.dexPct = 0
+		relayout()
+		Anim.popIn(ui.dexCard)
+		task.delay(0.15, function()
+			if open and not leaving then
+				paintDex(true)
+			end
+		end)
+	end)
 end
 
 -- ---------- the camera ----------
@@ -545,6 +849,14 @@ local function stepIdle(dt: number)
 			pcall(function()
 				viewer:SetAnimated(not still)
 			end)
+		end
+		if ui.dexBadgeOn then
+			if still then
+				Anim.stop(ui.dexBadge, "sway")
+				ui.dexBadge.Rotation = 0
+			else
+				Anim.sway(ui.dexBadge, 8, 1.2)
+			end
 		end
 	end
 	for i, b in ipairs(ui.blocks or {}) do
@@ -638,6 +950,7 @@ local function enter()
 		end
 		Anim.popIn(ui.play, 0.2)
 		Anim.popIn(ui.settings, 0.32)
+		revealDex(0.44) -- the Sockdex card, if the data is here (else when it arrives)
 		task.delay(0.8, function()
 			if open and not leaving then
 				Anim.pulse(ui.play, 1.05, 1.3)
@@ -698,6 +1011,18 @@ local function leave()
 	Anim.stop(ui.play, "pulse")
 	Anim.popOut(ui.play)
 	Anim.popOut(ui.settings)
+	if ui.dexShown then
+		Anim.stop(ui.dexBadge, "sway")
+		Anim.popOut(ui.dexCard)
+		-- and gone for sure (a press spring or a bump on the same scale could cancel the popOut)
+		ui.dexShown = false
+		local holder = ui.dex
+		task.delay(0.2, function()
+			if holder.Parent then
+				holder.Visible = false
+			end
+		end)
+	end
 	Anim.popOut(ui.steal)
 	for _, viewer in ipairs(ui.viewers) do
 		if viewer.Frame.Visible then
@@ -777,6 +1102,29 @@ end
 
 function MainMenu.IsOpen(): boolean
 	return open
+end
+
+-- The StateView (init.client, every second): keeps the Sockdex card up to date while the title shows.
+function MainMenu.SetState(state: any)
+	if not open or leaving or not ui.dex or type(state) ~= "table" then
+		return
+	end
+	local d = readDex(state)
+	local before = ui.dexData
+	if before and before.sig == d.sig then
+		return
+	end
+	ui.dexData = d
+	if not ui.dexShown then
+		if ui.entered then
+			revealDex(0.1) -- the data came after the buttons
+		end
+		return
+	end
+	paintDex(true)
+	if before and d.found > before.found then
+		Anim.bump(ui.dexCard, 1.06) -- a new type found while the title shows
+	end
 end
 
 -- Puts the title screen up (once per session; not in Studio with workspace.SkipTitleScreen).

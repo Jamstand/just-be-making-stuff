@@ -9,7 +9,7 @@ rewards spring with a little overshoot, and big moments get coins, number pops a
 
 | Where | What | Module |
 | --- | --- | --- |
-| Full screen, on join | The title screen (main menu) over the live bedroom, until you press PLAY | `MainMenu.luau` |
+| Full screen, on join | The title screen (main menu) over the live bedroom, with your Sockdex progress, until you press PLAY | `MainMenu.luau` |
 | Top-left | Cash pill (rolling number, coins fly in when you earn), income, drawer lock, cash waiting on your pad | `HUD.luau` |
 | Left column | Drawer · Shop · Store · Sockdex · Settings buttons (red bubbles when something needs you: an affordable upgrade or item, new Sockdex finds or a claimable milestone, Rare Sock Drops waiting for a slot) | `Menu.luau` |
 | Next to the column | Your drawer list (tap a sock for its card) | `HUD.luau` |
@@ -44,6 +44,17 @@ music, before the HUD shows:
   Fill your drawer!". It all scales to fit: phones in portrait get a smaller logo and no 3D socks.
 - **Buttons:** a big pulsing **PLAY** (also Enter, Space or gamepad A) and **Settings** (the
   Settings panel opens over the title).
+- **Sockdex progress:** a cream card with the Sockdex's blue 📖 tile, "SOCKDEX 12/34" (types
+  found / every type, counted as the Sockdex counts them), a green bar with a notch at each
+  milestone (25 / 50 / 75%) and the percent on it, and what's next: "5 more for 🎁 $100K" (the
+  next milestone's reward), "🎁 $5.0K to claim!" with a swaying red badge while a milestone waits
+  to be claimed, or "★ Sock Master! ★" once the book is full and claimed. It comes in with the
+  buttons once your data has arrived (the count rolls up from 0 and the bar fills) and keeps up
+  while the title shows (it gets the State like the other screens). **Tap it** to open the Sockdex
+  over the title, like Settings, and claim a milestone there. Where: bottom-left, level with the
+  buttons, when there's room beside PLAY (landscape phones and tablets, desktops); over PLAY on
+  portrait screens. It shrinks to fit, and stays hidden rather than shrink below 60% or 44 px tall.
+  Reward coins only fly to the cash pill once you're in the game (it's hidden on the title).
 - **Music:** the title's own loop, `title` in `UISound` (a bouncy retro flute tune), at your
   Music volume. It starts once the saved settings arrive (a muted player hears nothing).
 - **PLAY:** the logo blocks fling up off the screen, the buttons and socks pop away, the camera

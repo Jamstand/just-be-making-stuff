@@ -6,7 +6,7 @@
 -- (the player's settings), Menu (column + panel manager), HUD, ShopUI, StoreUI, DexUI, SockCard,
 -- SettingsUI, Performance (the settings that change the 3D world), ItemBar (the item bar that
 -- replaces Roblox's hotbar; ItemBarLayout and ItemIcon are its helpers), MainMenu (the title
--- screen you land on: it hides the others until PLAY). Every screen gets SetState(state) with the
+-- screen you land on: it hides the others until PLAY; its Sockdex card follows the State). Every screen gets SetState(state) with the
 -- StateView (Shared.Types) once a second.
 -- Items: ItemClient is the item bar's engine (using items, cooldowns; it starts ItemFX, the item
 -- effects, itself). It loads on its own thread, so a slow or broken start can't hold up the menus.
@@ -100,7 +100,7 @@ run("UISound", UISound, "Preload")
 -- the title screen last: it hides the screens above until PLAY (its music starts with the State)
 run("MainMenu", MainMenu, "Show")
 
-local screens = { HUD = HUD, ShopUI = ShopUI, StoreUI = StoreUI, DexUI = DexUI, SockCard = SockCard, ItemBar = ItemBar }
+local screens = { HUD = HUD, ShopUI = ShopUI, StoreUI = StoreUI, DexUI = DexUI, SockCard = SockCard, ItemBar = ItemBar, MainMenu = MainMenu }
 local latestState: any = nil
 local ItemClient: any = nil
 
