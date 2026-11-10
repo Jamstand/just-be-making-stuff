@@ -110,7 +110,8 @@ local SPARKLES = 14
 -- the Sockdex card (reference px) and the book's size: every sock type, as in DexUI
 local DEX_W, DEX_H = 260, 90
 local DEX_TOTAL = #SockConfig.List
-local COUNT_TAN = Color3.fromRGB(214, 160, 110) -- the HUD drawer's "3/8"
+local COUNT_TAN = Color3.fromRGB(176, 116, 64) -- a darker tan than the HUD drawer's "3/8": reads on cream
+local CLAIM_GREEN = Color3.fromRGB(30, 128, 64) -- Theme's Money, darker for small text on cream
 
 -- ---------- state ----------
 
@@ -508,20 +509,20 @@ local function buildDex(parent: Instance)
 				notch.Name = "Milestone"
 				notch.AnchorPoint = Vector2.new(0.5, edge)
 				notch.Position = UDim2.fromScale(m.percent / 100, edge)
-				notch.Size = UDim2.fromOffset(2, 4)
+				notch.Size = UDim2.fromOffset(2, 5)
 				notch.BackgroundColor3 = Theme.Color.Stroke
-				notch.BackgroundTransparency = 0.4
+				notch.BackgroundTransparency = 0.2
 				notch.BorderSizePixel = 0
 				notch.ZIndex = 14
 				notch.Parent = track
 			end
 		end
 	end
-	local percent = Theme.label(track, "0%", 13, Theme.Color.White)
+	local percent = Theme.label(track, "0%", 14, Theme.Color.White)
 	percent.Name = "Percent"
 	percent.Size = UDim2.fromScale(1, 1)
 	percent.ZIndex = 15
-	Theme.textStroke(percent, Theme.Color.Ink, 1.5)
+	Theme.textStroke(percent, Theme.Color.Ink, 1)
 	ui.dexPercent = percent
 
 	-- what's next: the next milestone's reward, or the rewards waiting to be claimed
@@ -645,7 +646,7 @@ local function relayout()
 		local playLeft = w / 2 - 150 * bfit
 		-- (16 px from PLAY, plus the claim badge poking 21 px out of the card's right side)
 		local cornerFit = math.min(bfit, (playLeft - 38 - margin) / DEX_W, (boxBottom - above) / DEX_H)
-		local stackFit = math.min(bfit, (w - 24) / DEX_W, (boxTop - 16 * bfit - above) / DEX_H)
+		local stackFit = math.min(bfit, (w - 24) / DEX_W, (boxTop - 26 * bfit - above) / DEX_H)
 		local corner = cornerFit >= 0.8 or cornerFit >= stackFit
 		local dexFit = if corner then cornerFit else stackFit
 		if corner then
@@ -653,7 +654,7 @@ local function relayout()
 			ui.dex.Position = UDim2.new(0, margin, 0, boxBottom)
 		else
 			ui.dex.AnchorPoint = Vector2.new(0.5, 1)
-			ui.dex.Position = UDim2.new(0.5, 0, 0, boxTop - 16 * bfit)
+			ui.dex.Position = UDim2.new(0.5, 0, 0, boxTop - 26 * bfit)
 		end
 		ui.dexFit.Scale = math.max(dexFit, 0.01)
 		-- too small to tap comfortably (under 44 px tall on screen): leave it out
@@ -693,14 +694,14 @@ end
 
 local function dexLine(d: DexData): (string, Color3)
 	if d.ready > 0 then
-		return "🎁 $" .. Util.FormatCash(d.readyCash) .. " to claim!", Theme.Color.Money
+		return "🎁 $" .. Util.FormatCash(d.readyCash) .. " to claim!", CLAIM_GREEN
 	end
 	local m = d.nextMilestone
 	if m then
 		local need = math.ceil(m.percent * DEX_TOTAL / 100) - d.found
 		return string.format("%d more for 🎁 $%s", need, Util.FormatCash(m.cash)), Theme.Color.Muted
 	end
-	return "★ Sock Master! ★", Theme.Color.Gold2
+	return "★ Sock Master! ★", COUNT_TAN
 end
 
 local function setDexBadge(ready: number)
