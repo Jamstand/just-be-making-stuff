@@ -103,8 +103,10 @@ end
 function Anim.bump(gui: GuiObject, amount: number?)
 	local s = Anim.scale(gui)
 	local up = Anim.tween(s, 0.07, { Scale = amount or 1.12 }, Enum.EasingStyle.Quad)
-	up.Completed:Once(function()
-		Anim.tween(s, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+	up.Completed:Once(function(playbackState)
+		if playbackState == Enum.PlaybackState.Completed then -- else a newer animation took over
+			Anim.tween(s, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+		end
 	end)
 end
 
@@ -344,13 +346,15 @@ function Anim.numberPop(text: string, at: Vector2, color: Color3?, size: number?
 end
 
 -- Coins fly from `from` (absolute px, or a gui's centre) along little arcs into `to`; `to` bumps
--- and clinks as each lands. Use for collecting, cash packs, sales and rewards.
+-- and clinks as each lands. Use for collecting, cash packs, sales and rewards. None fly while `to`'s
+-- screen is switched off (the title screen hides the HUD and its cash pill).
 function Anim.flyCoins(from: Vector2 | GuiObject, to: GuiObject, count: number?, glyph: string?)
 	local start = if typeof(from) == "Vector2" then from else Anim.centerOf(from)
 	local n = if Anim.Reduced then 3 else math.clamp(count or 8, 1, 16)
 	for i = 1, n do
 		task.delay((i - 1) * 0.045, function()
-			if not to.Parent then
+			local screen = to:FindFirstAncestorOfClass("ScreenGui")
+			if not to.Parent or (screen and not screen.Enabled) then
 				return
 			end
 			local coin = Theme.label(fx(), glyph or "🪙", 30, Theme.Color.White)
