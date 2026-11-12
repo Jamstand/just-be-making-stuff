@@ -218,7 +218,9 @@ function Connect-Tv {
 
         Write-Step "Connecting to $serial ..."
         $result = Invoke-AdbRaw connect $serial
-        if ($result -notmatch 'connected to') {
+        # "failed to authenticate" means the TV answered and is waiting for you
+        # to approve this computer, so fall through to the approval loop below.
+        if ($result -notmatch 'connected to|failed to authenticate') {
             Write-Bad "Could not reach the TV: $result"
             Write-Step 'Check the IP address, that USB debugging is on, and that'
             Write-Step 'both devices are on the same network.'
@@ -228,7 +230,7 @@ function Connect-Tv {
 
         $script:Serial = $serial
         $authorized = $false
-        for ($try = 1; $try -le 12; $try++) {
+        for ($try = 1; $try -le 24; $try++) {
             $state = Invoke-Adb get-state
             if ($state -eq 'device') { $authorized = $true; break }
             if ($try -eq 1) {
