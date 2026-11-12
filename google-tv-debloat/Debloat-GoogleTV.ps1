@@ -8,6 +8,7 @@
       2. Replace the Google TV home screen with a clean launcher (removes home-screen ads)
       3. Undo everything this tool changed
       4. Save a list of every package on the TV
+      5. Install Glass Home, a custom home screen (GlassHome.apk next to this script)
 
     Nothing is permanently deleted. Apps are disabled for the current user only,
     option 3 turns them back on, and a factory reset restores the TV completely.
@@ -47,6 +48,7 @@ $StockLauncher   = 'com.google.android.apps.tv.launcherx'
 $SetupWraith     = 'com.google.android.tungsten.setupwraith'
 $NewLauncher     = 'com.spocky.projengmenu'
 $NewLauncherName = 'Projectivy Launcher'
+$GlassHome       = 'tv.glasshome.launcher'
 
 # ---------------------------------------------------------------------------
 # Package catalog
@@ -521,6 +523,91 @@ function Undo-Launcher {
 }
 
 # ---------------------------------------------------------------------------
+# Option 5: install Glass Home, the custom home screen
+# ---------------------------------------------------------------------------
+function Invoke-GlassHome {
+    Write-Title 'Install Glass Home (custom home screen)'
+    $apk = Join-Path $script:Root 'GlassHome.apk'
+    if (-not (Test-Path $apk)) {
+        Write-Bad 'GlassHome.apk was not found next to this script.'
+        Write-Step "Expected it here: $apk"
+        return
+    }
+    Write-Step 'Glass Home is a custom home screen: a slow moving gradient background,'
+    Write-Step 'a clock, a row of your favorite apps and a panel with all apps.'
+    Write-Step 'This installs it (or updates it) and can make it the Home button screen.'
+    Write-Step 'Option 3 in the menu puts the Google home screen back.'
+    Write-Host ''
+    if (-not (Read-YesNo 'Continue?' $true)) { return }
+
+    if ($script:IsDryRun) {
+        Write-Step "[dry run] would install $apk"
+        Write-Step "[dry run] would disable $StockLauncher"
+        Write-Step "[dry run] would disable $SetupWraith"
+        return
+    }
+
+    # Step 1: install or update the app.
+    Write-Step 'Installing on the TV...'
+    $out = Invoke-Adb install -r $apk
+    if ($out -notmatch 'Success') {
+        Write-Bad 'The install failed:'
+        Write-Step "         $out"
+        return
+    }
+    Write-Ok 'Glass Home is installed.'
+
+    # Step 2: open it so you can see it before anything else changes.
+    [void](Invoke-Adb shell monkey -p $GlassHome -c android.intent.category.LEANBACK_LAUNCHER 1)
+    Start-Sleep -Seconds 3
+    Write-Step 'Glass Home should now be open on the TV: clock at the top left,'
+    Write-Step 'a row of apps along the bottom.'
+    if (-not (Read-YesNo 'Can you see it?' $true)) {
+        Write-Warn 'Nothing else was changed. The Google home screen is still in place.'
+        Write-Step 'Tell Claude what the TV showed instead so it can be fixed.'
+        return
+    }
+
+    # Step 3: make it the screen the Home button opens.
+    if ((Get-EnabledPackages) -notcontains $StockLauncher) {
+        [void](Invoke-Adb shell cmd package set-home-activity "$GlassHome/.MainActivity")
+        Write-Ok 'Updated. The Google home screen was already off.'
+        return
+    }
+    Write-Host ''
+    Write-Step 'Right now the Home button still opens the Google home screen.'
+    Write-Warn 'Next step turns the Google home screen off so Home opens Glass Home.'
+    if (-not (Read-YesNo 'Do it?' $true)) {
+        Write-Step 'Left as is. You can open Glass Home from your apps list any time.'
+        return
+    }
+    if (-not (Disable-Package $StockLauncher 'Google TV home screen')) {
+        Write-Bad 'The Google home screen could not be turned off. Nothing else changed.'
+        return
+    }
+    # Without this the TV can fall back to a "Getting ready" setup screen.
+    if ((Get-EnabledPackages) -contains $SetupWraith) {
+        [void](Disable-Package $SetupWraith 'Setup fallback screen')
+    }
+    [void](Invoke-Adb shell cmd package set-home-activity "$GlassHome/.MainActivity")
+
+    # Step 4: verify with the real Home button, and roll back if it is wrong.
+    [void](Invoke-Adb shell input keyevent KEYCODE_HOME)
+    Start-Sleep -Seconds 3
+    Write-Host ''
+    Write-Step 'The Home button was just pressed for you.'
+    if (Read-YesNo 'Is the TV showing Glass Home?' $true) {
+        Write-Ok 'Done. Glass Home is your home screen.'
+        Write-Step 'Tip: keep USB debugging turned on so you can always undo this.'
+    } else {
+        Write-Warn 'Rolling back so you are not left without a home screen...'
+        Undo-Launcher
+        [void](Invoke-Adb shell input keyevent KEYCODE_HOME)
+        Write-Step 'The Google home screen is back on.'
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Option 3: undo
 # ---------------------------------------------------------------------------
 function Invoke-Restore {
@@ -610,6 +697,7 @@ while ($true) {
     Write-Step '2. Replace the home screen to remove ads (bigger change)'
     Write-Step '3. Undo everything this tool changed'
     Write-Step '4. Save a list of every package on the TV'
+    Write-Step '5. Install Glass Home, the custom home screen'
     Write-Step 'q. Quit'
     Write-Host ''
     $choice = (Read-Host '  Choose').Trim().ToLower()
@@ -618,11 +706,12 @@ while ($true) {
         '2' { Invoke-LauncherReplace }
         '3' { Invoke-Restore }
         '4' { Export-PackageList }
+        '5' { Invoke-GlassHome }
         'q' {
             [void](Invoke-AdbRaw disconnect $script:Serial)
             Write-Step 'Disconnected. Bye.'
             exit 0
         }
-        default { Write-Step 'Type 1, 2, 3, 4 or q.' }
+        default { Write-Step 'Type 1, 2, 3, 4, 5 or q.' }
     }
 }

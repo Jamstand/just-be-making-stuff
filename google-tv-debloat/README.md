@@ -17,7 +17,7 @@ has an undo option, and a factory reset restores the TV completely.
 
 ## Run it (on the PC)
 
-1. Put `Debloat-GoogleTV.ps1` and `Run-Debloat.bat` in the same folder.
+1. Put `Debloat-GoogleTV.ps1`, `Run-Debloat.bat` and `GlassHome.apk` in the same folder.
 2. Double-click **Run-Debloat.bat**.
 3. If ADB is not installed, the tool offers to download it from Google.
 4. Type the TV's IP address.
@@ -32,12 +32,30 @@ has an undo option, and a factory reset restores the TV completely.
 | 2. Replace the home screen | Installs Projectivy Launcher from the Play Store, then turns off the Google TV home screen, which is where the ads and recommendation rows live. It checks the new home screen works and rolls back by itself if it does not. |
 | 3. Undo | Turns everything back on, home screen first. |
 | 4. Save package list | Writes `tv-packages.txt` listing every package on the TV. |
+| 5. Install Glass Home | Installs `GlassHome.apk` (the custom home screen in this folder), shows it to you, then offers to turn off the Google TV home screen so the Home button opens Glass Home. Rolls back by itself if it does not come up. |
 
 To preview without changing anything:
 
 ```
 Run-Debloat.bat -DryRun
 ```
+
+## Glass Home (custom home screen)
+
+`GlassHome.apk` is a small home-screen app built for this TV. `glass-home/mockup.png`
+is a design mockup of it, not a photo of the real app.
+
+- **Background:** dark, with soft colours that drift slowly. The top-bar button
+  cycles Midnight, Ember, Ocean, Forest, Graphite and Pure Dark. **Motion** turns
+  the drift on or off.
+- **Top bar:** clock and date, plus buttons for All Apps, Settings and Wi-Fi.
+- **Favorites row:** your main apps. The focused one grows and shows its name.
+- **All Apps:** every app on the TV in a grid. Back closes it.
+- **Hold OK on any app** for: add to or remove from favorites, move left or
+  right, app info, uninstall.
+
+The source is in `glass-home/`. To rebuild it you need a JDK and the Android SDK:
+`ANDROID_HOME=/path/to/sdk glass-home/build.sh`.
 
 ## What it never touches
 
