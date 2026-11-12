@@ -142,11 +142,18 @@ final class Apps {
         return favorites;
     }
 
-    /** Saved settings: favorites order, background style, motion on or off. */
+    /** Saved settings: favorites, recents, background style, and the YouTube rows. */
     static final class Prefs {
         private static final String KEY_FAVORITES = "favorites";
         private static final String KEY_PALETTE = "palette";
         private static final String KEY_MOTION = "motion";
+        private static final String KEY_RECENTS = "recents";
+        private static final String KEY_API_KEY = "youtube_api_key";
+        private static final String KEY_CHANNELS = "watched_channels";
+        private static final String KEY_VIDEO_CACHE = "video_cache";
+        private static final String KEY_VIDEO_CACHE_TIME = "video_cache_time";
+        private static final int MAX_RECENTS = 10;
+        private static final int MAX_CHANNELS = 8;
 
         private final SharedPreferences store;
 
@@ -197,6 +204,81 @@ final class Apps {
 
         void saveMotion(boolean enabled) {
             store.edit().putBoolean(KEY_MOTION, enabled).apply();
+        }
+
+        // --- Recently opened apps, newest first ---
+
+        List<String> recents() {
+            return readList(KEY_RECENTS);
+        }
+
+        void pushRecent(String key) {
+            pushFront(KEY_RECENTS, key, MAX_RECENTS);
+        }
+
+        // --- YouTube rows ---
+
+        String apiKey() {
+            String key = store.getString(KEY_API_KEY, "");
+            return key == null ? "" : key;
+        }
+
+        void saveApiKey(String key) {
+            store.edit().putString(KEY_API_KEY, key).remove(KEY_VIDEO_CACHE)
+                    .remove(KEY_VIDEO_CACHE_TIME).apply();
+        }
+
+        /** Channels whose videos were opened from the home screen, newest first. */
+        List<String> watchedChannels() {
+            return readList(KEY_CHANNELS);
+        }
+
+        void pushWatchedChannel(String channelId) {
+            pushFront(KEY_CHANNELS, channelId, MAX_CHANNELS);
+        }
+
+        String videoCache() {
+            return store.getString(KEY_VIDEO_CACHE, "");
+        }
+
+        long videoCacheTime() {
+            return store.getLong(KEY_VIDEO_CACHE_TIME, 0L);
+        }
+
+        void saveVideoCache(String json) {
+            store.edit().putString(KEY_VIDEO_CACHE, json)
+                    .putLong(KEY_VIDEO_CACHE_TIME, System.currentTimeMillis()).apply();
+        }
+
+        private List<String> readList(String name) {
+            List<String> list = new ArrayList<>();
+            String raw = store.getString(name, "");
+            if (raw == null || raw.isEmpty()) {
+                return list;
+            }
+            for (String item : raw.split("\n")) {
+                if (!item.isEmpty() && !list.contains(item)) {
+                    list.add(item);
+                }
+            }
+            return list;
+        }
+
+        private void pushFront(String name, String item, int limit) {
+            if (item == null || item.isEmpty()) {
+                return;
+            }
+            List<String> list = readList(name);
+            list.remove(item);
+            list.add(0, item);
+            StringBuilder joined = new StringBuilder();
+            for (int i = 0; i < list.size() && i < limit; i++) {
+                if (i > 0) {
+                    joined.append('\n');
+                }
+                joined.append(list.get(i));
+            }
+            store.edit().putString(name, joined.toString()).apply();
         }
     }
 }

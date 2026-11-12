@@ -9,6 +9,8 @@
       3. Undo everything this tool changed
       4. Save a list of every package on the TV
       5. Install Glass Home, a custom home screen (GlassHome.apk next to this script)
+      6. Install SmartTube, a third-party YouTube app without ads
+      7. Give Glass Home a YouTube API key for its video rows
 
     Nothing is permanently deleted. Apps are disabled for the current user only,
     option 3 turns them back on, and a factory reset restores the TV completely.
@@ -534,7 +536,8 @@ function Invoke-GlassHome {
         return
     }
     Write-Step 'Glass Home is a custom home screen: a slow moving gradient background,'
-    Write-Step 'a clock, a row of your favorite apps and a panel with all apps.'
+    Write-Step 'a clock, rows for favorite and recent apps, YouTube video rows and a'
+    Write-Step 'panel with all apps.'
     Write-Step 'This installs it (or updates it) and can make it the Home button screen.'
     Write-Step 'Option 3 in the menu puts the Google home screen back.'
     Write-Host ''
@@ -605,6 +608,103 @@ function Invoke-GlassHome {
         [void](Invoke-Adb shell input keyevent KEYCODE_HOME)
         Write-Step 'The Google home screen is back on.'
     }
+}
+
+# ---------------------------------------------------------------------------
+# Option 6: install SmartTube (third-party YouTube app without ads)
+# ---------------------------------------------------------------------------
+function Invoke-SmartTube {
+    Write-Title 'Install SmartTube'
+    $url = 'https://github.com/yuliskov/SmartTube/releases/download/latest/smarttube_stable.apk'
+    Write-Step 'SmartTube is a free, open-source YouTube app for TVs that plays videos'
+    Write-Step 'without ads. It is not made by Google or by this tool.'
+    Write-Warn 'Using it goes against YouTube''s terms of service. Your choice.'
+    Write-Step 'It is downloaded from its developer''s official GitHub page:'
+    Write-Step "  $url"
+    Write-Step 'The normal YouTube app is left installed.'
+    Write-Host ''
+    if (-not (Read-YesNo 'Download and install it?' $false)) { return }
+
+    if ($script:IsDryRun) {
+        Write-Step '[dry run] would download SmartTube and install it on the TV'
+        return
+    }
+
+    $apk = Join-Path $script:Root 'smarttube_stable.apk'
+    Write-Step 'Downloading (about 25 MB)...'
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $oldProgress = $ProgressPreference
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $url -OutFile $apk -UseBasicParsing -ErrorAction Stop
+        $ProgressPreference = $oldProgress
+    } catch {
+        Write-Bad ('Download failed: ' + $_.Exception.Message)
+        return
+    }
+    if (-not (Test-Path $apk) -or ((Get-Item $apk).Length -lt 1MB)) {
+        Write-Bad 'The downloaded file is missing or too small to be the app.'
+        return
+    }
+
+    Write-Step 'Installing on the TV (this can take a minute)...'
+    $out = Invoke-Adb install -r $apk
+    if ($out -notmatch 'Success') {
+        Write-Bad 'The install failed:'
+        Write-Step "         $out"
+        return
+    }
+    Remove-Item $apk -Force -ErrorAction SilentlyContinue
+    Write-Ok 'SmartTube is installed.'
+    Write-Step 'Find it in All Apps on Glass Home. Hold OK on it to add it to favorites.'
+    Write-Step 'Videos opened from the Glass Home video rows will play in it.'
+    Write-Step 'To sign in, open SmartTube and use its own sign-in screen.'
+}
+
+# ---------------------------------------------------------------------------
+# Option 7: give Glass Home a YouTube API key for its video rows
+# ---------------------------------------------------------------------------
+function Invoke-SetYouTubeKey {
+    Write-Title 'Set YouTube API key'
+    if ((Get-InstalledPackages) -notcontains $GlassHome) {
+        Write-Bad 'Glass Home is not installed on the TV yet. Run option 5 first.'
+        return
+    }
+    Write-Step 'Glass Home needs a free YouTube API key to show its video rows.'
+    Write-Step 'To get one:'
+    Write-Step '  1. Go to https://console.cloud.google.com and sign in.'
+    Write-Step '  2. Create a project (any name).'
+    Write-Step '  3. APIs & Services > Library > search "YouTube Data API v3" > Enable.'
+    Write-Step '  4. APIs & Services > Credentials > Create credentials > API key.'
+    Write-Step '  5. Copy the key. It starts with AIza.'
+    Write-Step 'The key is sent straight to your TV over your own network.'
+    Write-Host ''
+    $key = (Read-Host '  Paste the key here (or just press Enter to cancel)').Trim()
+    if (-not $key) {
+        Write-Step 'Cancelled.'
+        return
+    }
+    if ($key -notmatch '^[0-9A-Za-z_\-]+$') {
+        Write-Bad 'That contains characters an API key never has. Nothing was sent.'
+        return
+    }
+    if ($key -notmatch '^AIza[0-9A-Za-z_\-]{30,}$') {
+        Write-Warn 'That does not look like a Google API key (they start with AIza).'
+        if (-not (Read-YesNo 'Send it anyway?' $false)) { return }
+    }
+    if ($script:IsDryRun) {
+        Write-Step '[dry run] would send the key to Glass Home on the TV'
+        return
+    }
+    $out = Invoke-Adb shell am start -n "$GlassHome/.MainActivity" --es youtube_api_key $key
+    if ($out -match 'Error') {
+        Write-Bad 'The TV did not accept it:'
+        Write-Step "         $out"
+        return
+    }
+    Write-Ok 'Key sent. The TV should say "YouTube key saved".'
+    Write-Step 'The video rows are below Favorites and Recent: press Down on the remote.'
+    Write-Step 'If a row says "Could not load videos", tell Claude the exact message.'
 }
 
 # ---------------------------------------------------------------------------
@@ -698,6 +798,8 @@ while ($true) {
     Write-Step '3. Undo everything this tool changed'
     Write-Step '4. Save a list of every package on the TV'
     Write-Step '5. Install Glass Home, the custom home screen'
+    Write-Step '6. Install SmartTube (YouTube without ads, third-party)'
+    Write-Step '7. Set the YouTube API key for the Glass Home video rows'
     Write-Step 'q. Quit'
     Write-Host ''
     $choice = (Read-Host '  Choose').Trim().ToLower()
@@ -707,11 +809,13 @@ while ($true) {
         '3' { Invoke-Restore }
         '4' { Export-PackageList }
         '5' { Invoke-GlassHome }
+        '6' { Invoke-SmartTube }
+        '7' { Invoke-SetYouTubeKey }
         'q' {
             [void](Invoke-AdbRaw disconnect $script:Serial)
             Write-Step 'Disconnected. Bye.'
             exit 0
         }
-        default { Write-Step 'Type 1, 2, 3, 4, 5 or q.' }
+        default { Write-Step 'Type a number from 1 to 7, or q.' }
     }
 }

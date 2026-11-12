@@ -6,7 +6,10 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ResolveInfo;
+import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -14,6 +17,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.LruCache;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -31,34 +35,70 @@ import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * The home screen: clock, quick buttons, a favorites row, and an "all apps"
+ * The home screen: clock and quick buttons at the top, then rows that scroll
+ * vertically (Favorites, Recent, and two YouTube rows), plus an "all apps"
  * panel. Everything is built in code, with no layout files.
  */
 public class MainActivity extends Activity {
 
+    /** Sent by the PC tool to hand over the YouTube API key without typing it on the TV. */
+    public static final String EXTRA_API_KEY = "youtube_api_key";
+
     // Sizes in dp. A TV screen is 960 x 540 dp.
     private static final int SIDE_MARGIN = 48;
+    private static final int ROWS_TOP_SPACE = 140;
     private static final int FAV_W = 176;
     private static final int FAV_H = 99;
+    private static final int RECENT_W = 132;
+    private static final int RECENT_H = 74;
+    private static final int VIDEO_W = 200;
+    private static final int VIDEO_H = 112;
     private static final int GRID_W = 150;
     private static final int GRID_H = 84;
     private static final int GRID_COLUMNS = 5;
     private static final float FOCUS_SCALE = 1.12f;
+    private static final float VIDEO_FOCUS_SCALE = 1.08f;
+
+    private static final long VIDEO_REFRESH_MS = 30 * 60 * 1000L;
 
     private static final int GLASS = 0x24FFFFFF;
     private static final int GLASS_EDGE = 0x38FFFFFF;
     private static final int TEXT_DIM = 0xB3FFFFFF;
 
+    /** One titled horizontal row on the home screen. */
+    private static final class RowSection {
+        LinearLayout root;
+        TextView title;
+        TextView message;
+        HorizontalScrollView scroll;
+        LinearLayout row;
+    }
+
+    /** A ScrollView that leaves scrolling to us, so each row snaps to the same spot. */
+    private static final class SnapScrollView extends ScrollView {
+        SnapScrollView(Context context) {
+            super(context);
+        }
+
+        @Override
+        protected int computeScrollDeltaToGetChildRectOnScreen(Rect rect) {
+            return 0;
+        }
+    }
+
     private Apps.Prefs prefs;
     private GradientView background;
     private LinearLayout home;
-    private LinearLayout favoritesRow;
-    private HorizontalScrollView favoritesScroll;
-    private TextView emptyHint;
+    private SnapScrollView rowsScroll;
+    private RowSection favorites;
+    private RowSection recents;
+    private RowSection trending;
+    private RowSection secondVideos;
     private FrameLayout allAppsOverlay;
     private ScrollView allAppsScroll;
     private GridLayout allAppsGrid;
@@ -67,7 +107,13 @@ public class MainActivity extends Activity {
 
     private List<Apps.Entry> apps = new ArrayList<>();
     private String appsSignature = null;
+    private boolean recentsDirty = false;
+    private boolean videosShown = false;
+    private boolean videosLoading = false;
+
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ExecutorService network = Executors.newFixedThreadPool(3);
+    private final LruCache<String, Bitmap> thumbnails = new LruCache<>(60);
 
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override
@@ -95,6 +141,7 @@ public class MainActivity extends Activity {
         setContentView(root);
 
         updateBackgroundLabels();
+        acceptApiKey(getIntent());
         reloadApps();
     }
 
@@ -116,6 +163,11 @@ public class MainActivity extends Activity {
         }
         // Catch anything installed or removed while the launcher was not visible.
         reloadApps();
+        if (recentsDirty) {
+            recentsDirty = false;
+            renderRecents();
+        }
+        loadVideos(false);
     }
 
     @Override
@@ -132,28 +184,59 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         worker.shutdownNow();
+        network.shutdownNow();
         super.onDestroy();
     }
 
-    /** Home button pressed while the launcher is already on screen. */
+    /** Home button pressed while the launcher is already on screen, or a key hand-over. */
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (acceptApiKey(intent)) {
+            return;
+        }
         if (hasWindowFocus()) {
             closeAllApps();
-            favoritesScroll.scrollTo(0, 0);
-            if (favoritesRow.getChildCount() > 0) {
-                favoritesRow.getChildAt(0).requestFocus();
-            }
+            goToTop();
         }
     }
 
     @Override
     public void onBackPressed() {
-        // A home screen has nowhere to go back to; Back only closes the apps panel.
+        // A home screen has nowhere to go back to. Back closes the apps panel,
+        // or returns to the top row.
         if (isAllAppsOpen()) {
             closeAllApps();
+        } else if (rowsScroll.getScrollY() > 0) {
+            goToTop();
         }
+    }
+
+    private void goToTop() {
+        rowsScroll.smoothScrollTo(0, 0);
+        favorites.scroll.scrollTo(0, 0);
+        if (favorites.row.getChildCount() > 0) {
+            favorites.row.getChildAt(0).requestFocus();
+        }
+    }
+
+    /** Stores a YouTube API key delivered in an intent. Returns true if there was one. */
+    private boolean acceptApiKey(Intent intent) {
+        if (intent == null) {
+            return false;
+        }
+        String key = intent.getStringExtra(EXTRA_API_KEY);
+        if (key == null) {
+            return false;
+        }
+        intent.removeExtra(EXTRA_API_KEY);
+        prefs.saveApiKey(key.trim());
+        videosShown = false;
+        toast(key.trim().isEmpty() ? "YouTube key removed" : "YouTube key saved");
+        if (trending != null) {
+            loadVideos(true);
+        }
+        return true;
     }
 
     // ------------------------------------------------------------------
@@ -163,8 +246,6 @@ public class MainActivity extends Activity {
     private View buildHome() {
         home = new LinearLayout(this);
         home.setOrientation(LinearLayout.VERTICAL);
-        home.setClipChildren(false);
-        home.setClipToPadding(false);
 
         // Top bar: clock on the left, quick buttons on the right.
         LinearLayout topBar = new LinearLayout(this);
@@ -214,54 +295,99 @@ public class MainActivity extends Activity {
         home.addView(topBar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // Empty space in the middle so the background can breathe.
-        home.addView(new View(this), new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        // The rows. Favorites starts low on the screen with Recent peeking in
+        // below it; moving down slides each row up under the clock.
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setClipChildren(false);
+        column.setClipToPadding(false);
+        column.setPadding(0, dp(ROWS_TOP_SPACE), 0, dp(260));
 
-        TextView favoritesTitle = new TextView(this);
-        favoritesTitle.setText("Favorites");
-        favoritesTitle.setTextColor(TEXT_DIM);
-        favoritesTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        favoritesTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        favoritesTitle.setLetterSpacing(0.08f);
-        favoritesTitle.setPadding(dp(SIDE_MARGIN + 8), 0, 0, dp(2));
-        home.addView(favoritesTitle);
-
-        emptyHint = new TextView(this);
-        emptyHint.setText("No favorites yet. Open All Apps, then hold OK on an app to add it.");
-        emptyHint.setTextColor(TEXT_DIM);
-        emptyHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        emptyHint.setPadding(dp(SIDE_MARGIN + 8), dp(24), dp(SIDE_MARGIN), dp(60));
-        emptyHint.setVisibility(View.GONE);
-        home.addView(emptyHint);
-
-        favoritesRow = new LinearLayout(this);
-        favoritesRow.setOrientation(LinearLayout.HORIZONTAL);
-        favoritesRow.setClipChildren(false);
-        favoritesRow.setClipToPadding(false);
-        // The side margin lives inside the row so tiles scroll edge to edge.
-        favoritesRow.setPadding(dp(SIDE_MARGIN), dp(18), dp(SIDE_MARGIN), dp(4));
-
-        favoritesScroll = new HorizontalScrollView(this);
-        favoritesScroll.setHorizontalScrollBarEnabled(false);
-        favoritesScroll.setClipChildren(false);
-        favoritesScroll.setClipToPadding(false);
-        favoritesScroll.setFillViewport(false);
-        favoritesScroll.addView(favoritesRow, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        home.addView(favoritesScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        favorites = addSection(column, "Favorites");
+        recents = addSection(column, "Recent");
+        trending = addSection(column, "Trending on YouTube");
+        secondVideos = addSection(column, "For You");
+        recents.root.setVisibility(View.GONE);
+        secondVideos.root.setVisibility(View.GONE);
 
         TextView tip = new TextView(this);
         tip.setText("Hold OK on an app for options");
         tip.setTextColor(0x66FFFFFF);
         tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        tip.setGravity(Gravity.END);
-        tip.setPadding(dp(SIDE_MARGIN), dp(2), dp(SIDE_MARGIN), dp(22));
-        home.addView(tip, new LinearLayout.LayoutParams(
+        tip.setPadding(dp(SIDE_MARGIN + 8), dp(10), dp(SIDE_MARGIN), 0);
+        column.addView(tip);
+
+        rowsScroll = new SnapScrollView(this);
+        rowsScroll.setVerticalScrollBarEnabled(false);
+        rowsScroll.setVerticalFadingEdgeEnabled(true);
+        rowsScroll.setFadingEdgeLength(dp(40));
+        rowsScroll.addView(column, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        home.addView(rowsScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         return home;
+    }
+
+    private RowSection addSection(LinearLayout column, String titleText) {
+        RowSection section = new RowSection();
+        section.root = new LinearLayout(this);
+        section.root.setOrientation(LinearLayout.VERTICAL);
+        section.root.setClipChildren(false);
+        section.root.setClipToPadding(false);
+        section.root.setPadding(0, 0, 0, dp(10));
+
+        section.title = new TextView(this);
+        section.title.setText(titleText);
+        section.title.setTextColor(TEXT_DIM);
+        section.title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        section.title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        section.title.setLetterSpacing(0.08f);
+        section.title.setShadowLayer(dp(6), 0, dp(1), 0x66000000);
+        section.title.setPadding(dp(SIDE_MARGIN + 8), 0, 0, dp(2));
+        section.root.addView(section.title);
+
+        section.message = new TextView(this);
+        section.message.setTextColor(TEXT_DIM);
+        section.message.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        section.message.setLineSpacing(dp(3), 1f);
+        section.message.setPadding(dp(SIDE_MARGIN + 8), dp(14), dp(SIDE_MARGIN), dp(20));
+        section.message.setVisibility(View.GONE);
+        section.root.addView(section.message);
+
+        section.row = new LinearLayout(this);
+        section.row.setOrientation(LinearLayout.HORIZONTAL);
+        section.row.setClipChildren(false);
+        section.row.setClipToPadding(false);
+        // The side margin lives inside the row so tiles scroll edge to edge.
+        section.row.setPadding(dp(SIDE_MARGIN), dp(18), dp(SIDE_MARGIN), dp(4));
+
+        section.scroll = new HorizontalScrollView(this);
+        section.scroll.setHorizontalScrollBarEnabled(false);
+        section.scroll.setClipChildren(false);
+        section.scroll.setClipToPadding(false);
+        section.scroll.addView(section.row, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        section.root.addView(section.scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        column.addView(section.root, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return section;
+    }
+
+    /** Shows text in place of a row's tiles, or the tiles if text is null. */
+    private void setSectionMessage(RowSection section, String text) {
+        boolean showMessage = text != null;
+        section.message.setText(showMessage ? text : "");
+        section.message.setVisibility(showMessage ? View.VISIBLE : View.GONE);
+        section.scroll.setVisibility(showMessage ? View.GONE : View.VISIBLE);
+    }
+
+    /** Slides the rows so the given one sits just under the clock. */
+    private void snapTo(RowSection section) {
+        int target = section == favorites ? 0 : Math.max(0, section.root.getTop() - dp(6));
+        rowsScroll.smoothScrollTo(0, target);
     }
 
     private View buildAllAppsOverlay() {
@@ -326,6 +452,9 @@ public class MainActivity extends Activity {
             pill.setTextColor(focused ? 0xFF101014 : Color.WHITE);
             pill.animate().scaleX(focused ? 1.06f : 1f).scaleY(focused ? 1.06f : 1f)
                     .setDuration(140).start();
+            if (focused) {
+                rowsScroll.smoothScrollTo(0, 0);
+            }
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -337,9 +466,12 @@ public class MainActivity extends Activity {
     /**
      * One app tile: a rounded 16:9 card with the app's banner, and its name
      * underneath. The card grows and gets a white edge when focused.
+     *
+     * @param section the home row it sits in, or null for the All Apps panel
      */
     private View makeTile(final Apps.Entry entry, int widthDp, int heightDp,
-            final boolean inFavoritesRow) {
+            final RowSection section) {
+        final boolean reorderable = section == favorites && section != null;
         final LinearLayout tile = new LinearLayout(this);
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -387,8 +519,8 @@ public class MainActivity extends Activity {
         label.setGravity(Gravity.CENTER);
         label.setShadowLayer(dp(6), 0, dp(1), 0x99000000);
         label.setPadding(0, dp(12), 0, 0);
-        // Favorites hide the name until focused; the apps panel always shows it, dimmed.
-        final float restingAlpha = inFavoritesRow ? 0f : 0.6f;
+        // Home rows hide the name until focused; the apps panel always shows it, dimmed.
+        final float restingAlpha = section != null ? 0f : 0.6f;
         label.setAlpha(restingAlpha);
         tile.addView(label, new LinearLayout.LayoutParams(
                 dp(widthDp), ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -399,20 +531,110 @@ public class MainActivity extends Activity {
             card.setTranslationZ(focused ? dp(10) : 0);
             ring.setVisibility(focused ? View.VISIBLE : View.INVISIBLE);
             label.animate().alpha(focused ? 1f : restingAlpha).setDuration(160).start();
+            if (focused && section != null) {
+                snapTo(section);
+            }
         });
         tile.setOnClickListener(v -> launch(entry));
         tile.setOnLongClickListener(v -> {
-            showAppMenu(entry, inFavoritesRow);
+            showAppMenu(entry, reorderable);
             return true;
         });
         tile.setOnKeyListener((v, keyCode, event) -> {
             if (keyCode == KeyEvent.KEYCODE_MENU && event.getAction() == KeyEvent.ACTION_UP) {
-                showAppMenu(entry, inFavoritesRow);
+                showAppMenu(entry, reorderable);
                 return true;
             }
             return false;
         });
         return tile;
+    }
+
+    /** One video tile: thumbnail, title and channel name. */
+    private View makeVideoTile(final Videos.Video video, final RowSection section) {
+        final LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setClipChildren(false);
+        tile.setClipToPadding(false);
+        tile.setFocusable(true);
+        tile.setClickable(true);
+
+        final FrameLayout card = new FrameLayout(this);
+        card.setBackground(glass(GLASS, 0, 12));
+        card.setClipToOutline(true);
+
+        final ImageView thumbnail = new ImageView(this);
+        thumbnail.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        card.addView(thumbnail, matchParent());
+        loadThumbnailInto(thumbnail, video.thumbnail);
+
+        final View ring = new View(this);
+        ring.setBackground(glass(0, Color.WHITE, 12, 2));
+        ring.setVisibility(View.INVISIBLE);
+        card.addView(ring, matchParent());
+
+        tile.addView(card, new LinearLayout.LayoutParams(dp(VIDEO_W), dp(VIDEO_H)));
+
+        final TextView title = new TextView(this);
+        title.setText(video.title);
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        title.setMaxLines(2);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setShadowLayer(dp(6), 0, dp(1), 0x99000000);
+        title.setPadding(dp(2), dp(11), dp(2), 0);
+        title.setAlpha(0.75f);
+        tile.addView(title, new LinearLayout.LayoutParams(
+                dp(VIDEO_W), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        final TextView channel = new TextView(this);
+        channel.setText(video.channel);
+        channel.setTextColor(TEXT_DIM);
+        channel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        channel.setSingleLine(true);
+        channel.setEllipsize(TextUtils.TruncateAt.END);
+        channel.setPadding(dp(2), dp(2), dp(2), 0);
+        channel.setAlpha(0.6f);
+        tile.addView(channel, new LinearLayout.LayoutParams(
+                dp(VIDEO_W), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        tile.setOnFocusChangeListener((v, focused) -> {
+            float scale = focused ? VIDEO_FOCUS_SCALE : 1f;
+            card.animate().scaleX(scale).scaleY(scale).setDuration(160).start();
+            card.setTranslationZ(focused ? dp(10) : 0);
+            ring.setVisibility(focused ? View.VISIBLE : View.INVISIBLE);
+            title.animate().alpha(focused ? 1f : 0.75f).setDuration(160).start();
+            if (focused) {
+                snapTo(section);
+            }
+        });
+        tile.setOnClickListener(v -> playVideo(video));
+        return tile;
+    }
+
+    private void loadThumbnailInto(final ImageView view, final String address) {
+        view.setTag(address);
+        Bitmap cached = thumbnails.get(address);
+        if (cached != null) {
+            view.setImageBitmap(cached);
+            return;
+        }
+        if (network.isShutdown()) {
+            return;
+        }
+        network.execute(() -> {
+            final Bitmap bitmap = Videos.loadThumbnail(address);
+            if (bitmap == null) {
+                return;
+            }
+            runOnUiThread(() -> {
+                thumbnails.put(address, bitmap);
+                // The view may have been reused for another video meanwhile.
+                if (address.equals(view.getTag())) {
+                    view.setImageBitmap(bitmap);
+                }
+            });
+        });
     }
 
     // ------------------------------------------------------------------
@@ -447,6 +669,7 @@ public class MainActivity extends Activity {
             prefs.saveFavorites(Apps.defaultFavorites(apps));
         }
         renderFavorites(focusedKey());
+        renderRecents();
         renderAllApps();
     }
 
@@ -460,36 +683,55 @@ public class MainActivity extends Activity {
     }
 
     private void renderFavorites(String focusKey) {
-        boolean rowHadFocus = favoritesRow.hasFocus();
-        favoritesRow.removeAllViews();
+        boolean rowHadFocus = favorites.row.hasFocus();
+        favorites.row.removeAllViews();
         View toFocus = null;
         for (String key : prefs.favorites()) {
             Apps.Entry entry = Apps.find(apps, key);
             if (entry == null) {
                 continue; // Uninstalled or disabled; keep it saved in case it comes back.
             }
-            View tile = makeTile(entry, FAV_W, FAV_H, true);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.setMargins(dp(8), 0, dp(8), 0);
-            favoritesRow.addView(tile, params);
+            View tile = makeTile(entry, FAV_W, FAV_H, favorites);
+            favorites.row.addView(tile, tileParams());
             if (key.equals(focusKey)) {
                 toFocus = tile;
             }
         }
-        boolean empty = favoritesRow.getChildCount() == 0;
-        emptyHint.setVisibility(empty ? View.VISIBLE : View.GONE);
-        favoritesScroll.setVisibility(empty ? View.GONE : View.VISIBLE);
+        boolean empty = favorites.row.getChildCount() == 0;
+        setSectionMessage(favorites, empty
+                ? "No favorites yet. Open All Apps, then hold OK on an app to add it." : null);
 
         if (isAllAppsOpen()) {
             return;
         }
         if (toFocus == null && !empty && (rowHadFocus || getCurrentFocus() == null)) {
-            toFocus = favoritesRow.getChildAt(0);
+            toFocus = favorites.row.getChildAt(0);
         }
         if (toFocus != null) {
             final View target = toFocus;
             target.post(target::requestFocus);
+        }
+    }
+
+    /** Apps opened from this home screen, newest first. */
+    private void renderRecents() {
+        boolean rowHadFocus = recents.row.hasFocus();
+        recents.row.removeAllViews();
+        for (String key : prefs.recents()) {
+            Apps.Entry entry = Apps.find(apps, key);
+            if (entry != null) {
+                recents.row.addView(makeTile(entry, RECENT_W, RECENT_H, recents), tileParams());
+            }
+        }
+        boolean empty = recents.row.getChildCount() == 0;
+        recents.root.setVisibility(empty ? View.GONE : View.VISIBLE);
+        if (rowHadFocus && !isAllAppsOpen()) {
+            final View target = empty
+                    ? (favorites.row.getChildCount() > 0 ? favorites.row.getChildAt(0) : null)
+                    : recents.row.getChildAt(0);
+            if (target != null) {
+                target.post(target::requestFocus);
+            }
         }
     }
 
@@ -498,7 +740,7 @@ public class MainActivity extends Activity {
         allAppsGrid.removeAllViews();
         View toFocus = null;
         for (Apps.Entry entry : apps) {
-            View tile = makeTile(entry, GRID_W, GRID_H, false);
+            View tile = makeTile(entry, GRID_W, GRID_H, null);
             GridLayout.LayoutParams params = new GridLayout.LayoutParams();
             params.setMargins(dp(9), dp(8), dp(9), dp(10));
             allAppsGrid.addView(tile, params);
@@ -514,6 +756,142 @@ public class MainActivity extends Activity {
                 final View target = toFocus;
                 target.post(target::requestFocus);
             }
+        }
+    }
+
+    private LinearLayout.LayoutParams tileParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(dp(8), 0, dp(8), 0);
+        return params;
+    }
+
+    // ------------------------------------------------------------------
+    // YouTube rows
+    // ------------------------------------------------------------------
+
+    /**
+     * Shows the video rows, from the saved copy when it is recent enough and
+     * from YouTube otherwise.
+     */
+    private void loadVideos(boolean force) {
+        final String apiKey = prefs.apiKey();
+        if (apiKey.isEmpty()) {
+            trending.row.removeAllViews();
+            secondVideos.root.setVisibility(View.GONE);
+            setSectionMessage(trending, "Add a free YouTube API key to see videos here.\n"
+                    + "On your PC, run the debloat tool and choose \"Set YouTube API key\".");
+            videosShown = false;
+            return;
+        }
+
+        final Videos.Feed saved = Videos.Feed.fromJson(prefs.videoCache());
+        boolean fresh = System.currentTimeMillis() - prefs.videoCacheTime() < VIDEO_REFRESH_MS;
+        if (saved != null && !videosShown) {
+            renderVideos(saved);
+        }
+        if ((saved != null && fresh && !force) || videosLoading || network.isShutdown()) {
+            return;
+        }
+        if (saved == null) {
+            setSectionMessage(trending, "Loading videos...");
+        }
+
+        videosLoading = true;
+        final String region = region();
+        final List<String> channels = prefs.watchedChannels();
+        network.execute(() -> {
+            Videos.Feed feed = null;
+            String error = null;
+            try {
+                feed = Videos.fetch(apiKey, region, channels);
+            } catch (Exception e) {
+                error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            }
+            final Videos.Feed result = feed;
+            final String problem = error;
+            runOnUiThread(() -> {
+                videosLoading = false;
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (result != null) {
+                    prefs.saveVideoCache(result.toJson());
+                    renderVideos(result);
+                } else if (saved == null) {
+                    setSectionMessage(trending, "Could not load videos: " + problem);
+                }
+            });
+        });
+    }
+
+    private void renderVideos(Videos.Feed feed) {
+        // Do not yank the rows out from under the remote while it is on them.
+        if (trending.row.hasFocus() || secondVideos.row.hasFocus()) {
+            return;
+        }
+        videosShown = true;
+
+        trending.row.removeAllViews();
+        for (Videos.Video video : feed.trending) {
+            trending.row.addView(makeVideoTile(video, trending), tileParams());
+        }
+        setSectionMessage(trending, feed.trending.isEmpty()
+                ? "YouTube returned no trending videos for this country." : null);
+
+        secondVideos.row.removeAllViews();
+        for (Videos.Video video : feed.second) {
+            secondVideos.row.addView(makeVideoTile(video, secondVideos), tileParams());
+        }
+        secondVideos.title.setText(feed.personal ? "From channels you watch" : "Popular music");
+        setSectionMessage(secondVideos, null);
+        secondVideos.root.setVisibility(feed.second.isEmpty() ? View.GONE : View.VISIBLE);
+    }
+
+    private static String region() {
+        String country = Locale.getDefault().getCountry();
+        return country != null && country.length() == 2 ? country.toUpperCase(Locale.US) : "US";
+    }
+
+    /**
+     * Opens a video in whatever app on the TV plays YouTube links. A
+     * third-party player is preferred over Google's app when both exist.
+     */
+    private void playVideo(Videos.Video video) {
+        prefs.pushWatchedChannel(video.channelId);
+        Intent intent = new Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://www.youtube.com/watch?v=" + video.id));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        String chosen = null;
+        try {
+            for (ResolveInfo info : getPackageManager().queryIntentActivities(intent, 0)) {
+                if (info.activityInfo == null) {
+                    continue;
+                }
+                String candidate = info.activityInfo.packageName;
+                if (candidate.equals(getPackageName())) {
+                    continue;
+                }
+                boolean google = candidate.startsWith("com.google.");
+                if (chosen == null || !google) {
+                    chosen = candidate;
+                }
+                if (!google) {
+                    break;
+                }
+            }
+        } catch (RuntimeException e) {
+            chosen = null;
+        }
+
+        try {
+            if (chosen != null) {
+                intent.setPackage(chosen);
+            }
+            startActivity(intent);
+        } catch (RuntimeException e) {
+            toast("No app on this TV can play YouTube links");
         }
     }
 
@@ -546,8 +924,8 @@ public class MainActivity extends Activity {
         }
         allAppsOverlay.setVisibility(View.GONE);
         home.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        if (favoritesRow.getChildCount() > 0) {
-            favoritesRow.getChildAt(0).requestFocus();
+        if (favorites.row.getChildCount() > 0) {
+            favorites.row.getChildAt(0).requestFocus();
         } else {
             home.requestFocus();
         }
@@ -565,6 +943,9 @@ public class MainActivity extends Activity {
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
         try {
             startActivity(intent);
+            prefs.pushRecent(entry.key);
+            // Redrawn when the home screen comes back, not while the app is opening.
+            recentsDirty = true;
         } catch (RuntimeException e) {
             toast("Could not open " + entry.label);
         }
@@ -608,9 +989,9 @@ public class MainActivity extends Activity {
     }
 
     /** The menu shown when OK is held on an app. */
-    private void showAppMenu(final Apps.Entry entry, boolean fromFavoritesRow) {
-        final List<String> favorites = prefs.favorites();
-        final int position = favorites.indexOf(entry.key);
+    private void showAppMenu(final Apps.Entry entry, boolean reorderable) {
+        final List<String> saved = prefs.favorites();
+        final int position = saved.indexOf(entry.key);
         final List<String> names = new ArrayList<>();
         final List<Runnable> actions = new ArrayList<>();
 
@@ -620,24 +1001,24 @@ public class MainActivity extends Activity {
         if (position < 0) {
             names.add("Add to favorites");
             actions.add(() -> {
-                favorites.add(entry.key);
-                prefs.saveFavorites(favorites);
+                saved.add(entry.key);
+                prefs.saveFavorites(saved);
                 renderFavorites(null);
                 toast(entry.label + " added to favorites");
             });
         } else {
-            if (fromFavoritesRow && position > 0) {
+            if (reorderable && position > 0) {
                 names.add("Move left");
-                actions.add(() -> moveFavorite(favorites, position, position - 1, entry.key));
+                actions.add(() -> moveFavorite(saved, position, position - 1, entry.key));
             }
-            if (fromFavoritesRow && position < favorites.size() - 1) {
+            if (reorderable && position < saved.size() - 1) {
                 names.add("Move right");
-                actions.add(() -> moveFavorite(favorites, position, position + 1, entry.key));
+                actions.add(() -> moveFavorite(saved, position, position + 1, entry.key));
             }
             names.add("Remove from favorites");
             actions.add(() -> {
-                favorites.remove(entry.key);
-                prefs.saveFavorites(favorites);
+                saved.remove(entry.key);
+                prefs.saveFavorites(saved);
                 renderFavorites(null);
             });
         }
@@ -670,10 +1051,10 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private void moveFavorite(List<String> favorites, int from, int to, String key) {
-        String moved = favorites.remove(from);
-        favorites.add(to, moved);
-        prefs.saveFavorites(favorites);
+    private void moveFavorite(List<String> saved, int from, int to, String key) {
+        String moved = saved.remove(from);
+        saved.add(to, moved);
+        prefs.saveFavorites(saved);
         renderFavorites(key);
     }
 

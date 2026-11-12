@@ -33,6 +33,8 @@ has an undo option, and a factory reset restores the TV completely.
 | 3. Undo | Turns everything back on, home screen first. |
 | 4. Save package list | Writes `tv-packages.txt` listing every package on the TV. |
 | 5. Install Glass Home | Installs `GlassHome.apk` (the custom home screen in this folder), shows it to you, then offers to turn off the Google TV home screen so the Home button opens Glass Home. Rolls back by itself if it does not come up. |
+| 6. Install SmartTube | Downloads SmartTube, a third-party open-source YouTube app without ads, from its developer's GitHub page and installs it. Using it goes against YouTube's terms of service. The normal YouTube app stays installed. |
+| 7. Set YouTube API key | Sends a YouTube Data API key to Glass Home so its video rows work, so you do not have to type it with the remote. |
 
 To preview without changing anything:
 
@@ -50,9 +52,27 @@ is a design mockup of it, not a photo of the real app.
   the drift on or off.
 - **Top bar:** clock and date, plus buttons for All Apps, Settings and Wi-Fi.
 - **Favorites row:** your main apps. The focused one grows and shows its name.
+- **Recent row:** apps you opened from Glass Home, newest first. Hidden until you
+  have opened something.
+- **Video rows:** *Trending on YouTube* for your country, then *From channels you
+  watch* (new uploads from channels whose videos you opened from Glass Home). Until
+  there is some history, the second row shows popular music. YouTube offers no
+  personal "recommended" feed to outside apps, so this is the closest equivalent.
+  Videos open in SmartTube if it is installed, otherwise in the YouTube app.
+- **Moving around:** Down moves through the rows; Back returns to the top.
 - **All Apps:** every app on the TV in a grid. Back closes it.
 - **Hold OK on any app** for: add to or remove from favorites, move left or
   right, app info, uninstall.
+
+### Getting a YouTube API key (free)
+
+1. Go to <https://console.cloud.google.com> and sign in with a Google account.
+2. Create a project (any name).
+3. **APIs & Services > Library**, search **YouTube Data API v3**, press **Enable**.
+4. **APIs & Services > Credentials > Create credentials > API key**.
+5. Copy the key (it starts with `AIza`), run the tool and choose **7**.
+
+Treat the key like a password: do not post it anywhere public.
 
 The source is in `glass-home/`. To rebuild it you need a JDK and the Android SDK:
 `ANDROID_HOME=/path/to/sdk glass-home/build.sh`.
