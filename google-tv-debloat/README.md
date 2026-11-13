@@ -53,7 +53,9 @@ Run-Debloat.bat -DryRun
 is a design mockup of it, not a photo of the real app.
 
 - **Background:** dark, with soft colours that drift slowly. The top-bar button
-  cycles Midnight, Ember, Ocean, Forest, Graphite and Pure Dark. **Motion** turns
+  cycles the colourful themes (Midnight, Ember, Ocean, Forest, Graphite, Pure
+  Dark) and then seven darker one-colour themes (Mono Slate, Indigo, Wine, Moss,
+  Teal, Bronze, Ash). **Motion** turns
   the drift on or off.
 - **Top bar:** clock and date, plus buttons for All Apps, Settings and Wi-Fi.
 - **Favorites row:** your main apps. The focused one grows and shows its name.

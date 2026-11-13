@@ -28,11 +28,23 @@ public class GradientView extends View {
         final String name;
         final int base;
         final int[] blobs;
+        /** How strongly the glows show, 0 to 255. Lower is darker and calmer. */
+        final int strength;
 
         Palette(String name, int base, int... blobs) {
+            this(name, GLOW_ALPHA, base, blobs);
+        }
+
+        Palette(String name, int strength, int base, int[] blobs) {
             this.name = name;
+            this.strength = strength;
             this.base = base;
             this.blobs = blobs;
+        }
+
+        /** A dark one-colour theme: four shades of the same hue over near-black. */
+        static Palette mono(String name, int base, int... shades) {
+            return new Palette(name, MONO_ALPHA, base, shades);
         }
     }
 
@@ -43,6 +55,14 @@ public class GradientView extends View {
         new Palette("Forest",   0xFF020A07, 0xFF0C6C40, 0xFF178878, 0xFF275218, 0xFF094450),
         new Palette("Graphite", 0xFF060607, 0xFF34343E, 0xFF252A34, 0xFF423E48, 0xFF1B202A),
         new Palette("Pure Dark", 0xFF030304),
+        // Monotone themes: one hue each, darker and quieter than the ones above.
+        Palette.mono("Mono Slate",  0xFF030405, 0xFF2C3A4E, 0xFF1C2838, 0xFF3A4960, 0xFF141C28),
+        Palette.mono("Mono Indigo", 0xFF030308, 0xFF2A2470, 0xFF1A1650, 0xFF393290, 0xFF12103A),
+        Palette.mono("Mono Wine",   0xFF060203, 0xFF5C1630, 0xFF3E0E22, 0xFF741E3E, 0xFF2A0916),
+        Palette.mono("Mono Moss",   0xFF020503, 0xFF1E4A30, 0xFF123522, 0xFF2A5E3E, 0xFF0C2618),
+        Palette.mono("Mono Teal",   0xFF020506, 0xFF104A54, 0xFF0A353E, 0xFF18606C, 0xFF07262C),
+        Palette.mono("Mono Bronze", 0xFF060402, 0xFF5A3A16, 0xFF3E270E, 0xFF70491E, 0xFF2A1A09),
+        Palette.mono("Mono Ash",    0xFF040404, 0xFF303033, 0xFF202022, 0xFF3C3C40, 0xFF161618),
     };
 
     private static final int BUF_W = 320;
@@ -65,6 +85,7 @@ public class GradientView extends View {
     // Glow size as a fraction of the screen width.
     private static final float[] RADIUS  = {0.46f, 0.42f, 0.44f, 0.38f};
     private static final int GLOW_ALPHA = 0xB0;
+    private static final int MONO_ALPHA = 0x96;
     private static final int GRAIN_SIZE = 128;
 
     private final Bitmap buffer = Bitmap.createBitmap(BUF_W, BUF_H, Bitmap.Config.ARGB_8888);
@@ -125,9 +146,9 @@ public class GradientView extends View {
             // Bright in the middle, fading out gently so the edge is never visible.
             shaders[i] = new RadialGradient(0f, 0f, 1f,
                     new int[] {
-                        (GLOW_ALPHA << 24) | rgb,
-                        ((GLOW_ALPHA * 2 / 5) << 24) | rgb,
-                        ((GLOW_ALPHA / 10) << 24) | rgb,
+                        (palette.strength << 24) | rgb,
+                        ((palette.strength * 2 / 5) << 24) | rgb,
+                        ((palette.strength / 10) << 24) | rgb,
                         rgb,
                     },
                     new float[] {0f, 0.45f, 0.8f, 1f}, Shader.TileMode.CLAMP);
