@@ -11,6 +11,9 @@
       5. Install Glass Home, a custom home screen (GlassHome.apk next to this script)
       6. Install SmartTube, a third-party YouTube app without ads
       7. Give Glass Home a YouTube API key for its video rows
+      8. Install the official Disney+ and Hulu apps
+      9. Give Glass Home a TMDB key for its Disney+ and Hulu poster row
+     10. Shorten system animations so the TV feels snappier
 
     Nothing is permanently deleted. Apps are disabled for the current user only,
     option 3 turns them back on, and a factory reset restores the TV completely.
@@ -559,6 +562,8 @@ function Invoke-GlassHome {
         return
     }
     Write-Ok 'Glass Home is installed.'
+    # Pre-compile it so it is quick from the first press, instead of warming up.
+    [void](Invoke-Adb shell cmd package compile -m speed -f $GlassHome)
 
     # Step 2: open it so you can see it before anything else changes.
     [void](Invoke-Adb shell monkey -p $GlassHome -c android.intent.category.LEANBACK_LAUNCHER 1)
@@ -708,6 +713,142 @@ function Invoke-SetYouTubeKey {
 }
 
 # ---------------------------------------------------------------------------
+# Option 8: get the official Disney+ and Hulu apps onto the TV
+# ---------------------------------------------------------------------------
+function Invoke-StreamingApps {
+    Write-Title 'Disney+ and Hulu'
+    Write-Step 'This opens the Play Store page for each app on the TV so you can'
+    Write-Step 'install the official version. Glass Home adds them to Favorites'
+    Write-Step 'by itself the first time it sees them.'
+    Write-Host ''
+    if ($script:IsDryRun) {
+        Write-Step '[dry run] would open the Play Store pages for Disney+ and Hulu'
+        return
+    }
+    $wanted = @(
+        @{ Id = 'com.disney.disneyplus';   Name = 'Disney+' }
+        @{ Id = 'com.hulu.livingroomplus'; Name = 'Hulu' }
+    )
+    foreach ($app in $wanted) {
+        $installed = Get-InstalledPackages
+        $enabled   = Get-EnabledPackages
+        if ($enabled -contains $app.Id) {
+            Write-Ok ($app.Name + ' is already installed.')
+            continue
+        }
+        if ($installed -contains $app.Id) {
+            # Installed but switched off, most likely by option 1 of this tool.
+            if (Read-YesNo ($app.Name + ' is installed but turned off. Turn it back on?') $true) {
+                [void](Enable-Package $app.Id 'disabled')
+            }
+            continue
+        }
+        if (-not (Read-YesNo ('Install ' + $app.Name + '?') $true)) { continue }
+        [void](Invoke-Adb shell am start -a android.intent.action.VIEW -d ("market://details?id=" + $app.Id))
+        Write-Step ('The Play Store page for ' + $app.Name + ' should be open on the TV.')
+        Write-Step 'Press Install with the remote and wait for it to finish.'
+        [void](Read-Host '  Press Enter here when it is done (or to skip)')
+        if ((Get-InstalledPackages) -contains $app.Id) {
+            Write-Ok ($app.Name + ' is installed.')
+        } else {
+            Write-Warn ($app.Name + ' does not appear to be installed. You can run this again later.')
+        }
+    }
+    if ((Get-InstalledPackages) -contains $GlassHome) {
+        [void](Invoke-Adb shell input keyevent KEYCODE_HOME)
+        Write-Step 'Press Home on the remote: they should now be in the Favorites row.'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Option 9: give Glass Home a TMDB key for the Disney+ and Hulu poster row
+# ---------------------------------------------------------------------------
+function Invoke-SetTmdbKey {
+    Write-Title 'Set TMDB key (Disney+ and Hulu posters)'
+    if ((Get-InstalledPackages) -notcontains $GlassHome) {
+        Write-Bad 'Glass Home is not installed on the TV yet. Run option 5 first.'
+        return
+    }
+    Write-Step 'The poster row gets its list of shows from The Movie Database (TMDB),'
+    Write-Step 'a free site that tracks what is on each streaming service.'
+    Write-Step 'To get a key:'
+    Write-Step '  1. Go to https://www.themoviedb.org/signup and make a free account.'
+    Write-Step '  2. Confirm your email, then sign in.'
+    Write-Step '  3. Go to https://www.themoviedb.org/settings/api'
+    Write-Step '  4. Request an API key. Choose "Developer", personal use.'
+    Write-Step '     For the app name and URL, "Glass Home" and any web address work.'
+    Write-Step '  5. Copy the "API Key" (32 letters and numbers).'
+    Write-Step 'The key is sent straight to your TV over your own network.'
+    Write-Host ''
+    $key = (Read-Host '  Paste the key here (or just press Enter to cancel)').Trim()
+    if (-not $key) {
+        Write-Step 'Cancelled.'
+        return
+    }
+    if ($key -notmatch '^[0-9A-Za-z_\.\-]+$') {
+        Write-Bad 'That contains characters a TMDB key never has. Nothing was sent.'
+        return
+    }
+    if (($key -notmatch '^[0-9a-f]{32}$') -and ($key -notmatch '^eyJ')) {
+        Write-Warn 'That does not look like a TMDB key (32 letters and numbers).'
+        if (-not (Read-YesNo 'Send it anyway?' $false)) { return }
+    }
+    if ($script:IsDryRun) {
+        Write-Step '[dry run] would send the key to Glass Home on the TV'
+        return
+    }
+    $out = Invoke-Adb shell am start -n "$GlassHome/.MainActivity" --es tmdb_api_key $key
+    if ($out -match 'Error') {
+        Write-Bad 'The TV did not accept it:'
+        Write-Step "         $out"
+        return
+    }
+    Write-Ok 'Key sent. The TV should say "TMDB key saved".'
+    Write-Step 'The poster row is the last row: keep pressing Down on the remote.'
+    Write-Step 'If it says "Could not load posters", tell Claude the exact message.'
+}
+
+# ---------------------------------------------------------------------------
+# Option 10: faster system animations
+# ---------------------------------------------------------------------------
+function Invoke-Snappier {
+    Write-Title 'Make the TV feel snappier'
+    $names = @('window_animation_scale', 'transition_animation_scale', 'animator_duration_scale')
+    $current = Invoke-Adb shell settings get global window_animation_scale
+    Write-Step 'Android plays an animation every time an app opens, closes or a menu'
+    Write-Step 'appears. Halving their length makes the whole TV feel quicker. It does'
+    Write-Step 'not make the processor faster, and it is easy to put back.'
+    Write-Step "Current animation speed setting: $current (1.0 is normal)"
+    Write-Host ''
+    Write-Step '  1. Fast   (animations at half length, recommended)'
+    Write-Step '  2. Off    (no animations at all, some apps look abrupt)'
+    Write-Step '  3. Normal (put it back to how it was)'
+    $choice = (Read-Host '  Choose 1, 2 or 3 (Enter to cancel)').Trim()
+    $value = $null
+    if ($choice -eq '1') { $value = '0.5' }
+    if ($choice -eq '2') { $value = '0' }
+    if ($choice -eq '3') { $value = '1' }
+    if ($null -eq $value) {
+        Write-Step 'Cancelled.'
+        return
+    }
+    if ($script:IsDryRun) {
+        Write-Step "[dry run] would set the three animation scales to $value"
+        return
+    }
+    foreach ($name in $names) {
+        [void](Invoke-Adb shell settings put global $name $value)
+    }
+    $after = Invoke-Adb shell settings get global window_animation_scale
+    if ($after -eq $value -or $after -eq "$value.0") {
+        Write-Ok "Animation speed set to $value."
+    } else {
+        Write-Warn "The TV reports $after after the change. It may not allow this setting."
+    }
+    Write-Step 'The other big win is option 1: fewer apps running in the background.'
+}
+
+# ---------------------------------------------------------------------------
 # Option 3: undo
 # ---------------------------------------------------------------------------
 function Invoke-Restore {
@@ -800,6 +941,9 @@ while ($true) {
     Write-Step '5. Install Glass Home, the custom home screen'
     Write-Step '6. Install SmartTube (YouTube without ads, third-party)'
     Write-Step '7. Set the YouTube API key for the Glass Home video rows'
+    Write-Step '8. Install Disney+ and Hulu (official apps)'
+    Write-Step '9. Set the TMDB key for the Disney+ and Hulu poster row'
+    Write-Step '10. Make the TV feel snappier (faster animations)'
     Write-Step 'q. Quit'
     Write-Host ''
     $choice = (Read-Host '  Choose').Trim().ToLower()
@@ -811,11 +955,14 @@ while ($true) {
         '5' { Invoke-GlassHome }
         '6' { Invoke-SmartTube }
         '7' { Invoke-SetYouTubeKey }
+        '8' { Invoke-StreamingApps }
+        '9' { Invoke-SetTmdbKey }
+        '10' { Invoke-Snappier }
         'q' {
             [void](Invoke-AdbRaw disconnect $script:Serial)
             Write-Step 'Disconnected. Bye.'
             exit 0
         }
-        default { Write-Step 'Type a number from 1 to 7, or q.' }
+        default { Write-Step 'Type a number from 1 to 10, or q.' }
     }
 }

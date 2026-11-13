@@ -233,8 +233,17 @@ final class Videos {
     }
 
     private static String get(String address) throws IOException {
+        return get(address, null);
+    }
+
+    /** HTTP GET returning the body as text. Also used for the poster row. */
+    static String get(String address, String bearerToken) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
         try {
+            if (bearerToken != null) {
+                connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
+            }
+            connection.setRequestProperty("Accept", "application/json");
             connection.setConnectTimeout(TIMEOUT_MS);
             connection.setReadTimeout(TIMEOUT_MS);
             int status = connection.getResponseCode();
@@ -242,9 +251,14 @@ final class Videos {
                     ? connection.getErrorStream() : connection.getInputStream();
             String body = stream == null ? "" : new String(readAll(stream), "UTF-8");
             if (status >= 400) {
-                String message = "YouTube returned error " + status;
+                String message = "The server returned error " + status;
                 try {
-                    message = new JSONObject(body).getJSONObject("error").getString("message");
+                    JSONObject error = new JSONObject(body);
+                    if (error.has("error")) {
+                        message = error.getJSONObject("error").getString("message");
+                    } else if (error.has("status_message")) {
+                        message = error.getString("status_message");
+                    }
                 } catch (JSONException e) {
                     // Keep the generic message.
                 }

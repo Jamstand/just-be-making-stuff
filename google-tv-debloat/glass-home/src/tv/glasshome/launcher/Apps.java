@@ -65,6 +65,32 @@ final class Apps {
         return result;
     }
 
+    /**
+     * A quick fingerprint of which apps are installed. Lets the launcher skip
+     * the slow part (loading every banner) when nothing has changed.
+     */
+    static String fingerprint(Context context) {
+        PackageManager pm = context.getPackageManager();
+        List<String> names = new ArrayList<>();
+        for (String category : new String[] {
+                Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
+            Intent query = new Intent(Intent.ACTION_MAIN);
+            query.addCategory(category);
+            try {
+                for (ResolveInfo info : pm.queryIntentActivities(query, 0)) {
+                    if (info.activityInfo != null) {
+                        names.add(category.length() + info.activityInfo.packageName
+                                + "/" + info.activityInfo.name);
+                    }
+                }
+            } catch (RuntimeException e) {
+                return "";
+            }
+        }
+        Collections.sort(names);
+        return names.toString();
+    }
+
     private static void addMatches(PackageManager pm, String category, boolean leanback,
             List<Entry> out, Set<String> seenPackages) {
         Intent query = new Intent(Intent.ACTION_MAIN);
@@ -204,6 +230,33 @@ final class Apps {
 
         void saveMotion(boolean enabled) {
             store.edit().putBoolean(KEY_MOTION, enabled).apply();
+        }
+
+        // --- Plain named values, for the newer features ---
+
+        String text(String name) {
+            String value = store.getString(name, "");
+            return value == null ? "" : value;
+        }
+
+        void saveText(String name, String value) {
+            store.edit().putString(name, value).apply();
+        }
+
+        long time(String name) {
+            return store.getLong(name, 0L);
+        }
+
+        void saveTime(String name, long value) {
+            store.edit().putLong(name, value).apply();
+        }
+
+        boolean flag(String name) {
+            return store.getBoolean(name, false);
+        }
+
+        void saveFlag(String name, boolean value) {
+            store.edit().putBoolean(name, value).apply();
         }
 
         // --- Recently opened apps, newest first ---

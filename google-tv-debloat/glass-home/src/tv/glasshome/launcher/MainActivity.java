@@ -48,10 +48,21 @@ public class MainActivity extends Activity {
 
     /** Sent by the PC tool to hand over the YouTube API key without typing it on the TV. */
     public static final String EXTRA_API_KEY = "youtube_api_key";
+    /** Same, for the TMDB key behind the Disney+ and Hulu poster row. */
+    public static final String EXTRA_TMDB_KEY = "tmdb_api_key";
+
+    private static final String VERSION = "1.2";
+    private static final String PREF_TMDB_KEY = "tmdb_api_key";
+    private static final String PREF_POSTERS = "poster_cache";
+    private static final String PREF_POSTERS_TIME = "poster_cache_time";
+    private static final String PREF_AUTO_ADDED = "auto_added_";
 
     // Sizes in dp. A TV screen is 960 x 540 dp.
     private static final int SIDE_MARGIN = 48;
-    private static final int ROWS_TOP_SPACE = 140;
+    private static final int ROWS_TOP_SPACE = 104;
+    private static final int POSTER_W = 104;
+    private static final int POSTER_H = 156;
+    private static final int ANIM_MS = 110;
     private static final int FAV_W = 176;
     private static final int FAV_H = 99;
     private static final int RECENT_W = 132;
@@ -65,6 +76,7 @@ public class MainActivity extends Activity {
     private static final float VIDEO_FOCUS_SCALE = 1.08f;
 
     private static final long VIDEO_REFRESH_MS = 30 * 60 * 1000L;
+    private static final long POSTER_REFRESH_MS = 6 * 60 * 60 * 1000L;
 
     private static final int GLASS = 0x24FFFFFF;
     private static final int GLASS_EDGE = 0x38FFFFFF;
@@ -77,6 +89,8 @@ public class MainActivity extends Activity {
         TextView message;
         HorizontalScrollView scroll;
         LinearLayout row;
+        /** What pressing OK on the message card does, if anything. */
+        Runnable messageAction;
     }
 
     /** A ScrollView that leaves scrolling to us, so each row snaps to the same spot. */
@@ -99,6 +113,7 @@ public class MainActivity extends Activity {
     private RowSection recents;
     private RowSection trending;
     private RowSection secondVideos;
+    private RowSection posters;
     private FrameLayout allAppsOverlay;
     private ScrollView allAppsScroll;
     private GridLayout allAppsGrid;
@@ -110,6 +125,9 @@ public class MainActivity extends Activity {
     private boolean recentsDirty = false;
     private boolean videosShown = false;
     private boolean videosLoading = false;
+    private boolean postersShown = false;
+    private boolean postersLoading = false;
+    private volatile String appsFingerprint = null;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final ExecutorService network = Executors.newFixedThreadPool(3);
@@ -168,6 +186,7 @@ public class MainActivity extends Activity {
             renderRecents();
         }
         loadVideos(false);
+        loadPosters(false);
     }
 
     @Override
@@ -220,23 +239,37 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Stores a YouTube API key delivered in an intent. Returns true if there was one. */
+    /** Stores API keys delivered in an intent. Returns true if there was one. */
     private boolean acceptApiKey(Intent intent) {
         if (intent == null) {
             return false;
         }
-        String key = intent.getStringExtra(EXTRA_API_KEY);
-        if (key == null) {
-            return false;
+        boolean accepted = false;
+        String youtubeKey = intent.getStringExtra(EXTRA_API_KEY);
+        if (youtubeKey != null) {
+            intent.removeExtra(EXTRA_API_KEY);
+            prefs.saveApiKey(youtubeKey.trim());
+            videosShown = false;
+            toast(youtubeKey.trim().isEmpty() ? "YouTube key removed" : "YouTube key saved");
+            if (trending != null) {
+                loadVideos(true);
+            }
+            accepted = true;
         }
-        intent.removeExtra(EXTRA_API_KEY);
-        prefs.saveApiKey(key.trim());
-        videosShown = false;
-        toast(key.trim().isEmpty() ? "YouTube key removed" : "YouTube key saved");
-        if (trending != null) {
-            loadVideos(true);
+        String tmdbKey = intent.getStringExtra(EXTRA_TMDB_KEY);
+        if (tmdbKey != null) {
+            intent.removeExtra(EXTRA_TMDB_KEY);
+            prefs.saveText(PREF_TMDB_KEY, tmdbKey.trim());
+            prefs.saveText(PREF_POSTERS, "");
+            prefs.saveTime(PREF_POSTERS_TIME, 0L);
+            postersShown = false;
+            toast(tmdbKey.trim().isEmpty() ? "TMDB key removed" : "TMDB key saved");
+            if (posters != null) {
+                loadPosters(true);
+            }
+            accepted = true;
         }
-        return true;
+        return accepted;
     }
 
     // ------------------------------------------------------------------
@@ -307,11 +340,13 @@ public class MainActivity extends Activity {
         recents = addSection(column, "Recent");
         trending = addSection(column, "Trending on YouTube");
         secondVideos = addSection(column, "For You");
+        posters = addSection(column, "On Disney+ and Hulu");
         recents.root.setVisibility(View.GONE);
         secondVideos.root.setVisibility(View.GONE);
 
         TextView tip = new TextView(this);
-        tip.setText("Hold OK on an app for options");
+        tip.setText("Hold OK on an app for options.  Glass Home " + VERSION
+                + ".  Film and TV data from TMDB; this app is not endorsed or certified by TMDB.");
         tip.setTextColor(0x66FFFFFF);
         tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         tip.setPadding(dp(SIDE_MARGIN + 8), dp(10), dp(SIDE_MARGIN), 0);
@@ -347,13 +382,36 @@ public class MainActivity extends Activity {
         section.title.setPadding(dp(SIDE_MARGIN + 8), 0, 0, dp(2));
         section.root.addView(section.title);
 
-        section.message = new TextView(this);
-        section.message.setTextColor(TEXT_DIM);
-        section.message.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        section.message.setLineSpacing(dp(3), 1f);
-        section.message.setPadding(dp(SIDE_MARGIN + 8), dp(14), dp(SIDE_MARGIN), dp(20));
-        section.message.setVisibility(View.GONE);
-        section.root.addView(section.message);
+        // Shown in place of the tiles (for example "add a key"). It can be
+        // focused, so pressing Down always brings the row into view.
+        final RowSection self = section;
+        final TextView message = new TextView(this);
+        section.message = message;
+        message.setTextColor(Color.WHITE);
+        message.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        message.setLineSpacing(dp(3), 1f);
+        message.setPadding(dp(18), dp(14), dp(18), dp(14));
+        message.setBackground(glass(GLASS, GLASS_EDGE, 16));
+        message.setFocusable(true);
+        message.setClickable(true);
+        message.setVisibility(View.GONE);
+        message.setOnFocusChangeListener((v, focused) -> {
+            message.setBackground(focused
+                    ? glass(0x40FFFFFF, Color.WHITE, 16, 2)
+                    : glass(GLASS, GLASS_EDGE, 16));
+            if (focused) {
+                snapTo(self);
+            }
+        });
+        message.setOnClickListener(v -> {
+            if (self.messageAction != null) {
+                self.messageAction.run();
+            }
+        });
+        LinearLayout.LayoutParams messageParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        messageParams.setMargins(dp(SIDE_MARGIN + 8), dp(14), dp(SIDE_MARGIN), dp(16));
+        section.root.addView(message, messageParams);
 
         section.row = new LinearLayout(this);
         section.row.setOrientation(LinearLayout.HORIZONTAL);
@@ -403,6 +461,7 @@ public class MainActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setText("All Apps");
+        title.setContentDescription("All Apps, Glass Home " + VERSION);
         title.setTextColor(Color.WHITE);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
         title.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
@@ -451,7 +510,7 @@ public class MainActivity extends Activity {
                     : glass(GLASS, GLASS_EDGE, 20));
             pill.setTextColor(focused ? 0xFF101014 : Color.WHITE);
             pill.animate().scaleX(focused ? 1.06f : 1f).scaleY(focused ? 1.06f : 1f)
-                    .setDuration(140).start();
+                    .setDuration(ANIM_MS).start();
             if (focused) {
                 rowsScroll.smoothScrollTo(0, 0);
             }
@@ -527,10 +586,10 @@ public class MainActivity extends Activity {
 
         tile.setOnFocusChangeListener((v, focused) -> {
             float scale = focused ? FOCUS_SCALE : 1f;
-            card.animate().scaleX(scale).scaleY(scale).setDuration(160).start();
+            card.animate().scaleX(scale).scaleY(scale).setDuration(ANIM_MS).start();
             card.setTranslationZ(focused ? dp(10) : 0);
             ring.setVisibility(focused ? View.VISIBLE : View.INVISIBLE);
-            label.animate().alpha(focused ? 1f : restingAlpha).setDuration(160).start();
+            label.animate().alpha(focused ? 1f : restingAlpha).setDuration(ANIM_MS).start();
             if (focused && section != null) {
                 snapTo(section);
             }
@@ -600,10 +659,10 @@ public class MainActivity extends Activity {
 
         tile.setOnFocusChangeListener((v, focused) -> {
             float scale = focused ? VIDEO_FOCUS_SCALE : 1f;
-            card.animate().scaleX(scale).scaleY(scale).setDuration(160).start();
+            card.animate().scaleX(scale).scaleY(scale).setDuration(ANIM_MS).start();
             card.setTranslationZ(focused ? dp(10) : 0);
             ring.setVisibility(focused ? View.VISIBLE : View.INVISIBLE);
-            title.animate().alpha(focused ? 1f : 0.75f).setDuration(160).start();
+            title.animate().alpha(focused ? 1f : 0.75f).setDuration(ANIM_MS).start();
             if (focused) {
                 snapTo(section);
             }
@@ -646,7 +705,14 @@ public class MainActivity extends Activity {
             return;
         }
         worker.execute(() -> {
+            // Loading every banner is slow, so skip it when nothing was
+            // installed or removed since last time.
+            String fingerprint = Apps.fingerprint(MainActivity.this);
+            if (!fingerprint.isEmpty() && fingerprint.equals(appsFingerprint)) {
+                return;
+            }
             final List<Apps.Entry> loaded = Apps.load(MainActivity.this);
+            appsFingerprint = fingerprint;
             runOnUiThread(() -> onAppsLoaded(loaded));
         });
     }
@@ -668,9 +734,35 @@ public class MainActivity extends Activity {
         if (!prefs.hasFavorites() && !apps.isEmpty()) {
             prefs.saveFavorites(Apps.defaultFavorites(apps));
         }
+        addStreamingAppsToFavorites();
         renderFavorites(focusedKey());
         renderRecents();
         renderAllApps();
+    }
+
+    /** Puts Disney+ and Hulu in Favorites once each, the first time they are seen installed. */
+    private void addStreamingAppsToFavorites() {
+        List<String> saved = prefs.favorites();
+        boolean changed = false;
+        for (String packageName : new String[] {
+                Streaming.DISNEY_PACKAGE, Streaming.HULU_PACKAGE}) {
+            if (prefs.flag(PREF_AUTO_ADDED + packageName)) {
+                continue; // Already done once; respect it if the user removed it since.
+            }
+            for (Apps.Entry entry : apps) {
+                if (entry.packageName().equals(packageName)) {
+                    prefs.saveFlag(PREF_AUTO_ADDED + packageName, true);
+                    if (!saved.contains(entry.key)) {
+                        saved.add(entry.key);
+                        changed = true;
+                    }
+                    break;
+                }
+            }
+        }
+        if (changed) {
+            prefs.saveFavorites(saved);
+        }
     }
 
     /** The app key of whichever tile currently has focus, or null. */
@@ -779,8 +871,9 @@ public class MainActivity extends Activity {
         if (apiKey.isEmpty()) {
             trending.row.removeAllViews();
             secondVideos.root.setVisibility(View.GONE);
-            setSectionMessage(trending, "Add a free YouTube API key to see videos here.\n"
-                    + "On your PC, run the debloat tool and choose \"Set YouTube API key\".");
+            trending.messageAction = () -> toast("Run the tool on your PC and choose option 7");
+            setSectionMessage(trending, "No YouTube key yet, so there are no videos to show.\n"
+                    + "On your PC, run the debloat tool and choose option 7.");
             videosShown = false;
             return;
         }
@@ -819,7 +912,9 @@ public class MainActivity extends Activity {
                     prefs.saveVideoCache(result.toJson());
                     renderVideos(result);
                 } else if (saved == null) {
-                    setSectionMessage(trending, "Could not load videos: " + problem);
+                    trending.messageAction = () -> loadVideos(true);
+                    setSectionMessage(trending, "Could not load videos: " + problem
+                            + "\nPress OK to try again.");
                 }
             });
         });
@@ -892,6 +987,167 @@ public class MainActivity extends Activity {
             startActivity(intent);
         } catch (RuntimeException e) {
             toast("No app on this TV can play YouTube links");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Disney+ and Hulu poster row
+    // ------------------------------------------------------------------
+
+    private void loadPosters(boolean force) {
+        final String key = prefs.text(PREF_TMDB_KEY);
+        if (key.isEmpty()) {
+            posters.row.removeAllViews();
+            posters.messageAction = () -> toast("Run the tool on your PC and choose option 9");
+            setSectionMessage(posters, "No TMDB key yet, so there are no posters to show.\n"
+                    + "On your PC, run the debloat tool and choose option 9.");
+            postersShown = false;
+            return;
+        }
+
+        final List<Streaming.Title> saved = Streaming.fromJson(prefs.text(PREF_POSTERS));
+        final boolean haveSaved = saved != null && !saved.isEmpty();
+        boolean fresh = System.currentTimeMillis() - prefs.time(PREF_POSTERS_TIME)
+                < POSTER_REFRESH_MS;
+        if (haveSaved && !postersShown) {
+            renderPosters(saved);
+        }
+        if ((haveSaved && fresh && !force) || postersLoading || network.isShutdown()) {
+            return;
+        }
+        if (!haveSaved) {
+            posters.messageAction = null;
+            setSectionMessage(posters, "Loading posters...");
+        }
+
+        postersLoading = true;
+        final String region = region();
+        network.execute(() -> {
+            List<Streaming.Title> titles = null;
+            String error = null;
+            try {
+                titles = Streaming.fetch(key, region);
+            } catch (Exception e) {
+                error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            }
+            final List<Streaming.Title> result = titles;
+            final String problem = error;
+            runOnUiThread(() -> {
+                postersLoading = false;
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (result != null && !result.isEmpty()) {
+                    prefs.saveText(PREF_POSTERS, Streaming.toJson(result));
+                    prefs.saveTime(PREF_POSTERS_TIME, System.currentTimeMillis());
+                    renderPosters(result);
+                } else if (!haveSaved) {
+                    posters.messageAction = () -> loadPosters(true);
+                    setSectionMessage(posters, (problem != null
+                            ? "Could not load posters: " + problem
+                            : "TMDB lists nothing for Disney+ or Hulu in this country.")
+                            + "\nPress OK to try again.");
+                }
+            });
+        });
+    }
+
+    private void renderPosters(List<Streaming.Title> titles) {
+        if (posters.row.hasFocus()) {
+            return;
+        }
+        postersShown = true;
+        posters.row.removeAllViews();
+        for (Streaming.Title title : titles) {
+            posters.row.addView(makePosterTile(title), tileParams());
+        }
+        setSectionMessage(posters, null);
+    }
+
+    /** One poster: tall artwork, the title, and which service it is on. */
+    private View makePosterTile(final Streaming.Title item) {
+        final LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setClipChildren(false);
+        tile.setClipToPadding(false);
+        tile.setFocusable(true);
+        tile.setClickable(true);
+
+        final FrameLayout card = new FrameLayout(this);
+        card.setBackground(glass(GLASS, 0, 12));
+        card.setClipToOutline(true);
+
+        ImageView poster = new ImageView(this);
+        poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        card.addView(poster, matchParent());
+        loadThumbnailInto(poster, item.poster);
+
+        final View ring = new View(this);
+        ring.setBackground(glass(0, Color.WHITE, 12, 2));
+        ring.setVisibility(View.INVISIBLE);
+        card.addView(ring, matchParent());
+
+        tile.addView(card, new LinearLayout.LayoutParams(dp(POSTER_W), dp(POSTER_H)));
+
+        final TextView name = new TextView(this);
+        name.setText(item.name);
+        name.setTextColor(Color.WHITE);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        name.setShadowLayer(dp(6), 0, dp(1), 0x99000000);
+        name.setPadding(dp(2), dp(12), dp(2), 0);
+        name.setAlpha(0.75f);
+        tile.addView(name, new LinearLayout.LayoutParams(
+                dp(POSTER_W), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView service = new TextView(this);
+        service.setText(item.service);
+        service.setTextColor(TEXT_DIM);
+        service.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        service.setSingleLine(true);
+        service.setPadding(dp(2), dp(1), dp(2), 0);
+        service.setAlpha(0.6f);
+        tile.addView(service, new LinearLayout.LayoutParams(
+                dp(POSTER_W), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        tile.setOnFocusChangeListener((v, focused) -> {
+            float scale = focused ? VIDEO_FOCUS_SCALE : 1f;
+            card.animate().scaleX(scale).scaleY(scale).setDuration(ANIM_MS).start();
+            card.setTranslationZ(focused ? dp(10) : 0);
+            ring.setVisibility(focused ? View.VISIBLE : View.INVISIBLE);
+            name.animate().alpha(focused ? 1f : 0.75f).setDuration(ANIM_MS).start();
+            if (focused) {
+                snapTo(posters);
+            }
+        });
+        tile.setOnClickListener(v -> openStreamingApp(item));
+        return tile;
+    }
+
+    /**
+     * Opens the official app for a poster. It cannot jump to the exact title,
+     * so the name is shown to make it easy to find.
+     */
+    private void openStreamingApp(Streaming.Title item) {
+        Intent intent = getPackageManager().getLeanbackLaunchIntentForPackage(item.packageName);
+        if (intent == null) {
+            intent = getPackageManager().getLaunchIntentForPackage(item.packageName);
+        }
+        try {
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+                Toast.makeText(this, "Look for \"" + item.name + "\" in " + item.service,
+                        Toast.LENGTH_LONG).show();
+            } else {
+                startActivity(new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("market://details?id=" + item.packageName))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                toast(item.service + " is not installed yet");
+            }
+        } catch (RuntimeException e) {
+            toast(item.service + " could not be opened");
         }
     }
 

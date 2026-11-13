@@ -43,7 +43,9 @@ public class GradientView extends View {
 
     private static final int BUF_W = 160;
     private static final int BUF_H = 90;
-    private static final long FRAME_MS = 40;
+    // The drift is very slow, so 15 frames a second looks the same and leaves
+    // the TV's processor free for the remote.
+    private static final long FRAME_MS = 66;
 
     // Per-blob drift speeds (radians per second) and starting offsets.
     // Full cycles take a few minutes, so the motion is barely noticeable.
