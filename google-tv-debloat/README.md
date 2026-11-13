@@ -53,12 +53,17 @@ Run-Debloat.bat -DryRun
 `GlassHome.apk` is a small home-screen app built for this TV. `glass-home/mockup.png`
 is a design mockup of it, not a photo of the real app.
 
-- **Background:** dark, with soft colours that drift slowly. The top-bar button
-  cycles the colourful themes (Midnight, Ember, Ocean, Forest, Graphite, Pure
-  Dark) and then seven darker one-colour themes (Mono Slate, Indigo, Wine, Moss,
-  Teal, Bronze, Ash). **Motion** turns
-  the drift on or off.
-- **Top bar:** clock and date, plus buttons for All Apps, Settings and Wi-Fi.
+- **Background:** dark, with soft colours that drift slowly.
+- **Top bar:** clock and date, plus buttons for All Apps, TV Settings, Wi-Fi and
+  Customize. An **Update** button appears when a newer build is available.
+- **Customize:** Glass Home's own settings screen.
+  - *Theme* opens a grid with a preview of all 13 themes. Moving onto one shows it
+    full-screen behind the grid; OK keeps it, Back cancels.
+  - *Background motion* turns the drift on or off.
+  - *Rows*: show, hide or reorder each home-screen row (Favorites always shows).
+  - *Hidden apps*: brings back apps hidden from All Apps.
+  - *Mute Disney+ and Hulu ads* and *Glass Home screensaver*: on/off switches.
+  - *Check for updates*: see below.
 - **Favorites row:** your main apps. The focused one grows and shows its name.
 - **Recent row:** apps you opened from Glass Home, newest first. Hidden until you
   have opened something.
@@ -77,7 +82,7 @@ is a design mockup of it, not a photo of the real app.
   it needs.
 - **All Apps:** every app on the TV in a grid. Back closes it.
 - **Hold OK on any app** for: add to or remove from favorites, move left or
-  right, app info, uninstall.
+  right, hide from All Apps, app info, uninstall.
 
 ### Getting a YouTube API key (free)
 
@@ -95,6 +100,16 @@ Treat the key like a password: do not post it anywhere public.
 publish to Android TV, the same lists the Google home screen shows. Option 5
 grants Glass Home the permission for that (`READ_TV_LISTINGS`). If it could not,
 the Continue watching row shows a card: press OK on it to allow it on the TV.
+
+### Self-updating
+
+Glass Home checks `version.json` in this repository (on GitHub) about twice a day
+and when you press *Check for updates*. If it names a newer build, it offers to
+download and install it; Android asks you to confirm, and only accepts a build
+signed with the same key as the one installed. Favorites and settings are kept.
+
+This needs the repository to be **public**, and option 5 of the PC tool to have
+been run once (it allows Glass Home to install its own updates).
 
 The source is in `glass-home/`. To rebuild it you need a JDK and the Android SDK:
 `ANDROID_HOME=/path/to/sdk glass-home/build.sh`.

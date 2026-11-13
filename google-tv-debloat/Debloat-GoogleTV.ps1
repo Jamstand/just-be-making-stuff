@@ -575,6 +575,10 @@ function Invoke-GlassHome {
         Write-Step "         $grant"
         Write-Step 'Glass Home will ask for it on the TV instead.'
     }
+    # Lets its Customize screen switch the ad muter and screensaver on and off.
+    [void](Invoke-Adb shell pm grant $GlassHome android.permission.WRITE_SECURE_SETTINGS)
+    # Lets it install its own updates (it still asks you to confirm each one).
+    [void](Invoke-Adb shell appops set $GlassHome REQUEST_INSTALL_PACKAGES allow)
 
     # Step 2: open it so you can see it before anything else changes.
     [void](Invoke-Adb shell monkey -p $GlassHome -c android.intent.category.LEANBACK_LAUNCHER 1)

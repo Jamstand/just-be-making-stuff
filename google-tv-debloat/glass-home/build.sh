@@ -9,8 +9,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 : "${ANDROID_HOME:?Set ANDROID_HOME to your Android SDK folder}"
 
-VERSION_CODE=8
-VERSION_NAME=1.7
+VERSION_CODE=9
+VERSION_NAME=1.8
+# One line shown to the viewer when the app offers this build as an update.
+RELEASE_NOTES="Customize screen with a theme picker, row and app hiding, and self-updating."
+APK_URL="https://raw.githubusercontent.com/Jamstand/just-be-making-stuff/claude/nifty-knuth-b9brge/google-tv-debloat/GlassHome.apk"
 MIN_SDK=26
 TARGET_SDK=34
 
@@ -53,5 +56,15 @@ fi
     --out "$APK" "$OUT/aligned.apk"
 rm -f "$APK.idsig"
 "$BT/apksigner" verify "$APK"
+
+# The installed app reads this file to find out whether a newer build exists.
+cat > "$HERE/../version.json" <<JSON
+{
+  "versionCode": $VERSION_CODE,
+  "versionName": "$VERSION_NAME",
+  "apk": "$APK_URL",
+  "notes": "$RELEASE_NOTES"
+}
+JSON
 
 echo "Built $APK"

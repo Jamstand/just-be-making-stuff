@@ -10,6 +10,11 @@
     <!-- Only used to fetch the YouTube video rows and their thumbnails. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- Lets the app install its own updates, after the viewer confirms each one. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Lets the Customize screen switch the ad muter and screensaver on and off.
+         Android only honours this after it is granted from a computer over ADB. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
     <!-- Lets the launcher see every app that has a TV or phone launcher entry. -->
     <queries>
