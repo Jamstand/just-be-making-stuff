@@ -32,12 +32,11 @@ has an undo option, and a factory reset restores the TV completely.
 | 2. Replace the home screen | Installs Projectivy Launcher from the Play Store, then turns off the Google TV home screen, which is where the ads and recommendation rows live. It checks the new home screen works and rolls back by itself if it does not. |
 | 3. Undo | Turns everything back on, home screen first. |
 | 4. Save package list | Writes `tv-packages.txt` listing every package on the TV. |
-| 5. Install Glass Home | Installs `GlassHome.apk` (the custom home screen in this folder), shows it to you, then offers to turn off the Google TV home screen so the Home button opens Glass Home. Rolls back by itself if it does not come up. |
+| 5. Install Glass Home | Installs or updates `GlassHome.apk` (the custom home screen in this folder), lets it read your apps' continue-watching lists, shows it to you, then offers to turn off the Google TV home screen so the Home button opens Glass Home. Rolls back by itself if it does not come up. |
 | 6. Install SmartTube | Downloads SmartTube, a third-party open-source YouTube app without ads, from its developer's GitHub page and installs it. Using it goes against YouTube's terms of service. The normal YouTube app stays installed. |
 | 7. Set YouTube API key | Sends a YouTube Data API key to Glass Home so its video rows work, so you do not have to type it with the remote. |
 | 8. Install Disney+ and Hulu | Opens the Play Store page for each official app on the TV. Glass Home adds them to Favorites the first time it sees them. |
-| 9. Set TMDB key | Sends a TMDB key to Glass Home so the Disney+ and Hulu poster row works. |
-| 10. Snappier | Halves (or turns off, or restores) Android's system animations so apps and menus open faster. |
+| 9. Snappier | Halves (or turns off, or restores) Android's system animations so apps and menus open faster. |
 
 To preview without changing anything:
 
@@ -57,15 +56,16 @@ is a design mockup of it, not a photo of the real app.
 - **Favorites row:** your main apps. The focused one grows and shows its name.
 - **Recent row:** apps you opened from Glass Home, newest first. Hidden until you
   have opened something.
-- **Video rows:** *Trending on YouTube* for your country, then *From channels you
-  watch* (new uploads from channels whose videos you opened from Glass Home). Until
-  there is some history, the second row shows popular music. YouTube offers no
-  personal "recommended" feed to outside apps, so this is the closest equivalent.
-  Videos open in SmartTube if it is installed, otherwise in the YouTube app.
-- **Poster row:** *On Disney+ and Hulu* shows popular shows and films on the two
-  services. Pressing OK opens the official app; it cannot jump to the exact title,
-  so the name is shown for you to find. Needs a free TMDB key (option 9). Film and
-  TV data comes from TMDB; this app is not endorsed or certified by TMDB.
+- **Recommended on YouTube:** the recommendations that a YouTube app on the TV
+  (SmartTube or the official one) publishes for whoever is signed in to it. If no
+  app publishes any, this row shows *Trending on YouTube* instead, which needs
+  the YouTube API key (option 7).
+- **From channels you watch:** new uploads from channels whose videos you opened
+  from Glass Home. Needs the YouTube API key; shows popular music until there is
+  some history.
+- **Continue watching:** what Disney+, Hulu and your other apps report you are
+  part-way through, newest first, with a progress bar. Pressing OK resumes that
+  exact title in its app. Apps decide what they report, so some may list nothing.
 - **Moving around:** Down moves through the rows; Back returns to the top. A row
   with nothing to show yet has a message card you can move onto, which says what
   it needs.
@@ -83,12 +83,12 @@ is a design mockup of it, not a photo of the real app.
 
 Treat the key like a password: do not post it anywhere public.
 
-### Getting a TMDB key (free)
+### Permission for the two "from your apps" rows
 
-1. Make an account at <https://www.themoviedb.org/signup> and confirm your email.
-2. Open <https://www.themoviedb.org/settings/api> and request an API key
-   (Developer, personal use).
-3. Copy the **API Key** (32 letters and numbers), run the tool and choose **9**.
+*Recommended on YouTube* and *Continue watching* read lists that other apps
+publish to Android TV, the same lists the Google home screen shows. Option 5
+grants Glass Home the permission for that (`READ_TV_LISTINGS`). If it could not,
+the Continue watching row shows a card: press OK on it to allow it on the TV.
 
 The source is in `glass-home/`. To rebuild it you need a JDK and the Android SDK:
 `ANDROID_HOME=/path/to/sdk glass-home/build.sh`.

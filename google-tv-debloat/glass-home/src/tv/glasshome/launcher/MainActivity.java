@@ -48,20 +48,14 @@ public class MainActivity extends Activity {
 
     /** Sent by the PC tool to hand over the YouTube API key without typing it on the TV. */
     public static final String EXTRA_API_KEY = "youtube_api_key";
-    /** Same, for the TMDB key behind the Disney+ and Hulu poster row. */
-    public static final String EXTRA_TMDB_KEY = "tmdb_api_key";
 
-    private static final String VERSION = "1.2";
-    private static final String PREF_TMDB_KEY = "tmdb_api_key";
-    private static final String PREF_POSTERS = "poster_cache";
-    private static final String PREF_POSTERS_TIME = "poster_cache_time";
+    private static final String VERSION = "1.3";
+    private static final int PERMISSION_REQUEST = 1;
     private static final String PREF_AUTO_ADDED = "auto_added_";
 
     // Sizes in dp. A TV screen is 960 x 540 dp.
     private static final int SIDE_MARGIN = 48;
     private static final int ROWS_TOP_SPACE = 104;
-    private static final int POSTER_W = 104;
-    private static final int POSTER_H = 156;
     private static final int ANIM_MS = 110;
     private static final int FAV_W = 176;
     private static final int FAV_H = 99;
@@ -76,7 +70,7 @@ public class MainActivity extends Activity {
     private static final float VIDEO_FOCUS_SCALE = 1.08f;
 
     private static final long VIDEO_REFRESH_MS = 30 * 60 * 1000L;
-    private static final long POSTER_REFRESH_MS = 6 * 60 * 60 * 1000L;
+
 
     private static final int GLASS = 0x24FFFFFF;
     private static final int GLASS_EDGE = 0x38FFFFFF;
@@ -113,7 +107,7 @@ public class MainActivity extends Activity {
     private RowSection recents;
     private RowSection trending;
     private RowSection secondVideos;
-    private RowSection posters;
+    private RowSection continueWatching;
     private FrameLayout allAppsOverlay;
     private ScrollView allAppsScroll;
     private GridLayout allAppsGrid;
@@ -125,8 +119,10 @@ public class MainActivity extends Activity {
     private boolean recentsDirty = false;
     private boolean videosShown = false;
     private boolean videosLoading = false;
-    private boolean postersShown = false;
-    private boolean postersLoading = false;
+    /** Videos a YouTube app recommends for its signed-in viewer; empty if none publishes any. */
+    private List<TvFeed.Item> recommended = new ArrayList<>();
+    private String recommendedSignature = "";
+    private String continueSignature = null;
     private volatile String appsFingerprint = null;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -186,7 +182,7 @@ public class MainActivity extends Activity {
             renderRecents();
         }
         loadVideos(false);
-        loadPosters(false);
+        loadTvRows();
     }
 
     @Override
@@ -253,19 +249,6 @@ public class MainActivity extends Activity {
             toast(youtubeKey.trim().isEmpty() ? "YouTube key removed" : "YouTube key saved");
             if (trending != null) {
                 loadVideos(true);
-            }
-            accepted = true;
-        }
-        String tmdbKey = intent.getStringExtra(EXTRA_TMDB_KEY);
-        if (tmdbKey != null) {
-            intent.removeExtra(EXTRA_TMDB_KEY);
-            prefs.saveText(PREF_TMDB_KEY, tmdbKey.trim());
-            prefs.saveText(PREF_POSTERS, "");
-            prefs.saveTime(PREF_POSTERS_TIME, 0L);
-            postersShown = false;
-            toast(tmdbKey.trim().isEmpty() ? "TMDB key removed" : "TMDB key saved");
-            if (posters != null) {
-                loadPosters(true);
             }
             accepted = true;
         }
@@ -340,13 +323,12 @@ public class MainActivity extends Activity {
         recents = addSection(column, "Recent");
         trending = addSection(column, "Trending on YouTube");
         secondVideos = addSection(column, "For You");
-        posters = addSection(column, "On Disney+ and Hulu");
+        continueWatching = addSection(column, "Continue watching");
         recents.root.setVisibility(View.GONE);
         secondVideos.root.setVisibility(View.GONE);
 
         TextView tip = new TextView(this);
-        tip.setText("Hold OK on an app for options.  Glass Home " + VERSION
-                + ".  Film and TV data from TMDB; this app is not endorsed or certified by TMDB.");
+        tip.setText("Hold OK on an app for options.  Glass Home " + VERSION);
         tip.setTextColor(0x66FFFFFF);
         tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         tip.setPadding(dp(SIDE_MARGIN + 8), dp(10), dp(SIDE_MARGIN), 0);
@@ -673,6 +655,9 @@ public class MainActivity extends Activity {
 
     private void loadThumbnailInto(final ImageView view, final String address) {
         view.setTag(address);
+        if (address == null || address.isEmpty()) {
+            return;
+        }
         Bitmap cached = thumbnails.get(address);
         if (cached != null) {
             view.setImageBitmap(cached);
@@ -682,7 +667,7 @@ public class MainActivity extends Activity {
             return;
         }
         network.execute(() -> {
-            final Bitmap bitmap = Videos.loadThumbnail(address);
+            final Bitmap bitmap = TvFeed.loadArt(MainActivity.this, address);
             if (bitmap == null) {
                 return;
             }
@@ -745,7 +730,7 @@ public class MainActivity extends Activity {
         List<String> saved = prefs.favorites();
         boolean changed = false;
         for (String packageName : new String[] {
-                Streaming.DISNEY_PACKAGE, Streaming.HULU_PACKAGE}) {
+                Apps.DISNEY_PACKAGE, Apps.HULU_PACKAGE}) {
             if (prefs.flag(PREF_AUTO_ADDED + packageName)) {
                 continue; // Already done once; respect it if the user removed it since.
             }
@@ -869,8 +854,12 @@ public class MainActivity extends Activity {
     private void loadVideos(boolean force) {
         final String apiKey = prefs.apiKey();
         if (apiKey.isEmpty()) {
-            trending.row.removeAllViews();
             secondVideos.root.setVisibility(View.GONE);
+            videosShown = false;
+            if (showingRecommended()) {
+                return;
+            }
+            trending.row.removeAllViews();
             trending.messageAction = () -> toast("Run the tool on your PC and choose option 7");
             setSectionMessage(trending, "No YouTube key yet, so there are no videos to show.\n"
                     + "On your PC, run the debloat tool and choose option 7.");
@@ -886,7 +875,8 @@ public class MainActivity extends Activity {
         if ((saved != null && fresh && !force) || videosLoading || network.isShutdown()) {
             return;
         }
-        if (saved == null) {
+        if (saved == null && !showingRecommended()) {
+            trending.messageAction = null;
             setSectionMessage(trending, "Loading videos...");
         }
 
@@ -911,7 +901,7 @@ public class MainActivity extends Activity {
                 if (result != null) {
                     prefs.saveVideoCache(result.toJson());
                     renderVideos(result);
-                } else if (saved == null) {
+                } else if (saved == null && !showingRecommended()) {
                     trending.messageAction = () -> loadVideos(true);
                     setSectionMessage(trending, "Could not load videos: " + problem
                             + "\nPress OK to try again.");
@@ -927,12 +917,18 @@ public class MainActivity extends Activity {
         }
         videosShown = true;
 
-        trending.row.removeAllViews();
-        for (Videos.Video video : feed.trending) {
-            trending.row.addView(makeVideoTile(video, trending), tileParams());
+        // Trending is only the stand-in for when no YouTube app on the TV
+        // publishes personal recommendations.
+        if (!showingRecommended()) {
+            trending.title.setText("Trending on YouTube");
+            trending.row.removeAllViews();
+            for (Videos.Video video : feed.trending) {
+                trending.row.addView(makeVideoTile(video, trending), tileParams());
+            }
+            trending.messageAction = null;
+            setSectionMessage(trending, feed.trending.isEmpty()
+                    ? "YouTube returned no trending videos for this country." : null);
         }
-        setSectionMessage(trending, feed.trending.isEmpty()
-                ? "YouTube returned no trending videos for this country." : null);
 
         secondVideos.row.removeAllViews();
         for (Videos.Video video : feed.second) {
@@ -991,81 +987,107 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------------
-    // Disney+ and Hulu poster row
+    // Rows read from other apps: Recommended on YouTube, Continue watching
     // ------------------------------------------------------------------
 
-    private void loadPosters(boolean force) {
-        final String key = prefs.text(PREF_TMDB_KEY);
-        if (key.isEmpty()) {
-            posters.row.removeAllViews();
-            posters.messageAction = () -> toast("Run the tool on your PC and choose option 9");
-            setSectionMessage(posters, "No TMDB key yet, so there are no posters to show.\n"
-                    + "On your PC, run the debloat tool and choose option 9.");
-            postersShown = false;
+    private boolean showingRecommended() {
+        return !recommended.isEmpty();
+    }
+
+    /** Reads what the TV's apps have published, off the main thread, then draws both rows. */
+    private void loadTvRows() {
+        if (!TvFeed.hasPermission(this)) {
+            continueSignature = null;
+            continueWatching.row.removeAllViews();
+            continueWatching.messageAction = this::askForTvPermission;
+            setSectionMessage(continueWatching, "Glass Home needs permission to read what "
+                    + "your apps list as \"continue watching\".\nPress OK to allow it.");
             return;
         }
-
-        final List<Streaming.Title> saved = Streaming.fromJson(prefs.text(PREF_POSTERS));
-        final boolean haveSaved = saved != null && !saved.isEmpty();
-        boolean fresh = System.currentTimeMillis() - prefs.time(PREF_POSTERS_TIME)
-                < POSTER_REFRESH_MS;
-        if (haveSaved && !postersShown) {
-            renderPosters(saved);
-        }
-        if ((haveSaved && fresh && !force) || postersLoading || network.isShutdown()) {
+        if (worker.isShutdown()) {
             return;
         }
-        if (!haveSaved) {
-            posters.messageAction = null;
-            setSectionMessage(posters, "Loading posters...");
-        }
-
-        postersLoading = true;
-        final String region = region();
-        network.execute(() -> {
-            List<Streaming.Title> titles = null;
-            String error = null;
-            try {
-                titles = Streaming.fetch(key, region);
-            } catch (Exception e) {
-                error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            }
-            final List<Streaming.Title> result = titles;
-            final String problem = error;
+        worker.execute(() -> {
+            final List<TvFeed.Item> watching = TvFeed.watchNext(MainActivity.this);
+            final List<TvFeed.Item> suggested = TvFeed.youtubeRecommended(MainActivity.this);
             runOnUiThread(() -> {
-                postersLoading = false;
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                if (result != null && !result.isEmpty()) {
-                    prefs.saveText(PREF_POSTERS, Streaming.toJson(result));
-                    prefs.saveTime(PREF_POSTERS_TIME, System.currentTimeMillis());
-                    renderPosters(result);
-                } else if (!haveSaved) {
-                    posters.messageAction = () -> loadPosters(true);
-                    setSectionMessage(posters, (problem != null
-                            ? "Could not load posters: " + problem
-                            : "TMDB lists nothing for Disney+ or Hulu in this country.")
-                            + "\nPress OK to try again.");
-                }
+                renderContinueWatching(watching);
+                renderRecommended(suggested);
             });
         });
     }
 
-    private void renderPosters(List<Streaming.Title> titles) {
-        if (posters.row.hasFocus()) {
-            return;
+    private void askForTvPermission() {
+        try {
+            requestPermissions(new String[] {TvFeed.PERMISSION}, PERMISSION_REQUEST);
+        } catch (RuntimeException e) {
+            toast("Run the tool on your PC and choose option 5 to allow this");
         }
-        postersShown = true;
-        posters.row.removeAllViews();
-        for (Streaming.Title title : titles) {
-            posters.row.addView(makePosterTile(title), tileParams());
-        }
-        setSectionMessage(posters, null);
     }
 
-    /** One poster: tall artwork, the title, and which service it is on. */
-    private View makePosterTile(final Streaming.Title item) {
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode != PERMISSION_REQUEST) {
+            return;
+        }
+        if (TvFeed.hasPermission(this)) {
+            loadTvRows();
+        } else {
+            toast("Not allowed. Run the tool on your PC and choose option 5 to allow it.");
+        }
+    }
+
+    private void renderContinueWatching(List<TvFeed.Item> items) {
+        String signature = TvFeed.signature(items);
+        if (signature.equals(continueSignature) || continueWatching.row.hasFocus()) {
+            return;
+        }
+        continueSignature = signature;
+        continueWatching.row.removeAllViews();
+        for (TvFeed.Item item : items) {
+            continueWatching.row.addView(makeProgramTile(item, continueWatching, true),
+                    tileParams());
+        }
+        continueWatching.messageAction = null;
+        setSectionMessage(continueWatching, items.isEmpty()
+                ? "Nothing to continue yet.\nShows and films you start in Disney+, Hulu and "
+                        + "other apps appear here once those apps report them."
+                : null);
+    }
+
+    private void renderRecommended(List<TvFeed.Item> items) {
+        String signature = TvFeed.signature(items);
+        if (signature.equals(recommendedSignature) || trending.row.hasFocus()) {
+            return;
+        }
+        recommendedSignature = signature;
+        boolean hadRecommended = showingRecommended();
+        recommended = items;
+        if (items.isEmpty()) {
+            if (hadRecommended) {
+                // The app stopped publishing them: fall back to trending.
+                videosShown = false;
+                loadVideos(false);
+            }
+            return;
+        }
+        trending.title.setText("Recommended on YouTube");
+        trending.row.removeAllViews();
+        for (TvFeed.Item item : items) {
+            trending.row.addView(makeProgramTile(item, trending, false), tileParams());
+        }
+        trending.messageAction = null;
+        setSectionMessage(trending, null);
+    }
+
+    /** One entry published by another app: artwork, title, and a progress bar if known. */
+    private View makeProgramTile(final TvFeed.Item item, final RowSection section,
+            boolean showAppName) {
         final LinearLayout tile = new LinearLayout(this);
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setClipChildren(false);
@@ -1077,77 +1099,118 @@ public class MainActivity extends Activity {
         card.setBackground(glass(GLASS, 0, 12));
         card.setClipToOutline(true);
 
-        ImageView poster = new ImageView(this);
-        poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        card.addView(poster, matchParent());
-        loadThumbnailInto(poster, item.poster);
+        ImageView art = new ImageView(this);
+        art.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        card.addView(art, matchParent());
+        loadThumbnailInto(art, item.art);
+
+        if (item.progress >= 0) {
+            View track = new View(this);
+            track.setBackgroundColor(0x66000000);
+            FrameLayout.LayoutParams trackParams = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(4));
+            trackParams.gravity = Gravity.BOTTOM;
+            card.addView(track, trackParams);
+
+            View bar = new View(this);
+            bar.setBackgroundColor(Color.WHITE);
+            FrameLayout.LayoutParams barParams = new FrameLayout.LayoutParams(
+                    dp(VIDEO_W * item.progress / 100f), dp(4));
+            barParams.gravity = Gravity.BOTTOM | Gravity.START;
+            card.addView(bar, barParams);
+        }
 
         final View ring = new View(this);
         ring.setBackground(glass(0, Color.WHITE, 12, 2));
         ring.setVisibility(View.INVISIBLE);
         card.addView(ring, matchParent());
 
-        tile.addView(card, new LinearLayout.LayoutParams(dp(POSTER_W), dp(POSTER_H)));
+        tile.addView(card, new LinearLayout.LayoutParams(dp(VIDEO_W), dp(VIDEO_H)));
 
-        final TextView name = new TextView(this);
-        name.setText(item.name);
-        name.setTextColor(Color.WHITE);
-        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        name.setSingleLine(true);
-        name.setEllipsize(TextUtils.TruncateAt.END);
-        name.setShadowLayer(dp(6), 0, dp(1), 0x99000000);
-        name.setPadding(dp(2), dp(12), dp(2), 0);
-        name.setAlpha(0.75f);
-        tile.addView(name, new LinearLayout.LayoutParams(
-                dp(POSTER_W), ViewGroup.LayoutParams.WRAP_CONTENT));
+        final TextView title = new TextView(this);
+        title.setText(item.title);
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        title.setMaxLines(2);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setShadowLayer(dp(6), 0, dp(1), 0x99000000);
+        title.setPadding(dp(2), dp(11), dp(2), 0);
+        title.setAlpha(0.75f);
+        tile.addView(title, new LinearLayout.LayoutParams(
+                dp(VIDEO_W), ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView service = new TextView(this);
-        service.setText(item.service);
-        service.setTextColor(TEXT_DIM);
-        service.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        service.setSingleLine(true);
-        service.setPadding(dp(2), dp(1), dp(2), 0);
-        service.setAlpha(0.6f);
-        tile.addView(service, new LinearLayout.LayoutParams(
-                dp(POSTER_W), ViewGroup.LayoutParams.WRAP_CONTENT));
+        // Second line: the episode or channel, and for continue-watching the app it is in.
+        String detail = item.subtitle;
+        if (showAppName) {
+            String appName = appLabel(item.packageName);
+            if (!appName.isEmpty()) {
+                detail = detail.isEmpty() ? appName : appName + "  -  " + detail;
+            }
+        }
+        if (!detail.isEmpty()) {
+            TextView second = new TextView(this);
+            second.setText(detail);
+            second.setTextColor(TEXT_DIM);
+            second.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            second.setSingleLine(true);
+            second.setEllipsize(TextUtils.TruncateAt.END);
+            second.setPadding(dp(2), dp(2), dp(2), 0);
+            second.setAlpha(0.6f);
+            tile.addView(second, new LinearLayout.LayoutParams(
+                    dp(VIDEO_W), ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
 
         tile.setOnFocusChangeListener((v, focused) -> {
             float scale = focused ? VIDEO_FOCUS_SCALE : 1f;
             card.animate().scaleX(scale).scaleY(scale).setDuration(ANIM_MS).start();
             card.setTranslationZ(focused ? dp(10) : 0);
             ring.setVisibility(focused ? View.VISIBLE : View.INVISIBLE);
-            name.animate().alpha(focused ? 1f : 0.75f).setDuration(ANIM_MS).start();
+            title.animate().alpha(focused ? 1f : 0.75f).setDuration(ANIM_MS).start();
             if (focused) {
-                snapTo(posters);
+                snapTo(section);
             }
         });
-        tile.setOnClickListener(v -> openStreamingApp(item));
+        tile.setOnClickListener(v -> openProgram(item));
         return tile;
     }
 
-    /**
-     * Opens the official app for a poster. It cannot jump to the exact title,
-     * so the name is shown to make it easy to find.
-     */
-    private void openStreamingApp(Streaming.Title item) {
-        Intent intent = getPackageManager().getLeanbackLaunchIntentForPackage(item.packageName);
-        if (intent == null) {
-            intent = getPackageManager().getLaunchIntentForPackage(item.packageName);
+    private String appLabel(String packageName) {
+        for (Apps.Entry entry : apps) {
+            if (entry.packageName().equals(packageName)) {
+                return entry.label;
+            }
         }
+        return "";
+    }
+
+    /** Opens an entry using the link its app supplied, which lands on that exact title. */
+    private void openProgram(TvFeed.Item item) {
         try {
-            if (intent != null) {
+            if (!item.intentUri.isEmpty()) {
+                Intent intent = Intent.parseUri(item.intentUri, Intent.URI_INTENT_SCHEME);
+                // A link with no target goes to the app that published it.
+                if (intent.getComponent() == null && intent.getPackage() == null) {
+                    intent.setPackage(item.packageName);
+                }
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(intent);
-                Toast.makeText(this, "Look for \"" + item.name + "\" in " + item.service,
-                        Toast.LENGTH_LONG).show();
+                return;
+            }
+        } catch (Exception e) {
+            // Fall through to opening the app itself.
+        }
+        Intent fallback = getPackageManager().getLeanbackLaunchIntentForPackage(item.packageName);
+        if (fallback == null) {
+            fallback = getPackageManager().getLaunchIntentForPackage(item.packageName);
+        }
+        try {
+            if (fallback != null) {
+                startActivity(fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             } else {
-                startActivity(new Intent(Intent.ACTION_VIEW,
-                        Uri.parse("market://details?id=" + item.packageName))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                toast(item.service + " is not installed yet");
+                toast("That app could not be opened");
             }
         } catch (RuntimeException e) {
-            toast(item.service + " could not be opened");
+            toast("That app could not be opened");
         }
     }
 

@@ -51,6 +51,9 @@ final class Apps {
 
     private static final int DEFAULT_FAVORITE_COUNT = 6;
 
+    static final String DISNEY_PACKAGE = "com.disney.disneyplus";
+    static final String HULU_PACKAGE = "com.hulu.livingroomplus";
+
     /** Every app with a TV launcher entry, then phone-style apps that lack one. Sorted by name. */
     static List<Entry> load(Context context) {
         PackageManager pm = context.getPackageManager();

@@ -236,7 +236,7 @@ final class Videos {
         return get(address, null);
     }
 
-    /** HTTP GET returning the body as text. Also used for the poster row. */
+    /** HTTP GET returning the body as text, optionally with a bearer token. */
     static String get(String address, String bearerToken) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
         try {

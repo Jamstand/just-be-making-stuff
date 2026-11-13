@@ -12,8 +12,7 @@
       6. Install SmartTube, a third-party YouTube app without ads
       7. Give Glass Home a YouTube API key for its video rows
       8. Install the official Disney+ and Hulu apps
-      9. Give Glass Home a TMDB key for its Disney+ and Hulu poster row
-     10. Shorten system animations so the TV feels snappier
+      9. Shorten system animations so the TV feels snappier
 
     Nothing is permanently deleted. Apps are disabled for the current user only,
     option 3 turns them back on, and a factory reset restores the TV completely.
@@ -564,6 +563,14 @@ function Invoke-GlassHome {
     Write-Ok 'Glass Home is installed.'
     # Pre-compile it so it is quick from the first press, instead of warming up.
     [void](Invoke-Adb shell cmd package compile -m speed -f $GlassHome)
+    # Lets it read the "continue watching" and recommendation lists that your
+    # apps publish, the same lists the Google home screen shows.
+    $grant = Invoke-Adb shell pm grant $GlassHome android.permission.READ_TV_LISTINGS
+    if ($grant) {
+        Write-Warn 'Could not pre-approve the "continue watching" permission:'
+        Write-Step "         $grant"
+        Write-Step 'Glass Home will ask for it on the TV instead.'
+    }
 
     # Step 2: open it so you can see it before anything else changes.
     [void](Invoke-Adb shell monkey -p $GlassHome -c android.intent.category.LEANBACK_LAUNCHER 1)
@@ -663,7 +670,11 @@ function Invoke-SmartTube {
     Write-Ok 'SmartTube is installed.'
     Write-Step 'Find it in All Apps on Glass Home. Hold OK on it to add it to favorites.'
     Write-Step 'Videos opened from the Glass Home video rows will play in it.'
-    Write-Step 'To sign in, open SmartTube and use its own sign-in screen.'
+    Write-Step 'For the "Recommended on YouTube" row on Glass Home:'
+    Write-Step '  1. Open SmartTube and sign in with its own sign-in screen.'
+    Write-Step '  2. In SmartTube settings, look for the home screen channels /'
+    Write-Step '     recommendations option and make sure it is turned on.'
+    Write-Step '  3. Go back to Glass Home. The row can take a while to fill.'
 }
 
 # ---------------------------------------------------------------------------
@@ -761,55 +772,7 @@ function Invoke-StreamingApps {
 }
 
 # ---------------------------------------------------------------------------
-# Option 9: give Glass Home a TMDB key for the Disney+ and Hulu poster row
-# ---------------------------------------------------------------------------
-function Invoke-SetTmdbKey {
-    Write-Title 'Set TMDB key (Disney+ and Hulu posters)'
-    if ((Get-InstalledPackages) -notcontains $GlassHome) {
-        Write-Bad 'Glass Home is not installed on the TV yet. Run option 5 first.'
-        return
-    }
-    Write-Step 'The poster row gets its list of shows from The Movie Database (TMDB),'
-    Write-Step 'a free site that tracks what is on each streaming service.'
-    Write-Step 'To get a key:'
-    Write-Step '  1. Go to https://www.themoviedb.org/signup and make a free account.'
-    Write-Step '  2. Confirm your email, then sign in.'
-    Write-Step '  3. Go to https://www.themoviedb.org/settings/api'
-    Write-Step '  4. Request an API key. Choose "Developer", personal use.'
-    Write-Step '     For the app name and URL, "Glass Home" and any web address work.'
-    Write-Step '  5. Copy the "API Key" (32 letters and numbers).'
-    Write-Step 'The key is sent straight to your TV over your own network.'
-    Write-Host ''
-    $key = (Read-Host '  Paste the key here (or just press Enter to cancel)').Trim()
-    if (-not $key) {
-        Write-Step 'Cancelled.'
-        return
-    }
-    if ($key -notmatch '^[0-9A-Za-z_\.\-]+$') {
-        Write-Bad 'That contains characters a TMDB key never has. Nothing was sent.'
-        return
-    }
-    if (($key -notmatch '^[0-9a-f]{32}$') -and ($key -notmatch '^eyJ')) {
-        Write-Warn 'That does not look like a TMDB key (32 letters and numbers).'
-        if (-not (Read-YesNo 'Send it anyway?' $false)) { return }
-    }
-    if ($script:IsDryRun) {
-        Write-Step '[dry run] would send the key to Glass Home on the TV'
-        return
-    }
-    $out = Invoke-Adb shell am start -n "$GlassHome/.MainActivity" --es tmdb_api_key $key
-    if ($out -match 'Error') {
-        Write-Bad 'The TV did not accept it:'
-        Write-Step "         $out"
-        return
-    }
-    Write-Ok 'Key sent. The TV should say "TMDB key saved".'
-    Write-Step 'The poster row is the last row: keep pressing Down on the remote.'
-    Write-Step 'If it says "Could not load posters", tell Claude the exact message.'
-}
-
-# ---------------------------------------------------------------------------
-# Option 10: faster system animations
+# Option 9: faster system animations
 # ---------------------------------------------------------------------------
 function Invoke-Snappier {
     Write-Title 'Make the TV feel snappier'
@@ -942,8 +905,7 @@ while ($true) {
     Write-Step '6. Install SmartTube (YouTube without ads, third-party)'
     Write-Step '7. Set the YouTube API key for the Glass Home video rows'
     Write-Step '8. Install Disney+ and Hulu (official apps)'
-    Write-Step '9. Set the TMDB key for the Disney+ and Hulu poster row'
-    Write-Step '10. Make the TV feel snappier (faster animations)'
+    Write-Step '9. Make the TV feel snappier (faster animations)'
     Write-Step 'q. Quit'
     Write-Host ''
     $choice = (Read-Host '  Choose').Trim().ToLower()
@@ -956,13 +918,12 @@ while ($true) {
         '6' { Invoke-SmartTube }
         '7' { Invoke-SetYouTubeKey }
         '8' { Invoke-StreamingApps }
-        '9' { Invoke-SetTmdbKey }
-        '10' { Invoke-Snappier }
+        '9' { Invoke-Snappier }
         'q' {
             [void](Invoke-AdbRaw disconnect $script:Serial)
             Write-Step 'Disconnected. Bye.'
             exit 0
         }
-        default { Write-Step 'Type a number from 1 to 10, or q.' }
+        default { Write-Step 'Type a number from 1 to 9, or q.' }
     }
 }
