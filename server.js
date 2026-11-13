@@ -1129,6 +1129,10 @@ app.get('/photo-ai', (req, res) => res.sendFile(path.join(__dirname, 'public', '
 // Videography / photography / cinematography portfolio site.
 app.get('/portfolio', (req, res) => res.sendFile(path.join(__dirname, 'public', 'portfolio.html')));
 
+// ── BREAKLINE ────────────────────────────────────────────────────────────────
+// Original browser FPS: momentum movement, destructible voxel city, callable Rig.
+app.get('/breakline', (req, res) => res.sendFile(path.join(__dirname, 'public', 'breakline.html')));
+
 // ── Claude Design (Max ed.) ──────────────────────────────────────────────────
 //
 // A small single-player clone of the iteration loop at claude.ai/design:
