@@ -49,7 +49,7 @@ public class MainActivity extends Activity {
     /** Sent by the PC tool to hand over the YouTube API key without typing it on the TV. */
     public static final String EXTRA_API_KEY = "youtube_api_key";
 
-    private static final String VERSION = "1.3";
+    private static final String VERSION = "1.4";
     private static final int PERMISSION_REQUEST = 1;
     private static final String PREF_AUTO_ADDED = "auto_added_";
 

@@ -13,6 +13,9 @@
       7. Give Glass Home a YouTube API key for its video rows
       8. Install the official Disney+ and Hulu apps
       9. Shorten system animations so the TV feels snappier
+     10. Block ads and trackers across apps with an ad-blocking DNS service
+     11. Use Glass Home as the screensaver
+     12. Install an app for playing your own media
 
     Nothing is permanently deleted. Apps are disabled for the current user only,
     option 3 turns them back on, and a factory reset restores the TV completely.
@@ -812,6 +815,176 @@ function Invoke-Snappier {
 }
 
 # ---------------------------------------------------------------------------
+# Option 10: block ads and trackers with an ad-blocking DNS service
+# ---------------------------------------------------------------------------
+function Invoke-AdBlockDns {
+    Write-Title 'Block ads and trackers (Private DNS)'
+    $adguard = 'dns.adguard-dns.com'
+    $mode = Invoke-Adb shell settings get global private_dns_mode
+    $host_ = Invoke-Adb shell settings get global private_dns_specifier
+    Write-Step 'Every app looks up web addresses through a DNS service. Pointing the TV'
+    Write-Step 'at one that refuses known ad and tracking addresses blocks many ads and'
+    Write-Step 'trackers in every app at once. It uses AdGuard DNS, a free public service.'
+    Write-Step 'It does NOT remove ads that are part of the video itself (Disney+, Hulu,'
+    Write-Step 'the official YouTube app). If an app stops loading, switch it back off.'
+    Write-Step "Current setting: mode=$mode  server=$host_"
+    Write-Host ''
+    Write-Step '  1. On  (use AdGuard DNS)'
+    Write-Step '  2. Off (back to the normal automatic setting)'
+    $choice = (Read-Host '  Choose 1 or 2 (Enter to cancel)').Trim()
+    if ($choice -ne '1' -and $choice -ne '2') {
+        Write-Step 'Cancelled.'
+        return
+    }
+    if ($script:IsDryRun) {
+        Write-Step '[dry run] would change the Private DNS setting'
+        return
+    }
+    if ($choice -eq '1') {
+        [void](Invoke-Adb shell settings put global private_dns_specifier $adguard)
+        [void](Invoke-Adb shell settings put global private_dns_mode hostname)
+    } else {
+        [void](Invoke-Adb shell settings put global private_dns_mode opportunistic)
+        [void](Invoke-Adb shell settings delete global private_dns_specifier)
+    }
+    Start-Sleep -Seconds 4
+    $after = Invoke-Adb shell settings get global private_dns_mode
+    # Make sure the TV can still reach the internet with the new setting.
+    $ping = Invoke-Adb shell ping -c 1 -W 5 google.com
+    if ($ping -match '1 received|1 packets received|bytes from') {
+        Write-Ok "Private DNS mode is now '$after' and the TV is online."
+    } elseif ($choice -eq '1') {
+        Write-Warn 'The TV could not get online with ad blocking on, so it was switched back off.'
+        [void](Invoke-Adb shell settings put global private_dns_mode opportunistic)
+        [void](Invoke-Adb shell settings delete global private_dns_specifier)
+        Write-Step 'Your network or internet provider may block this kind of DNS.'
+    } else {
+        Write-Warn "Private DNS mode is now '$after', but the online check failed. Check the TV's Wi-Fi."
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Option 11: use Glass Home as the screensaver
+# ---------------------------------------------------------------------------
+function Invoke-Screensaver {
+    Write-Title 'Glass Home screensaver'
+    if ((Get-InstalledPackages) -notcontains $GlassHome) {
+        Write-Bad 'Glass Home is not installed on the TV yet. Run option 5 first.'
+        return
+    }
+    $ours = "$GlassHome/.ClockDream"
+    $saved = Join-Path $script:Root 'screensaver-previous.txt'
+    $current = Invoke-Adb shell settings get secure screensaver_components
+    Write-Step 'When the TV sits idle it shows a screensaver. This swaps Google''s'
+    Write-Step 'ambient mode for the Glass Home one: the drifting gradient and a large'
+    Write-Step 'clock that moves every minute.'
+    Write-Step "Current screensaver: $current"
+    Write-Host ''
+    Write-Step '  1. Use the Glass Home screensaver'
+    Write-Step '  2. Put the previous screensaver back'
+    Write-Step '  3. Preview the Glass Home screensaver now'
+    $choice = (Read-Host '  Choose 1, 2 or 3 (Enter to cancel)').Trim()
+    if ($script:IsDryRun -and ($choice -eq '1' -or $choice -eq '2')) {
+        Write-Step '[dry run] would change the screensaver setting'
+        return
+    }
+    if ($choice -eq '1') {
+        if ($current -and $current -ne 'null' -and $current -ne $ours) {
+            Set-Content -Path $saved -Value $current -Encoding ASCII
+        }
+        [void](Invoke-Adb shell settings put secure screensaver_components $ours)
+        [void](Invoke-Adb shell settings put secure screensaver_enabled 1)
+        [void](Invoke-Adb shell settings put secure screensaver_activate_on_sleep 1)
+        $after = Invoke-Adb shell settings get secure screensaver_components
+        if ($after -eq $ours) {
+            Write-Ok 'Glass Home is now the screensaver. Choose 3 next time to preview it.'
+            Write-Step 'If option 1 (debloat) turned off the Ambient mode screensaver, that is fine.'
+        } else {
+            Write-Warn "The TV reports '$after'. It may not allow changing the screensaver."
+        }
+    } elseif ($choice -eq '2') {
+        $previous = $null
+        if (Test-Path $saved) { $previous = (Get-Content $saved -Raw).Trim() }
+        if ($previous) {
+            [void](Invoke-Adb shell settings put secure screensaver_components $previous)
+            Remove-Item $saved -Force -ErrorAction SilentlyContinue
+            Write-Ok "Screensaver put back to $previous"
+        } else {
+            [void](Invoke-Adb shell settings delete secure screensaver_components)
+            Write-Ok 'Screensaver setting cleared, so the TV uses its default.'
+        }
+    } elseif ($choice -eq '3') {
+        [void](Invoke-Adb shell am start -n "com.android.systemui/.Somnambulator")
+        Write-Step 'If Glass Home is the selected screensaver it should be showing now.'
+        Write-Step 'Press any button on the remote to leave it.'
+    } else {
+        Write-Step 'Cancelled.'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Option 12: apps for playing your own films, shows and music
+# ---------------------------------------------------------------------------
+function Invoke-MediaApps {
+    Write-Title 'Play your own media'
+    Write-Step 'Three free, official apps from the Play Store. Pick what fits:'
+    Write-Host ''
+    Write-Step '  1. VLC       Simplest. Plays files from a USB drive or a shared folder'
+    Write-Step '               on your PC. No server to set up. Just a file browser.'
+    Write-Step '  2. Jellyfin  A proper library with posters and resume. Free and open'
+    Write-Step '               source. Needs the Jellyfin server installed on your PC.'
+    Write-Step '  3. Plex      Like Jellyfin, more polished, needs a Plex account and'
+    Write-Step '               the Plex server on your PC. Some features are paid.'
+    $choice = (Read-Host '  Choose 1, 2 or 3 (Enter to cancel)').Trim()
+    $app = $null
+    if ($choice -eq '1') { $app = @{ Id = 'org.videolan.vlc';       Name = 'VLC' } }
+    if ($choice -eq '2') { $app = @{ Id = 'org.jellyfin.androidtv'; Name = 'Jellyfin' } }
+    if ($choice -eq '3') { $app = @{ Id = 'com.plexapp.android';    Name = 'Plex' } }
+    if ($null -eq $app) {
+        Write-Step 'Cancelled.'
+        return
+    }
+    if ($script:IsDryRun) {
+        Write-Step ('[dry run] would open the Play Store page for ' + $app.Name)
+        return
+    }
+    if ((Get-InstalledPackages) -contains $app.Id) {
+        Write-Ok ($app.Name + ' is already installed.')
+    } else {
+        [void](Invoke-Adb shell am start -a android.intent.action.VIEW -d ("market://details?id=" + $app.Id))
+        Write-Step ('The Play Store page for ' + $app.Name + ' should be open on the TV.')
+        Write-Step 'Press Install with the remote and wait for it to finish.'
+        [void](Read-Host '  Press Enter here when it is done')
+        if ((Get-InstalledPackages) -contains $app.Id) {
+            Write-Ok ($app.Name + ' is installed. Hold OK on it in All Apps to add it to Favorites.')
+        } else {
+            Write-Warn ($app.Name + ' does not appear to be installed. You can run this again later.')
+        }
+    }
+    Write-Host ''
+    if ($choice -eq '1') {
+        Write-Step 'To play files from this PC with VLC:'
+        Write-Step '  1. On the PC, right-click the folder with your videos > Properties >'
+        Write-Step '     Sharing > Share, and share it with your Windows account.'
+        Write-Step '  2. On the TV, open VLC > Browsing > Local Network. Pick this PC and'
+        Write-Step '     sign in with your Windows user name and password.'
+    } elseif ($choice -eq '2') {
+        Write-Step 'To set up Jellyfin:'
+        Write-Step '  1. On the PC, install the server from https://jellyfin.org/downloads'
+        Write-Step '  2. Follow its setup page and add the folders with your films and shows.'
+        Write-Step '  3. On the TV, open Jellyfin. It should find the server by itself;'
+        Write-Step '     if not, enter http://<this PC''s IP address>:8096'
+        Write-Step 'The PC has to be on for the TV to play anything.'
+    } else {
+        Write-Step 'To set up Plex:'
+        Write-Step '  1. On the PC, install Plex Media Server from https://www.plex.tv/media-server-downloads'
+        Write-Step '  2. Sign in and add the folders with your films and shows.'
+        Write-Step '  3. On the TV, open Plex and sign in with the same account.'
+        Write-Step 'The PC has to be on for the TV to play anything.'
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Option 3: undo
 # ---------------------------------------------------------------------------
 function Invoke-Restore {
@@ -906,6 +1079,9 @@ while ($true) {
     Write-Step '7. Set the YouTube API key for the Glass Home video rows'
     Write-Step '8. Install Disney+ and Hulu (official apps)'
     Write-Step '9. Make the TV feel snappier (faster animations)'
+    Write-Step '10. Block ads and trackers across apps (Private DNS)'
+    Write-Step '11. Use Glass Home as the screensaver'
+    Write-Step '12. Play your own media (VLC, Jellyfin or Plex)'
     Write-Step 'q. Quit'
     Write-Host ''
     $choice = (Read-Host '  Choose').Trim().ToLower()
@@ -919,11 +1095,14 @@ while ($true) {
         '7' { Invoke-SetYouTubeKey }
         '8' { Invoke-StreamingApps }
         '9' { Invoke-Snappier }
+        '10' { Invoke-AdBlockDns }
+        '11' { Invoke-Screensaver }
+        '12' { Invoke-MediaApps }
         'q' {
             [void](Invoke-AdbRaw disconnect $script:Serial)
             Write-Step 'Disconnected. Bye.'
             exit 0
         }
-        default { Write-Step 'Type a number from 1 to 9, or q.' }
+        default { Write-Step 'Type a number from 1 to 12, or q.' }
     }
 }

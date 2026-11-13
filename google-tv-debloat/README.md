@@ -37,6 +37,9 @@ has an undo option, and a factory reset restores the TV completely.
 | 7. Set YouTube API key | Sends a YouTube Data API key to Glass Home so its video rows work, so you do not have to type it with the remote. |
 | 8. Install Disney+ and Hulu | Opens the Play Store page for each official app on the TV. Glass Home adds them to Favorites the first time it sees them. |
 | 9. Snappier | Halves (or turns off, or restores) Android's system animations so apps and menus open faster. |
+| 10. Block ads and trackers | Points the TV's Private DNS at AdGuard DNS, which blocks many ads and trackers in every app. Does not remove ads that are part of the video stream. Checks the TV is still online and switches itself back off if not. Choice 2 turns it off. |
+| 11. Screensaver | Makes the Glass Home screensaver (drifting gradient and a clock that moves each minute) the TV's screensaver, previews it, or puts the previous one back. |
+| 12. Your own media | Opens the Play Store page for VLC, Jellyfin or Plex and prints the setup steps for the one you pick. |
 
 To preview without changing anything:
 
