@@ -9,8 +9,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 : "${ANDROID_HOME:?Set ANDROID_HOME to your Android SDK folder}"
 
-VERSION_CODE=7
-VERSION_NAME=1.6
+VERSION_CODE=8
+VERSION_NAME=1.7
 MIN_SDK=26
 TARGET_SDK=34
 

@@ -40,6 +40,7 @@ has an undo option, and a factory reset restores the TV completely.
 | 10. Block ads and trackers | Points the TV's Private DNS at AdGuard DNS, which blocks many ads and trackers in every app. Does not remove ads that are part of the video stream. Checks the TV is still online and switches itself back off if not. Choice 2 turns it off. |
 | 11. Screensaver | Makes the Glass Home screensaver (drifting gradient and a clock that moves each minute) the TV's screensaver, previews it, or puts the previous one back. |
 | 12. Your own media | Opens the Play Store page for VLC, Jellyfin or Plex and prints the setup steps for the one you pick. |
+| 13. Ad muter | Experimental. Turns on a helper in Glass Home that mutes the sound while Disney+ or Hulu shows an ad and unmutes afterwards; the ad still plays. It reads the on-screen labels of those two apps only. Choice 3 saves its log (`ad-muter-log.txt`) for tuning. |
 
 To preview without changing anything:
 

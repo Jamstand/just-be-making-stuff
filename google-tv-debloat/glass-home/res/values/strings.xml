@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Glass Home</string>
+    <string name="ad_mute_description">Mutes the sound while Disney+ or Hulu is showing an ad, and unmutes afterwards. It reads the on-screen labels of those two apps only, to spot their ad marker.</string>
 </resources>

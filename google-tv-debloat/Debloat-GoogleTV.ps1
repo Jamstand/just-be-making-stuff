@@ -16,6 +16,7 @@
      10. Block ads and trackers across apps with an ad-blocking DNS service
      11. Use Glass Home as the screensaver
      12. Install an app for playing your own media
+     13. Mute the sound during Disney+ and Hulu ads (experimental)
 
     Nothing is permanently deleted. Apps are disabled for the current user only,
     option 3 turns them back on, and a factory reset restores the TV completely.
@@ -985,6 +986,72 @@ function Invoke-MediaApps {
 }
 
 # ---------------------------------------------------------------------------
+# Option 13: ad muter for Disney+ and Hulu
+# ---------------------------------------------------------------------------
+function Invoke-AdMuter {
+    Write-Title 'Ad muter (Disney+ and Hulu)'
+    if ((Get-InstalledPackages) -notcontains $GlassHome) {
+        Write-Bad 'Glass Home is not installed on the TV yet. Run option 5 first.'
+        return
+    }
+    $service = "$GlassHome/$GlassHome.AdMuteService"
+    $list = Invoke-Adb shell settings get secure enabled_accessibility_services
+    if ($list -eq 'null') { $list = '' }
+    $isOn = ($list -split ':') -contains $service
+    Write-Step 'This mutes the sound while Disney+ or Hulu is showing an ad and unmutes'
+    Write-Step 'when the show returns. The ad still plays; it is just silent.'
+    Write-Step 'To do that, a helper inside Glass Home reads the on-screen labels of'
+    Write-Step 'those two apps (no others) looking for their "Ad" marker.'
+    Write-Warn 'It is experimental: whether it works depends on what those apps show.'
+    if ($isOn) { Write-Step 'It is currently ON.' } else { Write-Step 'It is currently OFF.' }
+    Write-Host ''
+    Write-Step '  1. Turn it on'
+    Write-Step '  2. Turn it off'
+    Write-Step '  3. Save its log to a file (to send to Claude for tuning)'
+    $choice = (Read-Host '  Choose 1, 2 or 3 (Enter to cancel)').Trim()
+
+    if ($choice -eq '1' -or $choice -eq '2') {
+        if ($script:IsDryRun) {
+            Write-Step '[dry run] would change the accessibility service setting'
+            return
+        }
+        $others = @(($list -split ':') | Where-Object { $_ -and $_ -ne $service })
+        if ($choice -eq '1') { $others += $service }
+        if ($others.Count -gt 0) {
+            [void](Invoke-Adb shell settings put secure enabled_accessibility_services ($others -join ':'))
+            [void](Invoke-Adb shell settings put secure accessibility_enabled 1)
+        } else {
+            [void](Invoke-Adb shell settings delete secure enabled_accessibility_services)
+        }
+        $after = Invoke-Adb shell settings get secure enabled_accessibility_services
+        $nowOn = ($after -split ':') -contains $service
+        if ($choice -eq '1' -and $nowOn) {
+            Write-Ok 'Ad muter is on.'
+            Write-Step 'To test it: play something with ads in Disney+ or Hulu, sit through'
+            Write-Step 'an ad break, then come back here and choose 13 then 3 to save the log.'
+            Write-Step 'If the sound ever stays off, press Mute or Volume Up on the remote.'
+        } elseif ($choice -eq '2' -and -not $nowOn) {
+            Write-Ok 'Ad muter is off.'
+        } else {
+            Write-Warn "The TV reports: $after"
+            Write-Step 'The setting did not change as expected.'
+        }
+    } elseif ($choice -eq '3') {
+        $file = Join-Path $script:Root 'ad-muter-log.txt'
+        $log = Invoke-Adb logcat -d -v time -s GlassAdMuter:I
+        Set-Content -Path $file -Value $log -Encoding UTF8
+        $lines = @($log -split "`n").Count
+        Write-Ok "Saved $lines lines to:"
+        Write-Step "  $file"
+        Write-Step 'It lists the on-screen labels seen in Disney+ and Hulu (menu names,'
+        Write-Step 'titles, profile names) and when it muted. Look it over, then paste it'
+        Write-Step 'into the chat so the ad detection can be tuned.'
+    } else {
+        Write-Step 'Cancelled.'
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Option 3: undo
 # ---------------------------------------------------------------------------
 function Invoke-Restore {
@@ -1082,6 +1149,7 @@ while ($true) {
     Write-Step '10. Block ads and trackers across apps (Private DNS)'
     Write-Step '11. Use Glass Home as the screensaver'
     Write-Step '12. Play your own media (VLC, Jellyfin or Plex)'
+    Write-Step '13. Ad muter for Disney+ and Hulu (experimental)'
     Write-Step 'q. Quit'
     Write-Host ''
     $choice = (Read-Host '  Choose').Trim().ToLower()
@@ -1098,11 +1166,12 @@ while ($true) {
         '10' { Invoke-AdBlockDns }
         '11' { Invoke-Screensaver }
         '12' { Invoke-MediaApps }
+        '13' { Invoke-AdMuter }
         'q' {
             [void](Invoke-AdbRaw disconnect $script:Serial)
             Write-Step 'Disconnected. Bye.'
             exit 0
         }
-        default { Write-Step 'Type a number from 1 to 12, or q.' }
+        default { Write-Step 'Type a number from 1 to 13, or q.' }
     }
 }

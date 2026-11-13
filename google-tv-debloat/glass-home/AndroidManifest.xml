@@ -65,5 +65,19 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </service>
+
+        <!-- Optional: mutes the sound while Disney+ or Hulu shows an ad. Off until turned on. -->
+        <service
+            android:name=".AdMuteService"
+            android:exported="true"
+            android:label="Glass Home ad muter"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/ad_mute_service" />
+        </service>
     </application>
 </manifest>
