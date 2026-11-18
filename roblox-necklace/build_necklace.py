@@ -279,10 +279,17 @@ def sparkle(x, y, r):
         d.polygon([(x, y - r), (x + r * .18, y), (x, y + r), (x - r * .18, y)], fill=(255, 255, 255, a))
         d.polygon([(x - r, y), (x, y + r * .18), (x + r, y), (x, y - r * .18)], fill=(255, 255, 255, a))
     d.ellipse((x - r * .25, y - r * .25, x + r * .25, y + r * .25), fill=(255, 255, 255, 255))
-for _ in range(45):
+for _ in range(55):
     x, y = rng.integers(10, TEX - 10), rng.integers(10, half - 10)   # sparkles only on the faces
-    sparkle(int(x), int(y), int(rng.integers(4, 10)))
-glow = spark.filter(ImageFilter.GaussianBlur(3))
-img = Image.alpha_composite(Image.alpha_composite(img.convert("RGBA"), glow), spark).convert("RGB")
+    sparkle(int(x), int(y), int(rng.integers(5, 12)))
+# two-layer glow: soft pink halo + tighter white bloom, so the sparkles look lit up
+halo = spark.filter(ImageFilter.GaussianBlur(7))
+tint = Image.new("RGBA", img.size, (255, 190, 230, 0)); tint.putalpha(halo.getchannel("A").point(lambda v: min(255, v * 3)))
+bloom = spark.filter(ImageFilter.GaussianBlur(2.5))
+bloom.putalpha(bloom.getchannel("A").point(lambda v: min(255, v * 2)))
+img = img.convert("RGBA")
+for layer in (tint, bloom, spark):
+    img = Image.alpha_composite(img, layer)
+img = img.convert("RGB")
 img.save(os.path.join(OUT, "BritNecklace_texture.png"))
 print(f"triangles={len(F)} vertices={len(V)}")
