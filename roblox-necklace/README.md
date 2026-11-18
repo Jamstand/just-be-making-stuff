@@ -6,14 +6,15 @@ texture because UGC accessories can't use real lights or particles.
 
 ![preview](preview.png)
 
-*(The preview is a rough render. It looks cleaner in Studio.)*
+*(Rendered in three.js on a Roblox-sized torso, which is 2×2×1 studs with the neck attachment on top.)*
 
 | File | What it is |
 |---|---|
-| `BritNecklace.obj` / `.mtl` | The mesh: about 3,300 triangles, under Roblox's 4,000 limit for accessories. Units are studs and the front faces -Z. |
+| `BritNecklace.obj` / `.mtl` | The mesh: about 3,800 triangles, with smooth normals and rounded edges, under Roblox's 4,000 limit for accessories. Units are studs and the front faces -Z. |
 | `BritNecklace_texture.png` | A 512×512 texture with the rose gold, pink, highlights and sparkles. |
 | `PreviewNecklace.server.lua` | A Studio test script that puts the necklace on every player (works for R6 and R15). |
-| `build_necklace.py` | Rebuilds everything. `python3 build_necklace.py OtherName` makes it with a different name. |
+| `build_necklace.py` | Rebuilds everything. `python3 build_necklace.py OtherName` makes it with a different name. Needs `pip install numpy pillow shapely fonttools mapbox_earcut`. |
+| `render_preview.js` | Re-renders `preview.png`: `node render_preview.js path/to/three.min.js` |
 
 ## Turning it into a real UGC item
 1. In Roblox Studio, open **Avatar → Accessory Fitting Tool**, and import `BritNecklace.obj` with the texture.
