@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cross-platform checks for the parts of Recshot that don't need Windows: the FFmpeg command lines
+    (driven end-to-end through pipes with the CPU encoder), audio timing and replay-buffer saving.
+    Run:  dotnet run -c Release   (needs ffmpeg + ffprobe on PATH)
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Recshot.PipelineTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Recshot\Log.cs" Link="Linked\Log.cs" />
+    <Compile Include="..\Recshot\Native\Win32.cs" Link="Linked\Win32.cs" />
+    <Compile Include="..\Recshot\Core\Config.cs" Link="Linked\Config.cs" />
+    <Compile Include="..\Recshot\Encode\Ffmpeg.cs" Link="Linked\Ffmpeg.cs" />
+    <Compile Include="..\Recshot\Encode\FfmpegArgs.cs" Link="Linked\FfmpegArgs.cs" />
+    <Compile Include="..\Recshot\Encode\EncoderCatalog.cs" Link="Linked\EncoderCatalog.cs" />
+    <Compile Include="..\Recshot\Encode\AudioTimeline.cs" Link="Linked\AudioTimeline.cs" />
+    <Compile Include="..\Recshot\Encode\ReplaySegments.cs" Link="Linked\ReplaySegments.cs" />
+  </ItemGroup>
+
+</Project>

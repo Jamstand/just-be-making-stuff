@@ -1,0 +1,123 @@
+name: Recshot (Windows screen recorder)
+
+on:
+  push:
+    paths:
+      - 'screen-recorder/**'
+      - '.github/workflows/recshot.yml'
+  pull_request:
+    paths:
+      - 'screen-recorder/**'
+      - '.github/workflows/recshot.yml'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Also publish a GitHub Release with the zip'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  pipeline-tests:
+    name: Encoding pipeline tests (FFmpeg on Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install FFmpeg
+        run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+      - name: Run pipeline tests
+        run: dotnet run -c Release --project screen-recorder/Recshot.PipelineTests
+
+  windows:
+    name: Build Recshot.exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish single-file exe
+        run: >
+          dotnet publish screen-recorder/Recshot/Recshot.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -p:DebugType=embedded -o dist/Recshot
+
+      - name: Add FFmpeg
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'ffmpeg.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'ffmpeg'
+          $sources = @(
+            'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
+            'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+          )
+          $ok = $false
+          foreach ($url in $sources) {
+            try { Invoke-WebRequest $url -OutFile $zip -UseBasicParsing; Write-Host "FFmpeg from $url"; $ok = $true; break }
+            catch { Write-Warning "$url failed: $_" }
+          }
+          if (-not $ok) { throw 'Could not download FFmpeg' }
+          Expand-Archive $zip -DestinationPath $dir -Force
+          $bin = (Get-ChildItem $dir -Recurse -Filter ffmpeg.exe | Select-Object -First 1).DirectoryName
+          Copy-Item (Join-Path $bin 'ffmpeg.exe') dist/Recshot/
+          Copy-Item (Join-Path $bin 'ffprobe.exe') $env:RUNNER_TEMP
+          $license = Get-ChildItem $dir -Recurse -Include 'LICENSE*', 'COPYING*' | Select-Object -First 1
+          if ($license) { Copy-Item $license.FullName dist/Recshot/FFmpeg-LICENSE.txt }
+          Copy-Item screen-recorder/README.md dist/Recshot/README.md
+          & dist/Recshot/ffmpeg.exe -hide_banner -version | Select-Object -First 1
+          & dist/Recshot/ffmpeg.exe -hide_banner -encoders | Select-String 'nvenc|amf|qsv|libx264'
+          Get-ChildItem dist/Recshot | Format-Table Name, Length
+
+      # The runner has a desktop but no GPU, so this exercises Windows.Graphics.Capture, Direct2D,
+      # readback, named pipes and FFmpeg with the CPU encoder. Real NVENC needs real hardware.
+      - name: Self-test on the runner's desktop
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'selftest'
+          $p = Start-Process dist/Recshot/Recshot.exe -ArgumentList '--selftest', "`"$out`"" -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); Write-Warning 'self-test timed out' }
+          Get-Content (Join-Path $out 'selftest.log') -ErrorAction SilentlyContinue
+          Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Recshot/logs') -ErrorAction SilentlyContinue | ForEach-Object {
+            "---- $($_.Name)"; Get-Content $_.FullName -Tail 30
+          }
+          foreach ($f in Get-ChildItem $out -Filter *.mp4 -ErrorAction SilentlyContinue) {
+            "---- $($f.Name)"
+            & (Join-Path $env:RUNNER_TEMP 'ffprobe.exe') -v error -show_entries 'format=duration:stream=index,codec_type,codec_name,width,height,avg_frame_rate:stream_tags=handler_name' -of compact $f.FullName
+          }
+          exit $p.ExitCode
+
+      - name: Upload Recshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: Recshot-win-x64
+          path: dist/Recshot
+
+      - name: Upload self-test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-output
+          path: ${{ runner.temp }}/selftest
+          if-no-files-found: ignore
+
+      - name: Zip for release
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        shell: pwsh
+        run: Compress-Archive -Path dist/Recshot/* -DestinationPath Recshot-win-x64.zip
+
+      - name: Publish release
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: recshot-build-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Recshot build ${{ github.run_number }}
+          files: Recshot-win-x64.zip
