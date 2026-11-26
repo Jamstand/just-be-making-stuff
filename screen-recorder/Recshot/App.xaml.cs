@@ -8,6 +8,7 @@ namespace Recshot;
 public partial class App : Application
 {
     private Mutex? _singleInstance;
+    private EventWaitHandle _showSignal = null!;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -31,10 +32,11 @@ public partial class App : Application
         }
 
         _singleInstance = new Mutex(true, @"Local\Recshot.SingleInstance", out bool isFirst);
+        _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\Recshot.Show");
         if (!isFirst)
         {
-            MessageBox.Show("Recshot is already running. Look for it in the taskbar.", "Recshot",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            // Already running (probably in the tray): bring that one up instead.
+            _showSignal.Set();
             Shutdown();
             return;
         }
@@ -59,9 +61,23 @@ public partial class App : Application
         }
 
         RecorderEngine.CleanStaleReplayFolders();
-        var window = new MainWindow();
+        bool background = e.Args.Contains("--background");
+        var window = new MainWindow { StartHidden = background };
+        if (background)
+        {
+            window.ShowActivated = false;
+            window.WindowState = WindowState.Minimized;
+        }
         MainWindow = window;
         window.Show();
+
+        // A second launch signals us to show the window.
+        var waiter = new Thread(() =>
+        {
+            while (_showSignal.WaitOne())
+                Dispatcher.BeginInvoke(() => window.ShowFromTray());
+        }) { IsBackground = true, Name = "Recshot show signal" };
+        waiter.Start();
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

@@ -40,6 +40,11 @@ public partial class MainWindow : Window
     private string? _notice;
     private DateTime _noticeUntil;
     private bool _noticeIsError;
+    private TrayIcon? _tray;
+    private bool _quitRequested;
+
+    /// <summary>Set by App when launched with --background (e.g. at Windows sign-in).</summary>
+    public bool StartHidden { get; set; }
 
     public MainWindow()
     {
@@ -75,7 +80,17 @@ public partial class MainWindow : Window
             _hotkeys = new HotkeyManager(this);
             ApplyHideFromCapture();
         };
-        Loaded += async (_, _) => await InitializeAsync();
+        Loaded += async (_, _) =>
+        {
+            if (StartHidden)
+                Hide();
+            await InitializeAsync();
+        };
+        StateChanged += (_, _) =>
+        {
+            if (WindowState == WindowState.Minimized && _settings.CloseToTray)
+                HideToTray();
+        };
     }
 
     // =====================================================================
@@ -84,6 +99,15 @@ public partial class MainWindow : Window
 
     private async Task InitializeAsync()
     {
+        _tray = new TrayIcon(
+            ShowFromTray,
+            () => _ = ToggleRecordingAsync(),
+            TogglePause,
+            () => ReplayCheck.IsChecked = ReplayCheck.IsChecked != true,
+            () => _ = SaveReplayAsync(),
+            () => _ = TakeScreenshotAsync(),
+            () => OpenFolder(_settings.VideoFolder),
+            QuitFromTray);
         PopulateStaticLists();
         RefreshDisplays();
         RefreshWindows();
@@ -273,6 +297,8 @@ public partial class MainWindow : Window
         ShotFolderBox.Text = s.ScreenshotFolder;
         ClipboardCheck.IsChecked = s.CopyScreenshotToClipboard;
         HideSelfCheck.IsChecked = s.HideFromCapture;
+        CloseToTrayCheck.IsChecked = s.CloseToTray;
+        StartupCheck.IsChecked = s.StartWithWindows;
 
         HotkeyRecordBox.Text = s.HotkeyRecord;
         HotkeyPauseBox.Text = s.HotkeyPause;
@@ -295,7 +321,7 @@ public partial class MainWindow : Window
     {
         foreach (RadioButton r in new[] { SourceDisplay, SourceWindow, SourceRegion })
             r.Checked += (_, _) => { UpdateSourcePanels(); OnSettingChanged(); };
-        foreach (CheckBox c in new[] { ShowCursorCheck, ClicksCheck, SystemAudioCheck, MicCheck, WebcamCheck, WebcamMirrorCheck, ClipboardCheck, HideSelfCheck })
+        foreach (CheckBox c in new[] { ShowCursorCheck, ClicksCheck, SystemAudioCheck, MicCheck, WebcamCheck, WebcamMirrorCheck, ClipboardCheck, HideSelfCheck, CloseToTrayCheck, StartupCheck })
         {
             c.Checked += (_, _) => OnSettingChanged();
             c.Unchecked += (_, _) => OnSettingChanged();
@@ -411,6 +437,12 @@ public partial class MainWindow : Window
         s.WebcamMirror = WebcamMirrorCheck.IsChecked == true;
         s.CopyScreenshotToClipboard = ClipboardCheck.IsChecked == true;
         s.HideFromCapture = HideSelfCheck.IsChecked == true;
+        s.CloseToTray = CloseToTrayCheck.IsChecked == true;
+        if (s.StartWithWindows != (StartupCheck.IsChecked == true))
+        {
+            s.StartWithWindows = StartupCheck.IsChecked == true;
+            StartupRegistration.Apply(s.StartWithWindows);
+        }
         s.Save();
     }
 
@@ -823,6 +855,7 @@ public partial class MainWindow : Window
         MicMeter.Value = _engine.Pipeline?.Microphone?.Level ?? 0;
         if (_engine.IsRecording)
         {
+            UpdateTray();
             TimerText.Text = _engine.RecordingElapsed.ToString(@"hh\:mm\:ss");
             bool paused = _engine.IsPaused;
             Title = $"{(paused ? "❚❚ Paused" : "● REC")} {TimerText.Text} · Recshot";
@@ -838,6 +871,7 @@ public partial class MainWindow : Window
 
     private void UpdateUi()
     {
+        UpdateTray();
         bool recording = _engine.IsRecording;
         bool busy = _engine.IsBusy;
         bool ready = _engine.FfmpegPath != null && _encoders.Count > 0;
@@ -897,6 +931,50 @@ public partial class MainWindow : Window
         StatusText.Text = status;
     }
 
+    private void UpdateTray()
+    {
+        if (_tray == null)
+            return;
+        string tip = _engine.IsRecording
+            ? $"Recshot · {(_engine.IsPaused ? "paused" : "recording")} {_engine.RecordingElapsed:hh\\:mm\\:ss}"
+            : _engine.IsReplayRunning ? $"Recshot · replay buffer on ({_settings.HotkeySaveReplay} saves)" : "Recshot · ready";
+        _tray.Update(_engine.IsRecording, _engine.IsPaused, _engine.IsReplayRunning, tip);
+    }
+
+    // =====================================================================
+    // Tray
+    // =====================================================================
+
+    public void ShowFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+        Activate();
+        Topmost = true;  // bring it in front even if another app is focused
+        Topmost = false;
+        Focus();
+    }
+
+    private void HideToTray()
+    {
+        Hide();
+        if (!_settings.TrayHintShown)
+        {
+            _settings.TrayHintShown = true;
+            _settings.Save();
+            _tray?.ShowBalloon("Recshot is still running",
+                "Hotkeys and the replay buffer keep working. Click the tray icon to reopen, or right-click → Quit to exit.");
+        }
+    }
+
+    private void QuitFromTray()
+    {
+        _quitRequested = true;
+        ShowFromTray();
+        Close();
+    }
+
     private static string FormatSeconds(int seconds) => seconds < 60 ? $"{seconds} s" : $"{seconds / 60} min";
 
     // =====================================================================
@@ -911,6 +989,13 @@ public partial class MainWindow : Window
             return;
         }
         e.Cancel = true;
+
+        if (_settings.CloseToTray && !_quitRequested)
+        {
+            HideToTray();
+            return;
+        }
+        _quitRequested = false;
 
         if (_engine.IsRecording)
         {
@@ -937,6 +1022,7 @@ public partial class MainWindow : Window
         }
         _uiTimer.Stop();
         _hotkeys?.Dispose();
+        _tray?.Dispose();
         _closeConfirmed = true;
         Close();
     }

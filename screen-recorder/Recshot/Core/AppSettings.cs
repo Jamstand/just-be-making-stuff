@@ -60,6 +60,11 @@ public sealed class AppSettings
     public bool CopyScreenshotToClipboard { get; set; } = true;
     public bool HideFromCapture { get; set; } = true;
 
+    // Background
+    public bool CloseToTray { get; set; } = true;
+    public bool StartWithWindows { get; set; }
+    public bool TrayHintShown { get; set; }
+
     // Hotkeys
     public string HotkeyRecord { get; set; } = "Ctrl+Shift+F9";
     public string HotkeyPause { get; set; } = "Ctrl+Shift+F10";

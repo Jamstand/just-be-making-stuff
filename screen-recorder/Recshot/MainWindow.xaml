@@ -236,6 +236,17 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Background -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Running in the background" />
+                        <CheckBox x:Name="CloseToTrayCheck" Content="Closing or minimising hides Recshot to the tray (it keeps running)" />
+                        <CheckBox x:Name="StartupCheck" Content="Start with Windows, hidden in the tray" Margin="0,6,0,0" />
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Turn on the replay buffer too and Recshot works like a background instant-replay: always ready, saved with one hotkey. Right-click the tray icon for quick actions; Quit from there to fully exit." />
+                    </StackPanel>
+                </Border>
+
                 <!-- Saving -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>

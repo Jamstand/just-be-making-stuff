@@ -15,6 +15,8 @@ GPU (NVENC), captures your mic and your computer's sound, and stays light on the
 - **Screenshots**: full-resolution PNG, copied to the clipboard. Drag an area or click a screen
   (the screen freezes while you pick), or shoot a single window.
 - **Global hotkeys** that work while you're in other apps.
+- **Runs in the background** from the system tray, like NVIDIA Instant Replay. Closing or minimising
+  hides it to the tray, and it can start with Windows with the replay buffer already on.
 
 ## Getting it
 
@@ -37,6 +39,15 @@ Nothing else is needed: the .NET runtime is built into the exe.
 
 To change one, click its box in the **Hotkeys** section and press the new combination. If another app
 already uses a combination, Recshot says so.
+
+## Background / tray
+
+Closing or minimising the window hides Recshot to the notification area (bottom-right, near the
+clock; it may sit under the ^ arrow). Recording, the replay buffer and hotkeys keep running. Click
+the icon to reopen; right-click for Start/Stop recording, Pause, Replay buffer, Save replay,
+Screenshot, or **Quit**. The icon turns into a red dot while recording. Turn on *Start with Windows*
+and the replay buffer, and Recshot is always ready to save the last minutes, like NVIDIA's
+Instant Replay. Launching Recshot again just reopens the running one.
 
 ## Files
 
