@@ -20,6 +20,7 @@ internal sealed class RecordingHud : Window
     private readonly TextBlock _label;
     private readonly TextBlock _mic;
     private readonly Storyboard _pulse;
+    private bool _pulsing;
 
     public RecordingHud()
     {
@@ -95,14 +96,16 @@ internal sealed class RecordingHud : Window
         _time.Text = elapsed.ToString(@"hh\:mm\:ss");
         _label.Text = paused ? "PAUSED" : "REC";
         _dot.Fill = (Brush)Application.Current.FindResource(paused ? "PausedAmber" : "RecordRed");
-        if (paused)
+        if (paused && _pulsing)
         {
-            _pulse.Stop();
+            _pulse.Stop(this);
+            _pulsing = false;
             _dot.Opacity = 1;
         }
-        else if (_pulse.GetCurrentState() != ClockState.Active)
+        else if (!paused && !_pulsing)
         {
-            _pulse.Begin();
+            _pulse.Begin(this, isControllable: true);
+            _pulsing = true;
         }
 
         _mic.Visibility = micOn ? Visibility.Visible : Visibility.Collapsed;
