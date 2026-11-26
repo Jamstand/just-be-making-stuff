@@ -28,8 +28,13 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      # Use a current FFmpeg (same generation as the Windows bundle), not the distro's older one.
       - name: Install FFmpeg
-        run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+        run: |
+          curl -sSL -o ffmpeg.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
+          mkdir ffmpeg && tar -xf ffmpeg.tar.xz -C ffmpeg --strip-components=1
+          echo "$PWD/ffmpeg/bin" >> "$GITHUB_PATH"
+          ffmpeg/bin/ffmpeg -hide_banner -version | head -1
       - name: Run pipeline tests
         run: dotnet run -c Release --project screen-recorder/Recshot.PipelineTests
 
@@ -78,7 +83,6 @@ jobs:
       # The runner has a desktop but no GPU, so this exercises Windows.Graphics.Capture, Direct2D,
       # readback, named pipes and FFmpeg with the CPU encoder. Real NVENC needs real hardware.
       - name: Self-test on the runner's desktop
-        continue-on-error: true
         shell: pwsh
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'selftest'

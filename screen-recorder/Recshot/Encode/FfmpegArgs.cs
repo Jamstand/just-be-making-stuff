@@ -22,7 +22,7 @@ internal static class FfmpegArgs
 
         // Inputs: raw frames and raw float audio arrive through pipes, so nothing needs probing.
         args.AddRange([
-            "-thread_queue_size", "16", "-probesize", "32", "-analyzeduration", "0",
+            "-probesize", "32", "-analyzeduration", "0",
             "-f", "rawvideo",
             "-pix_fmt", video.PixelFormat == VideoPixelFormat.Nv12 ? "nv12" : "bgra",
             "-video_size", $"{video.Width}x{video.Height}",
@@ -32,7 +32,7 @@ internal static class FfmpegArgs
         foreach (AudioInput a in audio)
         {
             args.AddRange([
-                "-thread_queue_size", "1024", "-probesize", "32", "-analyzeduration", "0",
+                "-probesize", "32", "-analyzeduration", "0",
                 "-f", "f32le", "-ar", a.SampleRate.ToString(CultureInfo.InvariantCulture), "-ch_layout", "stereo",
                 "-i", a.Path,
             ]);
