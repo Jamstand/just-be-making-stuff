@@ -1,0 +1,222 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Dark glass palette: neutral, white text, light used as the only accent (Apple TV style). -->
+    <Color x:Key="BgDeep">#0B0C10</Color>
+    <Color x:Key="BgRaised">#14161C</Color>
+    <SolidColorBrush x:Key="WindowBg" Color="#0D0E12" />
+    <LinearGradientBrush x:Key="WindowGradient" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#16181F" Offset="0" />
+        <GradientStop Color="#0B0C10" Offset="0.55" />
+        <GradientStop Color="#101116" Offset="1" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="GlassFill" Color="#14FFFFFF" />
+    <SolidColorBrush x:Key="GlassFillHover" Color="#24FFFFFF" />
+    <SolidColorBrush x:Key="GlassStroke" Color="#1FFFFFFF" />
+    <SolidColorBrush x:Key="TextPrimary" Color="#F5F6F8" />
+    <SolidColorBrush x:Key="TextSecondary" Color="#9BA1AD" />
+    <SolidColorBrush x:Key="TextTertiary" Color="#6B717D" />
+    <SolidColorBrush x:Key="RecordRed" Color="#FF453A" />
+    <SolidColorBrush x:Key="PausedAmber" Color="#FFD60A" />
+    <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+    <!-- Settings cards -->
+    <Style x:Key="Card" TargetType="Border">
+        <Setter Property="Padding" Value="22,18,22,20" />
+        <Setter Property="Margin" Value="0,0,0,14" />
+        <Setter Property="CornerRadius" Value="16" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Background" Value="{StaticResource GlassFill}" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassStroke}" />
+    </Style>
+
+    <Style x:Key="PageTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="28" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+        <Setter Property="Margin" Value="2,0,0,4" />
+    </Style>
+    <Style x:Key="PageSubtitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+        <Setter Property="Margin" Value="2,0,0,18" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- Sidebar navigation item -->
+    <Style x:Key="NavItem" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,2" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="Bg" CornerRadius="10" Padding="14,10" Background="Transparent">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="Icon" Text="{TemplateBinding Tag}" FontFamily="{StaticResource IconFont}"
+                                       FontSize="16" VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bg" Property="Background" Value="#10FFFFFF" />
+                            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bg" Property="Background" Value="#18FFFFFF" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Bg" Property="Background" Value="#22FFFFFF" />
+                            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Pill buttons in the settings action bar -->
+    <Style x:Key="PillButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+        <Setter Property="Background" Value="#1AFFFFFF" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Padding" Value="18,10" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bg" CornerRadius="20" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}"
+                            RenderTransformOrigin="0.5,0.5">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bg" Property="Opacity" Value="0.88" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bg" Property="BorderBrush" Value="White" />
+                            <Setter TargetName="Bg" Property="BorderThickness" Value="1.5" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bg" Property="RenderTransform">
+                                <Setter.Value>
+                                    <ScaleTransform ScaleX="0.97" ScaleY="0.97" />
+                                </Setter.Value>
+                            </Setter>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bg" Property="Opacity" Value="0.35" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="PrimaryPill" TargetType="Button" BasedOn="{StaticResource PillButton}">
+        <Setter Property="Background" Value="#F5F6F8" />
+        <Setter Property="Foreground" Value="#0B0C10" />
+    </Style>
+
+    <!--
+      Big overlay tile (Apple TV / Xbox guide style): glass card that lifts, brightens and glows when
+      hovered or focused with the keyboard.
+    -->
+    <Style x:Key="OverlayTile" TargetType="Button">
+        <Setter Property="Width" Value="176" />
+        <Setter Property="Height" Value="150" />
+        <Setter Property="Margin" Value="10" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+        <Setter Property="RenderTransform">
+            <Setter.Value>
+                <ScaleTransform ScaleX="1" ScaleY="1" />
+            </Setter.Value>
+        </Setter>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Border x:Name="Glow" CornerRadius="24" Background="#00FFFFFF" Margin="-2">
+                            <Border.Effect>
+                                <DropShadowEffect Color="White" BlurRadius="0" ShadowDepth="0" Opacity="0" />
+                            </Border.Effect>
+                        </Border>
+                        <Border x:Name="Card" CornerRadius="22" Background="#1EFFFFFF" BorderBrush="#26FFFFFF" BorderThickness="1"
+                                Padding="16">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </Grid>
+                    <ControlTemplate.Resources>
+                        <Storyboard x:Key="Lift">
+                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.08" Duration="0:0:0.18">
+                                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
+                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.08" Duration="0:0:0.18">
+                                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
+                            <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="(UIElement.Effect).(DropShadowEffect.BlurRadius)" To="38" Duration="0:0:0.18" />
+                            <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="(UIElement.Effect).(DropShadowEffect.Opacity)" To="0.35" Duration="0:0:0.18" />
+                        </Storyboard>
+                        <Storyboard x:Key="Drop">
+                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.22">
+                                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
+                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.22">
+                                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
+                            <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="(UIElement.Effect).(DropShadowEffect.BlurRadius)" To="0" Duration="0:0:0.22" />
+                            <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="(UIElement.Effect).(DropShadowEffect.Opacity)" To="0" Duration="0:0:0.22" />
+                        </Storyboard>
+                    </ControlTemplate.Resources>
+                    <ControlTemplate.Triggers>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsMouseOver" Value="True" />
+                            </MultiTrigger.Conditions>
+                            <MultiTrigger.EnterActions>
+                                <BeginStoryboard Storyboard="{StaticResource Lift}" />
+                            </MultiTrigger.EnterActions>
+                            <MultiTrigger.ExitActions>
+                                <BeginStoryboard Storyboard="{StaticResource Drop}" />
+                            </MultiTrigger.ExitActions>
+                            <Setter TargetName="Card" Property="Background" Value="#38FFFFFF" />
+                            <Setter TargetName="Card" Property="BorderBrush" Value="#66FFFFFF" />
+                        </MultiTrigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard Storyboard="{StaticResource Lift}" />
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard Storyboard="{StaticResource Drop}" />
+                            </Trigger.ExitActions>
+                            <Setter TargetName="Card" Property="Background" Value="#38FFFFFF" />
+                            <Setter TargetName="Card" Property="BorderBrush" Value="#AAFFFFFF" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Card" Property="Background" Value="#55FFFFFF" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.35" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Gallery thumbnail -->
+    <Style x:Key="ThumbButton" TargetType="Button" BasedOn="{StaticResource OverlayTile}">
+        <Setter Property="Width" Value="232" />
+        <Setter Property="Height" Value="168" />
+        <Setter Property="Margin" Value="8" />
+    </Style>
+</ResourceDictionary>

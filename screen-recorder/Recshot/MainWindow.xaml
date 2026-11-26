@@ -3,33 +3,21 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Recshot"
         Icon="pack://application:,,,/Assets/recshot.ico"
-        Width="560" Height="860" MinWidth="500" MinHeight="520"
+        Width="1000" Height="740" MinWidth="820" MinHeight="560"
+        Background="{StaticResource WindowGradient}" Foreground="{StaticResource TextPrimary}"
         WindowStartupLocation="CenterScreen">
 
     <Window.Resources>
-        <Style x:Key="SectionTitle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="15" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Margin" Value="0,0,0,10" />
-        </Style>
         <Style x:Key="FieldLabel" TargetType="TextBlock">
             <Setter Property="Margin" Value="0,0,0,4" />
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Opacity" Value="0.75" />
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
         </Style>
         <Style x:Key="Hint" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Opacity" Value="0.65" />
+            <Setter Property="Foreground" Value="{StaticResource TextTertiary}" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="Margin" Value="0,6,0,0" />
-        </Style>
-        <Style x:Key="Card" TargetType="Border">
-            <Setter Property="Padding" Value="16,14,16,16" />
-            <Setter Property="Margin" Value="0,0,0,12" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
         </Style>
         <Style x:Key="Meter" TargetType="ProgressBar">
             <Setter Property="Height" Value="4" />
@@ -40,18 +28,51 @@
     </Window.Resources>
 
     <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="236" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Margin="18,16,18,6">
+        <!-- Sidebar -->
+        <Border Grid.RowSpan="2" Background="#08FFFFFF" BorderBrush="{StaticResource GlassStroke}" BorderThickness="0,0,1,0">
+            <DockPanel Margin="16,22,16,18">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,0,0,26">
+                    <Image Source="pack://application:,,,/Assets/recshot.ico" Width="30" Height="30" />
+                    <TextBlock Text="Recshot" FontSize="21" FontWeight="SemiBold" Margin="12,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Bottom">
+                    <Button x:Name="OpenOverlayButton" Style="{StaticResource PillButton}" HorizontalAlignment="Stretch">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8A9;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <TextBlock Text="Open overlay" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <TextBlock x:Name="OverlayHint" HorizontalAlignment="Center" Margin="0,8,0,0" FontSize="12" Foreground="{StaticResource TextTertiary}" Text="Alt+R from anywhere" />
+                </StackPanel>
+                <StackPanel>
+                    <RadioButton x:Name="NavCapture" Style="{StaticResource NavItem}" GroupName="Nav" Tag="&#xE7F4;" Content="Capture" />
+                    <RadioButton x:Name="NavVideo" Style="{StaticResource NavItem}" GroupName="Nav" Tag="&#xE714;" Content="Video" />
+                    <RadioButton x:Name="NavAudio" Style="{StaticResource NavItem}" GroupName="Nav" Tag="&#xE767;" Content="Audio" />
+                    <RadioButton x:Name="NavWebcam" Style="{StaticResource NavItem}" GroupName="Nav" Tag="&#xE8B8;" Content="Webcam" />
+                    <RadioButton x:Name="NavReplay" Style="{StaticResource NavItem}" GroupName="Nav" Tag="&#xE8EE;" Content="Instant replay" />
+                    <RadioButton x:Name="NavGeneral" Style="{StaticResource NavItem}" GroupName="Nav" Tag="&#xE713;" Content="General" />
+                    <RadioButton x:Name="NavHotkeys" Style="{StaticResource NavItem}" GroupName="Nav" Tag="&#xE765;" Content="Hotkeys" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
 
+        <ScrollViewer x:Name="PageScroller" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid x:Name="PageHost" Margin="36,30,36,16" MaxWidth="760" HorizontalAlignment="Left">
+                <StackPanel x:Name="PageCapture" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="Capture" />
+                    <TextBlock Style="{StaticResource PageSubtitle}" Text="What to record: a whole screen, one window, or an area." />
                 <!-- What to capture -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="What to capture" />
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                             <RadioButton x:Name="SourceDisplay" Content="Whole screen" GroupName="Source" Margin="0,0,18,0" />
                             <RadioButton x:Name="SourceWindow" Content="One window" GroupName="Source" Margin="0,0,18,0" />
@@ -85,10 +106,13 @@
                     </StackPanel>
                 </Border>
 
+                </StackPanel>
+                <StackPanel x:Name="PageVideo" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="Video" />
+                    <TextBlock Style="{StaticResource PageSubtitle}" Text="Resolution, frame rate and the encoder on your graphics card." />
                 <!-- Video -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Video" />
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -129,10 +153,13 @@
                     </StackPanel>
                 </Border>
 
+                </StackPanel>
+                <StackPanel x:Name="PageAudio" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="Audio" />
+                    <TextBlock Style="{StaticResource PageSubtitle}" Text="Your microphone and everything your PC plays, each on its own track." />
                 <!-- Audio -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Audio" />
 
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -179,10 +206,13 @@
                     </StackPanel>
                 </Border>
 
+                </StackPanel>
+                <StackPanel x:Name="PageWebcam" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="Webcam" />
+                    <TextBlock Style="{StaticResource PageSubtitle}" Text="A camera bubble composited into the corner of your recordings." />
                 <!-- Webcam -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Webcam" />
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="150" />
@@ -216,10 +246,13 @@
                     </StackPanel>
                 </Border>
 
+                </StackPanel>
+                <StackPanel x:Name="PageReplay" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="Instant replay" />
+                    <TextBlock Style="{StaticResource PageSubtitle}" Text="Always recording in the background. Save the last moments with one key." />
                 <!-- Replay buffer -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Replay buffer" />
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -236,21 +269,13 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Background -->
-                <Border Style="{StaticResource Card}">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Running in the background" />
-                        <CheckBox x:Name="CloseToTrayCheck" Content="Closing or minimising hides Recshot to the tray (it keeps running)" />
-                        <CheckBox x:Name="StartupCheck" Content="Start with Windows, hidden in the tray" Margin="0,6,0,0" />
-                        <TextBlock Style="{StaticResource Hint}"
-                                   Text="Turn on the replay buffer too and Recshot works like a background instant-replay: always ready, saved with one hotkey. Right-click the tray icon for quick actions; Quit from there to fully exit." />
-                    </StackPanel>
-                </Border>
-
+                </StackPanel>
+                <StackPanel x:Name="PageGeneral" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="General" />
+                    <TextBlock Style="{StaticResource PageSubtitle}" Text="Where files go and how Recshot runs in the background." />
                 <!-- Saving -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Saving" />
                         <TextBlock Style="{StaticResource FieldLabel}" Text="Videos folder" />
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -278,16 +303,31 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Background -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <CheckBox x:Name="CloseToTrayCheck" Content="Closing or minimising hides Recshot to the tray (it keeps running)" />
+                        <CheckBox x:Name="StartupCheck" Content="Start with Windows, hidden in the tray" Margin="0,6,0,0" />
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Turn on the replay buffer too and Recshot works like a background instant-replay: always ready, saved with one hotkey. Right-click the tray icon for quick actions; Quit from there to fully exit." />
+                    </StackPanel>
+                </Border>
+
+                </StackPanel>
+                <StackPanel x:Name="PageHotkeys" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="Hotkeys" />
+                    <TextBlock Style="{StaticResource PageSubtitle}" Text="Shortcuts that work from anywhere, even in full-screen games." />
                 <!-- Hotkeys -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Hotkeys (work anywhere)" />
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="170" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -300,20 +340,23 @@
                             <TextBlock Grid.Row="2" Text="Save replay" VerticalAlignment="Center" />
                             <TextBox x:Name="HotkeyReplayBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,6" IsReadOnly="True" IsReadOnlyCaretVisible="False" />
                             <TextBlock Grid.Row="3" Text="Screenshot" VerticalAlignment="Center" />
-                            <TextBox x:Name="HotkeyShotBox" Grid.Row="3" Grid.Column="1" IsReadOnly="True" IsReadOnlyCaretVisible="False" />
+                            <TextBox x:Name="HotkeyShotBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,6" IsReadOnly="True" IsReadOnlyCaretVisible="False" />
+                            <TextBlock Grid.Row="4" Text="Open the overlay" VerticalAlignment="Center" />
+                            <TextBox x:Name="HotkeyOverlayBox" Grid.Row="4" Grid.Column="1" Margin="0,0,0,6" IsReadOnly="True" IsReadOnlyCaretVisible="False" />
+                            <TextBlock Grid.Row="5" Text="Mute / unmute mic" VerticalAlignment="Center" />
+                            <TextBox x:Name="HotkeyMicBox" Grid.Row="5" Grid.Column="1" IsReadOnly="True" IsReadOnlyCaretVisible="False" />
                         </Grid>
                         <TextBlock x:Name="HotkeyHint" Style="{StaticResource Hint}"
                                    Text="Click a box and press the new key combination. Backspace clears it." />
                     </StackPanel>
                 </Border>
 
-            </StackPanel>
+                </StackPanel>
+            </Grid>
         </ScrollViewer>
 
         <!-- Action bar -->
-        <Border Grid.Row="1" Padding="18,12,18,14" BorderThickness="0,1,0,0"
-                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
-                Background="{DynamicResource LayerFillColorDefaultBrush}">
+        <Border Grid.Row="1" Grid.Column="1" Padding="36,14,36,16" BorderThickness="0,1,0,0" BorderBrush="{StaticResource GlassStroke}" Background="#0DFFFFFF">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -327,22 +370,22 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <Button x:Name="RecordButton" Grid.Column="0" MinWidth="150" Padding="14,8" FontWeight="SemiBold">
+                <Button x:Name="RecordButton" Grid.Column="0" MinWidth="160" Style="{StaticResource PrimaryPill}">
                     <StackPanel Orientation="Horizontal">
                         <Ellipse x:Name="RecordDot" Width="11" Height="11" Fill="#EF4444" Margin="0,0,8,0" VerticalAlignment="Center" />
                         <TextBlock x:Name="RecordLabel" Text="Start recording" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="PauseButton" Grid.Column="1" Content="Pause" Margin="8,0,0,0" Padding="14,8" MinWidth="84" />
+                <Button x:Name="PauseButton" Grid.Column="1" Content="Pause" Margin="10,0,0,0" MinWidth="90" Style="{StaticResource PillButton}" />
                 <TextBlock x:Name="TimerText" Grid.Column="2" Margin="14,0,0,0" VerticalAlignment="Center"
-                           FontSize="18" FontFamily="Cascadia Mono, Consolas" Text="00:00:00" Opacity="0.55" />
-                <Button x:Name="WindowShotButton" Grid.Column="3" Content="Window shot" Margin="8,0,0,0" Padding="12,8"
+                           FontSize="20" Foreground="{StaticResource TextPrimary}" FontFamily="Cascadia Mono, Consolas" Text="00:00:00" Opacity="0.55" />
+                <Button x:Name="WindowShotButton" Grid.Column="3" Content="Window shot" Margin="10,0,0,0" Style="{StaticResource PillButton}"
                         ToolTip="Screenshot the window picked under 'One window' (even if it's partly covered)" />
-                <Button x:Name="ScreenshotButton" Grid.Column="4" Content="Screenshot" Margin="8,0,0,0" Padding="12,8"
+                <Button x:Name="ScreenshotButton" Grid.Column="4" Content="Screenshot" Margin="10,0,0,0" Style="{StaticResource PillButton}"
                         ToolTip="Drag to capture an area, or click to capture a whole screen" />
 
                 <TextBlock x:Name="StatusText" Grid.Row="1" Grid.ColumnSpan="5" Margin="0,10,0,0" FontSize="12"
-                           Opacity="0.75" TextTrimming="CharacterEllipsis" Text="Starting…" />
+                           Foreground="{StaticResource TextSecondary}" TextTrimming="CharacterEllipsis" Text="Starting…" />
             </Grid>
         </Border>
     </Grid>

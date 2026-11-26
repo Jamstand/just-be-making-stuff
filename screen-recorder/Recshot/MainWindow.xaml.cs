@@ -17,9 +17,9 @@ using Recshot.UI;
 
 namespace Recshot;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IOverlayHost
 {
-    private const int HotkeyRecordId = 1, HotkeyPauseId = 2, HotkeyReplayId = 3, HotkeyShotId = 4;
+    private const int HotkeyRecordId = 1, HotkeyPauseId = 2, HotkeyReplayId = 3, HotkeyShotId = 4, HotkeyOverlayId = 5, HotkeyMicId = 6;
 
     private sealed record Option<T>(string Label, T Value)
     {
@@ -41,6 +41,9 @@ public partial class MainWindow : Window
     private DateTime _noticeUntil;
     private bool _noticeIsError;
     private TrayIcon? _tray;
+    private RecordingHud? _hud;
+    private OverlayWindow? _overlay;
+    private bool _micMuted;
     private bool _quitRequested;
 
     /// <summary>Set by App when launched with --background (e.g. at Windows sign-in).</summary>
@@ -79,6 +82,7 @@ public partial class MainWindow : Window
         {
             _hotkeys = new HotkeyManager(this);
             ApplyHideFromCapture();
+            Win32.UseDarkTitleBar(new WindowInteropHelper(this).Handle);
         };
         Loaded += async (_, _) =>
         {
@@ -304,6 +308,8 @@ public partial class MainWindow : Window
         HotkeyPauseBox.Text = s.HotkeyPause;
         HotkeyReplayBox.Text = s.HotkeySaveReplay;
         HotkeyShotBox.Text = s.HotkeyScreenshot;
+        HotkeyOverlayBox.Text = s.HotkeyOverlay;
+        HotkeyMicBox.Text = s.HotkeyMicMute;
         UpdateVolumeLabels();
     }
 
@@ -357,13 +363,32 @@ public partial class MainWindow : Window
         OpenVideoButton.Click += (_, _) => OpenFolder(_settings.VideoFolder);
         OpenShotButton.Click += (_, _) => OpenFolder(_settings.ScreenshotFolder);
 
-        foreach (TextBox box in new[] { HotkeyRecordBox, HotkeyPauseBox, HotkeyReplayBox, HotkeyShotBox })
+        foreach (TextBox box in new[] { HotkeyRecordBox, HotkeyPauseBox, HotkeyReplayBox, HotkeyShotBox, HotkeyOverlayBox, HotkeyMicBox })
         {
             box.PreviewKeyDown += OnHotkeyBoxKeyDown;
             // Release the global hotkeys while typing a new one, or pressing it would trigger the action instead.
             box.GotKeyboardFocus += (_, _) => _hotkeys?.Dispose();
             box.LostKeyboardFocus += (_, _) => RegisterHotkeys();
         }
+
+        var pages = new (RadioButton Nav, FrameworkElement Page)[]
+        {
+            (NavCapture, PageCapture), (NavVideo, PageVideo), (NavAudio, PageAudio), (NavWebcam, PageWebcam),
+            (NavReplay, PageReplay), (NavGeneral, PageGeneral), (NavHotkeys, PageHotkeys),
+        };
+        foreach (var (nav, page) in pages)
+        {
+            nav.Checked += (_, _) =>
+            {
+                foreach (var (_, other) in pages)
+                    other.Visibility = other == page ? Visibility.Visible : Visibility.Collapsed;
+                PageScroller.ScrollToTop();
+                page.Opacity = 0;
+                page.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)));
+            };
+        }
+        NavCapture.IsChecked = true;
+        OpenOverlayButton.Click += (_, _) => ToggleOverlay();
 
         RecordButton.Click += async (_, _) => await ToggleRecordingAsync();
         PauseButton.Click += (_, _) => TogglePause();
@@ -400,8 +425,7 @@ public partial class MainWindow : Window
         // Volume applies live, even mid-recording.
         if (_engine.Pipeline?.SystemAudio is { } sys)
             sys.Gain = _settings.SystemVolume / 100f;
-        if (_engine.Pipeline?.Microphone is { } mic)
-            mic.Gain = _settings.MicrophoneVolume / 100f;
+        ApplyMicGain();
     }
 
     private void UpdateVolumeLabels()
@@ -530,6 +554,9 @@ public partial class MainWindow : Window
         Reg(HotkeyPauseId, _settings.HotkeyPause, TogglePause, "pause");
         Reg(HotkeyReplayId, _settings.HotkeySaveReplay, () => _ = SaveReplayAsync(), "save replay");
         Reg(HotkeyShotId, _settings.HotkeyScreenshot, () => _ = TakeScreenshotAsync(), "screenshot");
+        Reg(HotkeyOverlayId, _settings.HotkeyOverlay, ToggleOverlay, "overlay");
+        Reg(HotkeyMicId, _settings.HotkeyMicMute, ToggleMicMute, "mute mic");
+        OverlayHint.Text = string.IsNullOrEmpty(_settings.HotkeyOverlay) ? "" : $"{_settings.HotkeyOverlay} from anywhere";
 
         if (failed.Count > 0)
         {
@@ -570,6 +597,8 @@ public partial class MainWindow : Window
         else if (box == HotkeyPauseBox) _settings.HotkeyPause = text;
         else if (box == HotkeyReplayBox) _settings.HotkeySaveReplay = text;
         else if (box == HotkeyShotBox) _settings.HotkeyScreenshot = text;
+        else if (box == HotkeyOverlayBox) _settings.HotkeyOverlay = text;
+        else if (box == HotkeyMicBox) _settings.HotkeyMicMute = text;
         _settings.Save();
     }
 
@@ -624,7 +653,7 @@ public partial class MainWindow : Window
             ? new AudioOptions((SystemDeviceCombo.SelectedItem as DeviceItem)?.Id, _settings.SystemVolume / 100f)
             : null;
         AudioOptions? mic = MicCheck.IsChecked == true
-            ? new AudioOptions((MicDeviceCombo.SelectedItem as DeviceItem)?.Id, _settings.MicrophoneVolume / 100f)
+            ? new AudioOptions((MicDeviceCombo.SelectedItem as DeviceItem)?.Id, _micMuted ? 0f : _settings.MicrophoneVolume / 100f)
             : null;
 
         return new PipelineConfig(target, _settings.Fps, _settings.MaxHeight, _settings.ShowCursor, _settings.HighlightClicks,
@@ -856,6 +885,7 @@ public partial class MainWindow : Window
         if (_engine.IsRecording)
         {
             UpdateTray();
+            UpdateHud();
             TimerText.Text = _engine.RecordingElapsed.ToString(@"hh\:mm\:ss");
             bool paused = _engine.IsPaused;
             Title = $"{(paused ? "❚❚ Paused" : "● REC")} {TimerText.Text} · Recshot";
@@ -872,6 +902,8 @@ public partial class MainWindow : Window
     private void UpdateUi()
     {
         UpdateTray();
+        UpdateHud();
+        _overlay?.Refresh();
         bool recording = _engine.IsRecording;
         bool busy = _engine.IsBusy;
         bool ready = _engine.FfmpegPath != null && _encoders.Count > 0;
@@ -940,6 +972,80 @@ public partial class MainWindow : Window
             : _engine.IsReplayRunning ? $"Recshot · replay buffer on ({_settings.HotkeySaveReplay} saves)" : "Recshot · ready";
         _tray.Update(_engine.IsRecording, _engine.IsPaused, _engine.IsReplayRunning, tip);
     }
+
+    // =====================================================================
+    // Overlay, HUD, mic mute
+    // =====================================================================
+
+    private void ToggleOverlay()
+    {
+        if (_overlay != null)
+        {
+            _overlay.CloseAnimated();
+            return;
+        }
+        try
+        {
+            Win32.GetCursorPos(out POINT cursor);
+            DisplayInfo display = ScreenInfo.DisplayContaining(cursor.X, cursor.Y) ?? ScreenInfo.GetDisplays().First(d => d.IsPrimary);
+            BitmapSource backdrop = ScreenGrabber.CaptureScreenRect(display.Bounds);
+            _overlay = new OverlayWindow(this, display, backdrop);
+            _overlay.Closed += (_, _) => _overlay = null;
+            _overlay.Show();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Overlay failed", ex);
+            _overlay = null;
+        }
+    }
+
+    private void UpdateHud()
+    {
+        if (_engine.IsRecording)
+        {
+            _hud ??= new RecordingHud();
+            if (!_hud.IsVisible)
+                _hud.Show();
+            _hud.Update(_engine.RecordingElapsed, _engine.IsPaused, MicCheck.IsChecked == true, _micMuted);
+        }
+        else if (_hud != null)
+        {
+            _hud.Close();
+            _hud = null;
+        }
+    }
+
+    public void ToggleMicMute()
+    {
+        _micMuted = !_micMuted;
+        ApplyMicGain();
+        Toast.Show(_micMuted ? "Microphone muted" : "Microphone on",
+            _micMuted ? $"{_settings.HotkeyMicMute} to unmute" : "Your voice is being recorded.");
+        UpdateUi();
+    }
+
+    private void ApplyMicGain()
+    {
+        if (_engine.Pipeline?.Microphone is { } mic)
+            mic.Gain = _micMuted ? 0f : _settings.MicrophoneVolume / 100f;
+    }
+
+    // IOverlayHost
+    bool IOverlayHost.IsRecording => _engine.IsRecording;
+    bool IOverlayHost.IsPaused => _engine.IsPaused;
+    bool IOverlayHost.IsReplayRunning => _engine.IsReplayRunning;
+    bool IOverlayHost.MicEnabled => MicCheck.IsChecked == true;
+    bool IOverlayHost.MicMuted => _micMuted;
+    TimeSpan IOverlayHost.Elapsed => _engine.RecordingElapsed;
+    AppSettings IOverlayHost.Settings => _settings;
+    string? IOverlayHost.FfmpegPath => _engine.FfmpegPath;
+    void IOverlayHost.ToggleRecord() => _ = ToggleRecordingAsync();
+    void IOverlayHost.TogglePauseRecording() => TogglePause();
+    void IOverlayHost.SaveReplay() => _ = SaveReplayAsync();
+    void IOverlayHost.ToggleReplay() => ReplayCheck.IsChecked = ReplayCheck.IsChecked != true;
+    void IOverlayHost.Screenshot() => _ = TakeScreenshotAsync();
+    void IOverlayHost.OpenSettings() => ShowFromTray();
 
     // =====================================================================
     // Tray
@@ -1023,6 +1129,8 @@ public partial class MainWindow : Window
         _uiTimer.Stop();
         _hotkeys?.Dispose();
         _tray?.Dispose();
+        _hud?.Close();
+        _overlay?.Close();
         _closeConfirmed = true;
         Close();
     }

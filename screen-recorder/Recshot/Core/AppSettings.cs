@@ -70,6 +70,8 @@ public sealed class AppSettings
     public string HotkeyPause { get; set; } = "Ctrl+Shift+F10";
     public string HotkeySaveReplay { get; set; } = "Ctrl+Shift+F11";
     public string HotkeyScreenshot { get; set; } = "Ctrl+Shift+F12";
+    public string HotkeyOverlay { get; set; } = "Alt+R";
+    public string HotkeyMicMute { get; set; } = "Ctrl+Shift+M";
 
     public static AppSettings Load()
     {

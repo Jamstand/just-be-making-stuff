@@ -70,6 +70,9 @@ internal static class Win32
     public const int GWL_EXSTYLE = -20;
     public const long WS_EX_TOOLWINDOW = 0x00000080L;
     public const long WS_EX_NOACTIVATE = 0x08000000L;
+    public const long WS_EX_TRANSPARENT = 0x00000020L;
+    public const long WS_EX_LAYERED = 0x00080000L;
+    public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     public const long WS_CHILD = 0x40000000L;
     public const uint GW_OWNER = 4;
 
@@ -123,6 +126,19 @@ internal static class Win32
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     public static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    public static extern IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+    /// <summary>Dark title bar to match the app (Windows 10 20H1+ / 11).</summary>
+    public static void UseDarkTitleBar(IntPtr hwnd)
+    {
+        int on = 1;
+        DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref on, sizeof(int));
+    }
 
     [DllImport("user32.dll")]
     public static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);

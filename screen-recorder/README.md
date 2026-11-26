@@ -28,6 +28,14 @@ GPU (NVENC), captures your mic and your computer's sound, and stays light on the
 
 Nothing else is needed: the .NET runtime is built into the exe.
 
+## The overlay
+
+Press **Alt+R** anywhere for a full-screen overlay over a blurred snapshot of your screen: big tiles
+for Record/Stop, Pause, Save replay, Instant replay on/off, Screenshot, Mic mute and Settings, plus your
+recent recordings, replays and screenshots (click to open, right-click to show in folder). Arrow keys
+and Enter work too; Esc or Alt+R closes it. While recording, a small pill in the top-right corner
+shows the timer and mic state. It never appears in your recordings.
+
 ## Default hotkeys
 
 | Action | Keys |
@@ -36,6 +44,8 @@ Nothing else is needed: the .NET runtime is built into the exe.
 | Pause / resume | `Ctrl+Shift+F10` |
 | Save replay | `Ctrl+Shift+F11` |
 | Screenshot (drag an area or click a screen) | `Ctrl+Shift+F12` |
+| Open / close the overlay | `Alt+R` |
+| Mute / unmute microphone | `Ctrl+Shift+M` |
 
 To change one, click its box in the **Hotkeys** section and press the new combination. If another app
 already uses a combination, Recshot says so.

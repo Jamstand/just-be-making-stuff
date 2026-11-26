@@ -120,6 +120,32 @@ internal static class SelfTest
                 Result(false, "window screenshot", ex.Message);
             }
 
+            // 5) New UI: overlay with tiles (focus triggers the hover animation) and the recording HUD.
+            try
+            {
+                var host = new StubHost();
+                var overlay = new UI.OverlayWindow(host, display, shot);
+                overlay.Show();
+                await Task.Delay(800);
+                var tile = FindTiles(overlay).FirstOrDefault();
+                tile?.Focus();
+                await Task.Delay(600);
+                overlay.Refresh();
+                await Task.Delay(300);
+                overlay.CloseAnimated();
+                var hud = new UI.RecordingHud();
+                hud.Show();
+                hud.Update(TimeSpan.FromSeconds(42), paused: false, micOn: true, micMuted: true);
+                await Task.Delay(500);
+                hud.Update(TimeSpan.FromSeconds(43), paused: true, micOn: true, micMuted: false);
+                hud.Close();
+                Result(tile != null, "overlay + HUD", tile != null ? "opened, animated and closed" : "no tiles found");
+            }
+            catch (Exception ex)
+            {
+                Result(false, "overlay + HUD", ex.ToString());
+            }
+
             ticker.Stop();
             animated.Close();
             await engine.ShutdownAsync();
@@ -131,5 +157,37 @@ internal static class SelfTest
 
         Note(failures == 0 ? "ALL PASSED" : $"{failures} FAILED");
         return failures == 0 ? 0 : 1;
+    }
+
+    private static IEnumerable<System.Windows.Controls.Button> FindTiles(DependencyObject root)
+    {
+        int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < n; i++)
+        {
+            DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is System.Windows.Controls.Button b)
+                yield return b;
+            foreach (var nested in FindTiles(child))
+                yield return nested;
+        }
+    }
+
+    private sealed class StubHost : UI.IOverlayHost
+    {
+        public bool IsRecording => true;
+        public bool IsPaused => false;
+        public bool IsReplayRunning => true;
+        public bool MicEnabled => true;
+        public bool MicMuted => false;
+        public TimeSpan Elapsed => TimeSpan.FromSeconds(12);
+        public AppSettings Settings { get; } = new();
+        public string? FfmpegPath => Ffmpeg.Locate();
+        public void ToggleRecord() { }
+        public void TogglePauseRecording() { }
+        public void SaveReplay() { }
+        public void ToggleReplay() { }
+        public void Screenshot() { }
+        public void ToggleMicMute() { }
+        public void OpenSettings() { }
     }
 }
