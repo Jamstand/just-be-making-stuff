@@ -20,6 +20,11 @@ internal interface IOverlayHost
     bool IsPaused { get; }
     bool IsReplayRunning { get; }
     bool MicEnabled { get; }
+    bool SystemEnabled { get; }
+    int SystemVolume { get; set; }
+    int MicVolume { get; set; }
+    float SystemLevel { get; }
+    float MicLevel { get; }
     bool MicMuted { get; }
     TimeSpan Elapsed { get; }
     AppSettings Settings { get; }
@@ -53,8 +58,11 @@ internal sealed class OverlayWindow : Window
     private readonly TextBlock _statusText;
     private readonly System.Windows.Threading.DispatcherTimer _timer;
     private bool _closing;
+    private readonly System.Windows.Threading.DispatcherTimer _meterTimer;
+    private ProgressBar _systemMeter = null!;
+    private ProgressBar _micMeter = null!;
 
-    public OverlayWindow(IOverlayHost host, DisplayInfo display, BitmapSource backdrop)
+    public OverlayWindow(IOverlayHost host, DisplayInfo display)
     {
         _host = host;
         _display = display;
@@ -62,7 +70,6 @@ internal sealed class OverlayWindow : Window
         ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false;
         Topmost = true;
-        Background = Brushes.Black;
         Left = display.Bounds.Left;
         Top = display.Bounds.Top;
         Width = Math.Max(1, display.Bounds.Width);
@@ -70,19 +77,14 @@ internal sealed class OverlayWindow : Window
 
         var root = new Grid();
 
-        // Backdrop: the screen as it was, heavily blurred and dimmed.
-        root.Children.Add(new Image
-        {
-            Source = backdrop,
-            Stretch = Stretch.UniformToFill,
-            RenderTransformOrigin = new Point(0.5, 0.5),
-            RenderTransform = new ScaleTransform(1.08, 1.08),
-            Effect = new BlurEffect { Radius = 70, KernelType = KernelType.Gaussian, RenderingBias = RenderingBias.Performance },
-        });
-        var dim = new RadialGradientBrush { GradientOrigin = new Point(0.5, 0.35), Center = new Point(0.5, 0.4), RadiusX = 0.9, RadiusY = 0.9 };
-        dim.GradientStops.Add(new GradientStop(Color.FromArgb(0x8C, 0x08, 0x09, 0x0C), 0));
-        dim.GradientStops.Add(new GradientStop(Color.FromArgb(0xD9, 0x05, 0x05, 0x07), 1));
-        root.Children.Add(new Border { Background = dim });
+        // Transparent over the live screen, like the Xbox Game Bar: a soft dark veil, everything behind keeps moving.
+        AllowsTransparency = true;
+        Background = Brushes.Transparent;
+        var veil = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+        veil.GradientStops.Add(new GradientStop(Color.FromArgb(0x99, 0x05, 0x06, 0x09), 0));
+        veil.GradientStops.Add(new GradientStop(Color.FromArgb(0x66, 0x05, 0x06, 0x09), 0.5));
+        veil.GradientStops.Add(new GradientStop(Color.FromArgb(0xB3, 0x05, 0x06, 0x09), 1));
+        root.Children.Add(new Border { Background = veil });
 
         // Foreground content, animated in.
         _content = new Grid { Margin = new Thickness(64, 48, 64, 40), RenderTransformOrigin = new Point(0.5, 0.45), RenderTransform = _contentScale, Opacity = 0 };
@@ -118,6 +120,7 @@ internal sealed class OverlayWindow : Window
         KeyboardNavigation.SetTabNavigation(_tiles, KeyboardNavigationMode.Cycle);
         var tilesHost = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         tilesHost.Children.Add(_tiles);
+        tilesHost.Children.Add(BuildAudioWidget());
         Grid.SetRow(tilesHost, 1);
         _content.Children.Add(tilesHost);
 
@@ -164,12 +167,18 @@ internal sealed class OverlayWindow : Window
         // Clicking empty space closes, like tapping outside a sheet.
         root.MouseLeftButtonUp += (_, e) =>
         {
-            if (e.OriginalSource == root || e.OriginalSource is Border { Child: null } || e.OriginalSource is Image)
+            if (e.OriginalSource == root || e.OriginalSource is Border { Child: null })
                 CloseAnimated();
         };
 
         _timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _timer.Tick += (_, _) => UpdateClockAndStatus();
+        _meterTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+        _meterTimer.Tick += (_, _) =>
+        {
+            _systemMeter.Value = _host.SystemLevel;
+            _micMeter.Value = _host.MicMuted ? 0 : _host.MicLevel;
+        };
 
         SourceInitialized += (_, _) =>
         {
@@ -183,9 +192,14 @@ internal sealed class OverlayWindow : Window
             AnimateIn();
             _ = LoadGalleryAsync();
             _timer.Start();
+            _meterTimer.Start();
             Activate();
         };
-        Closed += (_, _) => _timer.Stop();
+        Closed += (_, _) =>
+        {
+            _timer.Stop();
+            _meterTimer.Stop();
+        };
     }
 
     private void SnapToDisplay()
@@ -286,6 +300,59 @@ internal sealed class OverlayWindow : Window
             }
         };
         _tiles.Children.Add(tile);
+    }
+
+    /// <summary>Game Bar–style audio widget: live levels and volume for computer sound and mic.</summary>
+    private UIElement BuildAudioWidget()
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "Audio", FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, Margin = new Thickness(0, 0, 0, 10) });
+        panel.Children.Add(AudioRow("\uE767", "Computer sound", _host.SystemEnabled, _host.SystemVolume, v => _host.SystemVolume = v, out _systemMeter));
+        panel.Children.Add(AudioRow("\uE720", "Microphone", _host.MicEnabled, _host.MicVolume, v => _host.MicVolume = v, out _micMeter));
+        return new Border
+        {
+            Width = 420, Margin = new Thickness(0, 28, 0, 0), Padding = new Thickness(20, 16, 20, 14), HorizontalAlignment = HorizontalAlignment.Center,
+            CornerRadius = new CornerRadius(20), Background = new SolidColorBrush(Color.FromArgb(0xB0, 0x14, 0x15, 0x1A)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)), BorderThickness = new Thickness(1),
+            Child = panel,
+        };
+    }
+
+    private static UIElement AudioRow(string glyph, string name, bool enabled, int volume, Action<int> set, out ProgressBar meter)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 4, 0, 8), Opacity = enabled ? 1 : 0.4, IsEnabled = enabled };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+        grid.RowDefinitions.Add(new RowDefinition());
+        grid.RowDefinitions.Add(new RowDefinition());
+        var icon = new TextBlock { Text = glyph, FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 16, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+        var label = new TextBlock { Text = enabled ? name : $"{name} (off)", FontSize = 12, Foreground = (Brush)Application.Current.FindResource("TextSecondary") };
+        var slider = new Slider { Minimum = 0, Maximum = 200, Value = volume, TickFrequency = 5, IsSnapToTickEnabled = true, VerticalAlignment = VerticalAlignment.Center };
+        var value = new TextBlock { Text = $"{volume}%", FontSize = 12, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        slider.ValueChanged += (_, e) =>
+        {
+            value.Text = $"{(int)e.NewValue}%";
+            set((int)e.NewValue);
+        };
+        meter = new ProgressBar { Height = 3, Minimum = 0, Maximum = 1, Margin = new Thickness(0, 2, 0, 0), Foreground = Brushes.White, Background = new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)), BorderThickness = new Thickness(0) };
+        Grid.SetRowSpan(icon, 2);
+        Grid.SetColumn(label, 1);
+        Grid.SetColumn(slider, 1);
+        Grid.SetRow(slider, 1);
+        Grid.SetColumn(value, 2);
+        Grid.SetRow(value, 1);
+        var sliderAndMeter = new StackPanel();
+        grid.Children.Add(icon);
+        grid.Children.Add(label);
+        grid.Children.Remove(slider);
+        sliderAndMeter.Children.Add(slider);
+        sliderAndMeter.Children.Add(meter);
+        Grid.SetColumn(sliderAndMeter, 1);
+        Grid.SetRow(sliderAndMeter, 1);
+        grid.Children.Add(sliderAndMeter);
+        grid.Children.Add(value);
+        return grid;
     }
 
     private void UpdateClockAndStatus()

@@ -988,8 +988,7 @@ public partial class MainWindow : Window, IOverlayHost
         {
             Win32.GetCursorPos(out POINT cursor);
             DisplayInfo display = ScreenInfo.DisplayContaining(cursor.X, cursor.Y) ?? ScreenInfo.GetDisplays().First(d => d.IsPrimary);
-            BitmapSource backdrop = ScreenGrabber.CaptureScreenRect(display.Bounds);
-            _overlay = new OverlayWindow(this, display, backdrop);
+            _overlay = new OverlayWindow(this, display);
             _overlay.Closed += (_, _) => _overlay = null;
             _overlay.Show();
         }
@@ -1037,6 +1036,11 @@ public partial class MainWindow : Window, IOverlayHost
     bool IOverlayHost.IsReplayRunning => _engine.IsReplayRunning;
     bool IOverlayHost.MicEnabled => MicCheck.IsChecked == true;
     bool IOverlayHost.MicMuted => _micMuted;
+    bool IOverlayHost.SystemEnabled => SystemAudioCheck.IsChecked == true;
+    int IOverlayHost.SystemVolume { get => (int)SystemVolumeSlider.Value; set => SystemVolumeSlider.Value = value; }
+    int IOverlayHost.MicVolume { get => (int)MicVolumeSlider.Value; set => MicVolumeSlider.Value = value; }
+    float IOverlayHost.SystemLevel => _engine.Pipeline?.SystemAudio?.Level ?? 0;
+    float IOverlayHost.MicLevel => _engine.Pipeline?.Microphone?.Level ?? 0;
     TimeSpan IOverlayHost.Elapsed => _engine.RecordingElapsed;
     AppSettings IOverlayHost.Settings => _settings;
     string? IOverlayHost.FfmpegPath => _engine.FfmpegPath;

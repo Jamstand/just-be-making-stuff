@@ -124,7 +124,7 @@ internal static class SelfTest
             try
             {
                 var host = new StubHost();
-                var overlay = new UI.OverlayWindow(host, display, shot);
+                var overlay = new UI.OverlayWindow(host, display);
                 overlay.Show();
                 await Task.Delay(800);
                 var tile = FindTiles(overlay).FirstOrDefault();
@@ -179,6 +179,11 @@ internal static class SelfTest
         public bool IsReplayRunning => true;
         public bool MicEnabled => true;
         public bool MicMuted => false;
+        public bool SystemEnabled => true;
+        public int SystemVolume { get; set; } = 100;
+        public int MicVolume { get; set; } = 100;
+        public float SystemLevel => 0.3f;
+        public float MicLevel => 0.5f;
         public TimeSpan Elapsed => TimeSpan.FromSeconds(12);
         public AppSettings Settings { get; } = new();
         public string? FfmpegPath => Ffmpeg.Locate();

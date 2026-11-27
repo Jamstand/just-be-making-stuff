@@ -61,6 +61,8 @@ public partial class App : Application
         }
 
         RecorderEngine.CleanStaleReplayFolders();
+        // Keep the sign-in entry pointing at this exe (it may have been moved or updated).
+        UI.StartupRegistration.Apply(Core.AppSettings.Load().StartWithWindows);
         bool background = e.Args.Contains("--background");
         var window = new MainWindow { StartHidden = background };
         if (background)

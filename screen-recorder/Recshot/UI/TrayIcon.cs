@@ -19,7 +19,7 @@ internal sealed class TrayIcon : IDisposable
         _idleIcon = LoadAppIcon();
         _recordingIcon = MakeRecordingIcon();
 
-        var menu = new Forms.ContextMenuStrip();
+        var menu = new Forms.ContextMenuStrip { Renderer = new Forms.ToolStripProfessionalRenderer(new DarkColors()), ForeColor = System.Drawing.Color.FromArgb(245, 246, 248), ShowImageMargin = false };
         menu.Items.Add("Open Recshot", null, (_, _) => show());
         menu.Items.Add(new Forms.ToolStripSeparator());
         _record = new Forms.ToolStripMenuItem("Start recording", null, (_, _) => toggleRecord());
@@ -45,6 +45,23 @@ internal sealed class TrayIcon : IDisposable
             if (e.Button == Forms.MouseButtons.Left)
                 show();
         };
+    }
+
+    private sealed class DarkColors : Forms.ProfessionalColorTable
+    {
+        private static readonly System.Drawing.Color Bg = System.Drawing.Color.FromArgb(28, 30, 37);
+        private static readonly System.Drawing.Color Hover = System.Drawing.Color.FromArgb(48, 51, 61);
+        public override System.Drawing.Color ToolStripDropDownBackground => Bg;
+        public override System.Drawing.Color MenuBorder => System.Drawing.Color.FromArgb(60, 63, 72);
+        public override System.Drawing.Color MenuItemSelected => Hover;
+        public override System.Drawing.Color MenuItemBorder => Hover;
+        public override System.Drawing.Color SeparatorDark => System.Drawing.Color.FromArgb(60, 63, 72);
+        public override System.Drawing.Color SeparatorLight => Bg;
+        public override System.Drawing.Color ImageMarginGradientBegin => Bg;
+        public override System.Drawing.Color ImageMarginGradientMiddle => Bg;
+        public override System.Drawing.Color ImageMarginGradientEnd => Bg;
+        public override System.Drawing.Color CheckBackground => Hover;
+        public override System.Drawing.Color CheckSelectedBackground => Hover;
     }
 
     public void Update(bool recording, bool paused, bool replayOn, string tooltip)

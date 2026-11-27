@@ -30,9 +30,9 @@ Nothing else is needed: the .NET runtime is built into the exe.
 
 ## The overlay
 
-Press **Alt+R** anywhere for a full-screen overlay over a blurred snapshot of your screen: big tiles
+Press **Alt+R** anywhere for a see-through overlay on top of your live screen (like the Xbox Game Bar): big tiles
 for Record/Stop, Pause, Save replay, Instant replay on/off, Screenshot, Mic mute and Settings, plus your
-recent recordings, replays and screenshots (click to open, right-click to show in folder). Arrow keys
+recent recordings, replays and screenshots (click to open, right-click to show in folder), and an audio widget with live levels and volume sliders for computer sound and mic. Arrow keys
 and Enter work too; Esc or Alt+R closes it. While recording, a small pill in the top-right corner
 shows the timer and mic state. It never appears in your recordings.
 
@@ -55,7 +55,7 @@ already uses a combination, Recshot says so.
 Closing or minimising the window hides Recshot to the notification area (bottom-right, near the
 clock; it may sit under the ^ arrow). Recording, the replay buffer and hotkeys keep running. Click
 the icon to reopen; right-click for Start/Stop recording, Pause, Replay buffer, Save replay,
-Screenshot, or **Quit**. The icon turns into a red dot while recording. Turn on *Start with Windows*
+Screenshot, or **Quit**. The icon turns into a red dot while recording. *Start with Windows* is on by default; turn it off under General. Turn on
 and the replay buffer, and Recshot is always ready to save the last minutes, like NVIDIA's
 Instant Replay. Launching Recshot again just reopens the running one.
 

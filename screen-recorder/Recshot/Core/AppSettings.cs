@@ -62,7 +62,7 @@ public sealed class AppSettings
 
     // Background
     public bool CloseToTray { get; set; } = true;
-    public bool StartWithWindows { get; set; }
+    public bool StartWithWindows { get; set; } = true;
     public bool TrayHintShown { get; set; }
 
     // Hotkeys
