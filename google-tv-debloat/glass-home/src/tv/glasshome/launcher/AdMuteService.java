@@ -18,10 +18,10 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Mutes the TV while Disney+ or Hulu is showing an ad, and unmutes when the
+ * Mutes the TV while Disney+, Hulu or HBO Max is showing an ad, and unmutes when the
  * show comes back. The ad still plays in full; only the sound is turned off.
  *
- * It works by reading the on-screen labels of those two apps (and no others)
+ * It works by reading the on-screen labels of those three apps (and no others)
  * and looking for their "Ad" marker. What those apps expose differs by
  * version, so everything it sees is written to the log under the tag
  * GlassAdMuter; that log is what gets used to tune the patterns below.
@@ -33,7 +33,8 @@ public class AdMuteService extends AccessibilityService {
     private static final Set<String> WATCHED = new HashSet<>(Arrays.asList(
             "com.disney.disneyplus",
             "com.hulu.livingroomplus",
-            "com.hulu.plus"));
+            "com.hulu.plus",
+            "com.wbd.stream"));
 
     /** Labels that mean an ad is on screen: "Ad", "Ad 1 of 3", "Ad : 0:15", "Advertisement". */
     private static final Pattern AD_TEXT = Pattern.compile(

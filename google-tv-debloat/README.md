@@ -35,12 +35,12 @@ has an undo option, and a factory reset restores the TV completely.
 | 5. Install Glass Home | Installs or updates `GlassHome.apk` (the custom home screen in this folder), lets it read your apps' continue-watching lists, shows it to you, then offers to turn off the Google TV home screen so the Home button opens Glass Home. Rolls back by itself if it does not come up. |
 | 6. Install SmartTube | Downloads SmartTube, a third-party open-source YouTube app without ads, from its developer's GitHub page and installs it. Using it goes against YouTube's terms of service. The normal YouTube app stays installed. |
 | 7. Set YouTube API key | Sends a YouTube Data API key to Glass Home so its video rows work, so you do not have to type it with the remote. |
-| 8. Install Disney+ and Hulu | Opens the Play Store page for each official app on the TV. Glass Home adds them to Favorites the first time it sees them. |
+| 8. Install Disney+, Hulu and HBO Max | Opens the Play Store page for each official app on the TV. Glass Home adds them to Favorites the first time it sees them. |
 | 9. Snappier | Halves (or turns off, or restores) Android's system animations so apps and menus open faster. |
 | 10. Block ads and trackers | Points the TV's Private DNS at AdGuard DNS, which blocks many ads and trackers in every app. Does not remove ads that are part of the video stream. Checks the TV is still online and switches itself back off if not. Choice 2 turns it off. |
 | 11. Screensaver | Makes the Glass Home screensaver (drifting gradient and a clock that moves each minute) the TV's screensaver, previews it, or puts the previous one back. |
 | 12. Your own media | Opens the Play Store page for VLC, Jellyfin or Plex and prints the setup steps for the one you pick. |
-| 13. Ad muter | Experimental. Turns on a helper in Glass Home that mutes the sound while Disney+ or Hulu shows an ad and unmutes afterwards; the ad still plays. It reads the on-screen labels of those two apps only. Choice 3 saves its log (`ad-muter-log.txt`) for tuning. |
+| 13. Ad muter | Experimental. Turns on a helper in Glass Home that mutes the sound while Disney+, Hulu or HBO Max shows an ad and unmutes afterwards; the ad still plays. It reads the on-screen labels of those three apps only. Choice 3 saves its log (`ad-muter-log.txt`) for tuning. |
 
 To preview without changing anything:
 
@@ -62,7 +62,7 @@ is a design mockup of it, not a photo of the real app.
   - *Background motion* turns the drift on or off.
   - *Rows*: show, hide or reorder each home-screen row (Favorites always shows).
   - *Hidden apps*: brings back apps hidden from All Apps.
-  - *Mute Disney+ and Hulu ads* and *Glass Home screensaver*: on/off switches.
+  - *Mute Disney+, Hulu and HBO Max ads* and *Glass Home screensaver*: on/off switches.
   - *Check for updates*: see below.
 - **Favorites row:** your main apps. The focused one grows and shows its name.
 - **Recent row:** apps you opened from Glass Home, newest first. Hidden until you
@@ -74,7 +74,7 @@ is a design mockup of it, not a photo of the real app.
 - **From channels you watch:** new uploads from channels whose videos you opened
   from Glass Home. Needs the YouTube API key; shows popular music until there is
   some history.
-- **Continue watching:** what Disney+, Hulu and your other apps report you are
+- **Continue watching:** what Disney+, Hulu, HBO Max and your other apps report you are
   part-way through, newest first, with a progress bar. Pressing OK resumes that
   exact title in its app. Apps decide what they report, so some may list nothing.
 - **Moving around:** Down moves through the rows; Back returns to the top. A row

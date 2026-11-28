@@ -845,12 +845,12 @@ public class MainActivity extends Activity {
         renderAllApps();
     }
 
-    /** Puts Disney+ and Hulu in Favorites once each, the first time they are seen installed. */
+    /** Puts Disney+, Hulu and HBO Max in Favorites once each, the first time each is seen installed. */
     private void addStreamingAppsToFavorites() {
         List<String> saved = prefs.favorites();
         boolean changed = false;
         for (String packageName : new String[] {
-                Apps.DISNEY_PACKAGE, Apps.HULU_PACKAGE}) {
+                Apps.DISNEY_PACKAGE, Apps.HULU_PACKAGE, Apps.HBO_MAX_PACKAGE}) {
             if (prefs.flag(PREF_AUTO_ADDED + packageName)) {
                 continue; // Already done once; respect it if the user removed it since.
             }
@@ -1583,7 +1583,7 @@ public class MainActivity extends Activity {
                 });
 
         addSettingsHeading(list, "TV");
-        addSettingsLine(list, "Mute Disney+ and Hulu ads (experimental)",
+        addSettingsLine(list, "Mute Disney+, Hulu and HBO Max ads (experimental)",
                 isAdMuterOn() ? "On" : "Off", this::toggleAdMuter);
         addSettingsLine(list, "Glass Home screensaver",
                 isOurScreensaver() ? "On" : "Off", this::toggleScreensaver);

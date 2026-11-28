@@ -9,10 +9,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 : "${ANDROID_HOME:?Set ANDROID_HOME to your Android SDK folder}"
 
-VERSION_CODE=9
-VERSION_NAME=1.8
+VERSION_CODE=10
+VERSION_NAME=1.9
 # One line shown to the viewer when the app offers this build as an update.
-RELEASE_NOTES="Customize screen with a theme picker, row and app hiding, and self-updating."
+RELEASE_NOTES="Adds HBO Max: it goes into Favorites when installed, and the ad muter covers it."
 APK_URL="https://raw.githubusercontent.com/Jamstand/just-be-making-stuff/claude/nifty-knuth-b9brge/google-tv-debloat/GlassHome.apk"
 MIN_SDK=26
 TARGET_SDK=34

@@ -11,12 +11,12 @@
       5. Install Glass Home, a custom home screen (GlassHome.apk next to this script)
       6. Install SmartTube, a third-party YouTube app without ads
       7. Give Glass Home a YouTube API key for its video rows
-      8. Install the official Disney+ and Hulu apps
+      8. Install the official Disney+, Hulu and HBO Max apps
       9. Shorten system animations so the TV feels snappier
      10. Block ads and trackers across apps with an ad-blocking DNS service
      11. Use Glass Home as the screensaver
      12. Install an app for playing your own media
-     13. Mute the sound during Disney+ and Hulu ads (experimental)
+     13. Mute the sound during Disney+, Hulu and HBO Max ads (experimental)
 
     Nothing is permanently deleted. Apps are disabled for the current user only,
     option 3 turns them back on, and a factory reset restores the TV completely.
@@ -76,7 +76,7 @@ $Catalog = @(
     @{ Id = 'com.hulu.livingroomplus';                  Group = 'Streaming'; Name = 'Hulu' }
     @{ Id = 'com.apple.atve.androidtv.appletv';         Group = 'Streaming'; Name = 'Apple TV' }
     @{ Id = 'com.spotify.tv.android';                   Group = 'Streaming'; Name = 'Spotify' }
-    @{ Id = 'com.wbd.stream';                           Group = 'Streaming'; Name = 'Max' }
+    @{ Id = 'com.wbd.stream';                           Group = 'Streaming'; Name = 'HBO Max' }
     @{ Id = 'com.peacocktv.peacockandroid';             Group = 'Streaming'; Name = 'Peacock' }
     @{ Id = 'com.cbs.ott';                              Group = 'Streaming'; Name = 'Paramount+' }
     @{ Id = 'com.tubitv';                               Group = 'Streaming'; Name = 'Tubi' }
@@ -732,21 +732,22 @@ function Invoke-SetYouTubeKey {
 }
 
 # ---------------------------------------------------------------------------
-# Option 8: get the official Disney+ and Hulu apps onto the TV
+# Option 8: get the official Disney+, Hulu and HBO Max apps onto the TV
 # ---------------------------------------------------------------------------
 function Invoke-StreamingApps {
-    Write-Title 'Disney+ and Hulu'
+    Write-Title 'Disney+, Hulu and HBO Max'
     Write-Step 'This opens the Play Store page for each app on the TV so you can'
     Write-Step 'install the official version. Glass Home adds them to Favorites'
     Write-Step 'by itself the first time it sees them.'
     Write-Host ''
     if ($script:IsDryRun) {
-        Write-Step '[dry run] would open the Play Store pages for Disney+ and Hulu'
+        Write-Step '[dry run] would open the Play Store pages for Disney+, Hulu and HBO Max'
         return
     }
     $wanted = @(
         @{ Id = 'com.disney.disneyplus';   Name = 'Disney+' }
         @{ Id = 'com.hulu.livingroomplus'; Name = 'Hulu' }
+        @{ Id = 'com.wbd.stream';          Name = 'HBO Max' }
     )
     foreach ($app in $wanted) {
         $installed = Get-InstalledPackages
@@ -830,7 +831,7 @@ function Invoke-AdBlockDns {
     Write-Step 'Every app looks up web addresses through a DNS service. Pointing the TV'
     Write-Step 'at one that refuses known ad and tracking addresses blocks many ads and'
     Write-Step 'trackers in every app at once. It uses AdGuard DNS, a free public service.'
-    Write-Step 'It does NOT remove ads that are part of the video itself (Disney+, Hulu,'
+    Write-Step 'It does NOT remove ads that are part of the video itself (Disney+, Hulu, HBO Max,'
     Write-Step 'the official YouTube app). If an app stops loading, switch it back off.'
     Write-Step "Current setting: mode=$mode  server=$host_"
     Write-Host ''
@@ -990,10 +991,10 @@ function Invoke-MediaApps {
 }
 
 # ---------------------------------------------------------------------------
-# Option 13: ad muter for Disney+ and Hulu
+# Option 13: ad muter for Disney+, Hulu and HBO Max
 # ---------------------------------------------------------------------------
 function Invoke-AdMuter {
-    Write-Title 'Ad muter (Disney+ and Hulu)'
+    Write-Title 'Ad muter (Disney+, Hulu and HBO Max)'
     if ((Get-InstalledPackages) -notcontains $GlassHome) {
         Write-Bad 'Glass Home is not installed on the TV yet. Run option 5 first.'
         return
@@ -1002,10 +1003,10 @@ function Invoke-AdMuter {
     $list = Invoke-Adb shell settings get secure enabled_accessibility_services
     if ($list -eq 'null') { $list = '' }
     $isOn = ($list -split ':') -contains $service
-    Write-Step 'This mutes the sound while Disney+ or Hulu is showing an ad and unmutes'
+    Write-Step 'This mutes the sound while Disney+, Hulu or HBO Max shows an ad and unmutes'
     Write-Step 'when the show returns. The ad still plays; it is just silent.'
     Write-Step 'To do that, a helper inside Glass Home reads the on-screen labels of'
-    Write-Step 'those two apps (no others) looking for their "Ad" marker.'
+    Write-Step 'those three apps (no others) looking for their "Ad" marker.'
     Write-Warn 'It is experimental: whether it works depends on what those apps show.'
     if ($isOn) { Write-Step 'It is currently ON.' } else { Write-Step 'It is currently OFF.' }
     Write-Host ''
@@ -1031,7 +1032,7 @@ function Invoke-AdMuter {
         $nowOn = ($after -split ':') -contains $service
         if ($choice -eq '1' -and $nowOn) {
             Write-Ok 'Ad muter is on.'
-            Write-Step 'To test it: play something with ads in Disney+ or Hulu, sit through'
+            Write-Step 'To test it: play something with ads in Disney+, Hulu or HBO Max, sit through'
             Write-Step 'an ad break, then come back here and choose 13 then 3 to save the log.'
             Write-Step 'If the sound ever stays off, press Mute or Volume Up on the remote.'
         } elseif ($choice -eq '2' -and -not $nowOn) {
@@ -1047,7 +1048,7 @@ function Invoke-AdMuter {
         $lines = @($log -split "`n").Count
         Write-Ok "Saved $lines lines to:"
         Write-Step "  $file"
-        Write-Step 'It lists the on-screen labels seen in Disney+ and Hulu (menu names,'
+        Write-Step 'It lists the on-screen labels seen in Disney+, Hulu and HBO Max (menu names,'
         Write-Step 'titles, profile names) and when it muted. Look it over, then paste it'
         Write-Step 'into the chat so the ad detection can be tuned.'
     } else {
@@ -1148,12 +1149,12 @@ while ($true) {
     Write-Step '5. Install Glass Home, the custom home screen'
     Write-Step '6. Install SmartTube (YouTube without ads, third-party)'
     Write-Step '7. Set the YouTube API key for the Glass Home video rows'
-    Write-Step '8. Install Disney+ and Hulu (official apps)'
+    Write-Step '8. Install Disney+, Hulu and HBO Max (official apps)'
     Write-Step '9. Make the TV feel snappier (faster animations)'
     Write-Step '10. Block ads and trackers across apps (Private DNS)'
     Write-Step '11. Use Glass Home as the screensaver'
     Write-Step '12. Play your own media (VLC, Jellyfin or Plex)'
-    Write-Step '13. Ad muter for Disney+ and Hulu (experimental)'
+    Write-Step '13. Ad muter for Disney+, Hulu and HBO Max (experimental)'
     Write-Step 'q. Quit'
     Write-Host ''
     $choice = (Read-Host '  Choose').Trim().ToLower()

@@ -53,6 +53,7 @@ final class Apps {
 
     static final String DISNEY_PACKAGE = "com.disney.disneyplus";
     static final String HULU_PACKAGE = "com.hulu.livingroomplus";
+    static final String HBO_MAX_PACKAGE = "com.wbd.stream";
 
     /** Every app with a TV launcher entry, then phone-style apps that lack one. Sorted by name. */
     static List<Entry> load(Context context) {
