@@ -101,6 +101,29 @@ publish to Android TV, the same lists the Google home screen shows. Option 5
 grants Glass Home the permission for that (`READ_TV_LISTINGS`). If it could not,
 the Continue watching row shows a card: press OK on it to allow it on the TV.
 
+### Control from your phone (iPhone or Android)
+
+Glass Home can show a control page that any phone on the same Wi-Fi opens in
+Safari or Chrome. Nothing to install on the phone.
+
+1. On the TV: **Customize > Phone control**, turn it **On**. The screen shows an
+   address (like `http://192.168.1.77:8765`) and a 6-digit PIN.
+2. On the phone: type that address into the browser and enter the PIN.
+
+From the page you can change the theme and motion, turn ad blocking, the
+screensaver and the ad muter on or off, set animation speed, paste the YouTube
+API key, open the Play Store page for Disney+, Hulu, HBO Max, VLC, Jellyfin or
+Plex on the TV, and check for updates.
+
+It still needs the PC for turning preinstalled apps off (option 1), installing
+SmartTube (option 6), and the first install of Glass Home, which grants the
+permission these switches use.
+
+Safety: it is off until you turn it on, only answers devices on your home
+network, needs the PIN (five wrong tries lock it for a minute), and refuses
+requests from other web pages. *OK on the PIN line* makes a new PIN and signs
+out every phone.
+
 ### Self-updating
 
 Glass Home checks `version.json` in this repository (on GitHub) about twice a day

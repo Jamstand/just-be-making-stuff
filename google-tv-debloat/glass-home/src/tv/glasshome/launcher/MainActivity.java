@@ -48,7 +48,7 @@ import java.util.concurrent.Executors;
  * vertically (Favorites, Recent, and two YouTube rows), plus an "all apps"
  * panel. Everything is built in code, with no layout files.
  */
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements PhoneControl.Listener {
 
     /** Sent by the PC tool to hand over the YouTube API key without typing it on the TV. */
     public static final String EXTRA_API_KEY = "youtube_api_key";
@@ -58,7 +58,6 @@ public class MainActivity extends Activity {
     private static final String PREF_HIDDEN_APPS = "hidden_apps";
     private static final String PREF_UPDATE_CHECKED = "update_checked_at";
     private static final String PREF_UPDATE_CODE = "update_available_code";
-    private static final String PREF_SCREENSAVER_BEFORE = "screensaver_before";
     private static final long UPDATE_CHECK_MS = 12 * 60 * 60 * 1000L;
     private static final String[] DEFAULT_ROW_ORDER = {
         "favorites", "recents", "trending", "second", "continue"};
@@ -185,6 +184,10 @@ public class MainActivity extends Activity {
         setContentView(root);
 
         handleInstallStatus(getIntent());
+        PhoneControl.setListener(this);
+        if (PhoneControl.isEnabled(this)) {
+            PhoneControl.start(this);
+        }
         acceptApiKey(getIntent());
         reloadApps();
     }
@@ -229,6 +232,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        PhoneControl.clearListener(this);
         worker.shutdownNow();
         network.shutdownNow();
         super.onDestroy();
@@ -1588,6 +1592,29 @@ public class MainActivity extends Activity {
         addSettingsLine(list, "Glass Home screensaver",
                 isOurScreensaver() ? "On" : "Off", this::toggleScreensaver);
 
+        addSettingsHeading(list, "Control from your phone");
+        final boolean phoneOn = PhoneControl.isEnabled(this);
+        addSettingsLine(list, "Phone control", phoneOn ? "On" : "Off",
+                () -> PhoneControl.setEnabled(this, !phoneOn));
+        if (phoneOn) {
+            String address = PhoneControl.address();
+            addSettingsLine(list, "On your phone, open",
+                    address.isEmpty() ? "Connect the TV to Wi-Fi first" : address,
+                    () -> toast("Type it into Safari or Chrome on a phone on the same Wi-Fi"));
+            addSettingsLine(list, "PIN", PhoneControl.pin(this) + "   (OK for a new one)",
+                    () -> {
+                        PhoneControl.resetPin(this);
+                        toast("New PIN made. Connected phones need to enter it again.");
+                    });
+            if (!PhoneControl.isRunning()) {
+                addSettingsLine(list, "Phone control could not start",
+                        "OK to try again", () -> {
+                            PhoneControl.stop();
+                            PhoneControl.start(this);
+                        });
+            }
+        }
+
         addSettingsHeading(list, "About");
         boolean newer = prefs.time(PREF_UPDATE_CODE) > Updater.installedCode(this);
         addSettingsLine(list, "Glass Home " + Updater.installedName(this),
@@ -1741,76 +1768,47 @@ public class MainActivity extends Activity {
     // --- Things that change a system setting. They need a permission the PC
     // --- tool grants (option 5); without it they explain what to do.
 
-    private static final String AD_MUTER =
-            "tv.glasshome.launcher/tv.glasshome.launcher.AdMuteService";
-    private static final String SCREENSAVER =
-            "tv.glasshome.launcher/tv.glasshome.launcher.ClockDream";
-
-    private static boolean sameComponent(String a, String b) {
-        ComponentName first = a == null ? null : ComponentName.unflattenFromString(a.trim());
-        ComponentName second = b == null ? null : ComponentName.unflattenFromString(b.trim());
-        return first != null && first.equals(second);
-    }
-
-    private String secureSetting(String name) {
-        try {
-            String value = Settings.Secure.getString(getContentResolver(), name);
-            return value == null ? "" : value;
-        } catch (RuntimeException e) {
-            return "";
-        }
-    }
-
-    private boolean writeSecureSetting(String name, String value) {
-        try {
-            return Settings.Secure.putString(getContentResolver(), name, value);
-        } catch (RuntimeException e) {
-            toast("Not allowed yet. Run the PC tool and choose option 5 once.");
-            return false;
-        }
+    private void notAllowedYet() {
+        toast("Not allowed yet. Run the PC tool and choose option 5 once.");
     }
 
     private boolean isAdMuterOn() {
-        for (String service : secureSetting("enabled_accessibility_services").split(":")) {
-            if (sameComponent(service, AD_MUTER)) {
-                return true;
-            }
-        }
-        return false;
+        return SystemSettings.isAdMuterOn(this);
     }
 
     private void toggleAdMuter() {
-        boolean turnOn = !isAdMuterOn();
-        List<String> services = new ArrayList<>();
-        for (String service : secureSetting("enabled_accessibility_services").split(":")) {
-            if (!service.isEmpty() && !sameComponent(service, AD_MUTER)) {
-                services.add(service);
-            }
-        }
-        if (turnOn) {
-            services.add(AD_MUTER);
-        }
-        if (writeSecureSetting("enabled_accessibility_services", TextUtils.join(":", services))
-                && turnOn) {
-            writeSecureSetting("accessibility_enabled", "1");
+        if (!SystemSettings.setAdMuter(this, !isAdMuterOn())) {
+            notAllowedYet();
         }
     }
 
     private boolean isOurScreensaver() {
-        return sameComponent(secureSetting("screensaver_components"), SCREENSAVER);
+        return SystemSettings.isScreensaverOn(this);
     }
 
     private void toggleScreensaver() {
-        if (isOurScreensaver()) {
-            // Put back whatever was there before this was turned on.
-            writeSecureSetting("screensaver_components", prefs.text(PREF_SCREENSAVER_BEFORE));
-        } else {
-            String before = secureSetting("screensaver_components");
-            if (writeSecureSetting("screensaver_components", SCREENSAVER)) {
-                prefs.saveText(PREF_SCREENSAVER_BEFORE, before);
-                writeSecureSetting("screensaver_enabled", "1");
-            }
+        if (!SystemSettings.setScreensaver(this, prefs, !isOurScreensaver())) {
+            notAllowedYet();
         }
+    }
+
+    /** The phone page changed something; show it here. Called from a server thread. */
+    @Override
+    public void onPhoneChange(final String what) {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            if (what.equals("theme")) {
+                background.setPalette(prefs.palette());
+                background.setMotion(prefs.motion());
+            } else if (what.equals("youtube")) {
+                videosShown = false;
+                loadVideos(true);
+            } else if (what.equals("update")) {
+                startUpdateCheck(true);
+            }
+        });
     }
 
     // ------------------------------------------------------------------

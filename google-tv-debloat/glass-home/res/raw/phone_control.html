@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Glass Home">
+<title>Glass Home</title>
+<style>
+  :root {
+    --bg: #07070d;
+    --card: rgba(255, 255, 255, 0.07);
+    --edge: rgba(255, 255, 255, 0.12);
+    --text: #f4f4f7;
+    --dim: rgba(244, 244, 247, 0.62);
+    --on: #f4f4f7;
+    --on-text: #101014;
+    --bad: #ff8a8a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--bg);
+    background-image:
+      radial-gradient(60% 40% at 15% 10%, rgba(59, 47, 191, 0.35), transparent 70%),
+      radial-gradient(50% 40% at 90% 30%, rgba(122, 44, 191, 0.25), transparent 70%),
+      radial-gradient(60% 40% at 60% 100%, rgba(14, 124, 134, 0.25), transparent 70%);
+    background-attachment: fixed;
+    color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: calc(env(safe-area-inset-top) + 20px) 16px calc(env(safe-area-inset-bottom) + 90px);
+  }
+  header h1 { font-weight: 300; font-size: 32px; margin: 8px 0 2px; letter-spacing: -0.01em; }
+  header p { margin: 0 0 18px; color: var(--dim); }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--edge);
+    border-radius: 18px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+  }
+  h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--dim); margin: 2px 0 8px;
+  }
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 0; border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .row:first-of-type { border-top: 0; }
+  .row small { display: block; color: var(--dim); font-size: 13px; }
+  button, select, input {
+    font: inherit; color: var(--text);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+    padding: 9px 14px;
+    min-height: 42px;
+  }
+  button { cursor: pointer; white-space: nowrap; }
+  button:disabled { opacity: 0.5; }
+  button[aria-pressed="true"] { background: var(--on); color: var(--on-text); border-color: var(--on); }
+  select { max-width: 60%; -webkit-appearance: none; appearance: none; padding-right: 14px; }
+  input { width: 100%; }
+  .switch { min-width: 64px; }
+  .segment { display: flex; gap: 6px; }
+  .segment button { flex: 1; padding: 9px 8px; }
+  .key { display: flex; gap: 8px; margin-top: 8px; }
+  .key input { flex: 1; min-width: 0; }
+  .apps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 6px; }
+  .apps button { text-align: left; }
+  .apps button span { color: var(--dim); font-size: 13px; display: block; }
+  .hint { color: var(--dim); font-size: 14px; margin: 4px 0 0; }
+  .note {
+    border: 1px solid rgba(255, 190, 120, 0.4); background: rgba(255, 190, 120, 0.1);
+    border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; font-size: 14px;
+  }
+  #login input { font-size: 24px; letter-spacing: 0.3em; text-align: center; margin: 10px 0; }
+  #login button { width: 100%; }
+  #toast {
+    position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 16px);
+    max-width: 488px; margin: 0 auto;
+    background: rgba(30, 30, 38, 0.96); border: 1px solid var(--edge); border-radius: 14px;
+    padding: 12px 14px; font-size: 15px;
+    opacity: 0; transform: translateY(8px); transition: opacity .2s, transform .2s;
+    pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: none; }
+  #toast.bad { color: var(--bad); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Glass Home</h1>
+    <p>Your TV, from this phone</p>
+  </header>
+
+  <section id="login" class="card" hidden>
+    <h2>Connect</h2>
+    <p class="hint">Enter the PIN shown on the TV under <b>Customize</b>, <b>Phone control</b>.</p>
+    <input id="pin" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code"
+           maxlength="6" placeholder="000000" aria-label="PIN">
+    <button id="loginBtn">Connect</button>
+  </section>
+
+  <div id="app" hidden>
+    <div id="perm" class="note" hidden>
+      Some switches need a one-time permission. Run the PC tool once and choose option 5.
+    </div>
+
+    <section class="card">
+      <h2>Look</h2>
+      <div class="row">
+        <span>Theme</span>
+        <select id="theme" aria-label="Theme"></select>
+      </div>
+      <div class="row">
+        <span>Background motion</span>
+        <button class="switch" data-switch="motion" aria-pressed="false">Off</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>TV</h2>
+      <div class="row">
+        <span>Block ads and trackers<small>Many ads in apps. Not ads inside the video.</small></span>
+        <button class="switch" data-switch="adblock" aria-pressed="false">Off</button>
+      </div>
+      <div class="row">
+        <span>Glass Home screensaver</span>
+        <button class="switch" data-switch="screensaver" aria-pressed="false">Off</button>
+      </div>
+      <div class="row">
+        <span>Mute streaming ads<small>Disney+, Hulu, HBO Max. Experimental.</small></span>
+        <button class="switch" data-switch="admuter" aria-pressed="false">Off</button>
+      </div>
+      <div class="row" style="display:block">
+        <span>Animation speed</span>
+        <div class="segment" style="margin-top:8px">
+          <button data-anim="1" aria-pressed="false">Normal</button>
+          <button data-anim="0.5" aria-pressed="false">Fast</button>
+          <button data-anim="0" aria-pressed="false">Off</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>YouTube</h2>
+      <p class="hint" id="keyState"></p>
+      <div class="key">
+        <input id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"
+               placeholder="Paste API key (AIza...)" aria-label="YouTube API key">
+        <button id="keySave">Save</button>
+      </div>
+      <button id="keyRemove" style="margin-top:8px">Remove key</button>
+    </section>
+
+    <section class="card">
+      <h2>Get apps</h2>
+      <p class="hint">Opens the app's Play Store page on the TV. Press Install with the TV remote.</p>
+      <div class="apps" id="apps"></div>
+    </section>
+
+    <section class="card">
+      <h2>About</h2>
+      <div class="row">
+        <span id="ver"></span>
+        <button id="upd">Check for updates</button>
+      </div>
+    </section>
+
+    <p class="hint">Turning preinstalled apps off still needs the PC tool.</p>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var token = '';
+  try { token = localStorage.getItem('glassToken') || ''; } catch (e) { /* private mode */ }
+
+  function $(id) { return document.getElementById(id); }
+
+  function saveToken(value) {
+    token = value;
+    try {
+      if (value) { localStorage.setItem('glassToken', value); } else { localStorage.removeItem('glassToken'); }
+    } catch (e) { /* private mode: stays signed in until the page closes */ }
+  }
+
+  var toastTimer;
+  function say(text, bad) {
+    var toast = $('toast');
+    toast.textContent = text;
+    toast.className = bad ? 'show bad' : 'show';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.className = ''; }, 5000);
+  }
+
+  function request(method, path, body) {
+    return fetch(path, {
+      method: method,
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', 'X-Glass-Token': token },
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (res.status === 401 && path !== '/api/login') {
+          saveToken('');
+          showLogin();
+        }
+        if (!res.ok) { throw new Error(data.message || ('Error ' + res.status)); }
+        return data;
+      });
+    }, function () {
+      throw new Error('Cannot reach the TV. Is the phone on the same Wi-Fi, and the TV on?');
+    });
+  }
+
+  function showLogin() { $('app').hidden = true; $('login').hidden = false; }
+  function showApp() { $('login').hidden = true; $('app').hidden = false; }
+
+  function sameSpeed(a, b) { return Math.abs(parseFloat(a) - parseFloat(b)) < 0.01; }
+
+  function setSwitch(name, on) {
+    var button = document.querySelector('[data-switch="' + name + '"]');
+    if (button) {
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+      button.textContent = on ? 'On' : 'Off';
+    }
+  }
+
+  function render(s) {
+    var select = $('theme');
+    if (select.options.length !== s.themes.length) {
+      select.innerHTML = '';
+      s.themes.forEach(function (name, i) {
+        var option = document.createElement('option');
+        option.value = String(i);
+        option.textContent = name;
+        select.appendChild(option);
+      });
+    }
+    select.value = String(s.theme);
+
+    setSwitch('motion', s.motion);
+    setSwitch('adblock', s.adblock);
+    setSwitch('screensaver', s.screensaver);
+    setSwitch('admuter', s.admuter);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-anim]'), function (b) {
+      b.setAttribute('aria-pressed', sameSpeed(b.getAttribute('data-anim'), s.animations) ? 'true' : 'false');
+    });
+
+    $('keyState').textContent = s.youtubeKey ? 'A key is saved on the TV.' : 'No key saved on the TV yet.';
+    $('keyRemove').hidden = !s.youtubeKey;
+    $('perm').hidden = !!s.canWrite;
+    $('ver').textContent = 'Glass Home ' + s.version;
+
+    var box = $('apps');
+    box.innerHTML = '';
+    s.apps.forEach(function (app) {
+      var button = document.createElement('button');
+      button.textContent = app.name;
+      var state = document.createElement('span');
+      state.textContent = app.installed ? 'Installed' : 'Get';
+      button.appendChild(state);
+      button.addEventListener('click', function () { act('open_store', app.id, button); });
+      box.appendChild(button);
+    });
+  }
+
+  function act(action, value, element) {
+    if (element) { element.disabled = true; }
+    if (action === 'adblock' && value === 'on') { say('Turning on and checking the TV is still online...'); }
+    return request('POST', '/api/action', { action: action, value: String(value) })
+      .then(function (reply) {
+        if (reply.status) { render(reply.status); }
+        say(reply.message || 'Done', !reply.ok);
+        return reply;
+      })
+      .catch(function (e) { say(e.message, true); })
+      .then(function (reply) {
+        if (element) { element.disabled = false; }
+        return reply;
+      });
+  }
+
+  function load() {
+    return request('GET', '/api/status')
+      .then(function (s) { showApp(); render(s); })
+      .catch(function (e) { if (token) { say(e.message, true); } else { showLogin(); } });
+  }
+
+  $('loginBtn').addEventListener('click', function () {
+    var pin = $('pin').value.replace(/\D/g, '');
+    if (pin.length !== 6) { say('The PIN has 6 digits', true); return; }
+    request('POST', '/api/login', { pin: pin })
+      .then(function (reply) { saveToken(reply.token); $('pin').value = ''; return load(); })
+      .catch(function (e) { say(e.message, true); });
+  });
+  $('pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') { $('loginBtn').click(); } });
+
+  $('theme').addEventListener('change', function () { act('theme', this.value, this); });
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-switch]'), function (button) {
+    button.addEventListener('click', function () {
+      var turnOn = button.getAttribute('aria-pressed') !== 'true';
+      act(button.getAttribute('data-switch'), turnOn ? 'on' : 'off', button);
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-anim]'), function (button) {
+    button.addEventListener('click', function () { act('animations', button.getAttribute('data-anim'), button); });
+  });
+
+  $('keySave').addEventListener('click', function () {
+    var key = $('key').value.trim();
+    if (!key) { say('Paste the key first', true); return; }
+    act('youtube_key', key, this).then(function (reply) { if (reply && reply.ok) { $('key').value = ''; } });
+  });
+  $('keyRemove').addEventListener('click', function () { act('youtube_key', '', this); });
+  $('upd').addEventListener('click', function () { act('check_update', '', this); });
+
+  // Settings can also change on the TV, so refresh when the page comes back into view.
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && token) { load(); }
+  });
+
+  if (token) { load(); } else { showLogin(); }
+})();
+</script>
+</body>
+</html>
